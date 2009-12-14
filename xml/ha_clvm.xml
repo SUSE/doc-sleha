@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd" [
+ <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+ <!ENTITY % entities SYSTEM "entity-decl.ent">
+ %entities;
+]>
+<!--taroth 090812: @maintainer: for next revision, please check and fix the following
+ doc comment: http://doccomments.provo.novell.com/admin/viewcomment/11504-->
+<chapter id="cha.ha.clvm">
+ <title>Cluster LVM</title>
+<!-- LMB: 
+ If openAIS+Pacemaker are running, all you need is to use "- -clustered
+ yes" when you do vgcreate, and from thereon everything should just work.
+ -->
+<!--
+ Xinwei Hu 
+ Only one node can change the on disk metadata at a time, while multiple nodes
+ can access the device at the same time.
+ ..
+ . change locking_type to 3 in /etc/lvm/lvm.conf
+ . start clvmd upon openais stack on every node (using the clvmd RA)
+ . create vg with 'vgcreate -cy'
+ . nothing special afterward ;)
+ -->
+ <para>
+  When managing shared storage on a cluster, every node must be informed
+  about changes that are done to the storage subsystem. The Linux Volume
+  Manager 2 (LVM2), which is widely used to manage local storage, has been
+  extended to support transparent management of volume groups across the
+  whole cluster. Clustered volume groups can be managed using the same
+  commands as local storage.
+ </para>
+ <para>
+  To implement cLVM, a shared storage setup &mdash; such as provided by a
+  Fibre Channel, FCoE, SCSI or iSCSI SAN or DRBD &mdash; must be available.
+ </para>
+ <para>
+  Internally, cLVM uses the Distributed Lock Manager (DLM) component of the
+  cluster stack to coordinate access to the LVM2 metadata. As DLM in turn
+  integrates with the other components of the stack such as fencing, the
+  integrity of the shared storage is protected at all times.
+ </para>
+ <para>
+  cLVM does not coordinate access to the shared data itself; to do so, you
+  must configure OCFS2 or other cluster-aware applications on top of the
+  cLVM-managed storage.
+ </para>
+ <sect1 id="sec.ha.clvm.config">
+  <title>Configuration of cLVM</title>
+
+  <para>
+   To setup a cluster-aware volume group, several tasks must be completed
+   successfully:
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     Change the locking type of LVM2 to be cluster-aware.
+    </para>
+    <para>
+     Edit the file <filename>/etc/lvm/lvm.conf</filename> and locate the
+     line:
+    </para>
+<screen>locking_type = 1</screen>
+    <para>
+     Change the locking type to <literal>3</literal>, and write the
+     configuration to disk. Copy this configuration to all nodes.
+    </para>
+   </step>
+   <step>
+    <para>
+     Include the clvmd resource as a clone in the pacemaker configuration,
+     and make it depend on the DLM clone resource. A typical snippet from
+     the crm configuration shell would look like this:
+    </para>
+<screen>
+primitive dlm ocf:pacemaker:controld
+primitive clvm ocf:lvm2:clvmd \
+        params daemon_timeout="30"
+clone dlm-clone dlm \
+        meta target-role="Started" interleave="true" ordered="true"
+clone clvm-clone clvm \
+        meta target-role="Started" interleave="true" ordered="true"
+colocation colo-clvm inf: clvm-clone dlm-clone
+order order-clvm inf: dlm-clone clvm-clone
+...    
+    </screen>
+    <para>
+     Before proceeding, confirm that these resources have started
+     successfully in your cluster. You may use crm_mon or the GUI to check
+     the running services.
+    </para>
+   </step>
+   <step>
+    <para>
+     Prepare the physical volume for LVM with the command:
+    </para>
+<screen>pvcreate &lt;physical volume path&gt;</screen>
+   </step>
+   <step>
+    <para>
+     Create a cluster aware volume group:
+    </para>
+<screen>vgcreate --clustered y &lt;volume group name&gt; &lt;physical volume path&gt;</screen>
+   </step>
+   <step>
+    <para>
+     Create logical volumes as needed, for example:
+    </para>
+<screen>lvcreate --name testlv -L 4G &lt;volume group name&gt;</screen>
+   </step>
+   <step>
+    <para>
+     To ensure that the volume group is activated cluster-wide, configure a
+     LVM resource as follows:
+    </para>
+<screen>
+primitive vg1 ocf:heartbeat:LVM \
+        params volgrpname="&lt;volume group name&gt;"
+clone vg1-clone vg1 \
+        meta interleave="true" ordered="true"
+colocation colo-vg1 inf: vg1-clone clvm-clone
+order order-vg1 inf: clvm-clone vg1-clone
+    </screen>
+   </step>
+   <step>
+    <para>
+     If you want the volume group to only be activated exclusively on one
+     node, use the following example; in this case, cLVM will protect all
+     logical volumes within the VG from being activated on multiple nodes,
+     as an additional measure of protection for non-clustered applications:
+    </para>
+<screen>
+primitive vg1 ocf:heartbeat:LVM \
+        params volgrpname="&lt;volume group name&gt;" exclusive="yes"
+colocation colo-vg1 inf: vg1 clvm-clone
+order order-vg1 inf: clvm-clone vg1
+    </screen>
+   </step>
+   <step>
+    <para>
+     The logical volumes within the VG are now available as file system
+     mounts or raw usage. Ensure that services using them must have proper
+     dependencies to collocate them with and order them after the VG has
+     been activated.
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   After finishing these configuration steps, the LVM2 configuration can be
+   done just like on any standalone workstation.
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.clvm.drbd">
+  <title>Configuring Eligible LVM2 Devices Explicitly</title>
+
+  <para>
+   When several devices seemingly share the same physical volume signature
+   (as can be the case for multipath devices or drbd), it is recommended to
+   explicitly configure the devices which LVM2 scans for PVs.
+  </para>
+
+  <para>
+   For example, if the command <command>vgcreate</command> uses the physical
+   device instead of using the mirrored block device, DRBD will be confused
+   which may result in a split brain condition for DRBD.
+  </para>
+
+  <para>
+   To deactivate a single device for LVM2, do the following:
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     Edit the file <filename>/etc/lvm/lvm.conf</filename> and search for the
+     line starting with <literal>filter</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     The patterns there are handled as regular expressions. A leading
+     <quote>a</quote> means to accept a device pattern to the scan, a
+     leading <quote>r</quote> rejects the devices that follow the device
+     pattern.
+    </para>
+   </step>
+   <step>
+    <para>
+     To remove a device named <filename>/dev/sdb1</filename>, add the
+     following expression to the filter rule:
+    </para>
+<screen>
+"r|^/dev/sdb1$|"
+    </screen>
+    <para>
+     The complete filter line will look like the following:
+    </para>
+<screen>
+filter = [ "r|^/dev/sdb1$|", "r|/dev/.*/by-path/.*|", "r|/dev/.*/by-id/.*|", "a/.*/" ]
+    </screen>
+    <para>
+     A filter line, that accepts DRBD and MPIO devices but rejects all other
+     devices would look like this:
+    </para>
+<screen>filter = [ "a|/dev/drbd.*|", "a|/dev/.*/by-id/dm-uuid-mpath-.*|",
+"r/.*/" ]</screen>
+   </step>
+<!--   
+   <step>
+    <para>
+     Explicitly accept all the eligible devices, and reject all others.
+     For example, a filter line which accepts all MPIO and drbd devices would
+     look like this:
+    </para>
+    <screen>filter = [ "a|/dev/drbd.*|", "a|/dev/.*/by-id/dm-uuid-mpath-.*|", "r/.*/"]</screen>
+   </step> -->
+   <step>
+    <para>
+     Write the configuration file and copy it to all cluster nodes.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.clvm.more">
+  <title>For More Information</title>
+
+  <para>
+   Much information is available from the pacemaker mailing list, available
+   at <ulink url="http://www.clusterlabs.org/wiki/Help:Contents"/>.
+  </para>
+
+  <para>
+   The official cLVM FAQ can be found at
+   <ulink url="http://sources.redhat.com/cluster/wiki/FAQ/CLVM"/>.
+  </para>
+ </sect1>
+</chapter>

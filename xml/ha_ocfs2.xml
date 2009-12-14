@@ -1,0 +1,1406 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+  <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+
+<!--
+Date: Tue, 17 Mar 2009 20:42:16 +0100
+From: Lars Marowsky-Bree 
+Subject: Re: [Clusters] HOWTO get started with SLES11 HAE?
+...
+You can now run crm_mon to watch the cluster state, or use "crm" to
+configure it - the "crm" shell has an online help. For example:
+
+# crm configure edit <<END
+primitive fencing stonith:external/ssh \
+        params hostlist="node1 node2 ..."
+primitive dlm ocf:pacemaker:controld
+primitive o2cb ocf:ocfs2:o2cb
+clone dlm-clone dlm \
+        meta interleave="true" ordered="true"
+clone o2cb-clone o2cb \
+        meta interleave="true" ordered="true"
+colocation dlm-o2cb-colo inf: o2cb-clone dlm-clone
+order dlm-o2cb-order inf: dlm-clone o2cb-clone
+verify
+ptest
+commit
+END
+
+And then you're ready to run mkfs.ocfs2 and mount the filesystem, which
+you can also do using the CLI or the commandline of course. No need to
+configure /etc/ocfs2/*.
+
+Once you did that, you can also add it to the cluster configuration
+(shown in shell syntax, not XML):
+
+primitive ocfs2-1 ocf:heartbeat:Filesystem \
+        params device="/dev/drbd0" directory="/mnt" fstype="ocfs2" \
+        operations $id="ocfs2-1-operations" \
+        op monitor interval="20" timeout="40" start-delay="10"
+clone c-ocfs2-1 ocfs2-1 \
+        meta target-role="Started" interleave="true" ordered="true"
+colocation ocfs2-colo-1 inf: c-ocfs2-1 o2cb-clone
+order ocfs2-o2cb-order inf: o2cb-clone c-ocfs2-1
+
+If you want to use the GUI, you need to set a passwd for the "hacluster"
+user and then you can use hb_gui to connect to the server.
+
+
+And be careful to not install ocfs2-tools-o2cb; it's not installed by
+default, and you don't want it for a pacemaker cluster.
+-->
+<!--maintainer, for next release (SP1) please look at https://bugzilla.novell.com/show_bug.cgi?id=520714-->
+<!--maintainer, for next release (SP1), please look at
+ http://doccomments.provo.novell.com/admin/viewcomment/11792-->
+<chapter id="cha.ocfs2">
+ <title>Oracle Cluster File System 2</title><indexterm class="startofrange" id="idx.filesystems.ocfs2">
+ <primary>file systems</primary>
+ <secondary>OCFS2</secondary></indexterm>
+ <para>
+  Oracle Cluster File System 2 (OCFS2) is a general-purpose journaling file
+  system that has been fully integrated since the Linux 2.6 kernel. OCFS2
+  allows you to store application binary files, data files, and databases on
+  devices on shared storage. All nodes in a cluster have concurrent read and
+  write access to the file system. A user-space control daemon, managed via
+  a clone resource, provides the integration with the HA stack, in
+  particular &ais; and the DLM.
+ </para>
+ <sect1 id="sec.ocfs2.features">
+  <title>Features and Benefits</title>
+
+  <para>
+   Since &sls; 10, OCFS2 can be used for example for the following storage
+   solutions:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     General applications and workloads
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     XEN image store in a cluster
+    </para>
+    <para>
+     XEN virtual machines and virtual servers can be stored on OCFS2 volumes
+     that are mounted by cluster servers to provide quick and easy
+     portability of XEN virtual machines between servers.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LAMP (Linux, Apache, MySQL, and PHP &verbar; Perl &verbar; Python)
+     stacks
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   In addition, it is fully integrated with &ais;.
+  </para>
+
+  <para>
+   As a high-performance, symmetric and parallel cluster file system, OCFS2
+   supports the following functions:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     An application&rsquo;s files are available to all nodes in the cluster.
+     Users simply install it once on an OCFS2 volume in the cluster.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     All nodes can concurrently read and write directly to storage via the
+     standard file system interface, enabling easy management of
+     applications that run across the cluster.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     File access is coordinated through the Distributed Lock Manager (DLM).
+    </para>
+    <para>
+     DLM control is good for most cases, but an application&rsquo;s design
+     might limit scalability if it contends with the DLM to coordinate file
+     access.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Storage backup functionality is available on all back-end storage. An
+     image of the shared application files can be easily created, which can
+     help provide effective disaster recovery.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   OCFS2 also provides the following capabilities:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Metadata caching.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Metadata journaling.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Cross-node file data consistency.
+    </para>
+   </listitem>
+<!--
+    <listitem>
+     <para>
+      A GTK GUI-based administration via the
+      <command>ocfs2console</command> utility
+     </para>
+    </listitem> -->
+<!--
+    <listitem>
+     <para>
+      Operation as a shared-root file system
+     </para>
+    </listitem> -->
+   <listitem>
+    <para>
+     Support for multiple-block sizes (each volume can have a different
+     block size) up to 4 KB, for a maximum volume size of 16 TB.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Support for up to 16 cluster nodes.
+    </para>
+    <remark>TODO: I could not find ocfs2cdsl on our media. Is this still supported?</remark>
+   </listitem>
+<!--
+    <listitem>
+     <para>
+      Context-dependent symbolic link (CDSL) support for node-specific
+      local files
+     </para>
+    </listitem> -->
+   <listitem>
+    <para>
+     Asynchronous and direct I/O support for database files for improved
+     database performance.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+<!--
+  <sect1 id = "sec.ocfs2.service">
+   <title>O2CB Cluster Service</title>
+   <para>
+    The O2CB cluster service is a set of modules and in-memory file systems
+    that are required to manage OCFS2 services and volumes. You can enable
+    these modules to be loaded and mounted system boot. For instructions,
+    see <xref linkend = "sec.ocfs2.create.service"/>.
+   </para>
+   <table id = "tab.ocfs2.service">
+    <title>O2CB Cluster Service Stack</title>
+    <tgroup cols = "2">
+     <thead>
+      <row>
+       <entry>
+        <para>Service</para>
+       </entry>
+       <entry>
+        <para>Description</para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>Node Manager (NM)</para>
+       </entry>
+       <entry>
+        <para>
+         Keeps track of all the nodes in the
+         <filename>/etc/ocfs2/cluster.conf</filename> file
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>&ais;</para>
+       </entry>
+       <entry>
+        <para>
+         Issues up/down notifications when nodes join or leave the
+         cluster
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>TCP</para>
+       </entry>
+       <entry>
+        <para>
+         Handles communications between the nodes with the TCP protocol
+        </para>
+        <remark>is TCP related to ocfs2 or openais? In openais it would be
+         multicast I guess.</remark>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>Distributed Lock Manager (DLM)</para>
+       </entry>
+       <entry>
+        <para>
+         Keeps track of all locks and their owners and status
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>CONFIGFS</para>
+       </entry>
+       <entry>
+        <para>
+         User space configuration file system. For details, see
+         <xref linkend = "sec.ocfs2.memoryfs"/>.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>DLMFS</para>
+       </entry>
+       <entry>
+        <para>
+         User space interface to the kernel space DLM. For details, see
+         <xref linkend = "sec.ocfs2.memoryfs"/>.
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect1> -->
+<!-- bg 2009-04-1 looks like this is not wanted in openais
+  <sect1 id = "sec.ocfs2.heartbeat">
+   <title>Disk Heartbeat</title>
+   <para>
+    OCFS2 requires the nodes to be alive on the network. The O2CB cluster
+    service sends regular keepalive packets to ensure that they are. It
+    uses a private interconnect between nodes instead of the LAN to avoid
+    network delays that might be interpreted as a node disappearing and
+    thus, lead to a node&rsquo;s self-fencing.
+   </para>
+   <para>
+    The O2CB cluster service communicates the node status via a disk
+    heartbeat. The heartbeat system file resides on the SAN, where it is
+    available to all nodes in the cluster. The block assignments in the
+    file correspond sequentially to each node&rsquo;s slot assignment.
+   </para>
+   <para>
+    Each node reads the file and writes to its assigned block in the file
+    at two-second intervals. Changes to a node&rsquo;s time stamp indicates
+    the node is alive. A node is dead if it does not write to the heartbeat
+    file for a specified number of sequential intervals, called the
+    heartbeat threshold. Even if only a single node is alive, the O2CB
+    cluster service must perform this check, because another node could be
+    added dynamically at any time.
+   </para>
+   <para>
+    You can modify the disk heartbeat threshold in the
+    <filename>&sol;etc&sol;sysconfig&sol;o2cb</filename> file, using the
+    <literal>O2CB&lowbar;HEARTBEAT&lowbar;THRESHOLD</literal> parameter.
+    The wait time is calculated as follows:
+   </para>
+<screen>
+(O2CB&lowbar;HEARTBEAT&lowbar;THRESHOLD value - 1) &ast; 2 &equals; threshold in seconds
+</screen>
+   <para>
+    For example, if the
+    <literal>O2CB&lowbar;HEARTBEAT&lowbar;THRESHOLD</literal> value is set
+    at the default value of 7, the wait time is 12 seconds ((7 - 1) &ast; 2
+    &equals; 12).
+   </para>
+  </sect1> -->
+<!--
+  <sect1 id = "sec.ocfs2.memoryfs">
+   <title>In-Memory File Systems</title>
+   <para>
+    OCFS2 uses two in-memory file systems for communications:
+   </para>
+   <table>
+    <title>In-Memory File Systems Used by OCFS2</title>
+    <tgroup cols = "3">
+     <thead>
+      <row>
+       <entry>
+        <para>In-Memory File System</para>
+       </entry>
+       <entry>
+        <para>Description</para>
+       </entry>
+       <entry>
+        <para>Mount Point</para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>configfs</para>
+       </entry>
+       <entry>
+        <remark>TODO: check if the following still holds true</remark>
+        <para>
+         Communicates the list of nodes in the cluster to the in-kernel
+         node manager, and communicates the resource used for the &ais;
+         to the in-kernel heartbeat thread.
+        </para>
+       </entry>
+       <entry>
+<screen>
+/config
+</screen>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>ocfs2_dlmfs</para>
+       </entry>
+       <entry>
+        <para>
+         Communicates locking and unlocking for clusterwide locks on
+         resources to the in-kernel distributed lock manager that keeps
+         track of all locks and their owners and status
+        </para>
+       </entry>
+       <entry>
+<screen>
+/dlm
+</screen>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect1> -->
+ <sect1 id="sec.ocfs2.utils">
+  <title>Management Utilities and Commands</title>
+
+<!--
+  <para>
+   OCFS2 stores parameter files specific to the node on the node. The
+   cluster configuration file (<filename>/etc/ocfs2/cluster.conf</filename>)
+   resides on each node assigned to the cluster.
+  </para>
+  -->
+
+<!--
+   <para>
+    The <command>ocfs2console</command> utility is a GTK GUI-based
+    interface for managing the configuration of the OCFS2 services in the
+    cluster. Use this utility to set up and save the
+    <filename>/etc/ocfs2/cluster.conf</filename> file to all
+    member nodes of the cluster. In addition, you can use it to format,
+    tune, mount, and umount OCFS2 volumes.
+   </para> -->
+
+  <para>
+   OCFS2 utilities are described in the following table. For information
+   about syntax for these commands, see their man pages.
+  </para>
+
+  <table>
+   <title>OCFS2 Utilities</title>
+   <tgroup cols="2">
+    <thead>
+     <row>
+      <entry>
+       <para>
+        OCFS2 Utility
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Description
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        debugfs.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Examines the state of the OCFS file system for the purpose of
+        debugging.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        fsck.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Checks the file system for errors and optionally repairs errors.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        mkfs.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Creates an OCFS2 file system on a device, usually a partition on a
+        shared physical or logical disk.
+<!-- This tool requires the O2CB
+         cluster service to be up. -->
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        mounted.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Detects and lists all OCFS2 volumes on a clustered system. Detects
+        and lists all nodes on the system that have mounted an OCFS2 device
+        or lists all OCFS2 devices.
+       </para>
+      </entry>
+     </row>
+<!-- did not find this on our media
+      <row>
+       <entry>
+        <para>
+         ocfs2cdsl
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Creates a context-dependent symbolic link (CDSL) for a specified
+         filename (file or directory) for a node. A CDSL filename has its
+         own image for a specific node, but has a common name in the OCFS2.
+        </para>
+       </entry>
+      </row> -->
+     <row>
+      <entry>
+       <para>
+        tunefs.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Changes OCFS2 file system parameters, including the volume label,
+        number of node slots, journal size for all node slots, and volume
+        size.
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+
+<!-- This is for standalone ocfs2 only. not used in cluster configurations
+   <para>
+    Use the following commands to manage O2CB services. For more
+    information about the <command>o2cb</command> command syntax, see its
+    man page.
+   </para>
+   <table id = "b3wz7l9" frame = "topbot" rowsep = "1">
+    <title>O2CB Commands</title>
+    <tgroup cols = "2">
+     <colspec colnum = "1" colname = "1"/>
+     <colspec colnum = "2" colname = "2"/>
+     <thead>
+      <row rowsep = "1" id = "b3wzb75">
+       <entry colname = "1">
+        <para>
+         Command
+        </para>
+       </entry>
+       <entry colname = "2">
+        <para>
+         Description
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row rowsep = "1" id = "b3wzb76">
+       <entry colname = "1">
+        <para>
+         &sol;etc&sol;init.d&sol;o2cb status
+        </para>
+       </entry>
+       <entry colname = "2">
+        <para>
+         Reports whether the o2cb services are loaded and mounted
+        </para>
+       </entry>
+      </row>
+      <row rowsep = "1" id = "b3wzb77">
+       <entry colname = "1">
+        <para>
+         &sol;etc&sol;init.d&sol;o2cb load
+        </para>
+       </entry>
+       <entry colname = "2">
+        <para>
+         Loads the O2CB modules and in-memory file systems
+        </para>
+       </entry>
+      </row>
+      <row rowsep = "1" id = "b3wzelv">
+       <entry colname = "1">
+        <para>
+         &sol;etc&sol;init.d&sol;o2cb online
+         <replaceable>ocfs2</replaceable>
+        </para>
+       </entry>
+       <entry colname = "2">
+        <para>
+         Onlines the cluster named ocfs2
+        </para>
+        <para>
+         At least one node in the cluster must be active for the cluster to
+         be online.
+        </para>
+       </entry>
+      </row>
+      <row rowsep = "1" id = "b3wzelw">
+       <entry colname = "1">
+        <para>
+         &sol;etc&sol;init.d&sol;o2cb offline
+         <replaceable>ocfs2</replaceable>
+        </para>
+       </entry>
+       <entry colname = "2">
+        <para>
+         Offlines the cluster named ocfs2
+        </para>
+       </entry>
+      </row>
+      <row rowsep = "1" id = "b3wzhs9">
+       <entry colname = "1">
+        <para>
+         &sol;etc&sol;init.d&sol;o2cb unload
+        </para>
+       </entry>
+       <entry colname = "2">
+        <para>
+         Unloads the O2CB modules and in-memory file systems
+        </para>
+       </entry>
+      </row>
+      <row rowsep = "1" id = "b3wzhsa">
+       <entry colname = "1">
+        <para>
+         &sol;etc&sol;init.d&sol;o2cb start
+         <replaceable>ocfs2</replaceable>
+        </para>
+       </entry>
+       <entry colname = "2">
+        <para>
+         If the cluster is set up to load on boot, starts the cluster named
+         ocfs2 by loading <command>o2cb</command> and onlining the cluster
+        </para>
+        <para>
+         At least one node in the cluster must be active for the cluster to
+         be online.
+        </para>
+       </entry>
+      </row>
+      <row rowsep = "0" id = "b3wzb78">
+       <entry colname = "1">
+        <para>
+         &sol;etc&sol;init.d&sol;o2cb stop <replaceable>ocfs2</replaceable>
+        </para>
+       </entry>
+       <entry colname = "2">
+        <para>
+         If the cluster is set up to load on boot, stops the cluster named
+         ocfs2 by offlining the cluster and unloading the O2CB modules and
+         in-memory file systems
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table> -->
+ </sect1>
+ <sect1 id="sec.ocfs2.packages">
+  <title>OCFS2 Packages</title>
+
+  <para>
+   The OCFS2 kernel module (<filename>ocfs2</filename>) is installed
+   automatically in &sls; 11 HAE. To use OCFS2, use YaST (or the command
+   line if you prefer) to install the <filename>ocfs2-tools</filename> and
+   the matching <filename>ocfs2-kmp-*</filename>
+<!--and <filename>ocfs2console</filename> -->
+   packages on each node in the cluster.
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     Log in as the <systemitem>root</systemitem> user or equivalent, then
+     open the YaST Control Center.
+    </para>
+   </step>
+   <step>
+    <para>
+     Select <menuchoice><guimenu>Software</guimenu> <guimenu>Add-On
+     Products</guimenu></menuchoice>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Select <guimenu>Add</guimenu> to make the &productname; available.
+    </para>
+   </step>
+   <step>
+    <para>
+     Select <guimenu>Run Software Manager</guimenu> and choose
+     <menuchoice><guimenu>Filter</guimenu>
+     <guimenu>Patterns</guimenu></menuchoice>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Select the <guimenu>High Availability</guimenu> pattern for
+     installation.
+    </para>
+   </step>
+   <step>
+    <para>
+     Click <guimenu>Accept</guimenu> and follow the on-screen instructions.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ocfs2.create">
+  <title>Creating an OCFS2 Volume</title>
+
+  <para>
+   Follow the procedures in this section to configure your system to use
+   OCFS2 and to create OCFS2 volumes.
+  </para>
+
+  <sect2 id="sec.ocfs2.create.req">
+   <title>Prerequisites</title>
+   <para>
+    Before you begin, do the following:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Prepare the block devices you plan to use for your OCFS2 volumes.
+      Leave the devices as free space.
+     </para>
+     <para>
+      We recommend that you store application files and data files on
+      different OCFS2 volumes, but it is only mandatory to do so if your
+      application volumes and data volumes have different requirements for
+      mounting.
+<!-- For example, the Oracle RAC database volume requires the
+      <command>datavolume</command> and <command>nointr</command> mounting
+      options, but the Oracle Home volume should never use these options. -->
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Make sure that the
+<!--<filename>ocfs2console</filename>, and -->
+      <filename>ocfs2-tools</filename> package is installed. Use YaST or
+      command line methods to install them if they are not. For YaST
+      instructions, see <xref linkend="sec.ocfs2.packages"/>.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 id="sec.ocfs2.create.service">
+   <title>Configuring OCFS2 Services</title>
+   <para>
+    Before you can create OCFS2 volumes, you must configure OCFS2 services.
+<!--
+    In the following procedure, you generate the
+    <filename>/etc/ocfs2/cluster.conf</filename> file, save the
+    <filename>cluster.conf</filename> file on all nodes, and create and
+    start the O2CB cluster service (<command>o2cb</command>)-->
+    .
+   </para>
+   <para>
+    Follow the procedure in this section for one node in the cluster.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Open a terminal window and log in as the <systemitem>root</systemitem>
+      user or equivalent.
+     </para>
+    </step>
+    <step>
+     <para>
+      Add the distributed lock manager configuration.
+     </para>
+     <substeps>
+      <step>
+       <para>
+        Start the crm shell and create a new scratch conﬁguration:
+       </para>
+<screen>crm
+cib new stack-glue
+       </screen>
+      </step>
+      <step>
+       <para>
+        Create the DLM service and have it run on all machines in the
+        cluster:
+       </para>
+<screen>configure
+primitive dlm ocf:pacemaker:controld op monitor interval=120s
+clone dlm-clone dlm meta globally-unique=false interleave=true
+end
+       </screen>
+      </step>
+      <step>
+       <para>
+        Verify the changes you made to the cluster before commiting them:
+       </para>
+<screen>cib diff
+configure verify
+       </screen>
+      </step>
+      <step>
+       <para>
+        Upload the configuration to the cluster and exit the shell:
+       </para>
+<screen>cib commit stack-glue
+quit
+       </screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      Add the O2CB configuration with <guimenu>crm</guimenu>.
+     </para>
+     <substeps>
+      <step>
+       <para>
+        Start the crm shell and create a new scratch conﬁguration:
+       </para>
+<screen>crm
+cib new oracle-glue
+       </screen>
+      </step>
+      <step>
+       <para>
+        Conﬁgure Pacemaker to start the o2cb service on every node in the
+        cluster.
+       </para>
+<screen>configure
+primitive o2cb ocf:ocfs2:o2cb op monitor interval=120s
+clone o2cb-clone o2cb meta globally-unique=false interleave=true
+       </screen>
+      </step>
+      <step>
+       <para>
+        Make sure that Pacemaker only starts the o2cb service on nodes that
+        also have a copy of the dlm service already running:
+       </para>
+<screen>colocation o2cb-with-dlm INFINITY: o2cb-clone dlm-clone
+order start-o2cb-after-dlm mandatory: dlm-clone o2cb-clone
+end
+       </screen>
+      </step>
+      <step>
+       <para>
+        Upload the configuration to the cluster and exit the shell:
+       </para>
+<screen>cib commit oracle-glue
+quit
+       </screen>
+      </step>
+     </substeps>
+    </step>
+<!--
+    <step>
+     <para>
+      If the <command>o2cb</command> cluster service is not already
+      enabled, enter
+     </para>
+<screen>
+chkconfig - -add o2cb
+</screen>
+     <para>
+      When you add a new service, <command>chkconfig</command> ensures that
+      the service has either a start or a kill entry in every run level.
+     </para>
+    </step>
+    <step id = "b3vdtes">
+     <para>
+      If the <command>ocfs2</command> service is not already enabled, enter
+     </para>
+<screen>
+chkconfig - -add ocfs2
+</screen>
+    </step> -->
+<!--
+    <step id = "b3vdq2d">
+     <para>
+      Configure the <command>o2cb</command> cluster service driver to load
+      on boot.
+     </para>
+     <substeps id = "b3vdir2">
+      <step id = "b3vdir3">
+       <para>
+        Enter
+       </para>
+<screen>
+&sol;etc&sol;init.d&sol;o2cb configure
+</screen>
+      </step>
+      <step id = "b3vdjbz">
+       <para>
+        At the <literal>Load O2CB driver on boot (y&sol;n) &lsqb;n&rsqb;
+        </literal>prompt, enter
+       </para>
+<screen>
+y
+</screen>
+       <para>
+        (yes) to enable load on boot.
+       </para>
+      </step>
+      <step id = "b3vdjsj">
+       <para>
+        At the <literal>Cluster to start on boot (Enter &ldquo;none&rdquo;
+        to clear) &lsqb;ocfs2&rsqb;</literal> prompt, enter
+       </para>
+<screen>
+none
+</screen>
+       <para>
+        This choice presumes that you are setting up OCFS2 for the first
+        time or resetting the service. You specify a cluster name in the
+        next step when you set up the
+        <filename>&sol;etc&sol;ocfs2&sol;cluster.conf</filename> file.
+       </para>
+      </step>
+     </substeps>
+    </step> -->
+<!-- this is not done in abeekhof docs:
+    <step id = "b3vdteq">
+     <para>
+      Use the <command>ocfs2console</command> utility to set up and save
+      the <filename>/etc/ocfs2/cluster.conf</filename> file to
+      all member nodes of the cluster.
+     </para>
+     <para>
+      This file should be the same on all the nodes in the cluster. Use the
+      following steps to set up the first node. Later, you can use the
+      <command>ocfs2console</command> to add new nodes to the cluster
+      dynamically and to propagate the modified
+      <filename>cluster.conf</filename> file to all nodes.
+     </para> -->
+<!-- don't know if I want to do that.
+     <para>
+      However, if you change other settings, such as the cluster name and
+      IP address, you must restart the cluster for the changes to take
+      effect, as described in
+      <xref linkend = "b3veygv" xrefstyle = "StepXRef"/>.
+     </para> -->
+<!-- <substeps>
+      <step>
+       <para>
+        Open the <command>ocfs2console</command> GUI by entering
+       </para>
+<screen>
+ocfs2console
+</screen>
+      </step>
+      <step>
+       <para>
+        In the <command>ocfs2console</command>, select
+        <menuchoice><guimenu>Cluster</guimenu><guimenu>Cluster
+        Nodes</guimenu></menuchoice>.
+       </para>
+       <para>
+        If cluster.conf is not present, the console will create one with a
+        default cluster name of <literal>ocfs2</literal>. Modify the
+        cluster name as desired.
+       </para>
+      </step>
+      <step>
+       <para>
+        In the Node Configuration dialog box, click <guimenu>Add</guimenu>
+        to open the Add Node dialog box.
+       </para>
+      </step>
+      <step>
+       <para>
+        In the Add Node dialog box, specify the unique name of your primary
+        node, a unique IP address (such as
+        <replaceable>192.168.1.1</replaceable>), and the port number
+        (optional, default is 7777), then click <guimenu>OK</guimenu>.
+       </para>
+       <para>
+        The <command>ocfs2console</command> console assigns node slot
+        numbers sequentially from 0 to 254.
+       </para>
+      </step>
+      <step>
+       <para>
+        In the Node Configuration dialog box, click
+        <guimenu>Apply</guimenu>, then click <guimenu>Close</guimenu> to
+        dismiss the Add Node dialog box.
+       </para>
+      </step>
+      <step>
+       <para>
+        Click <menuchoice><guimenu>Cluster</guimenu> <guimenu>Propagate
+        Configuration</guimenu></menuchoice> to save the
+        <filename>cluster.conf</filename> file to all nodes.
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      If you need to restart the OCFS2 cluster for the changes to take
+      effect, enter the following lines, waiting in between for the process
+      to return a status of <guimenu>OK</guimenu>.
+     </para>
+     <remark>TODO: don't yet know what to do in this case, however the present
+      procedure is not the way to go.</remark>
+<screen>
+&sol;etc&sol;init.d&sol;o2cb stop
+</screen>
+<screen>
+&sol;etc&sol;init.d&sol;o2cb start
+</screen>
+    </step> -->
+   </procedure>
+  </sect2>
+
+  <sect2 id="sec.ocfs2.create.volume">
+   <title>Creating an OCFS2 Volume</title>
+   <para>
+    Creating an OCFS2 file system and adding new nodes to the cluster should
+    be performed on only one of the nodes in the cluster.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Open a terminal window and log in as <systemitem>root</systemitem>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Check if the cluster is online with the command
+      <command>crm_mon</command>.
+     </para>
+    </step>
+<!-- lets assume the cluster is up and running
+    <step>
+     <para>
+      If the O2CB cluster service is offline, start it by entering the
+      following command, then wait for the process to return a status of
+      <guimenu>OK</guimenu>.
+     </para>
+<screen>
+&sol;etc&sol;init.d&sol;o2cb online <replaceable>ocfs2</replaceable>
+</screen>
+     <para>
+      Replace <filename><replaceable>ocfs2</replaceable></filename> with
+      the actual cluster name of your OCFS2 cluster.
+     </para>
+     <para>
+      The OCFS2 cluster must be online, because the format operation must
+      first ensure that the volume is not mounted on any node in the
+      cluster.
+     </para>
+    </step> -->
+    <step>
+     <para>
+      Create and format the volume using one of the following methods:
+     </para>
+     <itemizedlist>
+<!-- no evms anymore, and also no evmsgui
+      <listitem>
+       <para>
+        In EVMSGUI, go to the Volumes page, select
+        <menuchoice><guimenu>Make a file
+        system</guimenu><guimenu>OCFS2</guimenu></menuchoice>, then specify
+        the configuration settings.
+       </para>
+      </listitem> -->
+      <listitem>
+       <para>
+        Use the <command>mkfs.ocfs2</command> utility. For information about
+        the syntax for this command, refer to the
+        <command>mkfs.ocfs2</command> man page.
+       </para>
+       <para>
+        To create a new OCFS2 file system on <filename>/dev/sdb1</filename>
+        that supports up to 16 cluster nodes, use
+       </para>
+<screen>mkfs.ocfs2 -N 16 /dev/sdb1</screen>
+      </listitem>
+<!--
+      <listitem>
+       <para>
+        In the <command>ocfs2console</command>, click <menuchoice>
+        <guimenu>Tasks</guimenu><guimenu>Format</guimenu></menuchoice>,
+        select a device in the Available Devices list that you want to use
+        for your OCFS2 volume, specify the configuration settings for the
+        volume, then click <guimenu>OK</guimenu> to format the volume.
+       </para>
+      </listitem> -->
+     </itemizedlist>
+     <para>
+      See the following table for recommended settings.
+     </para>
+     <informaltable>
+      <tgroup cols="2">
+       <thead>
+        <row>
+         <entry>
+          <para>
+           OCFS2 Parameter
+          </para>
+         </entry>
+         <entry>
+          <para>
+           Description and Recommendation
+          </para>
+         </entry>
+        </row>
+       </thead>
+       <tbody>
+        <row>
+         <entry>
+          <para>
+           Volume label
+          </para>
+         </entry>
+         <entry>
+          <para>
+           A descriptive name for the volume to make it uniquely
+           identifiable when it is mounted on different nodes.
+          </para>
+          <para>
+           Use the <command>tunefs.ocfs2</command> utility to modify the
+           label as needed.
+          </para>
+         </entry>
+        </row>
+        <row>
+         <entry>
+          <para>
+           Cluster size
+          </para>
+         </entry>
+         <entry>
+          <para>
+           Cluster size is the smallest unit of space allocated to a file to
+           hold the data.
+          </para>
+          <para>
+           Options are 4, 8, 16, 32, 64, 128, 256, 512, and 1024 KB. Cluster
+           size cannot be modified after the volume is formatted.
+          </para>
+          <para>
+           Oracle recommends a cluster size of 128 KB or larger for database
+           volumes. Oracle also recommends a cluster size of 32 or 64 KB for
+           Oracle Home.
+          </para>
+         </entry>
+        </row>
+        <row>
+         <entry>
+          <para>
+           Number of node slots
+          </para>
+         </entry>
+         <entry>
+          <para>
+           The maximum number of nodes that can concurrently mount a volume.
+           For each of the nodes, OCFS2 creates separate system files, such
+           as the journals, for each of the nodes. Nodes that access the
+           volume can be a combination of little-endian architectures (such
+           as x86, x86-64, and ia64) and big-endian architectures (such as
+           ppc64 and s390x).
+          </para>
+          <para>
+           Node-specific files are referred to as local files. A node slot
+           number is appended to the local file. For example: journal:0000
+           belongs to whatever node is assigned to slot number 0.
+          </para>
+          <para>
+           Set each volume&rsquo;s maximum number of node slots when you
+           create it, according to how many nodes that you expect to
+           concurrently mount the volume. Use the
+           <command>tunefs.ocfs2</command> utility to increase the number of
+           node slots as needed; the value cannot be decreased.
+          </para>
+         </entry>
+        </row>
+        <row>
+         <entry>
+          <para>
+           Block size
+          </para>
+         </entry>
+         <entry>
+          <para>
+           The smallest unit of space addressable by the file system.
+           Specify the block size when you create the volume.
+          </para>
+          <para>
+           Options are 512 bytes (not recommended), 1 KB, 2 KB, or 4 KB
+           (recommended for most volumes). Block size cannot be modified
+           after the volume is formatted.
+          </para>
+         </entry>
+        </row>
+       </tbody>
+      </tgroup>
+     </informaltable>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ocfs2.mount">
+  <title>Mounting an OCFS2 Volume</title>
+
+  <procedure>
+   <step>
+    <para>
+     Open a terminal window and log in as <systemitem>root</systemitem>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check if the cluster in online with the command
+     <command>crm_mon</command>.
+    </para>
+<!--
+    <para>
+     If the O2CB cluster service is offline, start it by entering the
+     following command, then wait for the process to return a status of
+     <guimenu>OK</guimenu>.
+    </para>
+<screen>
+&sol;etc&sol;init.d&sol;o2cb online <replaceable>ocfs2</replaceable>
+</screen>
+    <para>
+     Replace <filename><replaceable>ocfs2</replaceable></filename> with the
+     actual cluster name of your OCFS2 cluster.
+    </para> -->
+   </step>
+   <step>
+    <para>
+     Use one of the following methods to mount the volume.
+    </para>
+    <warning>
+     <title>Manual Mounted OCFS2 Devices</title>
+     <para>
+      If you mount the ocfs2 file system manually for testing purposes, you
+      are required to umount the file system again before starting to use it
+      by means of &ais;.
+     </para>
+    </warning>
+    <itemizedlist>
+     <listitem>
+      <para>
+       In the <command>ocfs2console</command>, select a device in the
+       Available Devices list, click <guimenu>Mount</guimenu>, specify the
+       directory mount point and mount options (optional), then click
+       <guimenu>OK</guimenu>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Mount the volume from the command line, using the
+       <command>mount</command> command.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Use the cluster manager to mount the file system. The ocf resource
+       <systemitem>Filesystem</systemitem> can be used for this task. For
+       more details, see <xref
+        linkend="proc.ocfs2.mount"/>.
+      </para>
+     </listitem>
+    </itemizedlist>
+<!-- that won't work with the cluster
+     <listitem>
+      <para>
+       Mount the volume from the <filename>/etc/fstab</filename>
+       file on system boot.
+      </para>
+     </listitem> -->
+    <para>
+     On a successful mount, the device list in the
+     <command>ocfs2console</command> shows the mount point along with the
+     device.
+    </para>
+<!--<para>
+     For information about mounting an OCFS2 volume using any of these
+     methods, see the
+     <citetitle><ulink
+    url = "http://oss.oracle.com/projects/ocfs2/documentation/">OCFS2 User Guide</ulink>
+     </citetitle> on the <ulink url = "http://oss.oracle.com/projects/ocfs2/">OCFS2
+     project at Oracle</ulink>.
+    </para> -->
+<!-- <para>
+     When running Oracle RAC, make sure to use the
+     <command>datavolume</command> and <command>nointr</command> mounting
+     options for OCFS2 volumes that contain the Voting diskfile (CRS),
+     Cluster registry (OCR), Data files, Redo logs, Archive logs, and
+     Control files. Do not use these options when mounting the Oracle Home
+     volume.
+    </para> -->
+    <informaltable>
+     <tgroup cols="2">
+      <thead>
+       <row>
+        <entry>
+         <para>
+          Option
+         </para>
+        </entry>
+        <entry>
+         <para>
+          Description
+         </para>
+        </entry>
+       </row>
+      </thead>
+      <tbody>
+       <row>
+        <entry>
+<screen>
+datavolume
+</screen>
+        </entry>
+        <entry>
+         <para>
+          Ensures that the Oracle processes open the files with the
+          o&lowbar;direct flag.
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry>
+<screen>
+nointr
+</screen>
+        </entry>
+        <entry>
+         <para>
+          No interruptions. Ensures the IO is not interrupted by signals.
+         </para>
+        </entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </informaltable>
+   </step>
+  </procedure>
+
+  <para>
+   To configure the file system resource, use the following procedure:
+  </para>
+
+  <procedure id="proc.ocfs2.mount">
+   <title>Mounting the File system with the Cluster Manager</title>
+   <step>
+    <para>
+     Start the crm shell and create a new scratch conﬁguration:
+    </para>
+<screen>crm
+cib new filesystem
+        </screen>
+   </step>
+   <step>
+    <para>
+     Conﬁgure Pacemaker to mount the file system on every node in the
+     cluster.
+    </para>
+<screen>configure
+primitive fs ocf:heartbeat:Filesystem \
+   params device="/dev/sdb1" directory="/mnt/shared" fstype="ocfs2" \
+   op monitor interval=120s
+clone fs-clone fs meta interleave="true" ordered="true"
+        </screen>
+   </step>
+   <step>
+    <para>
+     Make sure that Pacemaker only starts the fs clone resource on nodes
+     that also have a clone of the o2cb resource already running:
+    </para>
+<screen>colocation fs-with-o2cb INFINITY: fs-clone o2cb-clone
+order start-fs-after-o2cb mandatory: o2cb-clone fs-clone
+end
+        </screen>
+   </step>
+   <step>
+    <para>
+     Upload the configuration to the cluster and exit the shell:
+    </para>
+<screen>cib commit filesystem
+quit
+        </screen>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ocfs2.more">
+  <title>Additional Information</title>
+
+  <para>
+   For information about using OCFS2, see the
+   <citetitle><ulink
+     url="http://oss.oracle.com/projects/ocfs2/documentation/">OCFS2 User Guide</ulink>
+   </citetitle>
+   on the <ulink url="http://oss.oracle.com/projects/ocfs2/">OCFS2 project
+   at Oracle</ulink>.
+  </para>
+
+  <indexterm class="endofrange" startref="idx.filesystems.ocfs2"/>
+ </sect1>
+</chapter>

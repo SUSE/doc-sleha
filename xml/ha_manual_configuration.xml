@@ -1,0 +1,1020 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+  <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+<!--taroth 090713: for next revision, elaborate sec.ha.manual_config.remove with input
+ from http://bugzilla.novell.com/show_bug.cgi?id=520718-->
+<!-- http://www.clusterlabs.org/wiki/Example_configurations -->
+<chapter id="cha.ha.manual_config">
+ <title>Configuring Cluster Resources From Command Line</title>
+ <abstract>
+  <para>
+   Like in
+   <xref linkend="cha.ha.configuration.gui" xrefstyle="select:label"/>, a
+   cluster resource must be created for every resource or application you
+   run on the servers in your cluster. Cluster resources can include Web
+   sites, e-mail servers, databases, file systems, virtual machines, and any
+   other server-based applications or services that you want to make
+   available to users at all times.
+  </para>
+
+  <para>
+   You can either use the graphical HA Management Client utility, or the
+   <command>crm</command> command line utility to create resources. This
+   chapter introduces the several <command>crm</command> utilities.
+  </para>
+ </abstract>
+
+ <sect1 id="sec.ha.manual_config.crm">
+  <title>Command Line Tools</title>
+
+  <para>
+   After the installation there are several tools used to administer a
+   cluster. Usually you need the <command>crm</command> command only. This
+   command has several subcommands. Run <command>crm
+   <option>help</option></command> to get an overview of all available
+   commands.
+<!--Get more information at <xref linkend="cha.ha.management"/>.-->
+   It has a thorough help system with embedded examples.
+  </para>
+
+  <para>
+   The <command>crm</command> tool has management abilities (the subcommands
+   <command>resources</command> and <command>node</command>), and are used
+   for configuration (<command>cib</command>, <command>configure</command>).
+   Management subcommands take effect <emphasis>immediately</emphasis>, but
+   configuration needs a final <command>commit</command>.
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.debugging">
+  <title>Debugging Your Configuration Changes</title>
+
+  <para>
+   Before loading the changes back into the cluster, it is recommended to
+   view your changes with <command>ptest</command>. The
+   <command>ptest</command> can show a diagram of actions which would be
+   induced by the changes to be committed. You need the
+   <systemitem>graphiz</systemitem> package to display the diagrams. The
+   following example is a transcript, adding a monitor operation:
+  </para>
+
+<screen># crm
+crm(live)# configure 
+crm(live)configure# show fence-node2 
+primitive fence-node2 stonith:apcsmart \
+        params hostlist="node2"
+crm(live)configure# monitor fence-node2 120m:60s
+crm(live)configure# show changed
+primitive fence-node2 stonith:apcsmart \
+        params hostlist="node2" \
+        op monitor interval="120m" timeout="60s"
+crm(live)configure# <emphasis role="strong">ptest</emphasis>
+crm(live)configure# commit</screen>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.create">
+  <title>Creating Cluster Resources</title>
+
+  <para>
+   There are three types of RAs (Resource Agents) available with the
+   cluster. First, there are legacy &hb;&nbsp;1 scripts. High availability
+   can make use of LSB initialization scripts. Finally, the cluster has its
+   own set of OCF (Open Cluster Framework) agents. This documentation
+   concentrates on LSB scripts and OCF agents.
+  </para>
+
+  <para>
+   To create a cluster resource use the <command>crm</command> tool. To add
+   a new resource to the cluster, the general procedure is as follows:
+  </para>
+
+  <procedure id="proc.ha.manual_config.create">
+   <step>
+    <para>
+     Open a shell and become &rootuser;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run <command>crm</command> to open the internal shell of
+     <command>crm</command>. The prompt changes to
+     <literal>crm(live)#</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configure a primitive IP address:
+    </para>
+<screen>crm(live)# <command>configure</command>
+crm(live)configure# <command>primitive</command> myIP ocf:heartbeat:IPaddr \
+     params ip=127.0.0.99 op monitor interval=60s</screen>
+    <para>
+     The previous command configures a <quote>primitive</quote> with the
+     name <literal>myIP</literal>. You need the class (here
+     <literal>ocf</literal>), provider (<literal>heartbeat</literal>), and
+     type (<literal>IPaddr</literal>). Furthermore this primitive expects
+     some parameters like the IP address. You have to change the address to
+     your setup.
+    </para>
+   </step>
+   <step>
+    <para>
+     Display and review the changes you have made:
+    </para>
+<screen>crm(live)configure# <command>show</command></screen>
+    <para>
+     To see the XML structure, use the following:
+    </para>
+<screen>crm(live)configure# <command>show</command> xml</screen>
+   </step>
+   <step>
+    <para>
+     Commit your changes to take effect:
+    </para>
+<screen>crm(live)configure# <command>commit</command></screen>
+   </step>
+  </procedure>
+
+  <sect2 id="sec.ha.manual_config.lsb">
+   <title>LSB Initialization Scripts</title>
+   <para>
+    All LSB scripts are commonly found in the directory
+    <filename>/etc/init.d</filename>. They must have several actions
+    implemented, which are at least <literal>start</literal>,
+    <literal>stop</literal>, <literal>restart</literal>,
+    <literal>reload</literal>, <literal>force-reload</literal>, and
+    <literal>status</literal> as explained in
+    <ulink
+     url="http://www.linux-foundation.org/spec/refspecs/LSB_1.3.0/gLSB/gLSB/iniscrptact.html"/>.
+   </para>
+   <para>
+    The configuration of those services is not standardized. If you intend
+    to use an LSB script with &ha;, make sure that you understand how the
+    relevant script is configured. Often you can find some documentation to
+    this in the documentation of the relevant package in
+    <filename>/usr/share/doc/packages/<replaceable>PACKAGENAME</replaceable></filename>.
+   </para>
+   <note>
+    <title>Do Not Touch Services Used by High Availability</title>
+    <para>
+     When used by &ha;, the service should not be touched by other means.
+     This means that it should not be started or stopped on boot, reboot, or
+     manually. However, if you want to check if the service is configured
+     properly, start it manually, but make sure that it is stopped again
+     before &ha; takes over.
+    </para>
+   </note>
+   <para>
+    Before using an LSB resource, make sure that the configuration of this
+    resource is present and identical on all cluster nodes. The
+    configuration is not managed by &ha;. You must do this yourself.
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.manual_config.ocf">
+   <title>OCF Resource Agents</title>
+   <para>
+    All OCF agents are located in
+    <filename>/usr/lib/ocf/resource.d/heartbeat/</filename>. These are small
+    programs that have a functionality similar to that of LSB scripts.
+    However, the configuration is always done with environment variables.
+    All OCF Resource Agents are required to have at least the actions
+    <literal>start</literal>, <literal>stop</literal>,
+    <literal>status</literal>, <literal>monitor</literal>, and
+    <literal>meta-data</literal>. The <literal>meta-data</literal> action
+    retrieves information about how to configure the agent. For example, if
+    you want to know more about the <literal>IPaddr</literal> agent, use the
+    command:
+   </para>
+<screen>OCF_ROOT=/usr/lib/ocf /usr/lib/ocf/resource.d/heartbeat/IPaddr meta-data</screen>
+   <para>
+    The output is lengthy information in a simple XML format.
+    <remark>toms 2009-02-18:
+     According to Andrew, the HA guys should ship a tool/script that generates manpages on the fly.
+     Sent Andrew a step-by-step instruction today. Needs just to collect that wisdom into a
+     script...</remark>
+    You can validate the output with the <filename>ra-api-1.dtd</filename>
+    DTD. Basically this XML format has three sections&mdash;first several
+    common descriptions, second all the available parameters, and last the
+    available actions for this agent.
+   </para>
+   <para>
+    This output is meant to be machine-readable, not necessarily
+    human-readable. For this reason, the <command>crm</command> tool
+    contains the <command>ra</command> command to get different information
+    about resource agents:
+   </para>
+<screen># crm
+crm(live)# <command>ra</command>
+crm(live)ra#</screen>
+   <para>
+    The command <command>classes</command> gives you a list of all classes
+    and providers:
+   </para>
+<screen>crm(live)ra# <command>classes</command>
+stonith
+lsb
+ocf / lvm2 ocfs2 heartbeat pacemaker
+heartbeat</screen>
+   <para>
+    To get an overview about all available resource agents for a class (and
+    provider) use <command>list</command>:
+   </para>
+<screen>crm(live)ra# <command>list</command> ocf
+AudibleAlarm       ClusterMon         Delay                  Dummy
+Filesystem         ICP                IPaddr                 IPaddr2
+IPsrcaddr          IPv6addr           LVM                    LinuxSCSI
+MailTo             ManageRAID         ManageVE               Pure-FTPd
+Raid1              Route              SAPDatabase            SAPInstance
+SendArp            ServeRAID          SphinxSearchDaemon     Squid
+...</screen>
+   <para>
+    More information about a resource agent can be viewed with
+    <command>meta</command>:
+   </para>
+<screen>crm(live)ra# <command>meta</command> Filesystem ocf heartbeat
+Filesystem resource agent (ocf:heartbeat:Filesystem)
+
+Resource script for Filesystem. It manages a Filesystem on a shared storage medium.
+
+Parameters (* denotes required, [] the default):
+...</screen>
+   <para>
+    You can leave the viewer by pressing <keycap>Q</keycap>. Find a
+    configuration example at <xref linkend="cha.ha.quickstart"/>.
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.manual_config.example">
+   <title>Example Configuration for an NFS Server</title>
+   <para>
+    To set up the NFS server, three resources are needed: a file system
+    resource, a drbd resource, and a group of an NFS server and an IP
+    address. The following subsection shows you how to do it.
+   </para>
+   <sect3 id="sec.ha.manual_config.example.filesystem">
+    <title>Setting Up a File System Resource</title>
+    <para>
+     The <literal>filesystem</literal> resource is configured as an OCF
+     primitive resource. It has the task of mounting and unmounting a device
+     to a directory on start and stop requests. In this case, the device is
+     <filename>/dev/drbd0</filename> and the directory to use as mount point
+     is <filename>/srv/failover</filename>. The file system used is
+     <literal>xfs</literal>.
+    </para>
+    <para>
+     Use the following commands in the <command>crm</command> shell to
+     configure a filesystem resource:
+    </para>
+<screen>crm(live)# <command>configure</command>
+crm(live)configure# <command>primitive</command> filesystem_resource \
+    ocf:heartbeat:Filesystem \
+    params device=/dev/drbd0 directory=/srv/failover fstype=xfs</screen>
+   </sect3>
+   <sect3 id="sec.ha.manual_config.example.drbd">
+    <title>Configuring drbd</title>
+    <para>
+     Before starting with the drbd &ha; configuration, set up a
+     <literal>drbd</literal> device manually. Basically this is configuring
+     drbd in <filename>/etc/drbd.conf</filename> and letting it synchronize.
+     The exact procedure for configuring drbd is described in the &storage;.
+     For now, assume that you configured a resource <literal>r0</literal>
+     that may be accessed at the device <filename>/dev/drbd0</filename> on
+     both of your cluster nodes.
+    </para>
+    <para>
+     The <literal>drbd</literal> resource is an OCF master slave resource.
+     This can be found in the description of the metadata of the drbd RA.
+     However, more important is that there are the actions
+     <literal>promote</literal> and <literal>demote</literal> in the
+     <literal>actions</literal> section of the metadata. These are mandatory
+     for master slave resources and commonly not available to other
+     resources.
+    </para>
+    <para>
+     For &ha;, master slave resources may have multiple masters on different
+     nodes. It is even possible to have a master and slave on the same node.
+     Therefore, configure this resource in a way that there is exactly one
+     master and one slave, each running on different nodes. Do this with the
+     meta attributes of the <literal>master</literal> resource. Master slave
+     resources are special kinds of clone resources in &ha;. Every master
+     and every slave counts as a clone.
+    </para>
+    <para>
+     Use the following commands in the <command>crm</command> shell to
+     configure a master slave resource:
+    </para>
+    
+<screen>crm(live)# <command>configure</command>
+crm(live)configure# <command>primitive</command> drbd_r0 ocf:heartbeat:drbd params
+crm(live)configure# <command>ms</command> drbd_resource drbd_r0 \
+   meta clone_max=2 clone_node_max=1 master_max=1 master_node_max=1 notify=true
+crm(live)configure# <command>commit</command></screen>
+
+   </sect3>
+   <sect3 id="sec.ha.manual_config.example.nfs">
+    <title>NFS Server and IP Address</title>
+    <para>
+     To make the NFS server always available at the same IP address, use an
+     additional IP address as well as the ones the machines use for their
+     normal operation. This IP address is then assigned to the active NFS
+     server in addition to the system's IP address.
+    </para>
+    <para>
+     The NFS server and the IP address of the NFS server should always be
+     active on the same machine. In this case, the start sequence is not
+     very important. They may even be started at the same time. These are
+     the typical requirements for a group resource.
+    </para>
+    <para>
+     Before starting the &ha; RA configuration, configure the NFS server
+     with &yast;. Do not let the system start the NFS server. Just set up
+     the configuration file. If you want to do that manually, see the manual
+     page exports(5) (<command>man 5 exports</command>). The configuration
+     file is <filename>/etc/exports</filename>. The NFS server is configured
+     as an LSB resource.
+    </para>
+    <para>
+     Configure the IP address completely with the &ha; RA configuration. No
+     additional modification is necessary in the system. The IP address RA
+     is an OCF RA.
+    </para>
+<screen>crm(live)# <command>configure</command>
+crm(live)configure# <command>primitive</command> nfs_resource lsb:nfsserver
+crm(live)configure# <command>primitive</command> ip_resource ocf:heartbeat:IPaddr \
+      params ip=10.10.0.1
+crm(live)configure# <command>group</command> nfs_group nfs_resource ip_resource
+crm(live)configure# <command>commit</command>
+crm(live)configure# <command>end</command>
+crm(live)# <command>quit</command></screen>
+   </sect3>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.manual_create.stonith">
+  <title>Creating a &stonith; Resource</title>
+
+  <para>
+   From the <command>crm</command> perspective, a &stonith; device is just
+   another resource. To create a &stonith; resource, proceed as follows:
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     Run the <command>crm</command> command as system administrator. The
+     prompt changes to <literal>crm(live)</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Get a list of all &stonith; types with the following command:
+    </para>
+<screen>crm(live)# <command>ra</command> list stonith
+apcmaster               apcsmart                baytech
+cyclades                drac3                   external/drac5
+external/hmchttp        external/ibmrsa         external/ibmrsa-telnet
+external/ipmi           external/kdumpcheck     external/rackpdu
+external/riloe          external/sbd            external/ssh
+external/vmware         external/xen0           external/xen0-ha
+ibmhmc                  ipmilan                 meatware
+null                    nw_rpc100s              rcd_serial
+rps10                   ssh                     suicide</screen>
+   </step>
+   <step id="st.ha.manual_create.stonith.type">
+    <para>
+     Choose a &stonith; type from the above list and view the list of
+     possible options. Use the following command (press <keycap>Q</keycap>
+     to close the viewer):
+    </para>
+<screen>crm(live)# <command>ra</command> meta external/ipmi stonith
+IPMI STONITH external device (stonith:external/ipmi)
+
+IPMI-based host reset
+
+Parameters (* denotes required, [] the default):
+...</screen>
+   </step>
+   <step>
+    <para>
+     Create the &stonith; resource with the class
+     <literal>stonith</literal>, the type you have chosen in
+     <xref linkend="st.ha.manual_create.stonith.type" xrefstyle="select:label nopage"
+     />,
+     and the respective parameters if needed, for example:
+    </para>
+<screen>crm(live)# <command>configure</command>
+crm(live)configure# <command>primitive</command> my-stonith stonith:external/ipmi \
+   meta target-role=Stopped \
+   operations my_stonith-operations \
+     op monitor start-delay=15 timeout=15 hostlist='' \
+                pduip='' community=''</screen>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.constraints">
+  <title>Configuring Resource Constraints</title>
+
+  <para>
+   Having all the resources configured is only one part of the job. Even if
+   the cluster knows all needed resources, it might still not be able to
+   handle them correctly. For example, it would not make sense to try to
+   mount the file system on the slave node of drbd (in fact, this would fail
+   with drbd). To inform the cluster about these things, define constraints.
+  </para>
+
+  <para>
+   In &ha;, there are three different kinds of constraints available:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Locational constraints that define on which nodes a resource may be run
+     (in the <command>crm</command> shell with the command
+     <command>location</command>).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Collocational constraints that tell the cluster which resources may or
+     may not run together on a node (<command>colocation</command>).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Ordering constraints to define the sequence of actions
+     (<command>order</command>).
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <sect2 id="sec.ha.manual_config.constraints.locational">
+   <title>Locational Constraints</title>
+   <para>
+    This type of constraint may be added multiple times for each resource.
+    All <literal>rsc_location</literal> constraints are evaluated for a
+    given resource. A simple example that increases the probability to run a
+    resource with the ID <literal>fs1-loc</literal> on the node with the
+    name <literal>&exampleclient;</literal> to 100 would be the following:
+   </para>
+<!-- 
+       location ID RSC {node_pref|rules}
+    
+    Grammar:
+    node_pref :: <score>: <node>
+
+    rules ::
+          rule [id_spec] [$role=<role>] <score>: <expression>
+          [rule [id_spec] [$role=<role>] <score>: <expression> ...]
+
+    id_spec :: $id=<id> | $id-ref=<id>
+    score :: <number> | <attribute> | [-]inf
+    expression :: <single_exp> [bool_op <simple_exp> ...]
+                      | <date_expr>
+    bool_op :: or | and
+    single_exp :: <attribute> [type:]<binary_op> <value>
+                      | <unary_op> <attribute>
+    type :: string | version | number
+    binary_op :: lt | gt | lte | gte | eq | ne
+    unary_op :: defined | not_defined
+
+    date_expr :: date_op <start> [<end>]  (TBD) 
+   -->
+<screen>crm(live)configure# <command>location</command> fs1-loc fs1 100: earth</screen>
+
+  </sect2>
+
+  <sect2 id="sec.ha.manual_config.constraints.collocational">
+   <title>Collocational Constraints</title>
+   <para>
+    The <command>colocation</command> command is used to define what
+    resources should run on the same or on different hosts. Usually it is
+    very common to use the following sequence:
+   </para>
+<screen>crm(live)configure# <command>order</command> rsc1 rsc2
+crm(live)configure# <command>colocation</command> rsc2 rsc1</screen>
+   <para>
+    It is only possible to set a score of either +INFINITY or -INFINITY,
+    defining resources that must always or must never run on the same node.
+    For example, to run the two resources with the IDs
+    <literal>filesystem_resource</literal> and <literal>nfs_group</literal>
+    always on the same host, use the following constraint:
+   </para>
+<!-- 
+       colocation ID SCORE: RSC[:ROLE] RSC[:ROLE]
+       
+       Example: colocation dummy_and_apache -inf: apache dummy
+   -->
+<screen>crm(live)configure# <command>colocation</command> nfs_on_filesystem inf: nfs_group filesystem_resource</screen>
+   <para>
+    For a master slave configuration, it is necessary to know if the current
+    node is a master in addition to running the resource locally. This can
+    be checked with an additional <literal>to_role</literal> or
+    <literal>from_role</literal> attribute.
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.manual_config.constraints.ordering">
+   <title>Ordering Constraints</title>
+   <para>
+    Sometimes it is necessary to provide an order in which services must
+    start. For example, you cannot mount a file system before the device is
+    available to a system. Ordering constraints can be used to start or stop
+    a service right before or after a different resource meets a special
+    condition, such as being started, stopped, or promoted to master. Use
+    the following commands in the <command>crm</command> shell to configure
+    an an ordering constraint:
+   </para>
+<!-- order ID score-type: FIRST-RSC[:ACTION] THEN-RSC[:ACTION] 
+   
+                 score-type :: advisory | mandatory | <score>
+                 
+      Example: order c_apache_1 mandatory: apache:start ip_1
+   -->
+<screen>crm(live)configure# <command>order</command> nfs_after_filesystem mandatory: group_nfs filesystem_resource</screen>
+  </sect2>
+
+  <sect2 id="sec.ha.manual_config.constraints.example">
+   <title>Constraints for the Example Configuration</title>
+   <para>
+    The example used for this chapter would not work as expected without
+    additional constraints. It is essential that all resources run on the
+    same machine as the master of the drbd resource. Another thing that is
+    critical is that the drbd resource must be master before any other
+    resource starts. Trying to mount the drbd device when drbd is not master
+    simply fails. The constraints that must be fulfilled look like the
+    following:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      The file system must always be on the same node as the master of the
+      drbd resource.
+     </para>
+<screen>crm(live)configure# <command>colocation</command> filesystem_on_master inf: \
+    filesystem_resource drbd_resource:Master</screen>
+    </listitem>
+    <listitem>
+     <para>
+      The NFS server as well as the IP address must be on the same node as
+      the file system.
+     </para>
+<screen>crm(live)configure# <command>colocation</command> nfs_with_fs inf: \
+   nfs_group filesystem_resource</screen>
+    </listitem>
+    <listitem>
+     <para>
+      The NFS server as well as the IP address start after the file system
+      is mounted:
+     </para>
+<screen>crm(live)configure# <command>order</command> nfs_second mandatory: \
+   filesystem_resource nfs_group</screen>
+    </listitem>
+    <listitem>
+     <para>
+      The file system must be mounted on a node after the drbd resource is
+      promoted to master on this node.
+     </para>
+<screen>crm(live)configure# <command>order</command> drbd_first inf: \
+    drbd_resource:promote filesystem_resource</screen>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.failover">
+  <title>Specifying Resource Failover Nodes</title>
+
+  <para>
+   To determine a resource failover, use the meta attribute
+   migration-threshold. For example:
+  </para>
+
+<!-- Example (rsc is r1): -->
+
+<screen>crm(live)configure# <command>location</command> r1-node1 r1 100: node1</screen>
+
+  <para>
+   Normally r1 prefers to run on node1. If it fails there,
+   migration-threshold is checked and compared to the failcount. If
+   failcount >= migration-threshold then it is migrated to the node with the
+   next best preference.
+  </para>
+
+  <para>
+   Start failures set the failcount to INFINITY depends on the
+   <option>start-failure-is-fatal</option> option. Stop failures cause
+   fencing. If there's no STONITH defined, then the resource will not
+   migrate at all.
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.failback">
+  <title>Specifying Resource Failback Nodes (Resource Stickiness)</title>
+
+  <para>
+   A rsc may failback after it has been migrated due to the number of
+   failures only when the administrator resets the failcount or the failures
+   have been expired (see failure-timeout meta attribute).
+  </para>
+
+<screen><command>crm</command> resource failcount <replaceable>RSC</replaceable> delete <replaceable>NODE</replaceable></screen>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.monitor">
+  <title>Configuring Resource Monitoring</title>
+
+  <remark>Add the new monitor command: $ crm configure monitor usage: monitor &lt;rsc>[:&lt;role>]
+   &lt;interval>[:&lt;timeout>] </remark>
+
+  <para>
+   To monitor a resource, there are two possibilities: either define monitor
+   operation with the <command>op</command> keyword or use the
+   <command>monitor</command> command. The following example configures an
+   Apache resource and monitors it for every 30 minutes with the
+   <literal>op</literal> keyword:
+  </para>
+
+<screen>crm(live)configure# <command>primitive</command> apache apache \
+  params ... \
+  <emphasis>op monitor interval=60s timeout=30s</emphasis></screen>
+
+  <para>
+   The same can be done with:
+  </para>
+
+<screen>crm(live)configure# <command>primitive</command> apache apache \
+   params ...
+crm(live)configure# <command>monitor</command> apache 60s:30s</screen>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.start">
+  <title>Starting a New Cluster Resource</title>
+
+  <para>
+   To start a new cluster resource you need the respective identifier.
+   Proceed as follows:
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     Run the <command>crm</command> command as system administrator. The
+     prompt changes to <literal>crm(live)</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Search for the respective resource with the command
+     <command>status</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Start the resource with:
+    </para>
+<screen>crm(live)# <command>resource</command> start <replaceable>ID</replaceable></screen>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.remove">
+  <title>Removing a Cluster Resource</title>
+
+  <para>
+   To remove a cluster resource you need the relevant identifier. Proceed as
+   follows:
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     Run the <command>crm</command> command as system administrator. The
+     prompt changes to <literal>crm(live)</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run the following command to get a list of your resources:
+    </para>
+<screen>crm(live)# <command>resource</command> status</screen>
+    <para>
+     For example, the output can look like this (whereas myIP is the
+     relevant identifier of your resource):
+    </para>
+<screen>myIP    (ocf::IPaddr:heartbeat) ...</screen>
+   </step>
+   <step>
+    <para>
+     Delete the resource with the relevant identifier (which implies a
+     <command>commit</command> too):
+    </para>
+<screen>crm(live)# <command>configure</command> delete <replaceable>YOUR_ID</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     Commit the changes:
+    </para>
+<screen>crm(live)# <command>configure</command> commit</screen>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.group">
+  <title>Configuring a Cluster Resource Group</title>
+
+  <remark>Text mostly copied from "Advanced Configuration"</remark>
+
+  <para>
+   One of the most common elements of a cluster is a set of resources that
+   needs to be located together. Start sequentially and stop in the reverse
+   order. To simplify this configuration we support the concept of groups.
+   The following example creates two primitives (an IP address and an email
+   resource):
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     Run the <command>crm</command> command as system administrator. The
+     prompt changes to <literal>crm(live)</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configure the primitives:
+    </para>
+<screen>crm(live)# <command>configure</command>
+crm(live)configure# <command>primitive</command> Public-IP ocf:IPaddr:heartbeat \
+   params ip=1.2.3.4
+crm(live)configure# <command>primitive</command> Email lsb:exim</screen>
+   </step>
+   <step>
+    <para>
+     Group the primitives with their relevant identifiers in the correct
+     order:
+    </para>
+<screen>crm(live)configure# <command>group</command> shortcut Public-IP Email</screen>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.clone">
+  <title>Configuring a Clone Resource</title>
+
+  <remark>Text mostly copied from "Advanced Configuration"</remark>
+
+  <para>
+   Clones were initially conceived as a convenient way to start N instances
+   of an IP resource and have them distributed throughout the cluster for
+   load balancing. They have turned out to quite useful for a number of
+   other purposes, including integrating with DLM, the fencing subsystem and
+   OCFS2. You can clone any resource, provided the resource agent supports
+   it.
+  </para>
+
+  <para>
+   These types of cloned resources exist:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>Anonymous Resources</term>
+    <listitem>
+     <para>
+      Anonymous clones are the simplest type. These resources behave
+      completely identically wherever they are running. Because of this,
+      there can only be one copy of an anonymous clone active per machine.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry os="notdefinied">
+    <term>Globally Unique Resources</term>
+    <listitem>
+     <para>
+      Globally unique clones are distinct entities. A copy of the clone
+      running on one machine is not equivalent to another instance on
+      another node. Nor would any two copies on the same node be equivalent.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Multi-State Resources</term>
+    <listitem>
+     <para>
+      Multi-state resources are a specialization of clones. They allow the
+      instances to be in on of two operating modes. These modes are called
+      <quote>master</quote> and <quote>slave</quote> but can mean whatever
+      you wish them to mean. The only limitation is that when an instance is
+      started, it must come up in a slave state.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <sect2 id="sec.ha.manual_config.clone.anonymous">
+   <title>Creating Anonymous Clone Resources</title>
+   <para>
+    To create an anonymouse clone resource, first create a primitive
+    resource and then refer to it with the <command>clone</command> command.
+    Do the following:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Run the <command>crm</command> command as system administrator. The
+      prompt changes to <literal>crm(live)</literal>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Configure the primitive, for example:
+     </para>
+<screen>crm(live)# <command>configure</command>
+crm(live)configure# <command>primitive</command> Apache lsb:apache</screen>
+    </step>
+    <step>
+     <para>
+      Clone the primitive:
+     </para>
+<screen>crm(live)configure# clone apache-clone Apache \
+   meta globally-unique=false</screen>
+    </step>
+   </procedure>
+  </sect2>
+
+<!-- toms 2009-03-03:
+       "Disable" the following section and the above varlistentry as
+       nobody seem to know anything about this.
+  -->
+
+<!-- 
+  <sect2 id="sec.ha.manual_config.clone.globally" os="notdefinied">
+   <title>Creating Globally Unique Clone Resources</title>
+   <remark>Haven't found an example. Any idea?</remark>
+   <para> FIXME </para>
+  </sect2>
+  -->
+
+  <sect2 id="sec.ha.manual_config.clone.stateful">
+   <title>Creating Stateful/Multi-State Clone Resources</title>
+   <para>
+    To create an stateful clone resource, first create a primitive resource
+    and then the master-slave resource.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Run the <command>crm</command> command as system administrator. The
+      prompt changes to <literal>crm(live)</literal>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Configure the primitive. Change the intervals if needed:
+     </para>
+<screen>crm(live)# <command>configure</command>
+crm(live)configure# <command>primitive</command> myRSC ocf:myCorp:myAppl \
+  operations foo \
+    op monitor interval=60 \
+    op monitor interval=61 role=Master</screen>
+    </step>
+    <step>
+     <para>
+      Create the master slave resource:
+     </para>
+<screen>crm(live)configure# <command>clone</command> apache-clone Apache \
+   meta globally-unique=false</screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.migrate">
+  <title>Migrating a Cluster Resource</title>
+
+  <para>
+   Although resources are configured to automatically fail over (or migrate)
+   to other nodes of the cluster in the event of a hardware or software
+   failure, you can also manually migrate a resource to another node in the
+   cluster using either the &hbgui; or the command line.
+  </para>
+
+  <remark>abeekhof 090114: - s/-H/-N/, see "what changed" appendix for related changes</remark>
+
+  <procedure>
+   <step>
+    <para>
+     Run the <command>crm</command> command as system administrator. The
+     prompt changes to <literal>crm(live)</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     To migrate a resource named <literal>ipaddress1</literal> to a cluster
+     node named <literal>node2</literal>, enter:
+    </para>
+<screen>crm(live)# <command>resource</command>
+crm(live)resource# <command>migrate</command> ipaddress1 node2</screen>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.manual_config.shadowconfig">
+  <title>Testing with Shadow Configuration</title>
+
+  <note>
+   <title>For Experienced Administrators Only</title>
+   <para>
+    Although the concept is easy, it is nevertheless recommended to use
+    shadow configuration only when you really need them, and if you are
+    experienced with &ha;.
+   </para>
+  </note>
+
+  <para>
+   A shadow configuration is used to test different configuration scenarios.
+   If you have created several shadow configurations, you can test them one
+   by one to see the effects of your changes.
+  </para>
+
+  <para>
+   The usual process looks like this:
+  </para>
+
+  <orderedlist>
+   <listitem>
+    <para>
+     User starts the <command>crm</command> tool.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     You switch to the <command>configure</command> subcommand:
+    </para>
+<screen>crm(live)# <command>configure</command>
+crm(live)configure#</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Now you can make your changes. However, when you figure out that they
+     are risky or you want to apply them later, you can save them into a new
+     shadow configuration:
+    </para>
+<screen>crm(live)configure# <command>cib</command> new myNewConfig
+INFO: myNewConfig shadow CIB created
+crm(myNewConfig)configure# <command>commit</command></screen>
+   </listitem>
+   <listitem>
+    <para>
+     After you have created the shadow configuration, you can make your
+     changes.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     To switch back to the live cluster configuration, use this command:
+    </para>
+<screen>crm(myNewConfig)configure# <command>cib</command> use
+crm(live)configure#</screen>
+   </listitem>
+  </orderedlist>
+ </sect1>
+ <sect1 id="sec.ha.config.summary">
+  <title>For More Information</title>
+
+  <variablelist>
+<!--<varlistentry>
+        <term>
+          <ulink url="http://clusterlabs.org/"/>
+        </term>
+        <listitem>
+          <para>The homepage of Pacemaker, the scalable
+            High-Availability cluster resource manager, formerly part of
+            Heartbeat.</para>
+        </listitem>
+      </varlistentry>-->
+   <varlistentry>
+    <term><ulink url="http://linux-ha.org"/>
+    </term>
+    <listitem>
+     <para>
+      Homepage of High Availability Linux
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><ulink url="http://www.clusterlabs.org/mediawiki/images/8/8d/Crm_cli.pdf"/>
+    </term>
+    <listitem>
+     <para>
+      Gives you an introduction to the CRM CLI tool
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><ulink url="http://www.clusterlabs.org/mediawiki/images/f/fb/Configuration_Explained.pdf"
+     />
+    </term>
+    <listitem>
+     <para>
+      Explains the Pacemaker configuration
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>

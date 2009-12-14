@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd" [
+ <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+ <!ENTITY % entities SYSTEM "entity-decl.ent">
+ %entities;
+]>
+<chapter id="cha.ha.lvs">
+ <title>Load Balancing with &lvs;</title>
+<!--taroth 090519: see http://www.linuxvirtualserver.org/-->
+ <para>
+  The goal of &lvs; (LVS) is to provide a basic framework that directs
+  network connections to multiple servers that share their workload. &lvs;
+  is a cluster of servers (one or more load balancers and several real
+  servers for running services) which appears to be one large, fast server
+  to an outside client. This apparent single server is called a
+  <emphasis>virtual server</emphasis>. The &lvs; as an advanced load
+  balancing solution can be used to build highly scalable and highly
+  available network services, such as Web, cache, mail, FTP, media and VoIP
+  services.
+ </para>
+ <para>
+  The real servers and the load balancers may be interconnected by either
+  high-speed LAN or by geographically dispersed WAN. The load balancers can
+  dispatch requests to the different servers and make parallel services of
+  the cluster appear as a virtual service on a single IP address, and
+  request dispatching can use IP load balancing technologies or
+  application-level load balancing technologies. Scalability of the system
+  is achieved by transparently adding or removing nodes in the cluster. High
+  availability is provided by detecting node or daemon failures and
+  reconfiguring the system appropriately.
+ </para>
+ <sect1>
+  <title>Conceptual Overview</title>
+
+  <para>
+   LVS consists of two main components:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>Kernel Code: ip_vs (or IPVS)</term>
+    <listitem>
+     <para>
+      The node that runs a Linux kernel patched to include the IPVS code is
+      called <emphasis>director</emphasis>. The IPVS code running on the
+      director is the essential feature of LVS.
+     </para>
+     <para>
+      Clients connect to the director that forwards packets to the real
+      servers. The director is a layer 4 router with a modified set of
+      routing rules (for example, connections do not originate or terminate
+      on the director, it does not send acknowledgments) that make the LVS
+      work. The director, together with the real servers, are the virtual
+      server which appears as one machine to the client(s).
+     </para>
+     <para>
+      There are different forwarding methods that determine how the director
+      sends packets from the client to the real servers. Deciding which real
+      server to use for a new connection requested by a client is
+      implemented using different algorithms, which are available as modules
+      and can be adapted to specific needs. Upon receiving a connect request
+      from a client, the director assigns a real server to the client based
+      on a <emphasis>schedule</emphasis>. The scheduler is the part of the
+      IPVS kernel code which decides which real server will get the next new
+      connection.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>User Space Controller: ipvsadm</term>
+    <listitem>
+     <para>
+      Provided by the <systemitem class="resource">ipvsadm</systemitem>
+      package, ipvsadm is a user interface and lets you manage the &lvs;.
+      For example, you can set rules for services handled, handle failover,
+      or set the scheduler type.
+     </para>
+     <para>
+      You use ipvsadm from the command line (or in rc files) to set up:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Services/servers that the director directs (e.g. http goes to all
+        real servers, while ftp goes only to one of the real servers)
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Weighting given to each real server (useful if some servers are
+        faster than others)
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Scheduling algorithms
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      You use can also use ipvsadm for the following tasks:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Adding services
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Shutting down services
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Deleting services
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <!--taroth 091113: http://doccomments.provo.novell.com/admin/viewcomment/12395-->
+  <para>
+   <remark>taroth 091113: TODO: check on current HAE installation!</remark>By default, the kernel does not have the IPVS
+   module installed. The IPVS kernel module is included in the 
+   <systemitem class="resource">cluster-network-kmp-default</systemitem> package.</para>
+ </sect1>
+ <sect1>
+  <title>&ha;</title>
+
+  <para>
+   To construct a highly available &lvs; cluster, you can use several
+   built-in features of the software. In general, there are service monitor
+   daemons running on the load balancer to check server health periodically.
+   <remark>taroth 090623: DEVs, which daemons? should we mention them here?</remark>
+   If there is no response for a service access request or ICMP ECHO_REQUEST
+   from a server within a specified time, the service monitor will consider
+   the server dead and remove it from the available server list at the load
+   balancer. Thus, no new requests will be sent to this dead server. When
+   the service monitor detects that the dead server has recovered and is
+   working again, it will add the server back to the available server list.
+   Therefore, the load balancer can automatically mask the failure of
+   service daemons or servers.
+  </para>
+
+  <para>
+   Furthermore, administrators can also use system tools to add new servers
+   to increase the system throughput or remove servers for system
+   maintenance, without bringing down the whole system service.
+  </para>
+
+  <para>
+   To prevent the load balancer from becoming a single point of failure for
+   the whole system, you need to set up a backup (or several backups) of the
+   load balancer.
+   <remark>taroth 090623:
+    DEVs, the information this is based on seems to be quite old - are heartbeat daemons still
+    correct? or do we need to mention other daemons here (&ais;??) is the rest of the following para
+    still true?</remark>
+   Two heartbeat daemons run on the primary and the backup, respectively.
+   They periodically heartbeat the <quote>I'm alive</quote> message to each
+   other through serial lines and/or network interfaces. When the heartbeat
+   daemon of the backup cannot hear the heartbeat message from the primary
+   within the specified time, it will take over the virtual IP address in
+   order to provide the load-balancing service.
+  </para>
+
+  <para>
+   <remark>taroth 090623: DEVs, is this para still correct?</remark>
+   When the failed load balancer recovers again, there are two possible
+   results: it can become the backup load balancer automatically, or the
+   active load balancer releases the VIP address so that the recovered one
+   takes over the VIP address and becomes the primary load balancer again.
+   The primary load balancer has the state of connections, meaning it knows
+   which server the connection is forwarded to. If the backup load balancer
+   takes over without that connection information, the clients have to send
+   their requests again in order to access service. In order to make load
+   balancer failover transparent to client applications, there is a
+   connection synchronization in IPVS: the primary IPVS load balancer
+   synchronizes connection information to the backup load balancers through
+   UDP multicast. When the backup load balancer takes over after the primary
+   one fails, the backup load balancer will have the state of most
+   connections, so that almost all connections can continue to access the
+   service through the backup load balancer.
+  </para>
+ </sect1>
+ <sect1>
+  <title>For More Information</title>
+
+  <para>
+   To learn more about &lvs;, refer to the project home page available at
+   <ulink
+    url="http://www.linuxvirtualserver.org/"/>.
+  </para>
+ </sect1>
+<!--taroth 090519: see also 
+  http://www.austintek.com/LVS/LVS-HOWTO/HOWTO/index.html-->
+<!--    
+  * IPVS,ipvs,ip_vs the code that patches the linux kernel on the director.
+  * LVS, linux virtual server This is the director + realservers. Together these machines are the virtual server, 
+     which appears as one machine to the client(s).
+  * director: the node that runs the ipvs code. 
+  * realservers: the hosts that have the services. The realservers handle the requests from the clients.
+  * client the host or user level process that connects to the VIP on the director
+  * forwarding method (currently LVS-NAT, LVS-DR, LVS-Tun). The director is a router with somewhat different rules 
+     for forwarding packets than a normal router. The forwarding method determines how the director sends packets 
+     from the client to the realservers.
+  * scheduling (ipvsadm and schedulers) - the algorithm the director uses to select a realserver 
+  to service a new connection request from a client. -->
+
+<!--taroth 090609: from http://www.linuxvirtualserver.org/-->
+<!--High Availability As more and more mission-critical applications
+  move on the Internet, providing highly available services becomes
+  increasingly important. One of the advantages of a clustered system is
+  that it has hardware and software redundancy, because the cluster
+  system consists of a number of independent nodes, and each node runs a
+  copy of operating system and application software. High availability
+  can be achieved by detecting node or daemon failures and reconfiguring
+  the system appropriately, so that the workload can be taken over by
+  the remaining nodes in the cluster. In fact, high availability is a
+  big field. An advanced highly available system may have a reliable
+  group communication sub-system, membership management, quoram
+  sub-systems, concurrent control sub-system and so on. There must be a
+  lot of work to do. However, we can use some existing software packages
+  to construct highly available LVS cluster systems now..-->
+</chapter>

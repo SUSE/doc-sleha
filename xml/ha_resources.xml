@@ -1,0 +1,850 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd" [
+ <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+ <!ENTITY % entities SYSTEM "entity-decl.ent">
+ %entities;
+ ]>
+<chapter id="app.ha.resources">
+ <title>Cluster Resources</title>
+ <para>
+  This chapter summarizes the most important facts and figures related to
+  cluster resources: the resource agent classes the &hasi; supports, the
+  error codes for OCF resource agents and how the cluster reacts to the
+  error codes, the available resource options, resource operations and
+  instance attributes. Use this overview as a reference when configuring
+  resources (either manually with the <command>crm</command> line tool or
+  with the &hbgui;).
+ </para>
+<!-- taroth/toms: merged from ha_installation.xml and ha_agents.xml -->
+ <sect1 id="sec.ha.resources.raclasses">
+  <title>Supported Resource Agent Classes</title>
+
+  <para>
+   For each cluster resource you add, you need to define the standard that
+   the resource agent conforms to. Resource agents abstract the services
+   they provide and present an accurate status to the cluster, which allows
+   the cluster to be non-committal about the resources it manages. The
+   cluster relies on the resource agent to react appropriately when given a
+   start, stop or monitor command.
+  </para>
+
+  <para>
+   Typically, resource agents come in the form of shell scripts. The &hasi;
+   supports the following classes of resource agents:
+  </para>
+
+   <variablelist>
+   <varlistentry>
+    <term>Legacy &hb;&nbsp;1 Resource Agents</term>
+    <listitem>
+     <para>
+      &hb; version&nbsp;1 came with its own style of resource agents. As
+      many people have written their own agents based on its conventions,
+      these resource agents are still supported. However, it is recommended
+      to migrate your configurations to &ha; OCF RAs if possible. For more
+      information, see
+      <ulink url="http://wiki.linux-ha.org/HeartbeatResourceAgent"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Linux Standards Base (LSB) Scripts</term>
+    <listitem>
+     <para>
+      LSB resource agents are generally provided by the operating
+      system/distribution and are found in <filename>/etc/init.d</filename>.
+      To be used with the cluster, they must conform to the LSB
+      specification. For example, they must have several actions
+      implemented, which are, at minimum, <literal>start</literal>,
+      <literal>stop</literal>, <literal>restart</literal>,
+      <literal>reload</literal>, <literal>force-reload</literal>, and
+      <literal>status</literal> as explained in
+      <ulink
+       url=" http://www.linuxbase.org/spec/refspecs/LSB_3.0.0/LSB-Core-
+       generic/LSB-Core-generic/iniscrptact.html"
+      />.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry id="vle.ha.resources.ocf.ra">
+    <term>Open Cluster Framework (OCF) Resource Agents</term>
+    <listitem>
+     <para>
+      OCF RA agents are best suited for use with &ha;, especially when you
+      need master resources or special monitoring abilities. The agents are
+      generally located in
+      <filename>/usr/lib/ocf/resource.d/heartbeat/</filename>. Their
+      functionality is similar to that of LSB scripts. However, the
+      configuration is always done with environmental variables which allow
+      them to accept and process parameters easily. The OCF specification
+      (as it relates to resource agents) can be found at
+      <ulink
+       url="http://www.opencf.org/cgi-bin/viewcvs.cgi/specs/ra/resource-agent-api.txt?rev=HEAD 4"/>.
+      OCF specifications have strict deﬁnitions of which exit codes must
+      be returned by actions. The cluster follows these speciﬁcations
+      exactly. For more information, see
+      <ulink
+       url="http://wiki.linux-ha.org/OCFResourceAgent"/>. For a
+      detailed list of all available OCF&nbsp;RAs, refer to
+      <xref linkend="app.agents.details"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>&stonith; Resource Agents</term>
+    <listitem>
+     <para>
+      This class is used exclusively for fencing related resources. For more
+      information, see <xref linkend="cha.ha.fencing"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   The agents supplied with the &hasi; are written to OCF specifications.
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.resources.errorcodes">
+  <title>OCF Return Codes</title>
+
+  <para>
+   According to the OCF specification, there are strict definitions of the
+   exit codes an action must return. The cluster always checks the return
+   code against the expected result. If the result does not match the
+   expected value, then the operation is considered to have failed and a
+   recovery action is initiated. There are three types of failure recovery:
+  </para>
+
+  <table>
+   <title>Failure Recovery Types</title>
+   <tgroup cols="3">
+    <thead>
+     <row>
+      <entry>
+       <para>
+        Recovery Type
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Description
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Action Taken by the Cluster
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        soft
+       </para>
+      </entry>
+      <entry>
+       <para>
+        A transient error occurred.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Restart the resource or move it to a new location.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        hard
+       </para>
+      </entry>
+      <entry>
+       <para>
+        A non-transient error occurred. The error may be speciﬁc to the
+        current node.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Move the resource elsewhere and prevent it from being retried on the
+        current node.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        fatal
+       </para>
+      </entry>
+      <entry>
+       <para>
+        A non-transient error occurred that will be common to all cluster
+        nodes. This means a bad conﬁguration was speciﬁed.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Stop the resource and prevent it from being started on any cluster
+        node.
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+
+  <para>
+   Assuming an action is considered to have failed, the following table
+   outlines the different OCF return codes and the type of recovery the
+   cluster will initiate when the respective error code is received.
+  </para>
+
+  <table>
+   <title>OCF Return Codes</title>
+   <tgroup cols="4">
+    <colspec colnum="1" colname="1" colwidth="12*"/>
+    <colspec colnum="2" colname="2" colwidth="23*"/>
+    <colspec colnum="3" colname="3" colwidth="50*"/>
+    <colspec colnum="4" colname="4" colwidth="15*"/>
+    <thead>
+     <row>
+      <entry>
+       <para>
+        OCF Return Code
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF Alias
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Description
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Recovery Type
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        0
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_SUCCESS
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Success. The command completed successfully. This is the expected
+        result for all start, stop, promote and demote commands.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        soft
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        1
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_ERR_GENERIC
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Generic <quote>there was a problem</quote> error code.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        soft
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_ERR_ARGS
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The resource’s conﬁguration is not valid on this machine (for
+        example, it refers to a location/tool not found on the node).
+       </para>
+      </entry>
+      <entry>
+       <para>
+        hard
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        3
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_ERR_UNIMPLEMENTED
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The requested action is not implemented.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        hard
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        4
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_ERR_PERM
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The resource agent does not have sufﬁcient privileges to complete
+        the task.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        hard
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        5
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_ERR_INSTALLED
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The tools required by the resource are not installed on this
+        machine.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        hard
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        6
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_ERR_CONFIGURED
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The resource’s conﬁguration is invalid (for example, required
+        parameters are missing).
+       </para>
+      </entry>
+      <entry>
+       <para>
+        fatal
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        7
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_NOT_RUNNING
+       </para>
+      </entry>
+      <entry>
+       <para>
+        <remark>taroth 090316: according to dejan: OCF_NOT_RUNNING may or may not require
+         resource recovery. Depends on what is the expected resource status. If unexpected, then
+         it's a soft error. The description should perhaps read: The resource is not running. The
+         cluster will not attempt to stop a resource that returns this for any action. - taroth:
+         done </remark>
+        The resource is not running. The cluster will not attempt to stop a
+        resource that returns this for any action.
+       </para>
+       <para>
+        This OCF return code may or may not require resource
+        recovery&mdash;it depends on what is the expected resource status.
+        If unexpected, then <literal>soft</literal> recovery.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        N/A
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        8
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_RUNNING_MASTER
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The resource is running in Master mode.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        soft
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        9
+       </para>
+      </entry>
+      <entry>
+       <para>
+        OCF_FAILED_MASTER
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The resource is in Master mode but has failed. The resource will be
+        demoted, stopped and then started (and possibly promoted) again.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        soft
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        other
+       </para>
+      </entry>
+      <entry>
+       <para>
+        N/A
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Custom error code.
+       </para>
+      </entry>
+      <entry>
+       <para>
+        soft
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+ <sect1 id="sec.ha.resources.options">
+  <title>Resource Options</title>
+
+  <para>
+   For each resource you add, you can define options. Options are used by
+   the cluster to decide how your resource should behave&mdash;they tell the
+   CRM how to treat a specific resource. Resource options can be set with
+   the <command>crm_resource --meta</command> command or with the GUI as
+   described in
+   <remark>taroth 090216: todo - add links</remark>
+<!--<xref linkend=""/> or <xref linkend=""/>-->
+   .
+  </para>
+
+  <table>
+   <title>Options for a Primitive Resource</title>
+   <tgroup cols="2">
+    <thead>
+     <row>
+      <entry>
+       <para>
+        Option
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Description
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        <literal>priority</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        If not all resources can be active, the cluster will stop lower
+        priority resources in order to keep higher priority ones active.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>target-role</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        In what state should the cluster attempt to keep this resource?
+        Allowed values: <literal>Stopped</literal>,
+        <literal>Started</literal>.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>is-managed</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Is the cluster allowed to start and stop the resource? Allowed
+        values: <literal>true</literal>, <literal>false</literal>.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>resource-stickiness</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        How much does the resource prefer to stay where it is? Defaults to
+        the value of <literal>default- resource-stickiness</literal>.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>migration-threshold</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        How many failures should occur for this resource on a node before
+        making the node ineligible to host this resource? Default:
+        <literal>none</literal>.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>multiple-active</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        What should the cluster do if it ever ﬁnds the resource active on
+        more than one node? Allowed values: <literal>block</literal> (mark
+        the resource as unmanaged), <literal>stop_only</literal>,
+        <literal>stop_start</literal>.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>failure-timeout</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        How many seconds to wait before acting as if the failure had not
+        occurred (and potentially allowing the resource back to the node on
+        which it failed)? Default: <literal>never</literal>.
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+ <sect1 id="sec.ha.resources.operations">
+  <title>Resource Operations</title>
+
+  <para>
+   By default, the cluster will not ensure that your resources are still
+   healthy. To instruct the cluster to do this, you need to add a monitor
+   operation to the resource’s deﬁnition. Monitor operations can be
+   added for all classes or resource agents.
+  </para>
+
+  <table>
+   <title>Resource Operations</title>
+   <tgroup cols="2">
+    <thead>
+     <row>
+      <entry>
+       <para>
+        Operation
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Description
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        <literal>id</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Your name for the action. Must be unique.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>name</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The action to perform. Common values: <literal>monitor</literal>,
+        <literal>start</literal>, <literal>stop</literal>.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>interval</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        How frequently to perform the operation. Unit: seconds
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>timeout</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        How long to wait before declaring the action has failed.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>requires</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        What conditions need to be satisﬁed before this action occurs.
+        Allowed values: <literal>nothing</literal>,
+        <literal>quorum</literal>, <literal>fencing</literal>. The default
+        depends on whether fencing is enabled and if the resource’s class
+        is <literal>stonith</literal>. For &stonith; resources, the default
+        is <literal>nothing</literal>.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>on-fail</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The action to take if this action ever fails. Allowed values:
+       </para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          <literal>ignore</literal>: Pretend the resource did not fail.
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <literal>block</literal>: Do not perform any further operations on
+          the resource.
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <literal>stop</literal>: Stop the resource and do not start it
+          elsewhere.
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <literal>restart</literal>: Stop the resource and start it again
+          (possibly on a different node).
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <literal>fence</literal>: Bring down the node on which the
+          resource failed (&stonith;).
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <literal>standby</literal>: Move <emphasis>all</emphasis>
+          resources away from the node on which the resource failed.
+         </para>
+        </listitem>
+       </itemizedlist>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        <literal>enabled</literal>
+       </para>
+      </entry>
+      <entry>
+       <para>
+        If <literal>false</literal>, the operation is treated as if it does
+        not exist. Allowed values: <literal>true</literal>,
+        <literal>false</literal>.
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+ <sect1 id="sec.ha.resources.instattributs">
+  <title>Instance Attributes</title>
+
+<!--
+   The crm now supports a set of ra commands:
+   
+   [0]s390vm13:~ > crm ra help
+   
+   Resource Agents (RA) lists and documentation.
+   
+   
+   Available commands:
+   
+           classes          list classes and providers
+           list             list RA for a class (and provider)
+           meta             show meta data for a RA
+           providers        show providers for a RA
+   
+   Perhaps you could use that instead of invoking agents by hand.-->
+
+  <para>
+   The scripts of all resource classes
+  can be given parameters which determine how they behave and which
+   instance of a service they control. If your resource agent supports
+   parameters, you can add them with the <command>crm_resource</command>
+   command as described in
+   <remark>taroth 090216: FIXME - add link,
+    if this is covered in our manual</remark>
+<!--<xref linkend=""/>-->
+   .
+     In the <command>crm</command> command line utility, instance attributes
+   are called <literal>params</literal>. The list of instance attributes
+   supported by an OCF script can be found by executing the following
+   command as &rootuser; :
+  </para>
+
+
+
+<screen>crm ra meta <replaceable>resource_agent</replaceable> <replaceable>class</replaceable></screen>
+
+  <para>
+   For example
+  </para>
+
+<screen>crm ra meta Ipaddr ocf heartbeat</screen>
+
+  <para>
+   shows you
+   <remark>taroth 090323: FIXME - check this: lrmadmin[10377]: 2009/03/23_17:42:45 ERROR:
+    lrm_get_rsc_type_metadata(575): got a return code HA_FAIL from a reply message of rmetadata with
+    function get_ret_from_msg. ERROR: could not parse meta-data for (ocf,Ipaddr,heartbeat) </remark>
+<!--The output contains an XML description of all the supported attributes,
+   their purpose and default values.-->
+  </para>
+ </sect1>
+</chapter>

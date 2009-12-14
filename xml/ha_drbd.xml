@@ -1,0 +1,601 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd" [
+ <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+ <!ENTITY % entities SYSTEM "entity-decl.ent">
+ %entities;
+]>
+<!-- Fate #305039 -->
+<chapter id="cha.ha.drbd">
+ <title>Distributed Replicated Block Device (DRBD)</title>
+ <para>
+  DRBD allows you to create a mirror of two block devices that are located
+  at two different sites across an IP network. When used with &ais;, DRBD
+  supports distributed high-availability Linux clusters.
+ </para>
+ <important>
+  <para>
+   The data traffic between mirrors is not encrypted. For secure data
+   exchange, you should deploy a virtual private network (VPN) solution for
+   the connection.
+  </para>
+ </important>
+ <para>
+  Data on the primary device is replicated to the secondary device in a way
+  that ensures that both copies of the data remain identical. When using a
+  cluster aware file system such as ocfs2, it is also possible to run both
+  nodes as primary devices.
+ </para>
+ <para>
+  By default, DRBD uses the TCP port 7788 for communications between DRBD
+  nodes. Make sure that your firewall does not prevent communication on this
+  port.
+ </para>
+<!-- TODO I did not find any such limitation on the web. Maybe that is old
+ <para>
+  The open source version of DRBD supports up to 4 TB as maximal overall
+  size of all devices. If you need a device larger than 4 TB, you can use
+  DRBD+, which is commercially available from Linbit.
+ </para> -->
+ <para>
+  You must set up the DRBD devices before creating file systems on them.
+  Everything pertaining to user data should be done solely via the
+  <filename>/dev/drbd&lt;n&gt;</filename> device and not on the raw device,
+  as DRBD uses the last 128 MB of the raw device for metadata. Make sure to
+  create file systems only on the <filename>/dev/drbd&lt;n&gt;</filename>
+  device and not on the raw device.
+ </para>
+ <para>
+  For example, if the raw device is 1024 MB in size, the DRBD device has
+  only 896 MB available for data, with 128 MB hidden and reserved for the
+  metadata. Any attempt to access the space between 896 MB and 1024 MB fails
+  because it is not available for user data.
+ </para>
+ <sect1 id="sec.ha.drbd.install">
+  <title>Installing DRBD Services</title>
+
+  <para>
+   To install the needed packages for <systemitem>drbd</systemitem>, install
+   the &hasi; Add-On product on both &sls; machines in your networked
+   cluster as described in <xref
+    linkend="part.install"/>. Installing
+   &hasi; also installs the <command>drbd</command> program files.
+  </para>
+
+  <para>
+   If you do not need the complete cluster stack but just want to use drbd,
+   you may also add the &hasi; Add-On product, and proceed with installing
+   <systemitem>drbd</systemitem>. This will also install the needed kernel
+   modules.
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.drbd.configure">
+  <title>Configuring the DRBD Service</title>
+
+  <note>
+   <para>
+    The following procedure uses the server names node 1 and node 2, and the
+    cluster resource name r0. It sets up node 1 as the primary node. Make
+    sure to modify the instructions to use your own node and file names.
+   </para>
+  </note>
+
+  <procedure id="step.drbd.configure">
+   <step>
+    <para>
+     Start &yast; and select the configuration module
+     <menuchoice><guimenu>Miscellaneous</guimenu><guimenu>drbd</guimenu></menuchoice>.
+    </para>
+   </step>
+   <step>
+    <para>
+     In <menuchoice><guimenu>Start-up
+     Configuration</guimenu><guimenu>Booting</guimenu></menuchoice> select
+     <guimenu>On</guimenu> to start drbd always at boot time.
+    </para>
+   </step>
+   <step>
+    <para>
+     If you need to configure more than one replicated resource, select
+     <guimenu>Global Configuration</guimenu>. The input field <guimenu>Minor
+     Count</guimenu> selects how many different drbd resources may be
+     configured without restarting the computer.
+    </para>
+   </step>
+   <step>
+    <para>
+     The actual configuration of the resource is done in <guimenu>Resource
+     Configuration</guimenu>. Press <guimenu>Add</guimenu> to create a new
+     resource. The following parameters have to be set:
+    </para>
+    <informaltable>
+     <tgroup cols="2">
+      <tbody>
+       <row>
+        <entry>
+         <para>
+          <guimenu>Resource Name</guimenu>
+         </para>
+        </entry>
+        <entry>
+         <para>
+          The name of the resource, often called <literal>r0</literal>.
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry>
+         <para>
+          <guimenu>Name</guimenu>
+         </para>
+        </entry>
+        <entry>
+         <para>
+          The hostname of the relevant node.
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry>
+         <para>
+          <guimenu>Address:Port</guimenu>
+         </para>
+        </entry>
+        <entry>
+         <para>
+          The IP address and port number of the respective node.
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry>
+         <para>
+          <guimenu>Device</guimenu>
+         </para>
+        </entry>
+        <entry>
+         <para>
+          The device that holds the replicated data on the respective node.
+          Use this device to create file systems and mount operations.
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry>
+         <para>
+          <guimenu>Disk</guimenu>
+         </para>
+        </entry>
+        <entry>
+         <para>
+          The device that is replicated between both nodes.
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry>
+         <para>
+          <guimenu>Meta-disk</guimenu>
+         </para>
+        </entry>
+        <entry>
+         <para>
+          The <guimenu>Meta-disk</guimenu> is either set to the value
+          <literal>internal</literal> or specifies an explicit device
+          extended by an index to hold the meta data needed by drbd.
+         </para>
+         <para>
+          When using <literal>internal</literal>, the last 128 MB of the
+          replicated device are used to store the meta data.
+         </para>
+         <para>
+          A real device may also be used for multiple drbd resources. For
+          example, if your <guimenu>Meta-Disk</guimenu> is
+          <filename>/dev/sda6[0]</filename> for the first resource, you may
+          use <filename>/dev/sda6[1]</filename> for the second resource.
+          However, there must be at least 128 MB space for each resource
+          available on this disk.
+         </para>
+        </entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </informaltable>
+    <para>
+     All of these options are explained in the examples in the
+     <filename>/usr/share/doc/packages/drbd/drbd.conf</filename> file and in
+     the man page of <command>drbd.conf(5)</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Copy the <filename>/etc/drbd.conf</filename> file to the
+     <filename>/etc/drbd.conf</filename> location on the secondary server
+     (node 2).
+    </para>
+<screen>
+scp /etc/drbd.conf &lt;node 2&gt;:/etc
+</screen>
+   </step>
+   <step>
+    <para>
+     Initialize and start the DRBD service on both systems by entering the
+     following on each node:
+    </para>
+<!-- TODO: do we need drbdadm create-md r0 ? -->
+<!-- it does not work without the create-md for me -->
+<screen>
+drbdadm create-md r0
+rcdrbd start
+</screen>
+   </step>
+   <step>
+    <para>
+     Configure <filename>node1</filename> as the primary node by entering
+     the following on <filename>node1</filename>:
+    </para>
+<screen>
+drbdsetup /dev/drbd0 primary --overwrite-data-of-peer
+</screen>
+   </step>
+   <step>
+    <para>
+     Check the DRBD service status by entering the following on each node:
+    </para>
+<screen>
+rcdrbd status
+</screen>
+    <para>
+     Before proceeding, wait until the block devices on both nodes are fully
+     synchronized. Repeat the <command>rcdrbd status</command> command to
+     follow the synchronization progress.
+    </para>
+   </step>
+   <step>
+    <para>
+     After the block devices on both nodes are fully synchronized, format
+     the DRBD device on the primary with a file system such as reiserfs. Any
+     Linux file system can be used. For example, enter
+    </para>
+<screen>
+mkfs.reiserfs -f /dev/drbd0 
+</screen>
+    <important>
+     <para>
+      Always use the <filename>/dev/drbd&lt;n&gt;</filename> name in the
+      command, not the actual <filename>/dev/disk</filename> device name.
+     </para>
+    </important>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.drbd.test">
+  <title>Testing the DRBD Service</title>
+
+  <para>
+   If the install and configuration procedures worked as expected, you are
+   ready to run a basic test of the DRBD functionality. This test also helps
+   with understanding how the software works.
+  </para>
+
+  <procedure id="proc.drbd.test">
+   <step>
+    <para>
+     Test the DRBD service on node 1.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Open a terminal console, then log in as
+       <systemitem>root</systemitem>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Create a mount point on node 1, such as
+       <filename>/srv/r0mount</filename>.
+      </para>
+<screen>
+mkdir -p /srv/r0mount
+</screen>
+     </step>
+     <step>
+      <para>
+       Mount the <command>drbd</command> device.
+      </para>
+<screen>
+mount -o rw /dev/drbd0 /srv/r0mount
+</screen>
+     </step>
+     <step>
+      <para>
+       Create a file from the primary node.
+      </para>
+<screen>
+touch /srv/r0mount/from_node1
+</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Test the DRBD service on node 2.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Open a terminal console, then log in as
+       <systemitem>root</systemitem>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Dismount the disk on node 1.
+      </para>
+<screen>
+umount /srv/r0mount
+</screen>
+     </step>
+     <step>
+      <para>
+       Downgrade the DRBD service on node 1 by typing the following command
+       on node 1:
+      </para>
+<screen>
+drbdadm secondary r0
+</screen>
+     </step>
+     <step>
+      <para>
+       On node 2, promote the DRBD service to primary.
+      </para>
+<screen>
+drbdadm primary r0
+</screen>
+     </step>
+     <step>
+      <para>
+       On node 2, check to see if node 2 is primary.
+      </para>
+<screen>
+rcdrbd status
+</screen>
+     </step>
+     <step>
+      <para>
+       On node 2, create a mount point such as
+       <filename>/srv/r0mount</filename>.
+      </para>
+<screen>
+mkdir /srv/r0mount
+</screen>
+     </step>
+     <step>
+      <para>
+       On node 2, mount the DRBD device.
+      </para>
+<screen>
+mount -o rw /dev/drbd0 /srv/r0mount
+</screen>
+     </step>
+     <step>
+      <para>
+       Verify that the file you created on node 1 is viewable.
+      </para>
+<screen>
+ls /srv/r0mount
+</screen>
+      <para>
+       The <filename>/srv/r0mount/from_node1</filename> file should be
+       listed.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     If the service is working on both nodes, the DRBD setup is complete.
+    </para>
+   </step>
+   <step>
+    <para>
+     Set up node 1 as the primary again.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Dismount the disk on node 2 by typing the following command on node
+       2:
+      </para>
+<screen>
+umount /srv/r0mount
+</screen>
+     </step>
+     <step>
+      <para>
+       Downgrade the DRBD service on node 2 by typing the following command
+       on node 2:
+      </para>
+<screen>
+drbdadm secondary r0
+</screen>
+     </step>
+     <step>
+      <para>
+       On node 1, promote the DRBD service to primary.
+      </para>
+<screen>
+drbdadm primary r0
+</screen>
+     </step>
+     <step>
+      <para>
+       On node 1, check to see if node 1 is primary.
+      </para>
+<screen>
+rcdrbd status
+</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     To get the service to automatically start and fail over if the server
+     has a problem, you can set up DRBD as a high availability service with
+     &ais;. For information about installing and configuring &ais; for &sle;
+     11 see <xref linkend="part.config"/>.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.drbd.trouble">
+  <title>Troubleshooting DRBD</title>
+
+  <para>
+   The drbd setup involves many different components and problems may arise
+   from different sources. The following sections cover several common
+   scenarios and recommends various solutions.
+  </para>
+
+  <sect2 id="sec.ha.drbd.trouble.config">
+   <title>Configuration</title>
+   <para>
+    If the initial <systemitem>drbd</systemitem> setup does not work as
+    expected, there is probably something wrong with your configuration.
+   </para>
+   <para>
+    To get information about the configuration:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Open a terminal console, then log in as <systemitem>root</systemitem>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Test the configuration file by running <command>drbdadm</command> with
+      the <command>-d</command> option. Enter
+     </para>
+<screen>
+drbdadm -d adjust r0
+</screen>
+     <para>
+      In a dry run of the <command>adjust</command> option,
+      <command>drbdadm</command> compares the actual configuration of the
+      DRBD resource with your DRBD configuration file, but it does not
+      execute the calls. Review the output to make sure you know the source
+      and cause of any errors.
+     </para>
+    </step>
+    <step>
+     <para>
+      If there are errors in the <filename>drbd.conf</filename> file,
+      correct them before continuing.
+     </para>
+    </step>
+    <step>
+     <para>
+      If the partitions and settings are correct, run
+      <command>drbdadm</command> again without the <command>-d</command>
+      option.
+     </para>
+<screen>
+drbdadm adjust r0
+</screen>
+     <para>
+      This applies the configuration file to the DRBD resource.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 id="sec.ha.drbd.hostnames">
+   <title>Hostnames</title>
+   <para>
+    For DRBD, hostnames are case sensitive (<systemitem>Node0</systemitem>
+    would be a different host than <systemitem>node0</systemitem>).
+   </para>
+   <para>
+    If you have several network devices and want to use a dedicated network
+    device, the hostname will likely not resolve to the used ip address. In
+    this case, use the parameter <literal>disable-ip-verification</literal>.
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.drbd.port">
+   <title>TCP Port 7788</title>
+   <para>
+    If your system is unable to connect to the peer, this might be a problem
+    with your local firewall. By default, DRBD uses the TCP port 7788 to
+    access the other node. Make sure that this port is accessible on both
+    nodes.
+   </para>
+  </sect2>
+
+  <sect2>
+   <title>DRBD Devices Broken after Reboot</title>
+   <para>
+    In cases when DRBD does not know which of the real devices holds the
+    latest data, it changes to a split brain condition. In this case, the
+    respective DRBD subsystems come up as secondary and do not connect to
+    each other. In this case, the following message is written to
+    <filename>/var/log/messages</filename>:
+   </para>
+<screen>Split-Brain detected, dropping connection!</screen>
+   <para>
+    To resolve this situation, enter the following on the node which has
+    data to be discarded:
+   </para>
+<screen>drbdadm secondary r0 
+drbdadm -- --discard-my-data connect r0</screen>
+   <para>
+    On the node which has the latest data enter the following:
+   </para>
+<screen>drbdadm connect r0</screen>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.drbd.more">
+  <title>Additional Information</title>
+
+  <para>
+   The following open source resources are available for DRBD:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     The following man pages for DRBD are available in the distribution:
+    </para>
+    <simplelist>
+     <member><command>drbd(8)</command>
+     </member>
+     <member><command>drbddisk(8)</command>
+     </member>
+     <member><command>drbdsetup(8)</command>
+     </member>
+     <member><command>drbdadm(8)</command>
+     </member>
+     <member><command>drbd.conf(5)</command>
+     </member>
+    </simplelist>
+   </listitem>
+   <listitem>
+    <para>
+     Find a commented example configuration for DRBD at
+     <filename>/usr/share/doc/packages/drbd/drbd.conf</filename>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The project home page <ulink url="http://www.drbd.org"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <ulink url="http://clusterlabs.org/wiki/DRBD_HowTo_1.0"/> by the Linux
+     Pacemaker Cluster Stack Project.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>
