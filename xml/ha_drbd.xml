@@ -25,7 +25,7 @@
   <para>
    DRBD replicates data on the primary device to the secondary device 
    in a way that ensures that both copies of the data remain identical.
-   Think of it as a networked RAID 1.
+   Think of it as a networked RAID&nbsp;1.
    It mirrors data in real time, so its replication occurs continuously.
    Applications need not to know that in fact their data is stored on 
    different disks.
@@ -33,6 +33,16 @@
    cluster aware file system such as ocfs2, it is also possible to run both
    nodes as primary devices.-->
   </para>
+  
+  <important>
+   <title>Unencrypted Data</title>
+   <para>
+    The data traffic between mirrors is not encrypted. For secure data
+    exchange, you should deploy a virtual private network (VPN) solution for
+    the connection.
+   </para>
+  </important>
+  
   <para>DRBD is a Linux kernel module and sits between the I/O scheduler
    and the filesystem.<remark>insert nice graphic</remark> To
    communicate with DRBD, users use the high-level command 
@@ -40,19 +50,31 @@
    the low-level tool <command>drbdsetup</command>.
   </para>
 
+  <para>DRBD allows you to use any block device supported by Linux,
+   usually it is one of these:</para>
+  <itemizedlist>
+   <listitem>
+    <para>a partition on your hard disk</para>
+   </listitem>
+   <listitem>
+    <para>software RAID</para>
+   </listitem>
+   <listitem>
+    <para>Logical Volume Manager (LVM)</para>
+   </listitem>
+   <listitem>
+    <para>Enterprise Volume Management System (EVMS)</para>
+   </listitem>
+  </itemizedlist>
+  
+  
   <para>
    By default, DRBD uses the TCP port 7780 and above for communications
    between DRBD nodes. Make sure that your firewall does not prevent
    communication on this port.
   </para>
 
-<!--<important>
-   <para>
-    The data traffic between mirrors is not encrypted. For secure data
-    exchange, you should deploy a virtual private network (VPN) solution for
-    the connection.
-   </para>
-  </important>
+<!--
   
   <para>
    You must set up the DRBD devices before creating file systems on them.
@@ -201,8 +223,109 @@
     sure to modify the instructions to use your own node and file names.
    </para>
   </note>
-
+  
+  <para>Before you start configuring DRBD, make sure you have the needed
+  block devices in your Linux nodes. The following text </para>
+  
+    
   <procedure id="step.drbd.configure">
+   <title>Manually Configure DRBD</title>
+   <step>
+    <para>Login as user &rootuser;.</para>
+   </step>
+   <step>
+    <para>Open the file <filename>/etc/drbd.conf</filename> and insert
+     the following lines, if not available:</para>
+    <screen>include "drbd.d/global_common.conf";
+include "drbd.d/*.res";</screen>
+    <para>Beginning with DRBD 8.3 the configuration file is split into
+     separate files, located under the directory
+     <filename>/etc/drbd.d</filename>.</para>
+   </step>
+   <step>
+    <para>Open the file <filename>/etc/drbd.d/r0.res</filename>, change
+     the lines to your situation, and save it:</para>
+    <screen>resource r0 { <co id="co.drbd.config.r0"/>
+ on &wsI; { <co id="co.drbd.config.resname"/>
+    address  &subnetI;.10:7780; <co id="co.drbd.config.address"/>
+    device /dev/drbd_r0 minor 0; <co id="co.drbd.config.device"/>
+    disk /dev/sda1; <co id="co.drbd.config.disk"/>
+    meta-disk internal; <co id="co.drbd.config.meta-disk"/>
+ }
+ on &wsII; {
+    address &subnetI;.11:7780; <xref linkend="co.drbd.config.address"/>
+    device /dev/drbd_r0 minor 0; <xref linkend="co.drbd.config.device"/>
+    disk /dev/sda1 ; <xref linkend="co.drbd.config.disk"/>
+    meta-disk internal; <xref linkend="co.drbd.config.meta-disk"/>
+ }
+}</screen>
+    <calloutlist>
+     <callout arearefs="co.drbd.config.r0">
+      <para>Name of the resource. It is recommended to use resource names like
+       <systemitem>r0</systemitem>, <systemitem>r1</systemitem>, etc.</para>
+     </callout>
+     <callout arearefs="co.drbd.config.resname">
+      <para>The Hostname of the node</para>
+     </callout>
+     <callout arearefs="co.drbd.config.address">
+      <para>The IP address and port number of the respective node. Each
+       resource needs an individual port, usually starting with 7780.</para>
+     </callout>
+     <callout arearefs="co.drbd.config.device">
+      <para>The device name for DRBD. It is recommended to start
+       with <filename>/dev/drbd</filename> and append your resource name
+       (<systemitem>r0</systemitem> in this case).</para>
+     </callout>
+     <callout arearefs="co.drbd.config.disk">
+      <para>The device that is replicated between both nodes. Note, in
+       this example the devices are the same, but it can be different
+       depending on your configuration.</para>
+     </callout>
+     <callout arearefs="co.drbd.config.meta-disk">
+      <para>The meta-disk parameter usually contains the value
+       <literal>internal</literal>, but it is possible to specify an
+       explict device to hold the meta data.</para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>Check the syntax of your configuration file(s). If the
+     following command returned an error, verify your file:</para>
+    <screen>drbdadm dump all</screen>
+   </step>
+   <step>
+    <para>Copy the DRBD configuration files to the other node:</para>
+    <screen>scp /etc/drbd.conf &wsII;:/etc/
+scp /etc/drbd.d/r0.conf &wsII;:/etc/drbd.d/</screen>
+   </step>
+   <step>
+    <para>Initialize the meta data on <emphasis>both</emphasis> systems
+     by entering the following on each node. This step </para>
+    <screen>drbdadm -- --ignore-sanity-checks create-md r0
+rcdrbd start</screen>
+   </step>
+   <step>
+    <para>Watch the DRBD status by entering th efollowing on each node:</para>
+    <screen>rcdrbd status</screen>
+   </step>
+  </procedure>
+  
+  <para>It is possible to rearrange the <literal>device</literal> and
+   <literal>disk</literal> parameters:</para>
+  <screen>resource r0 {
+ device /dev/drbd_r0 minor 0; 
+ disk /dev/sda1; 
+ meta-disk internal;
+ on &wsI; { 
+    address  &subnetI;.10:7780;
+ }
+ on &wsII; {
+    address &subnetI;.11:7780;
+ }
+}</screen>
+  
+  <procedure id="step.drbd.configure__">
+   <title>Using &yast; to Configure DRBD</title>
    <step>
     <para>
      Start &yast; and select the configuration module
