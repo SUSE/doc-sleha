@@ -224,8 +224,9 @@
    </para>
   </note>
   
-  <para>Before you start configuring DRBD, make sure you have the needed
-  block devices in your Linux nodes. The following procedure assumes you
+  <para>Before you start configuring DRBD, make sure your
+  block devices in your Linux nodes are ready and paritioned (if
+  needed). The following procedure assumes you
   have two nodes, &wsI; and &wsII;, and they use the TCP port 7780. Make
   sure this port is open in your firewall.</para>
   <para>To setup DRBD manually, proceed as follows:</para>
@@ -237,96 +238,136 @@
     <para>Login as user &rootuser;.</para>
    </step>
    <step>
-    <para>Open the file <filename>/etc/drbd.conf</filename> and insert
-     the following lines, if not available:</para>
-    <screen>include "drbd.d/global_common.conf";
+    <para>Change DRBD's configuration files:</para>
+    <substeps>
+     <step>
+      <para>Open the file <filename>/etc/drbd.conf</filename> and insert
+       the following lines, if not available:</para>
+      <screen>include "drbd.d/global_common.conf";
 include "drbd.d/*.res";</screen>
-    <para>Beginning with DRBD 8.3 the configuration file is split into
-     separate files, located under the directory
-     <filename>/etc/drbd.d</filename>.</para>
-   </step>
-   <step>
-    <para>Open the file <filename>/etc/drbd.d/r0.res</filename>, change
-     the lines to your situation, and save it:</para>
-    <screen>resource r0 { <co id="co.drbd.config.r0"/>
- on &wsI; { <co id="co.drbd.config.resname"/>
-    address  &subnetI;.10:7780; <co id="co.drbd.config.address"/>
-    device /dev/drbd_r0 minor 0; <co id="co.drbd.config.device"/>
-    disk /dev/sda1; <co id="co.drbd.config.disk"/>
-    meta-disk internal; <co id="co.drbd.config.meta-disk"/>
- }
- on &wsII; {
-    address &subnetI;.11:7780; <xref linkend="co.drbd.config.address"/>
-    device /dev/drbd_r0 minor 0; <xref linkend="co.drbd.config.device"/>
-    disk /dev/sda1 ; <xref linkend="co.drbd.config.disk"/>
-    meta-disk internal; <xref linkend="co.drbd.config.meta-disk"/>
- }
+      <para>Beginning with DRBD 8.3 the configuration file is split into
+       separate files, located under the directory
+        <filename>/etc/drbd.d</filename>.</para>
+     </step>
+     <step>
+      <para>Open the file
+       <filename>/etc/drbd.d/global_common.conf</filename>. It contains
+       already soome pre-definied values. Go to the
+       <literal>startup</literal> section and insert these lines:</para>
+      <screen>startup {
+    # wfc-timeout degr-wfc-timeout outdated-wfc-timeout wait-after-sb;
+    wfc-timeout 1;
+    degr-wfc-timeout 1;
 }</screen>
-    <calloutlist>
-     <callout arearefs="co.drbd.config.r0">
-      <para>Name of the resource. It is recommended to use resource names like
-       <systemitem>r0</systemitem>, <systemitem>r1</systemitem>, etc.</para>
-     </callout>
-     <callout arearefs="co.drbd.config.resname">
-      <para>The Hostname of the node</para>
-     </callout>
-     <callout arearefs="co.drbd.config.address">
-      <para>The IP address and port number of the respective node. Each
-       resource needs an individual port, usually starting with 7780.</para>
-     </callout>
-     <callout arearefs="co.drbd.config.device">
-      <para>The device name for DRBD. It is recommended to start
-       with <filename>/dev/drbd</filename> and append your resource name
-       (<systemitem>r0</systemitem> in this case).</para>
-     </callout>
-     <callout arearefs="co.drbd.config.disk">
-      <para>The device that is replicated between both nodes. Note, in
-       this example the devices are the same, but it can be different
-       depending on your configuration.</para>
-     </callout>
-     <callout arearefs="co.drbd.config.meta-disk">
-      <para>The meta-disk parameter usually contains the value
-       <literal>internal</literal>, but it is possible to specify an
-       explict device to hold the meta data.</para>
-     </callout>
-    </calloutlist>
+      <para>These options are used to reduce the timeouts when booting,
+       see <ulink url="http://www.drbd.org/users-guide-emb/re-drbdconf.html"/>
+       for more details.</para>
+     </step>
+     <step>
+      <para>Open the file <filename>/etc/drbd.d/r0.res</filename>,
+       change the lines to your situation, and save it:</para>
+      <screen>resource r0 { <co id="co.drbd.config.r0"/>
+  device /dev/drbd_r0 minor 0; <co id="co.drbd.config.device"/>
+  disk /dev/sda1; <co id="co.drbd.config.disk"/>
+  meta-disk internal; <co id="co.drbd.config.meta-disk"/>
+  on &wsI; { <co id="co.drbd.config.resname"/>
+    address  &subnetI;.10:7780; <co id="co.drbd.config.address"/>
+  }
+  on &wsII; { <xref linkend="co.drbd.config.resname"/>
+    address &subnetI;.11:7780; <xref linkend="co.drbd.config.address"/>
+  }
+  syncer {
+    rate  7M; <co id="co.drbd.config.syncer-rate"/>
+  }
+}</screen>
+      <calloutlist>
+       <callout arearefs="co.drbd.config.r0">
+        <para>Name of the resource. It is recommended to use resource
+         names like <systemitem>r0</systemitem>,
+          <systemitem>r1</systemitem>, etc.</para>
+       </callout>
+       <callout arearefs="co.drbd.config.device">
+        <para>The device name for DRBD and its minor number. It is
+         recommended to start with <filename>/dev/drbd</filename> and
+         append your resource name (<systemitem>r0</systemitem> in this
+         case).</para>
+       </callout>
+       <callout arearefs="co.drbd.config.disk">
+        <para>The device that is replicated between nodes. Note, in
+         this example the devices are the same on both nodes. If you
+         need different devices, move the <literal>disk</literal>
+         parameter into the <literal>on</literal> section.</para>
+       </callout>
+       <callout arearefs="co.drbd.config.meta-disk">
+        <para>The meta-disk parameter usually contains the value
+         <literal>internal</literal>, but it is possible to specify an
+         explict device to hold the meta data. See 
+         <ulink url="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/>
+         for more information.
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.resname">
+        <para>The <literal>on</literal> section contains the hostname of the node</para>
+       </callout>
+       <callout arearefs="co.drbd.config.address">
+        <para>The IP address and port number of the respective node.
+         Each resource needs an individual port, usually starting with
+         7780.</para>
+       </callout>
+       <callout arearefs="co.drbd.config.syncer-rate">
+        <para>Set the syncronization rate to one third of your bandwith.
+         It only limits the resyncronization, not the mirroring.</para>
+       </callout>
+      </calloutlist>
+     </step>
+   </substeps>
    </step>
    <step>
     <para>Check the syntax of your configuration file(s). If the
-     following command returned an error, verify your file:</para>
+     following command returned an error, verify your files:</para>
     <screen>drbdadm dump all</screen>
    </step>
    <step>
     <para>Copy the DRBD configuration files to the other node:</para>
     <screen>scp /etc/drbd.conf &wsII;:/etc/
-scp /etc/drbd.d/r0.conf &wsII;:/etc/drbd.d/</screen>
+scp /etc/drbd.d/* &wsII;:/etc/drbd.d/</screen>
    </step>
    <step>
     <para>Initialize the meta data on <emphasis>both</emphasis> systems
-     by entering the following on each node. This step </para>
+     by entering the following on each node. </para>
     <screen>drbdadm -- --ignore-sanity-checks create-md r0
 rcdrbd start</screen>
+     <para>If your disk contains already a filesystem that you do not
+      need anymore, destroy the filesystem structure with the following
+      command and repeat this step:</para>
+    <screen>dd if=/dev/zero of=/dev/sdb1 count=10000</screen>
    </step>
    <step>
     <para>Watch the DRBD status by entering th efollowing on each node:</para>
     <screen>rcdrbd status</screen>
+    <para>You should get something like this:</para>
+    <screen>drbd driver loaded OK; device status:
+version: 8.3.7 (api:88/proto:86-91)
+GIT-hash: ea9e28dbff98e331a62bcbcc63a6135808fe2917 build by phil@fat-tyre, 2010-01-13 17:17:27
+m:res  cs         ro                   ds                         p  mounted  fstype
+0:r0   Connected  Secondary/Secondary  Inconsistent/Inconsistent  C</screen>
+     <!-- Add short explanation? -->
+   </step>
+   <step>
+    <para>Start the resync process on your intented primary node (&wsI;
+     in this case):</para>
+    <screen>drbdadm -- --overwrite-data-of-peer primary r0</screen>
+   </step>
+   <step>
+    <para>Check the status again with <command>rcdrbd status</command>
+    and you get:</para>
+    <screen>...
+m:res  cs         ro                 ds                 p  mounted  fstype
+0:r0   Connected  Primary/Secondary  UpToDate/UpToDate  C</screen>
+    <para>The status in the <literal>ds</literal> row (disk status) must
+    be UpToDate on both nodes.</para>
    </step>
   </procedure>
-  
-  <para>It is possible to rearrange the <literal>device</literal> and
-   <literal>disk</literal> parameters to appear after the
-   <literal>resource</literal> keyword:</para>
-  <screen>resource r0 {
- device /dev/drbd_r0 minor 0; 
- disk /dev/sda1; 
- meta-disk internal;
- on &wsI; { 
-    address  &subnetI;.10:7780;
- }
- on &wsII; {
-    address &subnetI;.11:7780;
- }
-}</screen>
   
   <para>To use &yast; to configure DRBD, proceed as follows:</para>
   
