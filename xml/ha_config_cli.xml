@@ -413,17 +413,16 @@ Parameters (* denotes required, [] the default):
    <title>Example Configuration for an NFS Server</title>
    <para>
     To set up the NFS server, three resources are needed: a file system
-    resource, a drbd resource, and a group of an NFS server and an IP
+    resource, a DRBD resource, and a group of an NFS server and an IP
     address. The following subsection shows you how to do it.
    </para>
    <sect3 id="sec.ha.manual_config.example.filesystem">
     <title>Setting Up a File System Resource</title>
     <para>
      The <literal>filesystem</literal> resource is configured as an OCF
-     primitive resource with DRBD (see <xref linkend="cha.ha.drbd"/> for more
-     details.) It has the task of mounting and unmounting a device
+     primitive resource with DRBD. It has the task of mounting and unmounting a device
      to a directory on start and stop requests. In this case, the device is
-     <filename>/dev/drbd0</filename> and the directory to use as mount point
+     <filename>/dev/drbd_r0</filename> and the directory to use as mount point
      is <filename>/srv/failover</filename>. The file system used is
      <literal>xfs</literal>.
     </para>
@@ -434,23 +433,23 @@ Parameters (* denotes required, [] the default):
 <screen>crm(live)# <command>configure</command>
 crm(live)configure# <command>primitive</command> filesystem_resource \
     ocf:heartbeat:Filesystem \
-    params device=/dev/drbd0 directory=/srv/failover fstype=xfs</screen>
+    params device=/dev/drbd_r0 directory=/srv/failover fstype=xfs</screen>
    </sect3>
    <sect3 id="sec.ha.manual_config.example.drbd">
-    <title>Configuring drbd</title>
+    <title>Configuring DRBD</title>
     <para>
-     Before starting with the drbd &ha; configuration, set up a
+     Before starting with the DRBD &ha; configuration, set up a
      <literal>drbd</literal> device manually. Basically this is configuring
-     drbd in <filename>/etc/drbd.conf</filename> and letting it synchronize.
-     The exact procedure for configuring drbd is described in the &storage;.
+     DRBD and letting it synchronize. The exact procedure is described 
+     in <xref linkend="cha.ha.drbd"/>.
      For now, assume that you configured a resource <literal>r0</literal>
-     that may be accessed at the device <filename>/dev/drbd0</filename> on
+     that may be accessed at the device <filename>/dev/drbd_r0</filename> on
      both of your cluster nodes.
     </para>
     <para>
      The <literal>drbd</literal> resource is an OCF master slave resource.
-     This can be found in the description of the metadata of the drbd RA.
-     However, more important is that there are the actions
+     This can be found in the description of the metadata of the DRBD
+     resource agent. However, more important is that there are the actions
      <literal>promote</literal> and <literal>demote</literal> in the
      <literal>actions</literal> section of the metadata. These are mandatory
      for master slave resources and commonly not available to other
@@ -467,13 +466,62 @@ crm(live)configure# <command>primitive</command> filesystem_resource \
     </para>
     <para>
      Use the following commands in the <command>crm</command> shell to
-     configure a master slave resource:
+     configure a DRBD resource:
     </para>
-<screen>crm(live)# <command>configure</command>
-crm(live)configure# <command>primitive</command> drbd_r0 ocf:heartbeat:drbd params
+    <remark>toms 2010-02-08 TODO: Needs to be testet, just notes from my script.</remark>
+    <procedure>
+     <step>
+      <para>Log in as &rootuser;.</para>
+     </step>
+     <step>
+      <para>Start the crm shell with the following option:</para>
+      <screen>crm configure</screen>
+     </step>
+     <step>
+      <para>If you have a two node cluster, set the following
+      properties:</para>
+      <screen>property no-quorum-policy=ignore
+property stonith-enabled=false
+commit</screen>
+     </step>
+     <step>
+      <para>Create a primitive DRBD resource:</para>
+      <screen>crm(live)# <command>configure</command>
+crm(live)configure# <command
+ >primitive</command> drbd_r0 ocf:linbit:drbd params \
+ drbd drbd_resource=r0 op monitor interval="30s"</screen>
+     </step>
+     <step>
+      <para>Display your changes with the <command>show</command>
+       command.</para>
+     </step>
+     <step>
+      <para>Create a master/slave resource:</para>
+      <screen>crm(live)configure# <command
+>ms</command> ms_drbd_r0 res_drbd_r0 meta master-max=1 \
+ master-node-max=1 clone-max=2 clone-node-max=1 notify=true</screen>
+     </step>
+     <step>
+      <para>Specify an colocation and order constraint:</para>
+      <screen>crm(live)configure# <command
+>colocation</command> fs_on_drbd_r0 inf: res_fs_r0 ms_drbd_r0:Master
+crm(live)configure# <command
+>order</command> fs_after_drbd_r0 inf: ms_drbd_r0:promote<!--
+      --> res_fs_r0:start</screen>
+     </step>
+     <step>
+      <para>Commit your changes with the <command>commit</command>
+       command.</para>
+     </step>
+    </procedure>
+    
+<!--<screen>crm(live)# <command>configure</command>
+crm(live)configure# <command
+ >primitive</command> drbd_r0 ocf:linbit:drbd params \
+ drbd drbd_resource=r0 op monitor interval="30s"
 crm(live)configure# <command>ms</command> drbd_resource drbd_r0 \
    meta clone_max=2 clone_node_max=1 master_max=1 master_node_max=1 notify=true
-crm(live)configure# <command>commit</command></screen>
+crm(live)configure# <command>commit</command></screen>-->
    </sect3>
    <sect3 id="sec.ha.manual_config.example.nfs">
     <title>NFS Server and IP Address</title>
