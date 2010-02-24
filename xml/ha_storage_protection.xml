@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+  <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+
+<chapter id="cha.ha.storage.protect">
+ <title>Storage Protection</title>
+ <para>FIXME: new chapter</para>
+ <!--taroth 2010-02-24: the following input was provide by lmb on 2010-02-24-->
+ <!--= Storage protection =
+ 
+ The SLE HA cluster stack's highest priority is protecting the integrity
+ of data. This is achieved by preventing uncoordinated concurrent access
+ to data storage - such as mounting an ext3 file system more than once in
+ the cluster, but also preventing OCFS2 from being mounted if
+ coordination with other cluster nodes is not available. In a
+ well-functioning cluster, Pacemaker will detect if resources are active
+ beyond their concurrency limits and initiate recovery; further, its
+ policy engine will never exceed these limitations.
+ 
+ However, network partitioning or software malfunction could potentially
+ cause scenarios where several coordinators are elected. If this
+ so-called split brain scenario were allowed to unfold, data corruption
+ might occur. Hence, several layers of protection have been added to the
+ cluster stack to mitigate this.
+ 
+ IO fencing/STONITH is the primary component contributing to this goal,
+ since they ensure that, prior to storage activation, all other access is
+ terminated; cLVM2 exclusive activation or OCFS2 file locking support are
+ other mechanisms, protecting against administrative or application
+ faults. Combined appropriately for your setup, these can reliably
+ prevent split-brain scenarios from causing harm.
+ 
+ This chapter describes an IO fencing mechanism that leverages the
+ storage itself, following by a description of an additional layer of
+ protection to ensure exclusive storage access. These two mechanisms can
+ even be combined for higher levels of protection.
+ 
+ 
+ == Storage-based fencing ==
+ 
+ This section describes how scenarios where shared storage is used can
+ leverage said shared storage for very reliable I/O fencing and avoidance
+ of split-brain scenarios.
+ 
+ This mechanism has been used successfully with the Novell Cluster Suite
+ and is also available in a similar fashion for the SLE HA 11 product
+ using the "external/sbd" STONITH agent.
+ 
+ === Description ===
+ 
+ In an environment where all nodes have access to shared storage, a small
+ (1MB) partition is formated for use with sbd. The daemon, once
+ configured, is brought online on each node before the rest of the
+ cluster stack is started, and terminated only after all other cluster
+ components have been shut down - ensuring that cluster resources are
+ never activated without sbd supervision.
+ 
+ The daemon automatically allocates one of the message slots on the
+ partition to itself, and constantly monitors it for messages to itself.
+ Upon receipt of a message, the daemon immediately complies with the
+ request, such as initiating a power-off or reboot cycle for fencing.
+ 
+ The daemon also constantly monitors connectivity to the storage device,
+ and commits suicide in case the partition becomes unreachable,
+ guaranteeing that it is not disconnected from fencing message. (If the
+ cluster data resides on the same logical unit in a different partition,
+ this is not an additional point of failure; the work-load would
+ terminate anyway if the storage connectivity was lost.)
+ 
+ Increased protection is offered through "watchdog" support. Modern
+ systems support a "hardware watchdog" that has to be updated by the
+ software client, or else the hardware will enforce a system restart.
+ This protects against failures of the sbd process itself, such as
+ dieing, or becoming stuck on an IO error.
+ 
+ === Setup guide ===
+ 
+ ==== Requirements ====
+ 
+ The environment must have shared storage reachable by all nodes. It is
+ recommended to create a 1MB partition at the start of the device; in the
+ rest of this text, this is referred to as "/dev/SBD", please substitute
+ your actual pathname (ie, "/dev/sdc1") for this below.
+ 
+ This shared storage segment must not make use of host-based RAID, cLVM2,
+ nor DRBD.
+ 
+ However, using storage-based RAID and multipathing is recommended for
+ increased reliability.
+ 
+ ==== SBD partition ====
+ 
+ All these steps must be performed as root.
+ 
+ After having made very sure that this is indeed the device you want to
+ use, and does not hold any data you need - as the sbd command will
+ overwrite it without further requests for confirmation -, initialize the
+ sbd device:
+ 
+ # sbd -d /dev/SBD create
+ 
+ This will write a header to the device, and create slots for up to 255
+ nodes sharing this device with default timings.
+ 
+ If your sbd device resides on a multipath group, you may need to adjust
+ the timeouts sbd uses, as MPIO's path down detection can cause some
+ latency: after the msgwait timeout, the message is assumed to have been
+ delivered to the node. For multipath, this should be the time required
+ for MPIO to detect a path failure and switch to the next path. You may
+ have to test this in your environment. The node will perform suicide if
+ it has not updated the watchdog timer fast enough; the watchdog timeout
+ must be shorter than the msgwait timeout - half the value is a good
+ estimate. This can be specified when the SBD device is initialized:
+ 
+ # /usr/sbin/sbd -d /dev/SBD -4 $msgwait -1 $watchdogtimeout create
+ 
+ (All timeouts are in seconds.)
+ 
+ You can look at what was written to the device using:
+ 
+ # sbd -d /dev/SBD dump 
+ Header version     : 2
+ Number of slots    : 255
+ Sector size        : 512
+ Timeout (watchdog) : 5
+ Timeout (allocate) : 2
+ Timeout (loop)     : 1
+ Timeout (msgwait)  : 10
+ 
+ As you can see, the timeouts are also stored in the header, to ensure
+ that all participating nodes agree on them.
+ 
+ ==== Setup the software watchdog ====
+ 
+ Additionally, it is highly recommended that you set up your Linux system
+ to use a watchdog. Please refer to the SLES manual for this step(?).
+ 
+ This involves loading the proper watchdog driver on system boot. On HP
+ hardware, this is the "hpwdt" module. For systems with a Intel TCO,
+ "iTCO_wdt" can be used. "softdog" is the most generic driver, but it is
+ recommended that you use one with actual hardware integration. (See
+ "drivers/watchdog" in the kernel package for a list of choices.)
+ 
+ ==== Starting the sbd daemon ====
+ 
+ The sbd daemon is a critical piece of the cluster stack. It must always
+ be running when the cluster stack is up, or even when the rest of it has
+ crashed, so that it can be fenced.
+ 
+ The openais init script starts and stops SBD if configured; add the
+ following to /etc/sysconfig/sbd:
+ 
+ ===
+ SBD_DEVICE="/dev/SBD"
+ # The next line enables the watchdog support:
+ SBD_OPTS="-W"
+ === 
+ 
+ If the SBD device is not accessible, the daemon will fail to start and
+ inhibit openais startup.
+ 
+ Note: If the SBD device becomes inaccessible from a node, this could
+ cause the node to enter an infinite reboot cycle. That is technically
+ correct, but depending on your administrative policies, might be a
+ considered a nuisance. You may wish to not automatically start up
+ openais on boot in such cases.
+ 
+ Before proceeding, ensure that SBD has indeed started on all nodes
+ through "rcopenais restart".
+ 
+ === Testing SBD ===
+ 
+ The command
+ 
+ # sbd -d /dev/SBD list
+ 
+ Will dump the node slots, and their current messages, from the sbd
+ device. You should see all cluster nodes that have ever been started
+ with sbd being listed there; most likely with the message slot showing
+ "clear".
+ 
+ You can now try sending a test message to one of the nodes:
+ 
+ # sbd -d /dev/SBD message nodea test
+ 
+ The node will acknowledge the receipt of the message in the system logs:
+ 
+ Aug 29 14:10:00 nodea sbd: [13412]: info: Received command test from nodeb
+ 
+ This confirms that SBD is indeed up and running on the node, and that it
+ is ready to receive messages.
+ 
+ 
+ ==== Configuring the fencing resource ====
+ 
+ To complete the sbd setup, it is necessary to activate sbd as a
+ STONITH/fencing mechanism in the CIB as follows:
+ 
+ # crm
+ configure
+ property stonith-enabled="true"
+ property stonith-timeout="30s"
+ primitive stonith:external/sbd params sbd_device="/dev/SBD"
+ commit
+ quit
+ 
+ Note that since node slots are allocated automatically, no manual
+ hostlist needs to be defined.
+ 
+ The SBD mechanism is used instead of other fencing/stonith mechanisms;
+ please disable any others you might have configured before.
+ 
+ Once the resource has started, your cluster is now successfully
+ configured for shared-storage fencing, and will utilize this method in
+ case a node needs to be fenced.
+ 
+ 
+ == Ensuring exclusive storage activation ==
+ 
+ This section introduces "sfex" , an additional low-level mechanism to
+ "lock" access to shared storage exclusively to one node. By design, this
+ cannot be used in conjunction with workloads that require concurrency
+ (such as OCFS2), but serves as a layer of protection for classic
+ fail-over style workloads. This is similar to a SCSI-2 reservation in
+ effect, but more general.
+ 
+ === Description ===
+ 
+ In a shared storage environment, a small partition of the storage is set
+ aside for storing one or more locks. 
+ 
+ Before acquiring protected resources, the node must first acquire the
+ protecting lock; the ordering is enforced by Pacemaker, and the sfex
+ component ensures that even if Pacemaker were subject to a split-brain
+ situation, the lock will never be granted more than once.
+ 
+ These locks must also be refreshed periodically, so that a node's death
+ does not permanently block the lock and other nodes can proceed.
+ 
+ === Requirements ===
+ 
+ Create a shared partition for use with sfex. Note the name of this
+ partition and substitute it for "/dev/sfex" below.
+ 
+ This partition should ideally be on the same logical unit as the data
+ you wish to protect; similarly to the SBD device, this may not use
+ host-based RAID or DRBD, though a cLVM2 logical volume could be used.
+ 
+ A single sfex partition can hold any number of locks; it defaults to
+ one, and needs 1kB of storage space allocated per lock.
+ 
+ === Setup ===
+ 
+ Create the sfex meta-data with the following command:
+ 
+ # sfex_init -i 1 /dev/sfex
+ 
+ Verify that the meta-data has been created correctly:
+ 
+ # sfex_stats -i 1 /dev/sfex ; echo $?
+ 
+ This should return "2", since the lock is not currently held.
+ 
+ 
+ === Integrate sfex into the CIB ===
+ 
+ The sfex lock is represented via a resource in the CIB, configured as
+ follows:
+ 
+ # primitive sfex_1 ocf:heartbeat:sfex \
+ #	params device="/dev/sfex" index="1" collision_timeout="1" lock_timeout="70" monitor_interval="10" \
+ #	op monitor interval="10s" timeout="30s" on_fail="fence"
+ 
+ To protect resources via a sfex lock, create mandatory ordering and
+ placement constraints between the protectees and the sfex resource. If
+ the resource to be protected has the id "filesystem1":
+ 
+ # order order-sfex-1 inf: sfex_1 filesystem1
+ # colocation colo-sfex-1 inf: filesystem1 sfex_1
+ 
+ If using group syntax, add the sfex resource as the first resource to
+ the group:
+ 
+ # group LAMP sfex_1 filesystem1 apache ipaddr
+ 
+ === Interaction with fencing ===
+ 
+ "sfex" does not replace STONITH. In particular since "sfex" requires
+ shared storage, it is recommended that the "external/sbd" fencing
+ mechanism described above is used on another partition of the storage.-->
+ 
+</chapter>
