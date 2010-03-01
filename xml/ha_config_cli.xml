@@ -312,13 +312,12 @@ crm(live)configure#</screen>
    following example is a transcript, adding a monitor operation:
   </para>
 
-<screen># crm
-crm(live)# configure 
-crm(live)configure# show fence-node2 
+<screen># <command>crm</command> configure
+crm(live)configure# <command>show</command> fence-node2 
 primitive fence-node2 stonith:apcsmart \
         params hostlist="node2"
-crm(live)configure# monitor fence-node2 120m:60s
-crm(live)configure# show changed
+crm(live)configure# <command>monitor</command> fence-node2 120m:60s
+crm(live)configure# <command>show</command> changed
 primitive fence-node2 stonith:apcsmart \
         params hostlist="node2" \
         op monitor interval="120m" timeout="60s"
@@ -533,7 +532,7 @@ crm(live)configure# <command>primitive</command> myIP ocf:heartbeat:IPaddr \
       <para>Log in as &rootuser;.</para>
      </step>
      <step>
-      <para>Start the crm shell with the following option:</para>
+      <para>Start the crm shell with the following command:</para>
       <screen>crm configure</screen>
      </step>
      <step>
@@ -924,6 +923,143 @@ crm(live)configure# <command>colocation</command> rsc2 rsc1</screen>
    <para>For an overview, refer to <xref
     linkend="sec.ha.configuration.basics.failback"/>.</para>
   </sect2>
+  <sect2 id="sec.ha.manual_config.utilization">
+   <title>Configuring Placement of Resources Based on Load Impact</title>
+   <para>Configuring Placement of Resources Based on Load Impact</para>
+   <para>Not all resources are equal. Some, such as &xen; guests, require
+    that the node hosting them meets their capacity requirements. If
+    resources are placed such that their combined need exceed the
+    provided capacity, the resources diminish in performance (or even
+    fail). </para>
+   <para>To take this into account, the &hasi; allows you to specify the
+    following parameters: </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      The capacity a certain node <emphasis>provides</emphasis>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The capacity a certain resource <emphasis>requires</emphasis>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      An overall strategy for placement of resources.
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    For detailed background information about the parameters and a
+    configuration example, refer to
+    <xref linkend="sec.ha.configuration.basics.utilization"/>.
+   </para>
+   <para>
+    To configure the resource's requirements and the capacity a node
+    provides, use utilization attributes as described in
+    <xref linkend="pro.ha.config.gui.capacity"/>. You can name the
+    utilization attributes according to your preferences and define as many
+    name/value pairs as your configuration needs.
+   </para>
+   <para>In the following example, we assume that you already have a basic
+     configuration of cluster nodes and resources and now additionally want
+     to configure the capacities a certain node provides and the capacity a
+     certain resource requires. <!--The procedure of adding utilization
+     attributes is basically the same and only differs in
+     <xref
+      linkend="step.ha.config.gui.capacity.node"/> and
+     <xref
+      linkend="step.ha.config.gui.capacity.resource"/>.--></para>
+   <procedure>
+    <title>Adding Or Modifying Utilization Attributes With <command>crm</command></title>
+    <step>
+     <para>Start the <command>crm</command> shell with the following
+     command:</para>
+     <screen><command>crm</command> configure</screen>
+    </step>
+    <step>
+     <para>To specify the capacity a node <emphasis>provides</emphasis>,
+      use the following command and replace the placeholder
+      <replaceable>NODE_1</replaceable> with the name of your node:</para>
+     <screen>crm(live)configure# <command>node</command><!--
+     --> <replaceable>NODE_1</replaceable> utilization memory=16384<!--
+      --> cpu=8</screen>
+     <para>With these values, <replaceable>NODE_1</replaceable> would be
+      assumed to provide 16GB of memory and 8 CPU cores to resources.</para>
+    </step>
+    <step>
+     <para>To specify the capacity a resource
+      <emphasis>requires</emphasis>, use:</para>
+     <screen>crm(live)configure# <command>primitive</command><!--
+     --> xen1 ocf:heartbeat:Xen ... \
+     utilization memory=4096 cpu=4</screen>
+     <para>This would make the resource consume 4096 of those memory
+      units from nodeA, and 4 of the cpu units.</para>
+    </step>
+    <step>
+     <para>Configure the placement strategy with the
+      <command>property</command> command:</para>
+     <screen>crm(live)configure# <command>property</command> ...</screen>
+      <para>Four values are available for the placement strategy:</para>
+     <variablelist>
+      <varlistentry>
+       <term><command>property</command> <option>placement-strategy=default</option></term>
+       <listitem>
+        <para>Utilization values are not taken into account at all; the
+         default. Resources are allocated according to location scoring;
+         if scores are equal, resources are evenly distributed across
+         nodes.</para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><command>property</command> <option>placement-strategy=utilization</option></term>
+       <listitem>
+        <para>Utilization values are taken into account when deciding
+         whether a node is considered eligible if it has sufficient free
+         capacity to satisfy the resource's requirements. However,
+         load-balancing is still done based on number of resources
+         allocated to a node.</para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><command>property</command> <option>placement-strategy=minimal</option></term>
+       <listitem>
+        <para>Utilization values are taken into account when deciding
+         whether a node is eligible to serve a resource; an attempt is
+         made to concentrate the resources on as few nodes as possible,
+         thereby enabling possible power savings on the remaining
+         nodes.</para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><command>property</command> <option>placement-strategy=balanced</option></term>
+       <listitem>
+        <para>Utilization values are taken into account when deciding
+         whether a node is eligible to serve a resource; an attempt is
+         made to spread the resources evenly, optimizing resource
+         performance. </para>
+        <para> The placing strategies are best-effort, and do not yet
+         utilize complex heuristic solvers to always reach an optimum
+         allocation result. Ensure that resource priorities are properly
+         set so that your most important resources are scheduled
+         first.</para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </step>
+    <step>
+     <para>Commit your changes before leaving the crm shell:</para>
+     <screen>crm(live)configure# <command>commit</command></screen>
+    </step>
+   </procedure>
+   
+   
+
+
+   
+  </sect2>
+  
   <sect2 id="sec.ha.manual_config.monitor">
    <title>Configuring Resource Monitoring</title>
    
