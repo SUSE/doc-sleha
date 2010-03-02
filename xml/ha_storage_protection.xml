@@ -7,70 +7,75 @@
 ]>
 <chapter id="cha.ha.storage.protect">
  <title>Storage Protection</title>
- <para>
-  FIXME: new chapter
- </para>
+ <abstract>
+  <!--
+   toms 2010-03-02:
+   This abstract has to be shortend or moved to another sect, but 
+   for the time being, I've inserted it here:
+  -->
+  <para>The SLE HA cluster stack's highest priority is protecting the integrity
+   of data. This is achieved by preventing uncoordinated concurrent access
+   to data storage - such as mounting an ext3 file system more than once in
+   the cluster, but also preventing OCFS2 from being mounted if
+   coordination with other cluster nodes is not available. In a
+   well-functioning cluster, Pacemaker will detect if resources are active
+   beyond their concurrency limits and initiate recovery; further, its
+   policy engine will never exceed these limitations.</para>
+  <para>However, network partitioning or software malfunction could potentially
+   cause scenarios where several coordinators are elected. If this
+   so-called split brain scenario were allowed to unfold, data corruption
+   might occur. Hence, several layers of protection have been added to the
+   cluster stack to mitigate this.</para>
+  <para>IO fencing/STONITH is the primary component contributing to this goal,
+   since they ensure that, prior to storage activation, all other access is
+   terminated; cLVM2 exclusive activation or OCFS2 file locking support are
+   other mechanisms, protecting against administrative or application
+   faults. Combined appropriately for your setup, these can reliably
+   prevent split-brain scenarios from causing harm.</para>
+  <para>This chapter describes an IO fencing mechanism that leverages the
+   storage itself, following by a description of an additional layer of
+   protection to ensure exclusive storage access. These two mechanisms can
+   even be combined for higher levels of protection.</para>
+ </abstract>
+ 
+
+ <sect1 id="sec.ha.storage.fencing">
+  <title>Storage-based Fencing</title>
+  <para>This section describes how scenarios where shared storage is
+   used can leverage said shared storage for very reliable I/O fencing
+   and avoidance of split-brain scenarios.</para>
+  <para>This mechanism has been used successfully with the Novell
+   Cluster Suite and is also available in a similar fashion for the
+   &sle; &ha;&nbsp;11 product using the <quote>external/sbd</quote>
+   &stonith; agent.</para>
+  <sect2 id="sec.ha.storage.description">
+   <title>Description</title>
+   <para>In an environment where all nodes have access to shared storage, a small
+    (1MB) partition is formated for use with sbd. The daemon, once
+    configured, is brought online on each node before the rest of the
+    cluster stack is started, and terminated only after all other cluster
+    components have been shut down - ensuring that cluster resources are
+    never activated without sbd supervision.</para>
+   <para>The daemon automatically allocates one of the message slots on
+    the partition to itself, and constantly monitors it for messages to
+    itself. Upon receipt of a message, the daemon immediately complies
+    with the request, such as initiating a power-off or reboot cycle for
+    fencing.</para>
+   <para>The daemon also constantly monitors connectivity to the storage
+    device, and commits suicide in case the partition becomes
+    unreachable, guaranteeing that it is not disconnected from fencing
+    message. (If the cluster data resides on the same logical unit in a
+    different partition, this is not an additional point of failure; the
+    work-load would terminate anyway if the storage connectivity was
+    lost.)</para>
+  </sect2>
+  
+ </sect1>
+ 
+ 
 <!--taroth 2010-02-24: the following input was provide by lmb on 2010-02-24-->
 <!--= Storage protection =
- 
- The SLE HA cluster stack's highest priority is protecting the integrity
- of data. This is achieved by preventing uncoordinated concurrent access
- to data storage - such as mounting an ext3 file system more than once in
- the cluster, but also preventing OCFS2 from being mounted if
- coordination with other cluster nodes is not available. In a
- well-functioning cluster, Pacemaker will detect if resources are active
- beyond their concurrency limits and initiate recovery; further, its
- policy engine will never exceed these limitations.
- 
- However, network partitioning or software malfunction could potentially
- cause scenarios where several coordinators are elected. If this
- so-called split brain scenario were allowed to unfold, data corruption
- might occur. Hence, several layers of protection have been added to the
- cluster stack to mitigate this.
- 
- IO fencing/STONITH is the primary component contributing to this goal,
- since they ensure that, prior to storage activation, all other access is
- terminated; cLVM2 exclusive activation or OCFS2 file locking support are
- other mechanisms, protecting against administrative or application
- faults. Combined appropriately for your setup, these can reliably
- prevent split-brain scenarios from causing harm.
- 
- This chapter describes an IO fencing mechanism that leverages the
- storage itself, following by a description of an additional layer of
- protection to ensure exclusive storage access. These two mechanisms can
- even be combined for higher levels of protection.
- 
- 
- == Storage-based fencing ==
- 
- This section describes how scenarios where shared storage is used can
- leverage said shared storage for very reliable I/O fencing and avoidance
- of split-brain scenarios.
- 
- This mechanism has been used successfully with the Novell Cluster Suite
- and is also available in a similar fashion for the SLE HA 11 product
- using the "external/sbd" STONITH agent.
- 
- === Description ===
- 
- In an environment where all nodes have access to shared storage, a small
- (1MB) partition is formated for use with sbd. The daemon, once
- configured, is brought online on each node before the rest of the
- cluster stack is started, and terminated only after all other cluster
- components have been shut down - ensuring that cluster resources are
- never activated without sbd supervision.
- 
- The daemon automatically allocates one of the message slots on the
- partition to itself, and constantly monitors it for messages to itself.
- Upon receipt of a message, the daemon immediately complies with the
- request, such as initiating a power-off or reboot cycle for fencing.
- 
- The daemon also constantly monitors connectivity to the storage device,
- and commits suicide in case the partition becomes unreachable,
- guaranteeing that it is not disconnected from fencing message. (If the
- cluster data resides on the same logical unit in a different partition,
- this is not an additional point of failure; the work-load would
- terminate anyway if the storage connectivity was lost.)
+
  
  Increased protection is offered through "watchdog" support. Modern
  systems support a "hardware watchdog" that has to be updated by the
