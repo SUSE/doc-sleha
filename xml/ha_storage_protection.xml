@@ -68,7 +68,102 @@
     different partition, this is not an additional point of failure; the
     work-load would terminate anyway if the storage connectivity was
     lost.)</para>
+   <para>Increased protection is offered through "watchdog" support. Modern
+    systems support a "hardware watchdog" that has to be updated by the
+    software client, or else the hardware will enforce a system restart.
+    This protects against failures of the sbd process itself, such as
+    dieing, or becoming stuck on an IO error.</para>
   </sect2>
+  <sect2 id="sec.ha.storage.setup">
+   <title>Setup Guide</title>
+   <para></para>
+   <sect3 id="sec.ha.storage.requirement">
+    <title>Requirements</title>
+    <para>The environment must have shared storage reachable by all
+     nodes. It is recommended to create a 1MB partition at the start of
+     the device; in the rest of this text, this is referred to as
+      <filename>/dev/SBD</filename>, please substitute your actual
+     pathname (ie, <filename>/dev/sdc1</filename>) for this
+     below.</para>
+    <para>This shared storage segment must not make use of host-based
+    RAID, cLVM2, nor DRBD.</para>
+    <para>However, using storage-based RAID and multipathing is recommended for
+     increased reliability.</para>
+   </sect3>
+   <sect3 id="sec.ha.storage.sdbpartition">
+    <title>SBD Partition</title>
+    <para>All these steps must be performed as root.</para>
+    <para>After having made very sure that this is indeed the device you
+     want to use, and does not hold any data you need&mdash;as the
+      <command>sdb</command> command will overwrite it without further
+      requests for confirmation&mdash;, initialize the sbd device:</para>
+    <screen>sbd -d /dev/SBD create</screen>
+    <para>This will write a header to the device, and create slots for up to 255
+    nodes sharing this device with default timings.</para>
+    <para>If your sbd device resides on a multipath group, you may need
+     to adjust the timeouts sbd uses, as MPIO's path down detection can
+     cause some latency: after the msgwait timeout, the message is
+     assumed to have been delivered to the node. For multipath, this
+     should be the time required for MPIO to detect a path failure and
+     switch to the next path. You may have to test this in your
+     environment. The node will perform suicide if it has not updated
+     the watchdog timer fast enough; the watchdog timeout must be
+     shorter than the msgwait timeout - half the value is a good
+     estimate. This can be specified when the SBD device is
+     initialized:</para>
+    <screen>/usr/sbin/sbd -d /dev/SBD -4 $msgwait -1 $watchdogtimeout create</screen>
+    <para>(All timeouts are in seconds.) You can look at what was
+     written to the device using:</para>
+    <screen># sbd -d /dev/SBD dump 
+ Header version     : 2
+ Number of slots    : 255
+ Sector size        : 512
+ Timeout (watchdog) : 5
+ Timeout (allocate) : 2
+ Timeout (loop)     : 1
+ Timeout (msgwait)  : 10</screen>
+    <para>As you can see, the timeouts are also stored in the header, to
+    ensure that all participating nodes agree on them.</para>
+   </sect3>
+   <sect3 id="sec.ha.storage.setup.watchdog">
+    <title>Setup the Software Watchdog</title>
+    <para>Additionally, it is highly recommended that you set up your
+     Linux system to use a watchdog. Please refer to the SLES manual for
+     this step(?).</para>
+    <para>This involves loading the proper watchdog driver on system boot. On HP
+     hardware, this is the "hpwdt" module. For systems with a Intel TCO,
+     "iTCO_wdt" can be used. "softdog" is the most generic driver, but it is
+     recommended that you use one with actual hardware integration. (See
+     "drivers/watchdog" in the kernel package for a list of choices.)</para>
+   </sect3>
+   <sect3 id="sec.ha.storage.setup.sdbdaemon">
+    <title>Starting the sbd Daemon</title>
+    <para>The sbd daemon is a critical piece of the cluster stack. It
+     must always be running when the cluster stack is up, or even when
+     the rest of it has crashed, so that it can be fenced.</para>
+    <para>The openais init script starts and stops SBD if configured;
+    add the following to /etc/sysconfig/sbd:</para>
+    <screen>SBD_DEVICE="/dev/SBD"
+# The next line enables the watchdog support:
+SBD_OPTS="-W"</screen>
+    <para>If the SBD device is not accessible, the daemon will fail to
+    start and inhibit openais startup.</para>
+    <note>
+     <para>If the SBD device becomes inaccessible from a node,
+      this could cause the node to enter an infinite reboot cycle. That
+      is technically correct, but depending on your administrative
+      policies, might be a considered a nuisance. You may wish to not
+      automatically start up openais on boot in such cases.</para>
+    </note>
+    <para>Before proceeding, ensure that SBD has indeed started on all
+     nodes through "rcopenais restart".</para>
+   </sect3>
+  </sect2>
+  <sect2 id="sec.ha.storage.testing">
+   <title>Testing SBD</title>
+   <para>The command</para>
+  </sect2>
+  
   
  </sect1>
  
@@ -76,107 +171,6 @@
 <!--taroth 2010-02-24: the following input was provide by lmb on 2010-02-24-->
 <!--= Storage protection =
 
- 
- Increased protection is offered through "watchdog" support. Modern
- systems support a "hardware watchdog" that has to be updated by the
- software client, or else the hardware will enforce a system restart.
- This protects against failures of the sbd process itself, such as
- dieing, or becoming stuck on an IO error.
- 
- === Setup guide ===
- 
- ==== Requirements ====
- 
- The environment must have shared storage reachable by all nodes. It is
- recommended to create a 1MB partition at the start of the device; in the
- rest of this text, this is referred to as "/dev/SBD", please substitute
- your actual pathname (ie, "/dev/sdc1") for this below.
- 
- This shared storage segment must not make use of host-based RAID, cLVM2,
- nor DRBD.
- 
- However, using storage-based RAID and multipathing is recommended for
- increased reliability.
- 
- ==== SBD partition ====
- 
- All these steps must be performed as root.
- 
- After having made very sure that this is indeed the device you want to
- use, and does not hold any data you need - as the sbd command will
- overwrite it without further requests for confirmation -, initialize the
- sbd device:
- 
- # sbd -d /dev/SBD create
- 
- This will write a header to the device, and create slots for up to 255
- nodes sharing this device with default timings.
- 
- If your sbd device resides on a multipath group, you may need to adjust
- the timeouts sbd uses, as MPIO's path down detection can cause some
- latency: after the msgwait timeout, the message is assumed to have been
- delivered to the node. For multipath, this should be the time required
- for MPIO to detect a path failure and switch to the next path. You may
- have to test this in your environment. The node will perform suicide if
- it has not updated the watchdog timer fast enough; the watchdog timeout
- must be shorter than the msgwait timeout - half the value is a good
- estimate. This can be specified when the SBD device is initialized:
- 
- # /usr/sbin/sbd -d /dev/SBD -4 $msgwait -1 $watchdogtimeout create
- 
- (All timeouts are in seconds.)
- 
- You can look at what was written to the device using:
- 
- # sbd -d /dev/SBD dump 
- Header version     : 2
- Number of slots    : 255
- Sector size        : 512
- Timeout (watchdog) : 5
- Timeout (allocate) : 2
- Timeout (loop)     : 1
- Timeout (msgwait)  : 10
- 
- As you can see, the timeouts are also stored in the header, to ensure
- that all participating nodes agree on them.
- 
- ==== Setup the software watchdog ====
- 
- Additionally, it is highly recommended that you set up your Linux system
- to use a watchdog. Please refer to the SLES manual for this step(?).
- 
- This involves loading the proper watchdog driver on system boot. On HP
- hardware, this is the "hpwdt" module. For systems with a Intel TCO,
- "iTCO_wdt" can be used. "softdog" is the most generic driver, but it is
- recommended that you use one with actual hardware integration. (See
- "drivers/watchdog" in the kernel package for a list of choices.)
- 
- ==== Starting the sbd daemon ====
- 
- The sbd daemon is a critical piece of the cluster stack. It must always
- be running when the cluster stack is up, or even when the rest of it has
- crashed, so that it can be fenced.
- 
- The openais init script starts and stops SBD if configured; add the
- following to /etc/sysconfig/sbd:
- 
- ===
- SBD_DEVICE="/dev/SBD"
- # The next line enables the watchdog support:
- SBD_OPTS="-W"
- === 
- 
- If the SBD device is not accessible, the daemon will fail to start and
- inhibit openais startup.
- 
- Note: If the SBD device becomes inaccessible from a node, this could
- cause the node to enter an infinite reboot cycle. That is technically
- correct, but depending on your administrative policies, might be a
- considered a nuisance. You may wish to not automatically start up
- openais on boot in such cases.
- 
- Before proceeding, ensure that SBD has indeed started on all nodes
- through "rcopenais restart".
  
  === Testing SBD ===
  
