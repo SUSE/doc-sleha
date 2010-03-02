@@ -38,7 +38,6 @@
    even be combined for higher levels of protection.</para>
  </abstract>
  
-
  <sect1 id="sec.ha.storage.fencing">
   <title>Storage-based Fencing</title>
   <para>This section describes how scenarios where shared storage is
@@ -196,88 +195,71 @@ SBD_OPTS="-W"</screen>
   </sect2>
  </sect1>
  
- <sect1 id="sec.ha.storage.">
+ <sect1 id="sec.ha.storage.exclusive.storage.activation">
   <title>Ensuring Exclusive Storage Activation</title>
-  <para></para>
+  <para>This section introduces "sfex" , an additional low-level
+   mechanism to "lock" access to shared storage exclusively to one node.
+   By design, this cannot be used in conjunction with workloads that
+   require concurrency (such as OCFS2), but serves as a layer of
+   protection for classic fail-over style workloads. This is similar to
+   a SCSI-2 reservation in effect, but more general.</para>
+  <sect2 id="sec.ha.storage.exclusive.storage.activation.description">
+   <title>Description</title>
+   <para> In a shared storage environment, a small partition of the
+   storage is set aside for storing one or more locks.</para>
+   <para>Before acquiring protected resources, the node must first
+    acquire the protecting lock; the ordering is enforced by Pacemaker,
+    and the sfex component ensures that even if Pacemaker were subject
+    to a split-brain situation, the lock will never be granted more than
+    once.</para>
+   <para>These locks must also be refreshed periodically, so that a
+    node's death does not permanently block the lock and other nodes can
+    proceed.</para>
+  </sect2>
+  <sect2 id="sec.ha.storage.exclusive.storage.activation.requirements">
+   <title>Requirements</title>
+   <para>Create a shared partition for use with sfex. Note the name of this
+   partition and substitute it for "/dev/sfex" below.</para>
+   <para>This partition should ideally be on the same logical unit as
+    the data you wish to protect; similarly to the SBD device, this may
+    not use host-based RAID or DRBD, though a cLVM2 logical volume could
+    be used.</para>
+   <para>A single sfex partition can hold any number of locks; it
+    defaults to one, and needs 1kB of storage space allocated per
+    lock.</para>
+  </sect2>
+  <sect2 id="sec.ha.storage.exclusive.storage.activation.setup">
+   <title>Setup</title>
+   <para>Create the sfex meta-data with the following command:</para> 
+   <screen>sfex_init -i 1 /dev/sfex</screen> 
+   <para>Verify that the meta-data has been created correctly:</para>
+   <screen>sfex_stats -i 1 /dev/sfex ; echo $?</screen> 
+   <para>This should return "2", since the lock is not currently held.</para>
+  </sect2>
+  <sect2 id="sec.ha.storage.exclusive.storage.activation.sfex2cib">
+   <title>Integrate sfex into the CIB</title>
+   <para>The sfex lock is represented via a resource in the CIB,
+    configured as follows:</para>
+   <screen>primitive sfex_1 ocf:heartbeat:sfex \
+#	params device="/dev/sfex" index="1" collision_timeout="1" \
+      lock_timeout="70" monitor_interval="10" \
+#	op monitor interval="10s" timeout="30s" on_fail="fence"</screen>
+   <para>To protect resources via a sfex lock, create mandatory ordering
+    and placement constraints between the protectees and the sfex
+    resource. If the resource to be protected has the id
+    "filesystem1":</para>
+   <screen># order order-sfex-1 inf: sfex_1 filesystem1
+# colocation colo-sfex-1 inf: filesystem1 sfex_1</screen>
+   <para>If using group syntax, add the sfex resource as the first
+    resource to the group:</para>
+   <screen># group LAMP sfex_1 filesystem1 apache ipaddr</screen>
+  </sect2>
+  <sect2 id="sec.ha.storage.exclusive.storage.fencing">
+   <title>Interaction with Fencing</title>
+   <para>"sfex" does not replace STONITH. In particular since "sfex" requires
+ shared storage, it is recommended that the "external/sbd" fencing
+ mechanism described above is used on another partition of the storage.</para>
+  </sect2>
  </sect1>
  
- 
-<!--taroth 2010-02-24: the following input was provide by lmb on 2010-02-24-->
-<!--= Storage protection =
-
- 
- 
- == Ensuring exclusive storage activation ==
- 
- This section introduces "sfex" , an additional low-level mechanism to
- "lock" access to shared storage exclusively to one node. By design, this
- cannot be used in conjunction with workloads that require concurrency
- (such as OCFS2), but serves as a layer of protection for classic
- fail-over style workloads. This is similar to a SCSI-2 reservation in
- effect, but more general.
- 
- === Description ===
- 
- In a shared storage environment, a small partition of the storage is set
- aside for storing one or more locks. 
- 
- Before acquiring protected resources, the node must first acquire the
- protecting lock; the ordering is enforced by Pacemaker, and the sfex
- component ensures that even if Pacemaker were subject to a split-brain
- situation, the lock will never be granted more than once.
- 
- These locks must also be refreshed periodically, so that a node's death
- does not permanently block the lock and other nodes can proceed.
- 
- === Requirements ===
- 
- Create a shared partition for use with sfex. Note the name of this
- partition and substitute it for "/dev/sfex" below.
- 
- This partition should ideally be on the same logical unit as the data
- you wish to protect; similarly to the SBD device, this may not use
- host-based RAID or DRBD, though a cLVM2 logical volume could be used.
- 
- A single sfex partition can hold any number of locks; it defaults to
- one, and needs 1kB of storage space allocated per lock.
- 
- === Setup ===
- 
- Create the sfex meta-data with the following command:
- 
- # sfex_init -i 1 /dev/sfex
- 
- Verify that the meta-data has been created correctly:
- 
- # sfex_stats -i 1 /dev/sfex ; echo $?
- 
- This should return "2", since the lock is not currently held.
- 
- 
- === Integrate sfex into the CIB ===
- 
- The sfex lock is represented via a resource in the CIB, configured as
- follows:
- 
- # primitive sfex_1 ocf:heartbeat:sfex \
- #	params device="/dev/sfex" index="1" collision_timeout="1" lock_timeout="70" monitor_interval="10" \
- #	op monitor interval="10s" timeout="30s" on_fail="fence"
- 
- To protect resources via a sfex lock, create mandatory ordering and
- placement constraints between the protectees and the sfex resource. If
- the resource to be protected has the id "filesystem1":
- 
- # order order-sfex-1 inf: sfex_1 filesystem1
- # colocation colo-sfex-1 inf: filesystem1 sfex_1
- 
- If using group syntax, add the sfex resource as the first resource to
- the group:
- 
- # group LAMP sfex_1 filesystem1 apache ipaddr
- 
- === Interaction with fencing ===
- 
- "sfex" does not replace STONITH. In particular since "sfex" requires
- shared storage, it is recommended that the "external/sbd" fencing
- mechanism described above is used on another partition of the storage.-->
 </chapter>
