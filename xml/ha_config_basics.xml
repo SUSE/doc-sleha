@@ -158,6 +158,9 @@
     example, if you want to use an Apache server as a cluster resource, set up
     the Apache server first and complete the Apache configuration before
     starting the respective resource in your cluster. </para>
+   <para>If a resource has specific environment requirements, make sure they are
+    present and identical on all cluster nodes. This kind of configuration is
+    not managed by the &hasi;. You must do this yourself.</para>
    <note>
     <title>Do Not Touch Services Managed by the Cluster</title>
     <para> When managing a resource with the &hasi;, the same resource must
@@ -168,7 +171,7 @@
    <para>However, if you want to check if the service is configured properly,
     start it manually, but make sure that it is stopped again before &ha;
     takes over.</para>
-
+   
    <para> After having configured the resources in the cluster, use the cluster
     management tools to start, stop, clean up, remove or migrate any resources
     manually. For details how to do so, refer to <xref
@@ -208,27 +211,19 @@
      <listitem>
       <para> LSB resource agents are generally provided by the operating
        system/distribution and are found in <filename>/etc/init.d</filename>. To
-       be used with the cluster, they must conform to the LSB specification.
-       <remark>taroth 2010-03-07: as there a number of specifications now - do
-        we need conformity to the most recent specification? or any LSB
-        specification, no matter which?</remark>For
-       example, they must have several actions implemented, which are, at
-       minimum, <literal>start</literal>, <literal>stop</literal>,
+       be used with the cluster, they must conform to the LSB init script
+       specification. For example, they must have several actions implemented,
+       which are, at minimum, <literal>start</literal>, <literal>stop</literal>,
         <literal>restart</literal>, <literal>reload</literal>,
         <literal>force-reload</literal>, and <literal>status</literal>. For more
        information, see <ulink
         url="http://ldn.linuxfoundation.org/lsb/lsb4-resource-page%23Specification"
        />. </para>
-      <remark>taroth 2010-03-07 DEVs, are the following 2 paragraphs still
-       valid?</remark>
       <para> The configuration of those services is not standardized. If you
        intend to use an LSB script with &ha;, make sure that you understand
        how the relevant script is configured. Often you can find information
        about this in the documentation of the relevant package in
-         <filename>/usr/share/doc/packages/<replaceable>PACKAGENAME</replaceable></filename>. </para>
-      <para> Before using an LSB resource, make sure that the configuration of
-       this resource is present and identical on all cluster nodes. The
-       configuration is not managed by &ha;. You must do this yourself.
+         <filename>/usr/share/doc/packages/<replaceable>PACKAGENAME</replaceable></filename>.
       </para>
      </listitem>
     </varlistentry>
@@ -593,12 +588,22 @@
          which it failed)? Default: <literal>never</literal>. </para>
        </entry>
       </row>
-      <!--taroth 2010-03-10: removing allow-migrate and globally-unique 
-       again as they do not not apply here (see ha-devel mails), for the records:
-       * globally-unique is a meta attribute for a clone/master resource type,
-         default=false, it doesn't need to be set in SLE HA 11 environments
-       * allow-migrate is not a general meta attribute like the other meta
-         attributes mentioned here--> 
+      <!--taroth 2010-03-10: removing globally-unique again as it does not
+              apply here (see ha-devel mails): globally-unique is a meta attribute 
+               for a clone/master resource type, default=false, it doesn't need to be 
+               set in SLE HA 11 environments -->
+      <row>
+       <entry>
+        <para>
+         <literal>allow-migrate</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>Allow resource migration for resources which support
+         <literal>migrate_to</literal>/<literal>migrate_from</literal> actions.
+        </para>
+       </entry>
+      </row>
      </tbody>
     </tgroup>
    </table>
@@ -606,8 +611,8 @@
 
   <sect2 id="sec.ha.configuration.basics.inst.attr">
    <title>Instance Attributes</title>
-   <!--
-    The crm now supports a set of ra commands:
+   <!--info by dejan (SLEHA 11)-->
+   <!--The crm now supports a set of ra commands:
     
     [0]s390vm13:~ > crm ra help
     
@@ -633,20 +638,82 @@
     OCF script can be found by executing the following command as
     &rootuser;: </para>
 
-   <screen>crm ra meta <replaceable>resource_agent</replaceable> <replaceable>class</replaceable></screen>
+   <screen>crm ra info <replaceable>[class:[provider:]]resource_agent</replaceable></screen>
+   <para>or, even shorter:</para>
+   <screen>crm ra info <replaceable>resource_agent</replaceable></screen>
+   <para> For example, the command </para>
 
-   <para> For example </para>
+   <screen>crm ra info Ipaddr</screen>
 
-   <screen>crm ra meta Ipaddr ocf heartbeat</screen>
+   <para>returns the following output:</para>
+   <screen>Manages virtual IPv4 addresses (portable version) (ocf:heartbeat:IPaddr)
+    
+This script manages IP alias IP addresses
+It can add an IP alias, or remove one.   
+    
+Parameters (* denotes required, [] the default):
+    
+ip* (string): IPv4 address
+The IPv4 address to be configured in dotted quad notation, for example
+"192.168.1.1".                                                        
+    
+nic (string, [eth0]): Network interface
+The base network interface on which the IP address will be brought
+online.                                                           
+    
+If left empty, the script will try and determine this from the    
+routing table.                                                    
+    
+Do NOT specify an alias interface in the form eth0:1 or anything here;
+rather, specify the base interface only.                              
+    
+cidr_netmask (string): Netmask
+The netmask for the interface in CIDR format. (ie, 24), or in
+dotted quad notation  255.255.255.0).                        
+    
+If unspecified, the script will also try to determine this from the
+routing table.                                                     
+    
+broadcast (string): Broadcast address
+Broadcast address associated with the IP. If left empty, the script will
+determine this from the netmask.                                        
+    
+iflabel (string): Interface label
+You can specify an additional label for your IP address here.
+    
+lvs_support (boolean, [false]): Enable support for LVS DR
+Enable support for LVS Direct Routing configurations. In case a IP
+address is stopped, only move it to the loopback device to allow the
+local node to continue to service requests, but no longer advertise it
+on the network.                                                       
+    
+local_stop_script (string): 
+Script called when the IP is released
+    
+local_start_script (string): 
+Script called when the IP is added
+    
+ARP_INTERVAL_MS (integer, [500]): milliseconds between gratuitous ARPs
+milliseconds between ARPs                                         
+    
+ARP_REPEAT (integer, [10]): repeat count
+How many gratuitous ARPs to send out when bringing up a new address
+    
+ARP_BACKGROUND (boolean, [yes]): run in background
+run in background (no longer any reason to do this)
+    
+ARP_NETMASK (string, [ffffffffffff]): netmask for ARP
+netmask for ARP - in nonstandard hexadecimal format.
+    
+Operations' defaults (advisory minimum):
+    
+start         timeout=90
+stop          timeout=100
+monitor_0     interval=5s timeout=20s</screen>
 
-   <para>
-    <remark>taroth 2010-03-07: this still returns an error: INFO: building help
-     index lrmadmin[24440]: 2010/03/07_16:54:26 ERROR:
-     lrm_get_rsc_type_metadata(578): got a return code HA_FAIL from a reply
-     message of rmetadata with function get_ret_from_msg</remark>
-    <!--The output contains an XML description of all the supported attributes,
+   <!--The output contains an XML description of all the supported attributes,
      their purpose and default values.-->
-   </para>
+
    <note>
     <title>Instance Attributes for Groups, Clones or Masters</title>
     <para>Note that groups, clones and masters do not have instance attributes.
@@ -801,19 +868,17 @@
         </para>
        </entry>
        <entry>
-        <para>
-         <remark>taroth 2010-03-8: according to dejan, not easy to find information on this one.
-          Seems like it prevents notifications. Lars: can you help here?
-         </remark>FIXME</para>
-       <!--lmb 20210-03-09: record-pending can be set either globally or on a per-resource basis to
-        have the CIB reflect the state of "in-flight" operations on resources.
-        Normally the CIB only gets updated once an op finishes.
-        
-        This allows user interfaces to display transient state more accurately
-        and timely (for example, a database would be shown to be "starting"
-        instead of still "stopped"), but since it causes additional CIB updates
-        (the start of every operation needs to be recorded) there is a marginal
-        performance cost, so it isn't enabled by default.-->
+        <!--lmb 20210-03-09: record-pending can be set either globally or on a per-resource basis to
+         have the CIB reflect the state of "in-flight" operations on resources.
+         Normally the CIB only gets updated once an op finishes.
+         This allows user interfaces to display transient state more accurately
+         and timely (for example, a database would be shown to be "starting"
+         instead of still "stopped"), but since it causes additional CIB updates
+         (the start of every operation needs to be recorded) there is a marginal
+         performance cost, so it isn't enabled by default.-->
+        <para>Can be set either globally or for individual resources. Makes the
+         CIB reflect the state of <quote>in-flight</quote> operations on
+         resources.</para>
        </entry>
       </row>
       <row>
