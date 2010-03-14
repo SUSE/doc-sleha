@@ -6,12 +6,7 @@
   %entities;
 ]>
 
-<!--https://bugzilla.novell.com/show_bug.cgi?id=520714:
- In SLE HAE, OCFS2 uses the cluster membership services from Pacemaker. As these
- run in user space, ocfs2 has to be configured on each cluster node to tap into
- them. This is what the clone o2cb cluster resource is doing. The DLM clone
- resource controls the distributed lock manager service, and makes sure this
- service is started on all nodes in the cluster.-->
+
 <!--taroth 2010-02-01: https://fate.novell.com/307371: 
        Read-only GFS2 support
        LMB: call mount-->
@@ -256,46 +251,50 @@
  
  <sect1 id="sec.ha.ocfs2.create.service">
   <title>Configuring OCFS2 Services</title>
-  <para>
-   Before you can create OCFS2 volumes, you must configure the following 
-   resources as services in the cluster: DLM and O2CB.
-  </para>
- 
+  <!--https://bugzilla.novell.com/show_bug.cgi?id=520714-->
+  <para>Before you can create OCFS2 volumes, you must configure the following
+   resources as services in the cluster: DLM and O2CB. OCFS2 uses the cluster
+   membership services from Pacemaker which run in user space. Therefore, DLM
+   and O2CB need to be configured as clone resources that are present on each
+   node in the cluster.</para>
+
   <procedure id="proc.ocfs2.resources">
    <title>Configuring DLM and O2CB Resources</title>
    <para>The following procedure uses the <command>crm</command> shell to
-    configure the cluster resources. Alternatively, you can also configure the
-    resources with the &hbgui;. Follow the steps below for one node in the
-    cluster. After you have committed your changes to the CIB, the changes are
-    automatically synchronized to all cluster nodes.</para>
+    configure the cluster resources. Follow the steps below for one node in the
+    cluster. Alternatively, you can also use the &hb; to configure the
+    resources.</para>
    <step>
-    <para>Open a terminal window and log in as the
-      &rootuser; user or equivalent. </para>
+    <para>Open a terminal window and log in as the &rootuser; user or
+     equivalent. </para>
    </step>
    <step>
     <para>To add the DLM (Distributed Lock Manager) as a resource: </para>
     <substeps>
      <step>
       <para> Start the crm shell and create a new scratch configuration: </para>
-<screen>crm
+      <screen>crm
 cib new stack-glue</screen>
      </step>
      <step>
       <para>Create the DLM service and make it run on all machines in the
        cluster: </para>
-<screen>configure
+      <screen>configure
 primitive dlm ocf:pacemaker:controld op monitor interval=120s
 clone dlm-clone dlm meta globally-unique=false interleave=true
 end</screen>
+      <para>The <literal>dlm</literal> clone resource controls the distributed
+       lock manager service, and makes sure this service is started on all nodes
+       in the cluster.</para>
      </step>
      <step>
       <para> Verify the changes you made before committing them to the CIB: </para>
-<screen>cib diff
+      <screen>cib diff
 configure verify</screen>
      </step>
      <step>
       <para> Upload the configuration to the cluster and exit the shell: </para>
-<screen>cib commit stack-glue
+      <screen>cib commit stack-glue
 quit</screen>
      </step>
     </substeps>
@@ -305,13 +304,12 @@ quit</screen>
     <substeps>
      <step>
       <para> Start the crm shell and create a new scratch configuration: </para>
-<screen>crm
+      <screen>crm
 cib new oracle-glue</screen>
      </step>
      <step>
-      <para>Make the O2CB service start on every node in the
-       cluster:</para>
-<screen>configure
+      <para>Make the O2CB service start on every node in the cluster:</para>
+      <screen>configure
 primitive o2cb ocf:ocfs2:o2cb op monitor interval=120s
 clone o2cb-clone o2cb meta globally-unique=false interleave=true</screen>
      </step>
@@ -319,13 +317,13 @@ clone o2cb-clone o2cb meta globally-unique=false interleave=true</screen>
       <para>To make sure that the O2CB service is only started on nodes that
        also have a copy of the dlm service already running, add a collocational
        constraint: </para>
-<screen>colocation o2cb-with-dlm INFINITY: o2cb-clone dlm-clone
+      <screen>colocation o2cb-with-dlm INFINITY: o2cb-clone dlm-clone
 order start-o2cb-after-dlm mandatory: dlm-clone o2cb-clone
 end</screen>
      </step>
      <step>
       <para> Upload the configuration to the cluster and exit the shell: </para>
-<screen>cib commit oracle-glue
+      <screen>cib commit oracle-glue
 quit</screen>
      </step>
     </substeps>
@@ -457,7 +455,9 @@ quit</screen>
    <title>Mounting an OCFS2 Volume with the Cluster Manager</title>
    <para>To mount an OCFS2 volume with the &ha; software, configure an ocf
      <systemitem class="resource">Filesystem</systemitem> resource in the
-    cluster as follows: </para>
+    cluster. The following procedure uses the <command>crm</command> shell to
+    configure the cluster resources. Alternatively, you can also use the
+    &hb; to configure the resources.</para>
    <step>
     <para>Start the crm shell and create a new scratch configuration: </para>
     <screen>crm
