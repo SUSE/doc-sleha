@@ -339,7 +339,7 @@ quit</screen>
     and fencing. </remark>
   </para>
  </sect1>
-<sect1 id="sec.ha.ocfs2.create">
+ <sect1 id="sec.ha.ocfs2.create">
   <title>Creating OCFS2 Volumes</title>
 
   <para>After you have configured DLM and O2CB as cluster resources as described
@@ -355,12 +355,221 @@ quit</screen>
   </note>
 
   <para>Before you begin, prepare the block devices you plan to use for your
-   OCFS2 volumes. Leave the devices as free space. </para>
+  OCFS2 volumes. Leave the devices as free space. </para>
+  
+  <para>Then create and format the OCFS2 volume with the
+   <command>mkfs.ocfs2</command> as described in 
+   <xref linkend="proc.ocfs2.volume"/>. The most important
+   parameters for the command are listed in 
+   <xref linkend="tab.ha.ofcs2.mkfs.ocfs2.params"/>. For more information and the
+   command syntax, refer to the <command>mkfs.ocfs2</command> man page.</para>
 
+  <table id="tab.ha.ofcs2.mkfs.ocfs2.params">
+   <title>Important OCFS2 Parameters</title>
+   <tgroup cols="2">
+    <thead>
+     <row>
+      <entry>
+       <para> OCFS2 Parameter </para>
+      </entry>
+      <entry>
+       <para> Description and Recommendation </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>Volume Label (<option>-L</option>)</para>
+      </entry>
+      <entry>
+       <para> A descriptive name for the volume to make it uniquely identifiable
+        when it is mounted on different nodes. Use the
+        <command>tunefs.ocfs2</command> utility to modify the label as needed.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>Cluster Size (<option>-C</option>)</para>
+      </entry>
+      <entry>
+       <para> Cluster size is the smallest unit of space allocated to a file to
+        hold the data. For the available options and recommendations, refer to
+        the <command>mkfs.ocfs2</command> man page. </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>Number of Node Slots (<option>-N</option>)</para>
+      </entry>
+      <entry>
+       <para>The maximum number of nodes that can concurrently mount a volume.
+        For each of the nodes, OCFS2 creates separate system files, such as the
+        journals, for each of the nodes. Nodes that access the volume can be a
+        combination of little-endian architectures (such as x86, x86-64, and
+        ia64) and big-endian architectures (such as ppc64 and s390x). </para>
+       <para> Node-specific files are referred to as local files. A node slot
+        number is appended to the local file. For example:
+         <literal>journal:0000</literal> belongs to whatever node is assigned to
+        slot number <literal>0</literal>. </para>
+       <para>Set each volume's maximum number of node slots when you create it,
+        according to how many nodes that you expect to concurrently mount the
+        volume. Use the <command>tunefs.ocfs2</command> utility to increase the
+        number of node slots as needed. Note that the value cannot be decreased.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>Block Size (<option>-b</option>)</para>
+      </entry>
+      <entry>
+       <para>The smallest unit of space addressable by the file system. Specify
+        the block size when you create the volume. For the available options and
+        recommendations, refer to the <command>mkfs.ocfs2</command> man
+        page.</para>
+      </entry>
+     </row>
+     <!--https://bugzilla.novell.com/show_bug.cgi?id=586242#c11-->
+     <row>
+      <entry>
+       <para>Specific Features On/Off 
+        (<option>--fs-features</option>)</para>
+      </entry>
+      <entry>
+       <para>A comma separated list of feature flags can be provided, and
+         <systemitem>mkfs.ocfs2</systemitem> will try to create the file system
+        with those features set according to the list. To turn a feature on,
+        include it in the list. To turn a feature off, prepend
+         <literal>no</literal> to the name.</para>
+       <para>For on overview of all available flags, refer to the
+        <command>mkfs.ocfs2</command> man page.</para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>Pre-Defined Features (<option>--fs-feature-level</option>)</para>
+      </entry>
+      <entry>
+       <para>Allows you to choose from a set of pre-determined filesystem
+        features. For the available options, refer to the
+        <command>mkfs.ocfs2</command> man page.</para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+  
+  <!--comments by coly 2010-03-12-->
+  <!--most of the descriptions below are copied from man page mkfs.ocfs2.8-->
+  <!--If –fs-features-level=max-features parameter passed to mkfs.ocfs2, 
+   the following maxium features are enabled:
+   backup-super, sparse, extended-slotmap, inline-data, metaecc, xattr, 
+   refcount, indexed-dirs, unwritten, usrquota, grpquota-->
+  <!--<para>If you do not specify any specific features when creating and formatting
+   the volume with <command>mkfs.ocfs2</command>, the following features are
+   enabled by default: <option>backup-super</option>, <option>sparse</option>,
+   <option>inline-data</option>, <option>unwritten</option>.</para>-->
+  
+  <!--<para>The most important flags are:</para>
+   <itemizedlist>
+   <listitem>
+   <para><option>local</option>: Create the file system as a local mount, so
+   that it can be mounted without a cluster stack.</para>
+   </listitem>
+   <listitem>
+   <para><option>sparse</option>: Enable support for sparse files. With
+   this, OCFS2 can avoid allocating (and zeroing) data to fill holes. Turn
+   this feature on if you can, otherwise extends and some writes might be
+   less performant.</para>
+   </listitem>
+   <listitem>
+   <para>
+   <option>back-super</option>: By default,
+   <systemitem>mkfs.ocfs2</systemitem> makes up to 6 backup copies of the
+   super block at offsets 1G, 4G, 16G, 64G, 256G and 1T depending on the
+   size of the volume. This can be useful in disaster recovery. This
+   feature is fully compatible with all versions of the file system and
+   generally should not be disabled. </para>
+   </listitem>
+   <listitem>
+   <para><option>unwritten</option>: Enable unwritten extents support. With
+   this turned on, an application can request that a range of clusters be
+   pre-allocated within a file. OCFS2 will mark those extents with a
+   special flag so that expensive data zeroing does not have to be
+   performed. Reads and writes to a pre-allocated region act as reads and
+   writes to a hole, except a write will not fail due to lack of data
+   allocation. This feature requires <option>sparse</option> file support
+   to be turned on. </para>
+   </listitem>
+   <listitem>
+   <para><option>extended-slotmap</option>: The slot-map is a hidden file on
+   an OCFS2 file system which is used to map mounted nodes to system file
+   resources. The extended slot map allows a larger range of possible node
+   numbers, which is useful for userspace cluster stacks. This feature is
+   automatically turned on when needed.</para>
+   </listitem>
+   <listitem>
+   <para><option>inline-data</option>: Enable inline-data support. If this
+   feature is turned on, OCFS2 will store small files and directories
+   inside the inode block. Data is transparently moved out to an extent
+   when it no longer fits inside the inode block. In some cases, this can
+   also make a positive impact on cold cache directory and file operations.
+   </para>
+   </listitem>
+   <listitem>
+   <para>
+   <option>metaecc</option>: Enables metadata checksums. With this enabled,
+   the file system computes and stores the checksums in all metadata
+   blocks. It also computes and stores an error correction code capable of
+   fixing single bit errors. </para>
+   </listitem>
+   <listitem>
+   <para><option>xattr</option>: Enable extended attributes support. With
+   this enabled, users can attach <literal>name:value</literal> pairs to
+   objects within the file system. In OCFS2, the names can be up to 255
+   bytes in length, terminated by the first NUL byte. While it is not
+   required, printable names (ASCII) are recommended. The values can be up
+   to 64KB of arbitrary binary data. Attributes can be attached to all
+   types of inodes: regular files, directories, symbolic links, device
+   nodes, etc. This feature is required for users wanting to use extended
+   security facilities like POSIX ACLs or SELinux. </para>
+   </listitem>
+   
+   <listitem>
+   <para><option>indexed-dirs</option>: Enable directory indexing support.
+   With this feature enabled, the file system creates indexed tree for
+   non-inline directory entries. For large scale directories, directory
+   entry lookup performance from the indexed tree is faster then from the
+   legacy directory blocks.</para>
+   </listitem>
+   <listitem>
+   <para><option>usrquota</option>: Enable user quota support. With this
+   feature enabled, the filesystem will track amount of space and number of
+   inodes (files, directories, symbolic links) each user owns. It is then
+   possible to limit the maximum amount of space or inodes a user can have.
+   See a documentation of the quota-tools package for more details. </para>
+   </listitem>
+   <listitem>
+   <para><option>grpquota</option>: Enable group quota support. With this
+   feature enabled, filesystem will track amount of space and number of
+   inodes (files, directories, symbolic links) each group owns. It is then
+   possible to limit the maximum amount of space or inodes a group can
+   have. See a documentation of the quota-tools package for more details.
+   </para>
+   </listitem>
+   <listitem>
+   <para><option>refcount</option>: Enables creation of reference counted trees. With this
+   enabled, the file system allows users to create inode-based snapshots
+   and clones known as reflinks. </para>
+   </listitem>-->
+  
   <procedure id="proc.ocfs2.volume">
    <title>Creating and Formatting an OCFS2 Volume</title>
-   <para>Execute the following steps only on <emphasis>one</emphasis> of the
-    cluster nodes.</para>
+   <para> Execute
+    the following steps only on <emphasis>one</emphasis> of the cluster nodes. </para>
+   
    <step>
     <para> Open a terminal window and log in as &rootuser;. </para>
    </step>
@@ -376,71 +585,12 @@ quit</screen>
       <filename>/dev/sdb1</filename> that supports up to 16 cluster nodes, use
      the following command:</para>
     <screen>mkfs.ocfs2 -N 16 /dev/sdb1</screen>
-    <para>The following list shows the OCFS2 parameters and the recommended
-     settings:</para>
-    <variablelist>
-     <varlistentry>
-      <term>Volume Label </term>
-      <listitem>
-       <para> A descriptive name for the volume to make it uniquely identifiable
-        when it is mounted on different nodes. </para>
-       <para> Use the <command>tunefs.ocfs2</command> utility to modify the
-        label as needed. </para>
-      </listitem>
-     </varlistentry>
-     <varlistentry>
-      <term>Cluster Size </term>
-      <listitem>
-       <para> Cluster size is the smallest unit of space allocated to a file to
-        hold the data. </para>
-       <para> Options are 4, 8, 16, 32, 64, 128, 256, 512, and 1024 KB. Cluster
-        size cannot be modified after the volume is formatted. </para>
-       <para> Oracle recommends a cluster size of 128 KB or larger for database
-        volumes. Oracle also recommends a cluster size of 32 or 64 KB for Oracle
-        Home. </para>
-      </listitem>
-     </varlistentry>
-     <varlistentry>
-      <term> Number of Node Slots </term>
-      <listitem>
-       <para> The maximum number of nodes that can concurrently mount a volume.
-        For each of the nodes, OCFS2 creates separate system files, such as the
-        journals, for each of the nodes. Nodes that access the volume can be a
-        combination of little-endian architectures (such as x86, x86-64, and
-        ia64) and big-endian architectures (such as ppc64 and s390x). </para>
-       <para> Node-specific files are referred to as local files. A node slot
-        number is appended to the local file. For example: journal:0000 belongs
-        to whatever node is assigned to slot number 0. </para>
-       <para> Set each volume&rsquo;s maximum number of node slots when you
-        create it, according to how many nodes that you expect to concurrently
-        mount the volume. Use the <command>tunefs.ocfs2</command> utility to
-        increase the number of node slots as needed; the value cannot be
-        decreased. </para>
-      </listitem>
-     </varlistentry>
-     <varlistentry>
-      <term>Block Size</term>
-      <listitem>
-       <para> The smallest unit of space addressable by the file system. Specify
-        the block size when you create the volume. </para>
-       <para> Options are 512 bytes (not recommended), 1 KB, 2 KB, or 4 KB
-        (recommended for most volumes). Block size cannot be modified after the
-        volume is formatted. </para>
-      </listitem>
-     </varlistentry>
-    </variablelist>
    </step>
   </procedure>
- <remark>taroth 2010-03-14: todo - add coly's table from ha-devel here</remark>
- <!--comments by coly 2010-03-12-->
-  <!--most of the descriptions (in the table) are copied from man page mkfs.ocfs2.8-->
-  <!--Users are able to set the file system features when build an ocfs2 volume, 
-          if no specific feature provided in mkfs.ocfs2, the following features
-          are enabled as default:  backup-super, sparse, inline-data,  unwritten-->
-  <!--If –fs-features-level=max-features parameter passed to mkfs.ocfs2, 
-          the following maxium features are enabled:
-          backup-super, sparse, extended-slotmap, inline-data, metaecc, xattr, 
-          refcount, indexed-dirs, unwritten, usrquota, grpquota-->
+
+ 
+
+  
  </sect1>
  <sect1 id="sec.ha.ocfs2.mount">
   <title>Mounting OCFS2 Volumes</title>
