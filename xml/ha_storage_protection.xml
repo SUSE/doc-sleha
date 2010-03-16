@@ -23,33 +23,33 @@
    The &ha; cluster stack's highest priority is protecting the integrity of
    data. This is achieved by preventing uncoordinated concurrent access to
    data storage, such as mounting an ext3 file system more than once in the
-   cluster, but also preventing OCFS2 from being mounted if coordination
-   with other cluster nodes is not available. In a well-functioning cluster,
-   Pacemaker will detect if resources are active beyond their concurrency
-   limits and initiate recovery; further, its policy engine will never
+   cluster, but also by preventing OCFS2 from being mounted if coordination
+   with other cluster nodes is not available. In a well-functioning cluster
+   Pacemaker will detect, if resources are active beyond their concurrency
+   limits and initiate recovery; furthermore, its policy engine will never
    exceed these limitations.
   </para>
 
   <para>
    However, network partitioning or software malfunction could potentially
    cause scenarios where several coordinators are elected. If this so-called
-   split brain scenario were allowed to unfold, data corruption might occur.
+   split brain scenario are allowed to unfold, data corruption might occur.
    Hence, several layers of protection have been added to the cluster stack
    to mitigate this.
   </para>
 
   <para>
    IO fencing/&stonith; is the primary component contributing to this goal,
-   since they ensure that, prior to storage activation, all other access is
-   terminated; cLVM2 exclusive activation or OCFS2 file locking support are
-   other mechanisms, protecting against administrative or application
+   since it ensures that all other access prior to storage activation is terminated.
+   cLVM2 exclusive activation or OCFS2 file locking support are
+   other mechanisms, to protect your system against administrative or application
    faults. Combined appropriately for your setup, these can reliably prevent
    split-brain scenarios from causing harm.
   </para>
 
   <para>
    This chapter describes an IO fencing mechanism that leverages the storage
-   itself, following by a description of an additional layer of protection
+   itself, followed by the description of an additional layer of protection
    to ensure exclusive storage access. These two mechanisms can even be
    combined for higher levels of protection.
   </para>
@@ -58,13 +58,12 @@
   <title>Storage-based Fencing</title>
 
   <para>
-   This section describes how scenarios where shared storage is used can
-   leverage said shared storage for very reliable I/O fencing and avoidance
-   of split-brain scenarios.
+   This section describes how to use shared storage for very reliable I/O fencing and 
+   how to avoid split-brain scenarios.
   </para>
 
   <para>
-   This mechanism has been used successfully with the Novell Cluster Suite
+   The storage-based fencing has been used successfully with the Novell Cluster Suite
    and is also available in a similar fashion for the &sle; &ha;&nbsp;11
    product using the <quote>external/sbd</quote> &stonith; agent.
   </para>
@@ -73,22 +72,22 @@
    <title>Description</title>
    <para>
     In an environment where all nodes have access to shared storage, a small
-    (1MB) partition is formated for use with SBD. The daemon, once
+    (1MB) partition is formated for the use with SBD. The daemon, once
     configured, is brought online on each node before the rest of the
-    cluster stack is started, and terminated only after all other cluster
-    components have been shut down&mdash;ensuring that cluster resources are
+    cluster stack is started. It is then terminated after all other cluster
+    components have been shut down&mdash; ensuring that cluster resources are
     never activated without SBD supervision.
    </para>
    <para>
     The daemon automatically allocates one of the message slots on the
-    partition to itself, and constantly monitors it for messages to itself.
-    Upon receipt of a message, the daemon immediately complies with the
+    partition to itself, and constantly monitors it for messages.
+    Upon the receipt of a message, the daemon immediately complies with the
     request, such as initiating a power-off or reboot cycle for fencing.
    </para>
    <para>
-    The daemon also constantly monitors connectivity to the storage device,
+    The daemon constantly monitors connectivity to the storage device,
     and commits suicide in case the partition becomes unreachable,
-    guaranteeing that it is not disconnected from fencing message. (If the
+    guaranteeing that it is not disconnected from fencing messages. (If the
     cluster data resides on the same logical unit in a different partition,
     this is not an additional point of failure; the work-load would
     terminate anyway if the storage connectivity was lost.)
@@ -96,9 +95,9 @@
    <para>
     Increased protection is offered through <quote>watchdog</quote> support.
     Modern systems support a <quote>hardware watchdog</quote> that has to be
-    updated by the software client, or else the hardware will enforce a
+    updated by the software client, otherwise the hardware will enforce a
     system restart. This protects against failures of the SBD process
-    itself, such as dieing, or becoming stuck on an IO error.
+    itself, such as dying, or becoming stuck on an IO error.
    </para>
   </sect2>
 
@@ -109,10 +108,10 @@
     <title>Requirements</title>
     <para>
      The environment must have shared storage reachable by all nodes. It is
-     recommended to create a 1MB partition at the start of the device; in
-     the rest of this text, this is referred to as
+     recommended to create a 1MB partition at the start of the device.
+     In the following, this is referred to as
      <filename>/dev/SBD</filename>, please substitute your actual pathname
-     (ie, <filename>/dev/sdc1</filename>) for this below.
+     (for example, <filename>/dev/sdc1</filename>) for this below.
     </para>
     <para>
      This shared storage segment must not make use of host-based RAID,
@@ -124,25 +123,33 @@
     </para>
    </sect3>
    <sect3 id="sec.ha.storageprotection.fencing.sdbpartition">
-    <title>SBD Partition</title>
+   <procedure>
+   <title>SBD Partition</title>
+   <step>
     <para>
-     All these steps must be performed as root.
+     Log in as &rootuser;.
     </para>
+    </step>
+    <step>
     <para>
-     After having made very sure that this is indeed the device you want to
-     use, and does not hold any data you need&mdash;as the
-     <command>sdb</command> command will overwrite it without further
-     requests for confirmation&mdash;, initialize the SBD device:
+    Make sure you choose the correct device. The <command>sdb</command> 
+    command will overwrite it without further requests for confirmation&mdash;.
     </para>
-<screen>sbd -d /dev/SBD create</screen>
+    </step>
+    <step>
+    <para>
+    Initialize the SBD device with the following command:
+     </para>
+    <screen>sbd -d /dev/SBD create</screen>
     <para>
      This will write a header to the device, and create slots for up to 255
      nodes sharing this device with default timings.
     </para>
+    </step>
+    <step>
     <para>
-     If your SBD device resides on a multipath group, you may need to adjust
-     the timeouts SBD uses, as MPIO's path down detection can cause some
-     latency: after the msgwait timeout, the message is assumed to have been
+    Adjust the timeouts SBD uses, if your SBD device resides on a multipath group, 
+    as MPIO's path down detection can cause some latency. After the msgwait timeout, the message is assumed to have been
      delivered to the node. For multipath, this should be the time required
      for MPIO to detect a path failure and switch to the next path. You may
      have to test this in your environment. The node will perform suicide if
@@ -152,8 +159,8 @@
     </para>
 <screen>/usr/sbin/sbd -d /dev/SBD -4 $msgwait -1 $watchdogtimeout create</screen>
     <para>
-     (All timeouts are in seconds.) You can look at what was written to the
-     device using:
+     All timeouts are in seconds. See what has been written to the
+     device using the following command:
     </para>
 <screen>sbd -d /dev/SBD dump 
  Header version     : 2
@@ -167,12 +174,13 @@
      As you can see, the timeouts are also stored in the header, to ensure
      that all participating nodes agree on them.
     </para>
+    </step>
+    </procedure>
    </sect3>
    <sect3 id="sec.ha.storageprotection.fencing.setupwatchdog">
     <title>Setup the Software Watchdog</title>
     <para>
-     Additionally, it is highly recommended that you set up your Linux
-     system to use a watchdog.
+     It is highly recommended to set up your Linux system to use a watchdog.
      <remark>Please refer to the SLES manual for
      this step(?).</remark>
     </para>
@@ -181,25 +189,31 @@
      hardware, this is the <systemitem>hpwdt</systemitem> module. For
      systems with a Intel TCO, <literal>iTCO_wdt</literal> can be used.
      <literal>softdog</literal> is the most generic driver, but it is
-     recommended that you use one with actual hardware integration. (See
-     <filename>drivers/watchdog</filename> in the kernel package for a list
-     of choices.)
+     recommended that you use one with actual hardware integration. 
+     See <filename>drivers/watchdog</filename> in the kernel package for a list
+     of choices.
     </para>
+    <!-- mdejmek: it is not really explained here HOW to set up a watchdog-->
    </sect3>
    <sect3 id="sec.ha.storageprotection.fencing.setupsdbdaemon">
     <title>Starting the SBD Daemon</title>
     <para>
-     The SBD daemon is a critical piece of the cluster stack. It must always
-     be running when the cluster stack is up, or even when the rest of it
+     The SBD daemon is a critical piece of the cluster stack. It has to be
+     running when the cluster stack is running, or even when part of it
      has crashed, so that it can be fenced.
     </para>
+ 
+ <procedure>
+ <step>
     <para>
-     The &ais; init script starts and stops SBD if configured; add the
+     The &ais; init script starts and stops SBD, if configured. Add the
      following to /etc/sysconfig/sbd:
     </para>
 <screen>SBD_DEVICE="/dev/SBD"
 # The next line enables the watchdog support:
 SBD_OPTS="-W"</screen>
+</step>
+<step>
     <para>
      If the SBD device is not accessible, the daemon will fail to start and
      inhibit openais startup.
@@ -213,10 +227,14 @@ SBD_OPTS="-W"</screen>
       openais on boot in such cases.
      </para>
     </note>
+    </step>
+    <step>
     <para>
      Before proceeding, ensure that SBD has indeed started on all nodes
      through <command>rcopenais</command> <option>restart</option>.
     </para>
+    </step>
+    </procedure>
    </sect3>
   </sect2>
 
