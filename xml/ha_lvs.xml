@@ -32,7 +32,35 @@
  </para>
  <sect1 id="sec.ha.lvs.overview">
   <title>Conceptual Overview</title>
-
+  <!--Concepts
+  LVS hides real servers behind a virtual IP and load balances the
+  incoming request across all cluster nodes based on a scheduling
+  algorithm. It implements transport-layer load balancing inside the Linux W
+  kernel, also called Layer-4 sw itching.
+  T
+  a
+  There are 3 types of LVS load balancing:
+  O
+  Netw ork Address Translation (NAT)
+  Incoming requests arrive at the virtual IP and are forw arded to the
+  real servers by changing the destination IP address. The real
+  servers send the response to the load balancer w hich in turn
+  changes the destination IP address and forw ards the response
+  back to the client.
+  As all traffic goes through the load balancer, it usually becomes a
+  bottleneck for the cluster.
+  IP Tunneling
+  LVS sends requests to real servers through an IP tunnel
+  (redirecting to a different IP address) and the real servers reply
+  directly to the client using their ow n routing tables. Cluster
+  members can be in different subnets.
+  Direct routing
+  Packets from end users are forw arded directly to the real server.
+  The IP packet is not modified as the real servers are configured to
+  accept traffic for the shared cluster virtual IP address by using a
+  virtual non-ARP alias interface. The response from the real server
+  is send directly to the client. The real servers and load-balancer
+  (LVS) have to be in the same physical netw ork segment. (layer 2)-->
   <para>
    LVS consists of two main components:
   </para>
@@ -129,22 +157,41 @@
 
   <para>You can configure kernel-based IP load balancing with the &yast; iplb module. It is a
    front-end for <systemitem class="daemon">ldirectord</systemitem>, a user-space daemon for
-   managing &lvs; and monitoring the real servers.</para>
+   managing &lvs; and monitoring the real servers in an LVS cluster of load balanced virtual
+   servers.</para>
   <para>To access the IP Load Balancing dialog, start &yast; as &rootuser; and select <menuchoice>
     <guimenu>&ha;</guimenu>
     <guimenu>IP Load Balancing</guimenu>
    </menuchoice>. Alternatively, start the &yast; cluster module as &rootuser; on a command
-   line with <command>yast2&nbsp;iplb</command>.</para>
+   line with <command>yast2&nbsp;iplb</command>. The &yast; module writes its configuration
+   to <filename>/etc/ha.d/ldirectord.cf</filename>. This configuration file specifies the virtual
+   services and their associated real servers and tells <systemitem class="daemon"
+    >ldirecord</systemitem> how to configure the server as a LVS redirector. When the daemon is
+   initialized, it creates the virtual services for the cluster. By periodically requesting a known
+   URL and checking the responses, the <systemitem class="daemon">ldirectord</systemitem> daemon
+   monitors the health of the real servers. If a real server fails, it will be removed from the
+   available server list at the load balancer. When the service monitor detects that the dead server
+   has recovered and is working again, it will add the server back to the available server list. For
+   the case that all real servers should be down, a fall-back server can be specified to which to
+   redirect a Web service. Typically the fall-back server is localhost, presenting an emergency page
+   about the Web service being temporarily unavailable.</para>
+  <para>The tabs available in the &yast; module correspond to the sections of the
+    <filename>/etc/ha.d/ldirectord.cf</filename> configuration file, one defining global options and
+   the other one defining the options for the virtual servers. 
+   <remark>taroth 2010-03-16: DEVS, is the following correct?</remark>By default, values defined in the
+  virtual server section override any values defined in the global section.</para>
+
   
-<!--The yast2-iplb writes /etc/ha.d/ldirectord.cf.
-This configuration file tells ldirecord how to configure the server as 
-a LVS redirector.
+  <!--
+
 For HA purpose, the user need to add ldirecord into pacemaker as a
 primitive resource too. So that ldirectord can fail-over to other servers
 on hardware failure.
 We also suggest to use csync2 to sync /etc/ha.d/ldirectord.cf across
 nodes in the cluster.
 -->
+ 
+  
  </sect1>
  
  <sect1>
