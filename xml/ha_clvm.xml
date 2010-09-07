@@ -181,65 +181,38 @@ cLVM) for more information and details to integrate here - really helpful-->
    
    <procedure id="pro.ha.clvm.dlmresource">
     <title>Creating a DLM Resource</title>
-    <!--bcn#619499 and lmb's setup proposal on [ha-devel]-->
+    <!--bcn#633216 and lmb's setup proposal on [ha-devel]-->
     <note>
      <title>DLM Resource for Both cLVM and OCFS2</title>
-     <para>
-      Both cLVM and OCFS2 need to have a DLM resource that runs on all nodes
-      in the cluster and is therefore usually configured as a clone
-      resource. If you have a setup that includes both OCFS2 and cLVM, you
-      have probably already configured a DLM resource as described in
-      <xref
-       linkend="proc.ocfs2.resources"/>. One DLM resource for
-      both OCFS2 and cLVM is enough&mdash;you do not need to create a second
-      DLM resource in that case.
-     </para>
+     <para> Both cLVM and OCFS2 need a DLM resource that runs on all nodes in the
+      cluster and is therefore usually configured as a clone. If you have a setup
+      that includes both OCFS2 and cLVM, configuring 
+      <emphasis>one</emphasis> DLM resource for both
+      OCFS2 and cLVM is enough&mdash;you do not need to create a second DLM
+      resource in that case.</para>
     </note>
-    <step>
-     <para>
-      Start a shell and log in as &rootuser;.
-     </para>
+     <step>
+     <para>Start a shell and log in as &rootuser;. </para>
     </step>
     <step>
-     <para>
-      Run <command>crm <option>configure</option></command>.
-     </para>
+     <para>Run <command>crm <option>configure</option></command>. </para>
     </step>
     <step>
-     <para>
-      Enter the following commands:
-      <remark>taroth 2010-08-18: this needs
-       adjustment if we use just one DLM resource, a base-clone and a base-group
-       as proposed by lmb - see ha_ofcs2.xml</remark>
-     </para>
-     <screen><command>primitive</command> dlm ocf:pacemaker:controld
-      <command>primitive</command> clvm ocf:lvm2:clvmd \
-      params daemon_timeout="30"
-      <command>group</command> dlm-clvm dlm clvm
-      <command>clone</command> dlm-clvm-clone dlm-clvm \
-      meta interleave="true" ordered="true" target-role="Started"</screen>
-     <para>The <literal>interleave</literal> attribute is used for collocation
-      constraints between two clone resources. Setting it to
-      <literal>true</literal> makes sure that the same instances of the clone
-      resources will stay together. The attribute <literal>ordered="true"</literal>
-      makes sure that the instances of the clone resource are started
-      consecutively. <literal>target-role="Started"</literal> tells the cluster to
-      start the resource automatically.</para>
+     <para>Check the current configuration of the cluster resources with
+      <command>show</command>.</para></step>
+    <step>
+     <para>If you have already configured a DLM resource (and a corresponding
+      <literal>base-group</literal> and <literal>base-clone</literal>), continue with <xref
+       linkend="pro.ha.clvm.clvmresource"/>.</para>
+     <para>Otherwise, configure a DLM resource and a corresponding
+      <literal>base-group</literal> and <literal>base-clone</literal> first as
+      described in <xref linkend="proc.ocfs2.resources"/>.</para>
     </step>
     <step>
-     <para>
-      Review your changes with <command>show</command>.
-     </para>
+     <para>Leave the crm live configuration with <command>exit</command>.</para>
     </step>
-    <step>
-     <para>
-      If everything is correct, enter <command>commit</command> and leave
-      <command>crm</command> with <command>exit</command>.
-     </para>
-    </step>
-   </procedure>
-   
-   <!--<procedure id="pro.ha.clvm.clvmresource">
+</procedure>   
+   <procedure id="pro.ha.clvm.clvmresource">
     <title>Creating a cLVM Resource</title>
     <step>
      <para> Start a shell and log in as &rootuser;. </para>
@@ -248,51 +221,67 @@ cLVM) for more information and details to integrate here - really helpful-->
      <para> Run <command>crm <option>configure</option></command>. </para>
     </step>
     <step>
-     <para> To ensure that the volume group is activated cluster-wide, configure
-      a LVM resource as follows: <remark>taroth 2010-08-18: this needs
-       adjustment if we use just one DLM resource, a base-clone and a base-group
-       as proposed by lmb - see ha_ofcs2.xml</remark>
-     </para>
-     <screen><command>primitive</command> vg1 ocf:heartbeat:LVM \
-      params volgrpname="myclusterfs"
-      <command>clone</command> vg1-clone vg1 \
-      meta interleave="true" ordered="true"
-      <command>colocation</command> colo-vg1 inf: vg1-clone dlm-clvm-clone
-      <command>order</command> order-vg1 inf: dlm-clvm-clone vg1-clone</screen>
+     <para>Configure a LVM resource as follows: </para>
+<screen><command>primitive</command> vg1 ocf:heartbeat:LVM \
+      params volgrpname="cluster-vg" \
+      op monitor interval="60" timeout="60"</screen>
     </step>
+    <step>
+     <para>To ensure that the volume group is activated cluster-wide:</para>
+     <substeps>
+      <step><para>Add
+       the LVM resource to the base-group you have created in <xref
+        linkend="proc.ocfs2.resources"/>:</para>       
+     <screen>edit base-group</screen>
+    </step>
+    <step>
+     <para>In the vi editor that opens, modify the group as follows and save
+      your changes:</para>
+     <screen>group base-group dlm o2cb vg1 ocfs2-1</screen>
+     <important>
+        <title>Setup Without OCFS2</title>
+        <para>If your setup does not include OCFS2, make sure omit the
+          <literal>ocfs2-1</literal> primitive from the base-group. The oc2cb
+         primitive can be configured and included in the group anyway,
+         regardless of whether you use OCFS2 or not.</para></important>
+       </step>
+     </substeps>
+     </step>
     <step>
      <para>If you want the volume group to only be activated exclusively on one
-      node, use the following example. In this case, cLVM will protect all
-      logical volumes within the VG from being activated on multiple nodes, as
-      an additional measure of protection for non-clustered applications:
-      <remark>taroth 2010-08-18: this needs adjustment if we use just one DLM
-       resource, a base-clone and a base-group as proposed by lmb - see
-       ha_ofcs2.xml</remark>
-     </para>
-     <screen><command>primitive</command> vg1 ocf:heartbeat:LVM \
-      params volgrpname="myclusterfs" exclusive="yes"
-      <command>colocation</command> colo-vg1 inf: vg1 dlm-clvm-clone
-      <command>order</command> order-vg1 inf: dlm-clvm-clone vg1</screen>
-    </step>
-    <step>
+      node, configure the LVM resource as described below:<remark>taroth
+       2010-09-07: DEVs, is the following correct? simply add an exclusive="yes"? do I
+       need to add the LVM resource in the base-group anyway? or rather not? 
+       FYI, the former config example was as follows:
+       primitive vg1 ocf:heartbeat:LVM \
+             params volgrpname="myclusterfs" exclusive="yes"
+       colocation colo-vg1 inf: vg1 dlm-clvm-clone
+       order order-vg1 inf: dlm-clvm-clone vg1</remark></para>
+<screen><command>primitive</command> vg1 ocf:heartbeat:LVM \
+       params volgrpname="cluster-vg" exclusive="yes" \
+       op monitor interval="60" timeout="60"</screen>
+     <para>In this case, cLVM will protect all logical volumes within the VG
+      from being activated on multiple nodes, as an additional measure of
+      protection for non-clustered applications.</para>
+      </step>
+      <step>
      <para>
       Review your changes with <command>show</command>.
      </para>
     </step>
     <step>
-     <para>
-      If everything is correct, enter <command>commit</command> and leave
-      <command>crm</command> with <command>exit</command>.
-     </para>
+     <para> If everything is correct, submit your changes with
+      <command>commit</command> and leave the crm live configuration with
+      <command>exit</command>.</para>
     </step>
-   </procedure>-->
+   </procedure>
    <procedure id="pro.ha.clvm.lvmresource">
     <title>Creating an LVM Resource</title>
     <step>
      <para> Start a shell and log in as &rootuser;. </para>
     </step>
     <step>
-     <para> Run <command>crm <option>configure</option></command>. </para>
+     <para> Run <command>crm <option>configure</option></command>.</para>
     </step>
     <step>
      <para> To ensure that the volume group is activated cluster-wide, configure
