@@ -259,7 +259,7 @@ cLVM) for more information and details to integrate here - really helpful-->
   </table>
  </sect1>
  <sect1 id="sec.ha.ocfs2.create.service">
-  <title>Configuring OCFS2 Services</title>
+  <title>Configuring OCFS2 Services and a &stonith; Resource</title>
 
 <!--https://bugzilla.novell.com/show_bug.cgi?id=520714-->
 
@@ -270,15 +270,9 @@ cLVM) for more information and details to integrate here - really helpful-->
    user space. Therefore, DLM and O2CB need to be configured as clone
    resources that are present on each node in the cluster.
   </para>
-
-  <note>
-   <title>&stonith; Device Needed</title>
-   <para>
-    You need to configure a fencing device. Without a &stonith; mechanism
-    (like <literal>external/sbd</literal>) in place the configuration will
-    fail.
-   </para>
-  </note>
+  <para> The following procedure uses the <command>crm</command> shell to
+   configure the cluster resources. Alternatively, you
+   can also use the &hbgui; to configure the resources. </para>
 
   <note>
    <title>DLM Resource for Both cLVM and OCFS2</title>
@@ -295,196 +289,84 @@ cLVM) for more information and details to integrate here - really helpful-->
 
   <procedure id="proc.ocfs2.resources">
    <title>Configuring DLM and O2CB Resources</title>
-   <para>
-    The following procedure uses the <command>crm</command> shell to
-    configure the cluster resources. The configuration consists of a base
-    group and a base clone that can be used in different scenarios
-    afterwards (for both OCFS2 and cLVM, for example)&mdash;you only need to
-    extended them with the respective contents, attributes, constraints or
-    monitoring operations as needed. This facilities the overall setup as
-    you do not have to specify lots of individual groups, clones and their
-    dependencies.
-   </para>
-   <para>
-    Follow the steps below for one node in the cluster. Alternatively, you
-    can also use the &hbgui; to configure the resources.
-   </para>
+   <para>The configuration consists of a
+     <literal>base-group</literal> that includes several primitives and a
+     <literal>base-clone</literal>. Both base-group and base-clone can be used
+    in different scenarios afterwards (for both OCFS2 and cLVM, for
+    example)&mdash;you only need to extended the base-group with the
+    respective primitives as needed. As the base-group has internal collocation
+    and ordering, this facilitates the overall setup as you do not have to
+    specify lots of individual groups, clones and their dependencies. </para>
+   <para> Follow the steps below for one node in the cluster:</para>
    <step>
-    <para>
-     Start a shell and log in as &rootuser; or equivalent.
-    </para>
+    <para> Start a shell and log in as &rootuser; or equivalent. </para>
    </step>
    <step>
-    <para>
-     Run <command>crm <option>configure</option></command>.
-    </para>
+    <para> Run <command>crm <option>configure</option></command>. </para>
    </step>
    <step>
-    <para>
-     Enter the following to create the primitive resources for DLM and O2CB,
-     a <literal>base-group</literal> with a monitoring operation and a
-     <literal>base-clone</literal>:
-     <remark>taroth 2010-08-18: DEVs, is the following a useful configuration
-      and the correct way to do it: first define the primitives, then a group
-      that holds both primitives (and that can be extended for clvm) and then
-      finally clone the group? (as I need to clone both dlm and o2cb but clones
-      must only contain one regular resource or a group) - what about the
-      monitoring operation and the meta attribute? did I add them to the correct
-     items below?</remark>
-    </para>
-<screen><command>primitive</command> dlm ocf:pacemaker:controld
-<command>primitive</command> o2cb ocf:ocfs2:o2cb
-<command>group</command> base-group dlm o2cb op monitor interval=120s
+    <para>Enter the following to create the primitive resources for DLM and
+     O2CB: </para>
+    <screen><command>primitive</command> dlm ocf:pacemaker:controld \
+      op monitor interval="60" timeout="60"
+<command>primitive</command> o2cb ocf:ocfs2:o2cb \
+      op monitor interval="60" timeout="60"
+</screen>
+    <para>The <literal>dlm</literal> clone resource controls the distributed
+     lock manager service, and makes sure this service is started on all nodes
+     in the cluster. Due to the base-group's internal collocation and ordering,
+     the <literal>o2cb</literal> service is only started on nodes that also have
+     a copy of the <literal>dlm</literal> service already running.</para>
+   </step>
+   <step>
+    <para>Enter the following to create a base group and a base clone:</para>
+    <screen><command>group</command> base-group dlm o2cb 
 <command>clone</command> base-clone base-group \
-      meta globally-unique=false interleave=true</screen>
+      meta interleave="true"</screen>
    </step>
    <step>
-    <para>
-     To make sure that the O2CB service is only started on nodes that also
-     have a copy of the dlm service already running, add a collocational
-     constraint:
-     <remark>taroth 2010-08-18: DEVs, here I definitely need your
-      help as I have no idea how to modify this to make it match the new
-      construct of base group and base-clone above...</remark>
-    </para>
-<screen>colocation o2cb-with-dlm INFINITY: o2cb-clone dlm-clone
-     order start-o2cb-after-dlm mandatory: dlm-clone o2cb-clone
-     </screen>
+    <para> Review your changes with <command>show</command>. </para>
    </step>
    <step>
-    <para>
-     Review your changes with <command>show</command>.
-    </para>
+    <para> If everything is correct, enter <command>commit</command> and leave
+     <command>crm</command> with <command>exit</command>. </para>
+   </step>
+  </procedure>
+  
+  <note>
+   <title>&stonith; Device Needed</title>
+   <para>
+    You need to configure a fencing device. Without a &stonith; mechanism
+    (like <literal>external/sbd</literal>) in place the configuration will
+    fail.
+   </para>
+  </note>
+  
+  <procedure><title>Configuring a &stonith; Resource</title>
+   <step>
+    <para> Start a shell and log in as &rootuser; or equivalent. </para>
    </step>
    <step>
-    <para>
-     If everything is correct, enter <command>commit</command> and leave
-     <command>crm</command> with <command>exit</command>.
-    </para>
-   </step>
-<!--<step>
-    <para>
-     Open a terminal window and log in as &rootuser; or equivalent.
-    </para>
+    <para> Run <command>crm <option>configure</option></command>. </para>
    </step>
    <step>
-    <para>
-     To add the DLM (Distributed Lock Manager) as a resource:
-    </para>
-    <substeps>
-     <step>
-      <para>
-       Start the crm shell and create a new configuration from scratch:
-      </para>
-<screen>crm
-cib new stack-glue</screen>
-     </step>
-     <step>
-      <para>
-       Create the DLM service and make it run on all machines in the
-       cluster:
-      </para>
-<screen>configure
-primitive dlm ocf:pacemaker:controld op monitor interval=120s
-clone dlm-clone dlm meta globally-unique=false interleave=true
-end</screen>
-      <para>
-       The <literal>dlm</literal> clone resource controls the distributed
-       lock manager service, and makes sure this service is started on all
-       nodes in the cluster.
-      </para>
-     </step>
-     <step>
-      <para>
-       Verify the changes you made before committing them to the CIB:
-      </para>
-<screen>cib diff
-configure verify</screen>
-     </step>
-     <step>
-      <para>
-       Upload the configuration to the cluster and exit the shell:
-      </para>
-<screen>cib commit stack-glue
-quit</screen>
-     </step>
-    </substeps>
-   </step>
-   <step>
-    <para>
-     To add the O2CB configuration:
-    </para>
-    <substeps>
-     <step>
-      <para>
-       Start the crm shell and create a new configuration from scratch:
-      </para>
-<screen>crm
-cib new oracle-glue</screen>
-     </step>
-     <step>
-      <para>
-       Make the O2CB service start on every node in the cluster:
-      </para>
-<screen>configure
-primitive o2cb ocf:ocfs2:o2cb op monitor interval=120s
-clone o2cb-clone o2cb meta globally-unique=false interleave=true</screen>
-     </step>
-     <step>
-      <para>
-       To make sure that the O2CB service is only started on nodes that also
-       have a copy of the dlm service already running, add a collocational
-       constraint:
-      </para>
-<screen>colocation o2cb-with-dlm INFINITY: o2cb-clone dlm-clone
-order start-o2cb-after-dlm mandatory: dlm-clone o2cb-clone
-end
+    <para> Configure <literal>external/sdb</literal> as fencing device with
+      <literal>/dev/sdb2</literal> being a dedicated partition on the shared
+     storage for heartbeating and fencing: </para>
+<screen>
+<command>primitive</command> sbd_stonith stonith:external/sbd \
+   meta target-role="Started"op monitor \
+   interval=15 timeout=15 start-delay=15 \
+   params sbd_device=/dev/sdb2
 </screen>
-     </step>
-     <step>
-      <para>
-       Upload the configuration to the cluster and exit the shell:
-      </para>
-<screen>cib commit oracle-glue
-quit</screen>
-     </step>
-    </substeps>
-   </step>-->
-   <step>
-    <para>
-     To configure a fencing device:
-    </para>
-    <substeps>
-     <step>
-      <para>
-       Start the crm shell and create a new configuration from scratch:
-      </para>
-<screen>crm
-cib new fencing</screen>
-     </step>
-     <step>
-      <para>
-       Configure <literal>external/sdb</literal> as fencing device with
-       <literal>/dev/sdb2</literal> being a dedicated partition on the
-       shared storage for heartbeating and fencing:
-      </para>
-<screen>configure
-primitive sbd_stonith stonith:external/sbd \
-meta target-role="Started"op monitor \
-interval=15 timeout=15 start-delay=15 \
-params sbd_device=/dev/sdb2
-end
-</screen>
-     </step>
-     <step>
-      <para>
-       Upload the configuration to the cluster and exit the shell:
-      </para>
-<screen>cib commit fencing
-quit</screen>
-     </step>
-    </substeps>
-   </step>
+    </step>
+    <step>
+     <para> Review your changes with <command>show</command>. </para>
+    </step>
+    <step>
+     <para> If everything is correct, enter <command>commit</command> and leave
+      <command>crm</command> with <command>exit</command>. </para>
+    </step>
   </procedure>
  </sect1>
  <sect1 id="sec.ha.ocfs2.create">
