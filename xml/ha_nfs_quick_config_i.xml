@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:novdoc-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<!DOCTYPE sect1 PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN"
+                      "novdocx.dtd"
+[
+<!ENTITY % NOVDOC.DEACTIVATE.IDREF "IGNORE">
+<!ENTITY % entities SYSTEM "entity-decl.ent">
+%entities;
+]>
+
+  <sect1 id="sec_ha_quick_nfs_initial">
+    <title>Initial Configuration</title>
+    <para>This section describes the initial configuration of a highly available
+      NFS exports in the context of the Pacemaker cluster manager. Note that the
+      configuration described here will work for NFS clients using NFS versions
+      3 or 4.</para>
+    <sect2 id="sec_ha_quick_nfs_initial_drbd_resource">
+      <title>Configuring a DRBD Resource</title>
+      <para>First, it is necessary to configure a DRBD resource to hold your
+        data. This resource will act as the Physical Volume (PV) of an LVM Volume
+        Group (VG) to be created later. This example assumes that the LVM Volume
+        Group is to be called <literal>nfs</literal>. Hence, the DRBD resource
+        uses that same name.</para>
+      <para>It is highly recommended that you put your resource configuration in
+        a file whose name is identical to that of the resource. As the file must
+        reside in the <literal>/etc/drbd.d</literal> directory, this example
+        uses the <literal>/etc/drbd.d/nfs</literal> file. Its contents
+        should look similar to this:</para>
+      <screen>resource nfs {
+  device /dev/drbd0;
+  disk /dev/sda1;
+  meta-disk internal;
+  on alice {
+    address 10.0.42.1:7790;
+  }
+  on bob {
+    address 10.0.42.2:7790;
+  }
+}</screen>
+      <para os="sles">After you have created this resource, copy the DRBD
+        configuration files to the other DRBD node, using either
+        <command>scp</command> or &csync;. Proceed with initializing and
+        synchronizing the resource, as specified in <xref
+        linkend="step.drbd.configure"/>. For information about &csync;, refer to 
+        <xref linkend="sec.ha.installation.setup.csync2"/>.</para>
+      <para os="linbit">After you have created this resource (and copied the
+        configuration file to the other DRBD node), you must proceed with
+        initializing and synchronizing the resource, as specified in <ulink
+          url="http://www.drbd.org/users-guide/">the DRBD User&#8217;s
+          Guide</ulink>, Section "Configuring DRBD".</para>
+    </sect2>
+
+    <sect2 id="sec_ha_quick_nfs_initial_lvm_config">
+      <title>Configuring LVM</title>
+      <para>To use LVM with DRBD, it is necessary to change some options in the
+        LVM configuration file (<filename>/etc/lvm/lvm.conf</filename>) and to
+        remove stale cache entries on the nodes: </para>
+      <orderedlist>
+        <listitem>
+          <para>Open <filename>/etc/lvm/lvm.conf</filename> in a text
+            editor.</para>
+        </listitem>
+        <listitem>
+          <para>Search for the line starting with <literal>filter</literal> and
+            edit is as follows:</para>
+          <screen>filter = [ "r|/dev/sda.*|" ]</screen>
+          <para>This masks the underlying block device from the list of devices
+            LVM scans for PV signatures. This way, LVM is instructed to read
+            Physical Volume signatures from DRBD devices, rather than from the
+            underlying backing block devices.</para>
+          <para>However, if you are using LVM <emphasis>exclusively</emphasis>
+            on your DRBD devices, then you may also specify the LVM filter as
+            such:</para>
+          <screen>filter = [ "a|/dev/drbd.*|", "r|.*|" ]</screen>
+        </listitem>
+        <listitem>
+          <para>In addition, disable the LVM cache by setting:</para>
+          <screen>write_cache_state = 0</screen>
+        </listitem>
+        <listitem><para>Save your changes to the file.</para></listitem>          
+        <listitem>
+          <para>Delete <filename>/etc/lvm/cache/.cache</filename> to remove any
+            stale cache entries.</para>
+        </listitem>
+        <listitem>
+          <para>Repeat the above steps on the peer node.</para>
+        </listitem>
+      </orderedlist>
+
+      <para>Now you can prepare the Physical Volume, create an LVM Volume Group
+        with Logical Volumes and create file systems on the Logical Volumes.
+        Before you start with the following steps, make sure to have initiated
+        the initial synchronization of your DRBD resource.</para>
+      <important><title>Automatic Synchronization</title>
+        <para>Execute all of the following steps only on the node where your
+          resource is currently in the Primary role. 
+          <remark>taroth 2011-04-19: the reason being??? is it automatically
+            synced to the peer node?</remark> It is <emphasis>not</emphasis> necessary to repeat
+          the commands on the DRBD peer node.</para>
+      </important>
+      
+      <orderedlist>
+        <listitem>
+          <para>To be able to create an LVM Volume Group, first initialize the
+            DRBD resource as an LVM Physical Volume. To do so, issue the
+            following command:</para>
+          <screen>pvcreate /dev/drbd/by-res/nfs</screen></listitem>
+        <listitem><para>Create an LVM Volume Group that includes this PV:</para>
+          <screen>vgcreate nfs /dev/drbd/by-res/nfs</screen>
+        </listitem>
+        <listitem> 
+          <para>Create Logical Volumes volumes in the VG. This example assumes
+            two LVs of 20 Gigabytes each, named <literal>sales</literal> and
+              <literal>engineering</literal>:</para>
+<screen>lvcreate -n sales -L 20G nfs
+lvcreate -n engineering -L 20G nfs</screen>
+        </listitem>
+        <listitem>
+          <para>Activate the VG and create file systems on the new Logical
+            Volumes. This example assumes <literal>ext3</literal> as the file
+            system type:</para>
+          <screen>vgchange -ay nfs
+mkfs -t ext3 /dev/nfs/sales
+mkfs -t ext3 /dev/nfs/engineering</screen>
+        </listitem>
+      </orderedlist>
+    </sect2>
+    <sect2 os="sles" id="sec_ha_quick_nfs_initial_setup">
+      <title>Initial Cluster Setup</title>
+      <para>Use the &yast; cluster module for the initial cluster setup. The
+        process is documented in <xref linkend="sec.ha.installation.setup"/> and
+        includes the following basic steps:
+      </para>
+      <orderedlist>
+      
+      <listitem>
+          <para>
+            <xref linkend="sec.ha.installation.setup.channels" xrefstyle="select:title"/>
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            <xref linkend="sec.ha.installation.setup.security" xrefstyle="select:title"/>
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            <xref linkend="sec.ha.installation.setup.csync2" xrefstyle="select:title"/>
+          </para>
+        </listitem>
+      </orderedlist>
+      <para>Then start the &ais;/&corosync; service as described in
+          <xref linkend="sec.ha.installation.start"/>.</para>
+    </sect2>
+    <sect2 os="linbit" id="sec_ha_quick_nfs_initial_hb">
+      <title>Configuring Heartbeat</title>
+      <para>Configuring Heartbeat in a 2-node cluster and enabling Pacemaker is
+        a straightforward process that is well documented in <ulink
+          url="http://www.linux-ha.org/doc/">the Linux-HA User&#8217;s
+          Guide</ulink>, in the section called "Creating an initial Heartbeat
+        configuration".</para>
+    </sect2>
+    <sect2 id="sec_ha_quick_nfs_initial_pacemaker">
+      <title>Creating a Basic Pacemaker Configuration</title>
+      <para>For a highly available NFS server configuration that involves a
+        2-node cluster, you need to adjust the following global cluster options:</para>
+      <itemizedlist>
+        <listitem>
+          <para><literal>stonith-enabled</literal>: Must be set to
+              <literal>false</literal>. </para>
+        </listitem>
+        <listitem>
+          <para><literal>no-quorum-policy</literal>: Must be set to
+              <literal>ignore</literal>. </para>
+        </listitem>
+        <listitem>
+          <para> <literal>default-resource-stickiness</literal>: Must be set to <literal>200</literal>. </para>
+        </listitem>
+      </itemizedlist>
+      <para os="sles">For more information about global cluster options, refer
+        to <xref linkend="sec.ha.configuration.basics.global"/>.</para>
+      <para>To adjust the options, open the CRM shell as &rootuser; (or any
+        non-&rootuser; user that is part of the <systemitem
+          class="groupname">haclient</systemitem> group) and issue the following
+        commands:</para>
+      <screen>crm(live)# configure
+crm(live)configure# property stonith-enabled="false"
+crm(live)configure# property no-quorum-policy="ignore"
+crm(live)configure# rsc_defaults resource-stickiness="200"
+crm(live)configure# commit</screen>
+    </sect2>
+  </sect1>
