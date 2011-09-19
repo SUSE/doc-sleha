@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd" [
+ <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+ <!ENTITY % entities SYSTEM "entity-decl.ent">
+ %entities;
+]>
+<!-- Fates #310356,  #311881, #311882 -->
+<chapter id="cha.ha.geocluster">
+ <title>Multi-site Clusters</title>
+ <para>
+  <remark>taroth 2011-09-19: FIXME, new chapter</remark></para>
+  <!--from 
+   http://oss.clusterlabs.org/pipermail/pacemaker/2011-January/008878.html -->
+  <!--IntroductioN: At LPC 2010, we discussed (once more) that a key feature
+ for pacemaker in 2011 would be improved support for multi-site clusters;
+ by multi-site, we mean two (or more) sites with a local cluster each,
+ and some higher level entity coordinating fail-over across these (as
+ opposed to "stretched" clusters, where a single cluster might spawn the
+ whole campus in the city).
+ 
+ Typically, such multi-site environments are also too far apart to
+ support synchronous communication/replication.
+ 
+ There are several aspects to this that we discussed; Andrew and I first
+ described and wrote this out a few years ago, so I hope he can remember
+ the rest ;-)
+ 
+ "Tokens" are, essentially, cluster-wide attributes (similar to node
+ attributes, just for the whole partition). Via dependencies (similar to
+ rsc_location), one can specify that certain resources require a specific
+ token to be set before being started (and, vice versa, need to be
+ stopped if the token is cleared). You could also think of our current
+ "quorum" as a special, cluster-wide token that is granted in case of
+ node majority.
+ 
+ The token thus would be similar to a "site quorum"; i.e., the permission
+ to manage/own resources associated with that site, which would be
+ recorded in a rsc dependency. (It'd probably make a lot of sense if this
+ would support resource sets, so one can easily list all the resources;
+ also, some resources like m/s may tie their role to token ownership.)
+ 
+ These tokens can be granted/revoked either manually (which I actually
+ expect will be the default for the classic enterprise clusters), or via
+ an automated mechanism described further below.
+ 
+ 
+ Another aspect to site fail-over is recovery speed. A site can only
+ activate the resources safely if it can be sure that the other site has
+ deactivated them. Waiting for them to shutdown "cleanly" could incur
+ very high latency (think "cascaded stop delays"). So, it would be
+ desirable if this could be short-circuited. The idea between Andrew and
+ myself was to introduce the concept of a "dead man" dependency; if the
+ origin goes away, nodes which host dependent resources are fenced,
+ immensely speeding up recovery.
+ 
+ It seems to make most sense to make this an attribute of some sort for
+ the various dependencies that we already have, possibly, to make this
+ generally available. (It may also be something admins want to
+ temporarily disable - i.e., for a graceful switch-over, they may not
+ want to trigger the dead man process always.)
+ 
+ 
+ The next bit is what we called the "Cluster Token Registry"; for those
+ scenarios where the site switch is supposed to be automatic (instead of
+ the admin revoking the token somewhere, waiting for everything to stop,
+ and then granting it on the desired site). The participating clusters
+ would run a daemon/service that would connect to each other, exchange
+ information on their connectivity details (though conceivably, not mere
+ majority is relevant, but also current ownership, admin weights, time
+ of day, capacity ...), and vote on which site gets which token(s); a
+ token would only be granted to a site once they can be sure that it has
+ been relinquished by the previous owner, which would need to be
+ implemented via a timer in most scenarios (see the dead man flag).
+ 
+ Further, sites which lose the vote (either explicitly or implicitly by
+ being disconnected from the voting body) would obviously need to perform
+ said release after a sane time-out (to protect against brief connection
+ issues).
+ 
+ 
+ A final component is an idea to ease administration and management of
+ such environments. The dependencies allow an automated tool to identify
+ which resources are affected by a given token, and this could be
+ automatically replicated (and possibly transformed) between sites, to
+ ensure that all sites have an uptodate configuration of relevant
+ resources. This would be handled by yet another extension, a CIB
+ replicator service (that would either run permanently or explicitly when
+ the admin calls it).
+ 
+ Conceivably, the "inactive" resources may not even be present in the
+ active CIB of sites which don't own the token (and be inserted once
+ token ownership is established). This may be an (optional) interesting
+ feature to keep CIB sizes under control.
+  -->
+ 
+<!--info by jjzhang-->
+<!-- A Intro of Geo Cluster to Pacemaker
+ 
+ - Terminolgy
+ Site: A pacemaker cluster
+ Ticket: Ticket can be granted to or revoked from a site. Resources can
+ be configured to depend on ticket.
+ Booth: Booth run as the the authentica source for ticket granting.
+ 
+ - Site:
+ We use 'site' instead of 'cluster' here to refer to a normal pacemaker
+ based 'HA cluster'. 2 or more 'site' can be integrated via following
+ method, which is called 'Geo Cluster' here.
+ 
+ - Ticket:
+ Ticket is a newly introduced CIB feature. It's stored in cib as a
+ cluster status. Together with ticket, a set of new constraints is also
+ introduced. Once a resource(s) depend on a ticket, it/they can only be
+ started/promoted when ticket is granted to the cluster.
+ 
+ <tickets>
+  <instance_attributes id="status-tickets">
+   <nvpair id="status-tickets-granted-ticket-ticketA"
+    name="granted-ticket-ticketA" value="true"/>
+   <nvpair id="status-tickets-last-granted-ticketA"
+    name="last-granted-ticketA" value="1314246880"/>
+  </instance_attributes>
+ </tickets>
+ 
+ <rsc_ticket id="rsc1-req-ticketA" rsc="rsc1" role="Master"
+  ticket="ticketA" loss-policy="stop"/>
+ 
+ A ticket can be granted/revoked manually via following command.
+ 
+ > crm_ticket -t ticketA -v true # grant ticketA to this site
+ > crm_ticket -t ticketA -v false # revoke ticketA from this site.  
+ 
+ Be warned, the administrator has to be very careful if he grant the
+ ticket manually. The site itself cannot do any sanity check on this.
+ 
+ - Deadman dependency:
+ Once a ticket is revoked, while resource(s) depend on it is still
+ running. It can be configured that pacemaker will STONITH the node(s)
+ instead of stopping the resource(s) orderly.
+ 
+ <rsc_ticket id="rsc1-req-ticketA" rsc="rsc1" ticket="ticketA"
+  loss-policy="fence"/>
+ 
+ The loss-policy can be fence/stop/freeze/demote.
+ 
+ - Booth:
+ There should be one booth instance in each site. If the number of sites
+ is even, additional booth can run in 'arbitrator' mode on a 3rd party
+ node. The difference is that, booth in 'arbitrator' mode will never be
+ granted tickets.
+ 
+ * Configuration
+ Booth need a pre-configured list of peers and tickets. It reads
+ /etc/sysconfig/booth for that.
+ 
+ transport="UDP"
+ port="6666"
+ arbitraotor="147.2.207.14"
+ site="147.4.215.19"
+ site="147.18.2.1"
+ ticket="ticketA;1000"
+ 
+ "ticketA;1200" means a ticket named 'ticketA', and expire every 1000
+ seconds.
+ A site already grant the ticket will renew the ticket every 800 seconds.
+ 
+ * Setup
+ Booth can be started on any node inside the site, so it makes sense to
+ manage it as a primitive resource. Because booth require a persistent IP
+ address for communication, it's better to group it with a float IP.
+ 
+ primitive booth-ip ocf:heartbeat:IPaddr2 ip=147.2.207.14
+ primitive booth ocf:pacemaker:boot-site
+ group g-booth booth-ip booth
+ 
+ * Running
+ Start the resource group as normal. Booth save current ticket status in
+ CIB, so it can restarted on any node. Try not to impose any constrains
+ on booth itself.
+ 
+ * Manually override
+ booth support several client command.
+ > booth client grant -t ticketA -s 147.2.207.14
+ > booth client revoke -t ticketA -s 147.4.215.19  
+ 
+ We encourage the administrator to set ticket via 'booth client'. This
+ will make sure ticket is never granted twice among all sites.-->
+ 
+
+</chapter>
