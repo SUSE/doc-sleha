@@ -10,12 +10,15 @@
  <para>
   <remark>taroth 2011-09-19: FIXME, new chapter</remark> Apart from local
   &ha; clusters, &productname; also supports multi-site clusters. That
-  means you can have multiple (geographical) sites with a local cluster each.
-  Failover between these clusters is coordinated by a higher level
-  entity.<!--taroth 2011-09-20: whom?-->Those two factors differentiate a
-  multi-site cluster from a <quote>stretched</quote> local cluster, where a
-  cluster might spawn the whole campus in the city but is still a single cluster
-  that manages failover internally.</para>
+  means you can have multiple (geographical) sites with a local cluster each. As
+  the different sites cannot communicate via unicast or multicast, the
+  communication between the sites is done via Internet. Failover between these
+  clusters is coordinated by a higher level
+  entity.<!--taroth 2011-09-20: whom?-->Those factors differentiate a multi-site
+  cluster from a <quote>stretched</quote> local cluster, where a cluster might
+  spawn the whole campus in the city. But a <quote>stretched</quote> is still a
+  single cluster, using unicast or multicast for communication between the nodes
+  and managing failover internally.</para>
  <sect1 id="sec.ha.geo.challenges">
   <title>Challenges for Multi-site Clusters</title>
   <para>Typically, multi-site environments are also too far apart to support
@@ -51,8 +54,9 @@
    ticket within an overlay cluster is similar to a resource in a traditional
    cluster. But in contrast to traditional clusters, tickets are the only type
    of resource in an overlay cluster. They are primitive resources that do not
-   need to be cloned. <xref linkend="vl.ha.geo.components"/> explains the new
-   components introduced for multi-site clusters in more detail.</para>
+   need to be cloned. <xref linkend="vl.ha.geo.components"/> explains the
+   components and concepts introduced for multi-site clusters in more
+   detail.</para>
     <para><remark>taroth 2011-09-20: todo - a conceptual
    graphic would be great here...</remark></para>
   <variablelist id="vl.ha.geo.components">
@@ -69,6 +73,9 @@
       a site, the respective resources are started. Vice versa, if the ticket is
       removed, the resources depending on that ticket are automatically stopped.
      </para>
+     <para>For automatic failover of resources, tickets are usually managed by
+      the booth, but they can also be granted or revoked manually by the cluster
+      administrator.</para>
      <!--<para>You can also think of the quorum as a special, cluster-wide ticket
       that is granted in case of node majority. The ticket would thus be similar
       to a <quote>site quorum</quote> and grant the permission to manage and own
@@ -82,8 +89,56 @@
    </varlistentry>
    <varlistentry>
     <term>Booth</term>
+    <listitem>
+     <para>The instance managing the ticket distribution and thus, the failover
+      process between the sites of a multi-site cluster. The participating
+      clusters run a daemon/service (<systemitem class="resource"
+       >boothd</systemitem>) that connect to the booth daemons running at the
+      other sites. The daemons exchange information on their connectivity
+      details and vote which site gets which ticket. Once a ticket is granted to
+      a site, the booth will manage the ticket automatically: If the site which
+      holds the ticket is out of service, the ticket will be granted to another
+      site. But re-distribution of a ticket is only done after the booth has
+      made sure that the ticket has been relinquished by the previous site.
+      Sites which lose the vote (either explicitly or implicitly by being
+      disconnected from the voting body) need to relinquish the ticket after a
+      sane time-out (to protect against brief connection issues).
+      <!--FIXME: See also deadman dependency.--></para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Arbitrator</term>
+    <listitem>
+     <para>Each site runs one booth instance that is responsible for
+      communicating with the other sites. In case you have an even number of
+      sites, you need an additional instance to reach consensus about granting
+      or revoking tickets. For this case, you can add one or more booth
+      instances on additional sites. As all booth instances communicate with
+      each other, arbitrators help to make more reliable decisions about
+      granting or revoking tickets. </para>
+     <para>The arbitrators can consist of one-node clusters and do not run any
+      resources apart from the booth daemon. A booth in arbitrator mode will
+      never be granted tickets.</para>
+     <para>An arbitrator is especially important for a
+     two-site scenario: For example, if site <literal>A</literal> can no longer
+     communicate with site <literal>B</literal>, there are
+     two possible causes for that:</para>
+     <itemizedlist>
+      <listitem>
+       <para>A network failure between <literal>A</literal> and
+         <literal>B</literal>.</para></listitem>
+      <listitem>
+       <para>Site <literal>B</literal> is down.</para></listitem>
+     </itemizedlist>
+     <para>However, if site <literal>C</literal> (the arbitrator) can still
+      communicate with site <literal>A</literal>, site <literal>A</literal> must
+      still be up and running.</para></listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Deadman Dependency</term>
     <listitem><para></para></listitem>
    </varlistentry>
+   
    
   </variablelist>
   
