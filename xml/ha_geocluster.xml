@@ -53,10 +53,10 @@
    use of tickets that are treated as failover domain between cluster sites. A
    ticket within an overlay cluster is similar to a resource in a traditional
    cluster. But in contrast to traditional clusters, tickets are the only type
-   of resource in an overlay cluster. They are primitive resources that do not
-   need to be cloned. <xref linkend="vl.ha.geo.components"/> explains the
-   components and concepts introduced for multi-site clusters in more
-   detail.</para>
+   of resource in an overlay cluster and do not need to be configured. They are
+   primitive resources that do not need to be cloned. <xref
+    linkend="vl.ha.geo.components"/> explains the components and concepts
+   introduced for multi-site clusters in more detail.</para>
     <para><remark>taroth 2011-09-20: todo - a conceptual
    graphic would be great here...</remark></para>
   <variablelist id="vl.ha.geo.components">
@@ -67,21 +67,20 @@
     <term>Ticket</term>
     <listitem>
      <para>A ticket grants the right to run certain resources on a specific
-      cluster. Tickets must initially be granted by the cluster
-      administrator and are stored in the CIB as a cluster status. Resources can
-      be bound to a certain ticket by dependencies. Only if the defined ticket
-      is available at a site, the respective resources are started. Vice versa,
-      if the ticket is removed, the resources depending on that ticket are
-      automatically stopped. </para>
-     <para>For automatic failover of resources, tickets are usually managed by
-      the booth, but they can also be granted or revoked manually by the cluster
-      administrator.</para>
-      <remark>taroth 2011-09-20: not quite clear to me: seems there may be
-      several tickets for a multi-site cluster? what do they look like? where do
-      they come from: do you need to configure a ticket (like you configure a
-      resource)? is there a place to "see" the tickets (GUI? HAWK)? or is it
-      only possible to query for them with crm_ticket?</remark>
-    </listitem>
+      cluster. Initially, none of the sites has a ticket&mdash;tickets must
+      initially be granted by the cluster administrator. After that, tickets are
+      usually managed by the booth for automatic failover of resources, but they
+      can also be granted or revoked manually by the cluster administrator.
+      Tickets are stored in the CIB as a cluster status. With regards to a
+      certain ticket, there are only two states for a site: with ticket or
+      without ticket. Thus, the absence of a certain ticket (during the initial
+      state) does not differ from the status after the ticket has been revoked:
+      both are reflected by <literal>false</literal>.</para>
+     <para>Resources can be bound to a certain ticket by dependencies. Only if
+      the defined ticket is available at a site, the respective resources are
+      started. Vice versa, if the ticket is removed, the resources depending on
+      that ticket are automatically stopped.</para>
+        </listitem>
    </varlistentry>
    <varlistentry>
     <term>Booth</term>
@@ -191,55 +190,52 @@
     steps:</para>
    <orderedlist>
     <listitem>
-     <para>Configuring constraints for resources depending on a ticket. 
-     </para>
+     <para>Configuring resources depending on a ticket. </para>
     </listitem>
-    <listitem><para>Setting up the arbitrator. <remark>taroth 2011-09-23: not
-     sure what needs to be done here - set up a one-node cluster?</remark></para></listitem>
-    <listitem><para>Setting up booth <remark>taroth 2011-09-23: booth config file</remark></para></listitem>
+    <listitem>
+     <para>Setting up the arbitrator. <remark>taroth 2011-09-23: not sure what
+       needs to be done here - set up a one-node cluster?</remark></para>
+    </listitem>
+    <listitem>
+     <para>Setting up booth <remark>taroth 2011-09-23: booth config
+       file</remark></para>
+    </listitem>
     <listitem>
      <para>Configuring a primitive resource for the booth daemon (to run on
-      every site and arbitrator).</para></listitem>
+      every site and arbitrator).</para>
+    </listitem>
    </orderedlist>
-   </sect2>
-  <sect2 id="sec.ha.geo.setup.tickets">
-   <title>Configuring Tickets</title>
-   <note>
-    <title>Dependent Resources</title>
-    <para>When configuring a ticket, you also need to define resources that
-     should depend on that ticket. Make sure to have the respective resources
-     already configured in the CIB before you start to configure tickets.</para>
-   </note>
-   
-   <para>The CRM shell lets you configure a ticket, specify the resources
-    depending on that ticket and define what should happen to the respective
-    resources if the ticket is revoked with one command:
-    <command>crm configure rsc_ticket</command>. </para>
-   <procedure>
-    <title>Configuring a Ticket with the CRM Shell</title>
+
+   <procedure id="pro.ha.geo.setup.contraints">
+    <title>Configuring Ticket Dependencies</title>
+    <para>The <command>crm configure rsc_ticket</command> command lets you
+     specify the resources depending on a certain ticket and set a
+      <literal>loss-policy</literal> that defines what should happen to the
+     respective resources if the ticket is revoked. The attribute
+      <literal>loss-policy</literal> can have the following values:
+      <literal>fence</literal>, <literal>stop</literal>,
+      <literal>freeze</literal>, <literal>demote</literal>.<remark>taroth
+      2011-09-27: DEVs, what happens for "demote"?</remark></para>
     <step>
-     <para>
-      <remark>taroth 2011-09-26: DEVs, does it matter on which node? I guess not
-       as the ticket configuration is passed on to all sites and cluster nodes,
-       correct?</remark>On one of the cluster nodes, start a shell and log in as
+     <para>On one of the cluster nodes, start a shell and log in as
       &rootuser; or equivalent. </para>
     </step>
     <step>
      <para>Enter <command>crm configure</command> to switch to the interactive
       shell.</para>
     </step>
+    <step id="step.ha.geo.steup.constraints">
+     <para>Configure a constraint that defines which resources depend on a
+      certain ticket. For example, the following command creates a constraint
+      with the ID <literal>rsc1-req-ticketA</literal>. It defines that the
+      resource <literal>rsc1</literal> depends on <literal>ticketA</literal> and
+      that the node running the resource should be fenced in case
+       <literal>ticketA</literal> is revoked.</para>
+     <screen>rsc_ticket rsc1-req-ticketA ticketA: rsc1:Master loss-policy="fence" </screen>
+     </step>
     <step>
-     <para>To define a ticket with the ID <literal>ticketA</literal> and make it
-      depend on the resource <literal>rcs1</literal> that is already configured
-      in the CIB, enter the following command:</para>
-     <screen>rsc_ticket rsc1-req-ticketA ticketA: rsc1:Master loss-policy="stop" </screen>
-     <para>
-      <remark>taroth 2011-09-26: todo - add callouts</remark>
-     </para>
-    </step>
-    <step>
-     <para>If necessary, define more tickets with the
-      <command>rsc_ticket</command> command.</para>
+     <para>If you want other resources to depend on further tickets, create as
+      many constraints as necessary with <command>rsc_ticket</command>.</para>
     </step>
     <step>
      <para> Review your changes with <command>show</command>. </para>
@@ -248,15 +244,15 @@
      <para>If everything is correct, submit your changes with
       <command>commit</command> and leave the crm live configuration with
       <command>exit</command>.</para>
-     <para>
-      <remark>taroth 2011-09-26: DEVs, where is the ticket configuration stored?
-       also in the CIB? and how/when will it be synchronized to the other
-       nodes/sites?</remark>
-     </para>
+     <para>The constraints are saved to the CIB. For example, the command in
+       <xref linkend="step.ha.geo.steup.constraints"/> would result in the
+      following constraint configuration in the CIB:</para>
+     <screen>&lt;rsc_ticket id="rsc1-req-ticketA" rsc="rsc1" role="Master"   ticket="ticketA" loss-policy="fence"/></screen>
+     <remark>taroth 2011-09-26: is there a place to "see" the tickets (GUI?
+      HAWK)? or is it only possible to query for them with crm_ticket?</remark>
     </step>
    </procedure>
-  </sect2>
-  
+    </sect2>
  </sect1>
  <sect1 id="sec.ha.geo.manage">
   <title>Managing Multi-site Clusters</title>
