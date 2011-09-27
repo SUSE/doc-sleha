@@ -145,11 +145,8 @@
    </varlistentry>
   </variablelist>
  </sect1>
- <sect1 id="sec.ha.geo.setup">
- <title>Setup</title>
-<para><!--FIXME: intro blurb goes here--></para>
-  <sect2 id="sec.ha.geo.setup.pre">
-   <title>Requirements</title>
+ <sect1 id="sec.ha.geo.req">
+ <title>Requirements</title>
    <itemizedlist>
     <title>Software Requirements</title>
     <listitem>
@@ -183,29 +180,46 @@
    <para>Whereas the nodes belonging to the same cluster site should be
     synchronized via NTP, this is not required between the individual cluster
     sites.</para>
-  </sect2>
-  <sect2 id="sec.ha.geo.setup.basics">
-   <title>Basic Steps</title>
+  </sect1>
+  <sect1 id="sec.ha.geo.setup">
+   <title>Basic Setup</title>
    <para>Configuring a multi-site cluster takes the following basic
     steps:</para>
-   <orderedlist>
-    <listitem>
-     <para>Configuring resources depending on a ticket. </para>
-    </listitem>
-    <listitem>
-     <para>Setting up the arbitrator. <remark>taroth 2011-09-23: not sure what
-       needs to be done here - set up a one-node cluster?</remark></para>
-    </listitem>
-    <listitem>
-     <para>Setting up booth <remark>taroth 2011-09-23: booth config
-       file</remark></para>
-    </listitem>
-    <listitem>
-     <para>Configuring a primitive resource for the booth daemon (to run on
-      every site and arbitrator).</para>
-    </listitem>
-   </orderedlist>
+   <variablelist>
+    <varlistentry>
+     <term>Configuring Cluster Resources and Constraints</term>
+     <listitem>
+      <orderedlist>
+       <listitem>
+        <!--ticket dependencies-->
+        <para>
+         <xref linkend="pro.ha.geo.setup.contraints" xrefstyle="select:title"/>
+        </para>
+       </listitem>
+       <listitem>
+        <!--configuring a resource group for each site's/arbitrartors boothd-->
+        <para/>
+       </listitem>
+      </orderedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Editing the Booth Configuration File</term>
+     <listitem>
+      <para/>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Granting One or More Tickets to a Site</term>
+     <listitem>
+      <para/>
+     </listitem>
+    </varlistentry>
 
+   </variablelist>
+  <sect2 id="sec.ha.geo.setup.resources">
+   <title>Configuring Cluster Resources and Constraints</title>
+   <para><!--FIXME: add some blurb--></para>
    <procedure id="pro.ha.geo.setup.contraints">
     <title>Configuring Ticket Dependencies</title>
     <para>The <command>crm configure rsc_ticket</command> command lets you
@@ -224,7 +238,7 @@
      <para>Enter <command>crm configure</command> to switch to the interactive
       shell.</para>
     </step>
-    <step id="step.ha.geo.steup.constraints">
+    <step id="step.ha.geo.setup.constraints">
      <para>Configure a constraint that defines which resources depend on a
       certain ticket. For example, the following command creates a constraint
       with the ID <literal>rsc1-req-ticketA</literal>. It defines that the
@@ -232,7 +246,7 @@
       that the node running the resource should be fenced in case
        <literal>ticketA</literal> is revoked.</para>
      <screen>rsc_ticket rsc1-req-ticketA ticketA: rsc1:Master loss-policy="fence" </screen>
-     </step>
+    </step>
     <step>
      <para>If you want other resources to depend on further tickets, create as
       many constraints as necessary with <command>rsc_ticket</command>.</para>
@@ -245,14 +259,75 @@
       <command>commit</command> and leave the crm live configuration with
       <command>exit</command>.</para>
      <para>The constraints are saved to the CIB. For example, the command in
-       <xref linkend="step.ha.geo.steup.constraints"/> would result in the
+       <xref linkend="step.ha.geo.setup.constraints"/> would result in the
       following constraint configuration in the CIB:</para>
-     <screen>&lt;rsc_ticket id="rsc1-req-ticketA" rsc="rsc1" role="Master"   ticket="ticketA" loss-policy="fence"/></screen>
-     <remark>taroth 2011-09-26: is there a place to "see" the tickets (GUI?
-      HAWK)? or is it only possible to query for them with crm_ticket?</remark>
+     <screen>&lt;rsc_ticket id="rsc1-req-ticketA" rsc="rsc1" role="Master" ticket="ticketA" loss-policy="fence"/></screen>
     </step>
    </procedure>
-    </sect2>
+   <remark>taroth 2011-09-26: is there a place to "see" the tickets (GUI? HAWK)?
+   or is it only possible to query for them with crm_ticket?</remark>
+   <procedure>
+    <title>Configuring a Resource Group For <systemitem class="daemon"
+      >boothd</systemitem></title>
+    <para>Each site and arbitrator needs to run one instance of <systemitem
+      class="daemon">boothd</systemitem>. The daemon can be started on any node,
+     therefore it should be configured as primitive resource. As the daemons
+     need a persistent IP address to communicate with each other, configure
+     another primitive that manages the IP address for each booth daemon and
+     group booth primitives:</para>
+    <step>
+     <para>On one of the cluster nodes, start a shell and log in as
+      &rootuser; or equivalent. </para>
+    </step>
+    <step>
+     <para>Enter <command>crm configure</command> to switch to the interactive
+      shell.</para>
+    </step>
+    <step>
+     <para>Enter the following commands to create both primitive resources and
+      to add them to one group, <literal>g-booth</literal>:</para>
+     <screen>primitive booth-ip ocf:heartbeat:IPaddr2 ip=<replaceable>IP_ADDRESS</replaceable>
+primitive booth ocf:pacemaker:boot-site
+group g-booth booth-ip booth</screen>
+    </step>
+    <step>
+     <para> Review your changes with <command>show</command>. </para>
+    </step>
+    <step>
+     <para>If everything is correct, submit your changes with
+      <command>commit</command> and leave the crm live configuration with
+      <command>exit</command>.</para></step>
+    <step>
+     <para>Configure a similar group with a different IP address for each
+      cluster site and for each arbitrator.</para>
+     <para>With this configuration, each booth daemon will be available at its
+      individual IP address, independent of the node the daemon is running on.
+     </para>
+    </step>
+   </procedure>
+   
+  </sect2>
+  
+   
+   <!--<sect2>
+    <title>Editing the Booth Configuration File</title>
+    <procedure id="pro.ha.geo.setup.booth">
+     <title>Setting Up the Booth</title>
+     <step>
+      <para>Make sure that the <systemitem class="resource">booth</systemitem>
+       package is installed on all cluster nodes and on all arbitrators that
+       will be part of the multi-site clusters.</para>
+     </step>
+     <step>
+      <para>On a node or an arbitrator, create
+        <filename>/etc/sysconfig/booth.conf</filename> with the following
+       contents:</para>
+      <screen/>
+     </step>
+    </procedure>
+   </sect2>
+   -->
+  
  </sect1>
  <sect1 id="sec.ha.geo.manage">
   <title>Managing Multi-site Clusters</title>
