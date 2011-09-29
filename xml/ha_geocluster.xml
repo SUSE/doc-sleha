@@ -7,19 +7,19 @@
 <!-- Fates #310356,  #311881, #311882 -->
 <chapter id="cha.ha.geo">
  <title>Multi-site Clusters</title>
- <para>
-  <remark>taroth 2011-09-19: FIXME, new chapter</remark> Apart from local
-  &ha; clusters, &productname; also supports multi-site clusters. That
-  means you can have multiple (geographical) sites with a local cluster each. As
-  the different sites cannot communicate via unicast or multicast, the
-  communication between the sites is done via Internet. Failover between these
-  clusters is coordinated by a higher level
-  entity.<!--taroth 2011-09-20: whom?-->Those factors differentiate a multi-site
-  cluster from a <quote>stretched</quote> local cluster, where a cluster might
-  spawn the whole campus in the city. But a <quote>stretched</quote> is still a
-  single cluster, using unicast or multicast for communication between the nodes
-  and managing failover internally.</para>
- <sect1 id="sec.ha.geo.challenges">
+ <abstract>
+  <para>Apart from local &ha; clusters, &productname; also supports
+   multi-site clusters. That means you can have multiple (geographical) sites
+   with a local cluster each. As the different sites cannot communicate via
+   unicast or multicast, the communication between the sites is done via
+   Internet. Failover between these clusters is coordinated by a higher level
+   entity, the so-called <literal>booth</literal>.</para>
+  <para>Those factors differentiate a multi-site cluster from a
+    <quote>stretched</quote> local cluster, where a cluster might spawn the
+   whole campus in the city. But a <quote>stretched</quote> cluster is still a
+   single cluster, using unicast or multicast for communication between the
+   nodes and managing failover internally.</para>
+ </abstract><sect1 id="sec.ha.geo.challenges">
   <title>Challenges for Multi-site Clusters</title>
   <para>Typically, multi-site environments are also too far apart to support
    synchronous communication between the sites and synchronous data
@@ -30,9 +30,10 @@
    <listitem>
     <para>How to make sure that quorum can be reached between the different
      sites?</para></listitem>
-   <listitem>
+   <!--<listitem>
     <para>How to keep the CIB up-to-date on all nodes and sites?</para>
    </listitem>
+   -->
    <listitem>
     <para>How to manage failover between the sites?</para>
    </listitem>
@@ -46,73 +47,75 @@
   <title>Conceptual Overview</title>
   <para>Multi-site clusters can be considered as <quote>overlay</quote> clusters
    where each cluster site corresponds to a cluster node in a traditional
-   cluster. The overlay cluster is managed by a mechanism called
-    <literal>booth</literal> that guarantees that the cluster resources will be
-   highly available within different cluster sites and takes care of the
-   failover in case a site should be down. To do so, the overlay cluster makes
-   use of tickets that are treated as failover domain between cluster sites. A
-   ticket within an overlay cluster is similar to a resource in a traditional
-   cluster. But in contrast to traditional clusters, tickets are the only type
-   of resource in an overlay cluster and do not need to be configured. They are
-   primitive resources that do not need to be cloned. <xref
+   cluster. The overlay cluster is managed by the booth mechanism. It guarantees
+   that the cluster resources will be highly available across different cluster
+   sites takes. This is achieved by using so-called tickets that are treated as
+   failover domain between cluster sites, in case a site should be down.</para>
+  <para>A ticket within an overlay cluster is similar to a resource in a
+   traditional cluster. But in contrast to traditional clusters, tickets are the
+   only type of resource in an overlay cluster and do not need to be configured.
+   They are primitive resources that do not need to be cloned. <xref
     linkend="vl.ha.geo.components"/> explains the components and concepts
    introduced for multi-site clusters in more detail.</para>
     <para><remark>taroth 2011-09-20: todo - a conceptual
    graphic would be great here...</remark></para>
   <variablelist id="vl.ha.geo.components">
-   <varlistentry>
+   <title>Components and Concepts of Multi-site Clusters</title>
+   <varlistentry id="vle.ha.geo.components.ticket">
     <!--taroth 2011-09-20: mail by jjzhang (ha-devel, 2011-07-26): ... we decide to 
      change the name "token" to "ticket" in order to avoid confusion with "totem token" 
      in corosync-->
     <term>Ticket</term>
     <listitem>
      <para>A ticket grants the right to run certain resources on a specific
-      cluster. Initially, none of the sites has a ticket&mdash;tickets must
-      initially be granted by the cluster administrator. After that, tickets are
-      usually managed by the booth for automatic failover of resources, but they
-      can also be granted or revoked manually by the cluster administrator.
-      Tickets are stored in the CIB as a cluster status. With regards to a
-      certain ticket, there are only two states for a site: with ticket or
-      without ticket. Thus, the absence of a certain ticket (during the initial
-      state) does not differ from the status after the ticket has been revoked:
-      both are reflected by <literal>false</literal>.</para>
+      cluster site. Initially, none of the sites has a ticket&mdash;each
+      ticket must be granted once by the cluster administrator. After that,
+      tickets are managed by the booth for automatic failover of resources, but
+      administrators may also intervene and grant or revoke tickets manually. </para>
      <para>Resources can be bound to a certain ticket by dependencies. Only if
       the defined ticket is available at a site, the respective resources are
       started. Vice versa, if the ticket is removed, the resources depending on
       that ticket are automatically stopped.</para>
-        </listitem>
+     <para>The presence or absence of tickets for a site is stored in the CIB as
+      a cluster status. With regards to a certain ticket, there are only two
+      states for a site: <literal>true</literal> (the site has the ticket) or
+       <literal>false</literal> (the site does not have the ticket). The absence
+      of a certain ticket (during the initial state of the multi-site cluster)
+      is not treated differently from the situation after the ticket has been
+      revoked: both are reflected by the value <literal>false</literal>. </para>
+    </listitem>
    </varlistentry>
-   <varlistentry>
+   <varlistentry id="vle.ha.geo.components.booth">
     <term>Booth</term>
     <listitem>
      <para>The instance managing the ticket distribution and thus, the failover
-      process between the sites of a multi-site cluster. The participating
-      clusters run a daemon/service (<systemitem class="resource"
-       >boothd</systemitem>) that connect to the booth daemons running at the
-      other sites. The daemons exchange information on their connectivity
-      details and vote which site gets which ticket. Once a ticket is granted to
-      a site, the booth will manage the ticket automatically: If the site which
-      holds the ticket is out of service, the ticket will be granted to another
-      site. But re-distribution of a ticket is only done after the booth has
-      made sure that the ticket has been relinquished by the previous site.
-      Sites which lose the vote (either explicitly or implicitly by being
-      disconnected from the voting body) need to relinquish the ticket after a
-      sane time-out (to protect against brief connection issues).
-      <!--FIXME: See also deadman dependency.--></para>
+      process between the sites of a multi-site cluster. Each of the
+      participating clusters and arbitrators run a service, the <systemitem
+       class="resource">boothd</systemitem>. It connects to the booth daemons
+      running at the other sites and exchanges connectivity details. Once a
+      ticket is granted to a site, the booth mechanism will manage the ticket
+      automatically: If the site which holds the ticket is out of service, the
+      booth daemons vote which of the other sites will get the ticket. To
+      protect against brief connection failures, sites that lose the vote (either
+      explicitly or implicitly by being disconnected from the voting body) need
+      to relinquish the ticket after a time-out. Thus, it is made sure that a
+      ticket will only be re-distributed after it has been
+      relinquished by the previous site.  See also <xref
+       linkend="vle.ha.geo.components.deadman"/>.</para>
     </listitem>
    </varlistentry>
-   <varlistentry>
+   <varlistentry id="vle.ha.geo.components.arbitrator">
     <term>Arbitrator</term>
     <listitem>
      <para>Each site runs one booth instance that is responsible for
-      communicating with the other sites. In case you have an even number of
-      sites, you need an additional instance to reach consensus. For this case,
-      you can add one or more booth instances on additional sites. As all booth
-      instances communicate with each other, arbitrators help to make more
-      reliable decisions about granting or revoking tickets. </para>
-     <para>The arbitrators can consist of one-node clusters and do not run any
-      resources apart from the booth daemon. A booth in arbitrator mode will
-      never be granted tickets.</para>
+      communicating with the other sites. If you have an even number of sites,
+      you need an additional instance to reach consensus about decisions such as
+      failover of resources across sites. In this case, add one or more
+      arbitrators running at additional sites. Arbitrators are single machines
+      that run a booth instance in a special mode that prevents them from being
+      granted tickets. As all booth instances communicate with each other,
+      arbitrators help to make more reliable decisions about granting or
+      revoking tickets. </para>
      <para>An arbitrator is especially important for a two-site scenario: For
       example, if site <literal>A</literal> can no longer communicate with site
        <literal>B</literal>, there are two possible causes for that:</para>
@@ -130,8 +133,8 @@
       still be up and running.</para>
     </listitem>
    </varlistentry>
-   <varlistentry>
-    <term>Dead Man Dependency</term>
+   <varlistentry id="vle.ha.geo.components.deadman">
+    <term>Dead Man Dependency (<literal>loss-policy</literal>)</term>
     <listitem>
      <para>After a ticket is revoked, it can take a long time until all
       resources depending on that ticket are stopped, especially in case of
