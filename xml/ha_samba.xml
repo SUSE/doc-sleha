@@ -470,8 +470,73 @@ Clone Set: dlm-clone
   
   <sect1 id="sec.ha.samba.ad" role="FATE#310241">
     <title>Joining Active Directory Domains</title>
-    <para>Active Directory is a directory service for Windows server
+    <para>Active Directory (AD) is a directory service for Windows server
       systems.</para>
+    <para>To configure the CTDB, the general procedure is as follows:</para>
+    
+    <procedure>
+      <step>
+        <para><xref linkend="pro.ha.samba.config.ad"/></para>
+      </step>
+      <step>
+        <para>Configure CTDB</para>
+      </step>
+      <step>
+        <para>Join the CTDB to AD</para>
+      </step>
+    </procedure>
+    
+    <para>Start with configuring your Windows Server:</para>
+    
+    <procedure id="pro.ha.samba.config.ad">
+      <title>Configure your AD Server</title>
+      <step>
+        <para>Install Windows 2003 Server Enterprise Edition.</para>
+      </step>
+      <step>
+        <para>Configure with a static IP address, for example
+            <systemitem class="ipaddress"
+            >&exampledomain1ip;.100</systemitem></para>
+      </step>
+      <step>
+        <para>Select in <guimenu>Manage Your Server</guimenu> the
+          <guimenu>Domain Controller (Active Directory)</guimenu> role.</para>
+      </step>
+      <step>
+        <para>Select <guimenu>Domain Controller in a New
+          Domain</guimenu>.</para>
+      </step>
+      <step>
+        <para>Select <guimenu>Domain in a new forest</guimenu>. </para>
+      </step>
+      <step>
+        <para>Select <guimenu>Domain in a new forest</guimenu> and enter
+        a new domain name, for example
+          <systemitem>2k3test.&exampledomain;</systemitem> and the
+          NetBIOS name <systemitem>2K3TEST</systemitem>.</para>
+      </step>
+      <step>
+        <para>Leave the default location for AD database, SYSVOL, and log.</para>
+      </step>
+      <step>
+        <para>When presented with the message <emphasis>DNS Registration Error</emphasis>,
+          select <guimenu>Install and configure the DNS server on this computer,
+          and set this computer to use this DNS server as its preferred
+          DNS server</guimenu>.</para>
+      </step>
+      <step>
+        <para>Select <guimenu>Permissions compatible only with Windows 2000 or
+            Windows Server 2003 operating systems</guimenu>. </para>
+      </step>
+      <step>
+        <para>Set the restore mode password the same as the regular
+        administrator password.</para>
+        <remark>toms 2011-11-17: Is "restore mode password" a gui label,
+          just a term, or what is it?</remark>
+      </step>
+    </procedure>
+    
+    
     
     <procedure>
       <step>
@@ -497,6 +562,120 @@ crm(live)configure# clone ctdb-clone ctdb \
 crm(live)configure# colocation ctdb-with-fs inf: ctdb-clone c-clusterfs
 crm(live)configure# order start-ctdb-after-fs inf: c-clusterfs ctdb-clone
 crm(live)configure# commit</screen>
+      </step>
+      <step>
+        <para>Stop the CTDB resource on one node:</para>
+        <screen># crm resource stop ctdb-clone</screen>
+      </step>
+      <step>
+        <para>Change the <filename>/etc/samba.conf</filename>
+        configuration file:</para>
+        <screen>[global]
+    workgroup = 2K3TEST
+    realm = 2k3test.&exampledomain;
+    security = ADS
+    netbios name = CTDB-SERVER
+    idmap config * : range = 1000000-2000000</screen>
+      </step>
+      <step>
+        <para>Update on all nodes the file
+          <filename>/etc/samba.conf</filename>:</para>
+        <screen>csync2 -xv</screen>
+      </step>
+      <step>
+        <para>Restart the CTDB resource:</para>
+        <screen># crm resource start ctdb-clone</screen>
+      </step>
+      <step>
+        <para>Edit the file <filename>/etc/resolv.conf</filename> and
+          set the nameserver to your AD server.</para>
+      </step>
+      <step id="st.ha.samba.crm-configure-edit">
+        <para>Run <command>crm configure edit</command> and search for
+           the <literal>ctdb</literal> resource. Add the following line:</para>
+        <screen>ctdb_manages_winbind="false"</screen>
+      </step>
+      <step>
+        <para>Set the following lines in
+          <filename>/etc/nsswitch.conf</filename>:</para>
+        <screen>passwd: files winbind
+group:  files winbind</screen>
+      </step>
+      <step>
+        <para>Restart the NSC daemon:</para>
+        <screen>rcnscd restart</screen>
+      </step>
+      <step>
+        <para>Create the Kerberbos configuration file
+          <filename>/etc/krb5.conf</filename>:</para>
+        <screen>[libdefaults]
+    default_realm = 2k3test.&exampledomain;
+
+[realms]
+    2k3test.example.com = {
+        kdc = win2k3.2k3test.&exampledomain;
+        admin_server = win2k3.2k3test.&exampledomain;
+        default_domain = 2k3test.&exampledomain;
+    }
+
+[domain_realm]
+    .2k3test.&exampledomain; = 2k3test.&exampledomain;
+    2k3test.&exampledomain; = 2k3test.&exampledomain;</screen>
+      </step>
+      <step>
+        <para>Run CTDB on all nodes:</para>
+        <screen># crm resource cleanup ctdb:0
+# crm resource cleanup ctdb:1</screen>
+      </step>
+      <step>
+        <para>Wait until <command>ctdb status</command> the
+          <quote>unhealty</quote> status disappears. The status should
+          look like this:</para>
+        <screen># ctdb status
+Number of nodes:2
+pnn:0 192.168.100.100  DISABLED (THIS NODE)
+pnn:1 192.168.100.101  DISABLED
+Generation:1046869196
+Size:2
+hash:0 lmaster:0
+hash:1 lmaster:1
+Recovery mode:NORMAL (0)
+Recovery master:0</screen>
+      </step>
+      <step>
+        <para>Join the realm <systemitem>2k3test.&exampledomain;</systemitem>:</para>
+        <screen># net ads join -U Administrator
+Enter Administrator's password: ******
+Using short domain name -- 2K3TEST
+Joined 'CTDB-SERVER' to realm '2k3test.example.com'
+Not doing automatic DNS update in a clustered setup.</screen>
+      </step>
+      <step>
+        <para>Check the join:</para>
+        <screen>tdbdump /var/lib/ctdb/persistent/secrets.tdb*</screen>
+      </step>
+      <step>
+        <para>Stop the ctdb resource:</para>
+        <screen>crm resource start ctdb-clone</screen>
+      </step>
+      <step>
+        <para>Run <command>crm configure edit</command> and search for
+           the <literal>ctdb</literal> resource as you did in <xref 
+             linkend="st.ha.samba.crm-configure-edit"/>. Change the 
+          value from false to true:</para>
+        <screen>ctdb_manages_winbind="true"</screen>
+      </step>
+      <step>
+        <para>Restart the ctdb resource:</para>
+        <screen># crm resource start ctdb-clone</screen>
+      </step>
+      <step>
+        <para>Run on all nodes to see the list of Active Directory users:</para>
+        <screen># wbinfo -u
+2K3TEST\administrator
+2K3TEST\guest
+2K3TEST\support_388945a0
+2K3TEST\krbtgt</screen>
       </step>
     </procedure>
   </sect1>
