@@ -1113,7 +1113,7 @@ crm(live)configure#  <command>location</command> node_pref internal_www \
        promoted to master on this node.
       </para>
       <screen>crm(live)configure# <command>order</command> drbd_first inf: \
-    drbd_resource:promote filesystem_resource</screen>
+    drbd_resource:promote filesystem_resource:start</screen>
      </listitem>
     </itemizedlist>
    </sect3>
@@ -1123,7 +1123,8 @@ crm(live)configure#  <command>location</command> node_pref internal_www \
    <title>Specifying Resource Failover Nodes</title>
    <para>
     To determine a resource failover, use the meta attribute
-    migration-threshold. For example:
+    migration-threshold. In case failcount exceeds migration-threshold on all
+    nodes, the resource will remain stopped. For example:
    </para>
 <!-- Example (rsc is r1): -->
    <screen>crm(live)configure# <command>location</command> r1-node1 r1 100: node1</screen>
@@ -1180,11 +1181,9 @@ crm(live)configure#  <command>location</command> node_pref internal_www \
 
   <sect2 id="sec.ha.manual_config.utilization">
    <title>Configuring Placement of Resources Based on Load Impact</title>
-   <para>
-    Not all resources are equal. Some, such as &xen; guests, require that
-    the node hosting them meets their capacity requirements. If resources
-    are placed such that their combined need exceed the provided capacity,
-    the resources diminish in performance (or even fail).
+   <para>Some resources may have specific capacity requirements
+      such as minimum amount of memory. Otherwise, they may
+      fail to start completely or run with degraded performance.
    </para>
    <para>
     To take this into account, the &hasi; allows you to specify the
@@ -1439,7 +1438,7 @@ crm(live)configure# <command>primitive</command> Email lsb:exim</screen>
   <sect2 id="sec.ha.manual_config.clone">
    <title>Configuring a Clone Resource</title>
 <!-- Text mostly copied from "Advanced Configuration" -->
-   <para>
+   <para><!-- FIXME -->
     Clones were initially conceived as a convenient way to start N instances
     of an IP resource and have them distributed throughout the cluster for
     load balancing. They have turned out to quite useful for a number of
@@ -1491,7 +1490,8 @@ crm(live)configure# <command>primitive</command> Email lsb:exim</screen>
     <title>Creating Stateful/Multi-State Clone Resources</title>
     <para>
      To create an stateful clone resource, first create a primitive resource
-     and then the master/slave resource.
+     and then the master/slave resource. The master/slave resource
+     must support at least promote and demote operations.
     </para>
     <procedure>
      <step>
@@ -1512,7 +1512,7 @@ crm(live)configure# <command>primitive</command> Email lsb:exim</screen>
       <para>
        Create the master slave resource:
       </para>
-      <screen>crm(live)configure# <command>clone</command> apache-clone Apache</screen>
+      <screen>crm(live)configure# <command>ms</command> myRSC-clone myRSC</screen>
      </step>
     </procedure>
    </sect3>
@@ -1583,22 +1583,14 @@ Resource Group: dlm-clvm:1
          cmirrord:1     (ocf::lvm2:cmirrord) Started</screen>
     </step>
     <step>
-     <para>
-      If the resource is running, it has to be stopped first. Replace
-      <replaceable>RSC</replaceable> with the name of the resource.
+     <para>Remove the resource:
      </para>
-     <screen>crm resource stop <replaceable>RSC</replaceable></screen>
+     <screen>crm resource cleanup dlm-clvm</screen>
      <para>
       For example, if you want to stop the DLM resource, from the
       <literal>dlm-clvm</literal> resource group, replace
       <replaceable>RSC</replaceable> with <literal>dlm</literal>.
      </para>
-    </step>
-    <step>
-     <para>
-      Delete the resource itself:
-     </para>
-     <screen>crm configure delete <replaceable>ID</replaceable></screen>
     </step>
    </procedure>
   </sect2>
@@ -1666,9 +1658,9 @@ crm(live)resource# <command>migrate</command> ipaddress1 node2</screen>
   <title>Setting Passwords Independent of <filename>cib.xml</filename></title>
 
   <para>
-   Security is a major topic for clusters. Therefore passwords absolutely
-   not get exposed in log files. Exposure can be avoided using the
-   <command>crm resource secret</command> command.
+    In case your cluster configuration contains sensitive information 
+    such as passwords it may be stored in local files. That way, these 
+    parameters will never be logged or leaked in support reports.
   </para>
 
   <para>
@@ -1678,27 +1670,27 @@ crm(live)resource# <command>migrate</command> ipaddress1 node2</screen>
   </para>
 
   <screen># crm configure show
-primitive dummy ocf:heartbeat:Dummy \
-        op stop interval="0" timeout="20" \
-        op start interval="0" timeout="20" \
-        op monitor interval="10" timeout="20" \
-        meta target-role="Stopped"
-...</screen>
+primitive mydb ocf:heartbeat:mysql \
+   params replication_user=admin ...</screen>
 
   <para>
-   If you want to set a password for the above <literal>dummy</literal>
+   If you want to set a password for the above <literal>mydb</literal>
    resource, use the following commands:
   </para>
 
-  <screen># crm resource secret dummy set passwd linux
-INFO: syncing /var/lib/heartbeat/lrm/secrets/dummy2/passwd to [your node list]</screen>
+  <screen># crm resource secret mydb set passwd linux
+INFO: syncing /var/lib/heartbeat/lrm/secrets/mydb/passwd to [your node list]</screen>
 
   <para>
    You can get the saved password back with:
   </para>
 
-  <screen># crm resource secret dummy show passwd
+  <screen># crm resource secret mydb show passwd
 linux</screen>
+    <para>Note that the parameters need to be synchronized between
+      nodes; <command>crm resource secret</command> command is going to
+      take care of that and it's highly recommended to use only this 
+      command to manage secret parameters.</para>
  </sect1>
 <!-- FATE#310358 -->
  <sect1 id="sec.ha.config.crm.history">
