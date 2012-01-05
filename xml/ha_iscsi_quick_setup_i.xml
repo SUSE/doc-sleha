@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:novdoc-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<!DOCTYPE sect1 PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN"
+                      "novdocx.dtd"
+[
+<!ENTITY % NOVDOC.DEACTIVATE.IDREF "IGNORE">
+<!ENTITY % entities SYSTEM "entity-decl.ent">
+%entities;
+]>
+<sect1 id="sec_ha_quick_iscsi_initial">
+  <title>Initial Configuration</title>
+
+  <para>
+   This section describes the configuration of a highly available iSCSI
+   Target and Logical Units (LU) in the context of the Pacemaker cluster
+   manager.
+  </para>
+
+  <sect2 id="_configuring_a_drbd_resource">
+   <title>Configuring a DRBD resource</title>
+   <para>
+    First, it is necessary to configure a Pacemaker resource that manages a
+    DRBD device. This resource will act as the Physical Volume of an LVM
+    Volume Group to be created later. This example assumes that the LVM
+    Volume Group is to be called <literal>iscsivg01</literal>, hence, the
+    DRBD resource uses that same name.
+   </para>
+<screen>global {
+  usage-count yes;
+}
+
+common {
+  protocol C;
+  disk {
+    on-io-error detach;
+    fencing resource-only;
+  }
+  net {
+    cram-hmac-alg sha1;
+    shared-secret "a6a0680c40bca2439dbe48343ddddcf4";
+  }
+  syncer {
+    rate 30M;
+    al-extents 3389;
+  }
+  handlers {
+    fence-peer "/usr/lib/drbd/crm-fence-peer.sh";
+    after-resync-target "/usr/lib/drbd/crm-unfence-peer.sh";
+    pri-on-incon-degr "echo b &gt; /proc/sysrq-trigger";
+  }
+}
+
+resource iscsivg01 {
+  device /dev/drbd1;
+  disk /dev/sda1;
+  meta-disk internal;
+
+  on alice {
+    address 10.0.42.1:7790;
+  }
+  on bob {
+    address 10.0.42.2:7790;
+  }
+}</screen>
+  </sect2>
+
+  <sect2 id="_lvm_configuration">
+   <title>LVM Configuration</title>
+   <para>
+    It is necessary instruct LVM to read Physical Volume signatures from
+    DRBD devices, rather than the underlying backing block devices. The
+    easiest approach for doing this is to mask the underlying block device
+    from the list of devices LVM scans for PV signatures.
+   </para>
+   <para>
+    To do so, open the LVM configuration file
+    (<literal>/etc/lvm/lvm.conf</literal>) and edit the following entries:
+   </para>
+<screen>filter = [ "r|/dev/sdb.*|" ]</screen>
+   <para>
+    In addition, you should disable the LVM cache by setting:
+   </para>
+<screen>write_cache_state = 0</screen>
+   <para>
+    After disabling the LVM cache, make sure you remove any stale cache
+    entries by deleting <literal>/etc/lvm/cache/.cache</literal>.
+   </para>
+   <para>
+    You must repeat the above steps on the peer node.
+   </para>
+   <para>
+    Now, to be able to create an LVM Volume Group, it is first necessary to
+    initialize the DRBD resource as an LVM Physical Volume. To do so, after
+    you have initiated the initial synchronization of your DRBD resource,
+    issue the following commands on the node where your resource is
+    currently in the Primary role:
+   </para>
+<screen>pvcreate /dev/drbd/by-res/iscsivg01</screen>
+   <para>
+    Now, create an LVM Volume Group that includes this PV:
+   </para>
+<screen>vgcreate iscsivg01 /dev/drbd/by-res/iscsivg01</screen>
+  </sect2>
+
+  <sect2 id="_initial_pacemaker_configuration_steps">
+   <title>Initial Pacemaker configuration steps</title>
+   <note>
+    <para>
+     While this manual covers the configuration of the Pacemaker cluster
+     manager, the configuration of the cluster stack that Pacemaker uses is
+     beyond the scope of this manual. Please see
+     <ulink url="http://clusterlabs.org/wiki/Initial_Configuration">Initial
+     Configuration</ulink> (from the ClusterLabs Wiki) for details on
+     bootstrapping a Pacemaker cluster configuration.
+    </para>
+   </note>
+   <para>
+    In a highly available iSCSI target configuration that involves a 2-node
+    cluster, you should
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Disable STONITH;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Set Pacemaker&#8217;s no quorum policy to ignore loss of quorum;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Set the default resource stickiness to 200.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    To do so, issue the following commands from the CRM shell:
+   </para>
+<screen>crm(live)# configure
+crm(live)configure# property stonith-enabled="false"
+crm(live)configure# property no-quorum-policy="ignore"
+crm(live)configure# property default-resource-stickiness="200"
+crm(live)configure# commit</screen>
+  </sect2>
+
+  <sect2 id="_creating_an_active_passive_iscsi_configuration">
+   <title>Creating an Active/Passive iSCSI configuration</title>
+   <para>
+    An active/passive iSCSI Target consists of the following cluster
+    resources:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      A DRBD resource to replicate data, which is switched from and to the
+      Primary and Secondary roles as deemed necessary by the cluster
+      resource manager;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      An LVM Volume Group, which is made available on whichever node
+      currently holds the DRBD resource in the Primary role;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      A virtual, floating cluster IP address, allowing initiators to connect
+      to the target no matter which physical node it is running on;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The iSCSI Target itself;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      One or more iSCSI Logical Units (LUs), each corresponding to a Logical
+      Volume in the LVM Volume Group.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    The following Pacemaker configuration example assumes that
+    <literal>10.9.9.180</literal> is the virtual IP address to use for a
+    target with the iSCSI Qualified Name (IQN)
+    <literal>iqn.2001-04.com.example:storage.example.iscsivg01</literal>.
+   </para>
+   <para>
+    The target is to contain two Logical Units with LUNs 1 and 2, mapping to
+    Logical Volumes named <literal>lun1</literal> and
+    <literal>lun2</literal>, respectively.
+   </para>
+   <para>
+    To start configuring these resources, open the crm shell as
+    <literal>root</literal> (or any non-<literal>root</literal> user that is
+    part of the <literal>haclient</literal> group), and issue the following
+    commands:
+   </para>
+<screen>crm(live)# configure
+crm(live)configure# primitive res_drbd_iscsivg01 \
+  ocf:linbit:drbd \
+    params drbd_resource="iscsivg01" \
+    op monitor interval="10"
+crm(live)configure# ms ms_drbd_iscsivg01 res_drbd_iscsivg01 \
+  meta master-max="1" master-node-max="1" clone-max="2" \
+    clone-node-max="1" notify="true"</screen>
+   <para>
+    This will create a Master/Slave resource corresponding to the DRBD
+    resource <literal>iscsivg01</literal>.
+   </para>
+<screen>crm(live)configure# primitive res_ip_alicebob01 \
+  ocf:heartbeat:IPaddr2 \
+    params ip="10.9.9.180" cidr_netmask="24" \
+    op monitor interval="10s"
+crm(live)configure# primitive res_lvm_iscsivg01 \
+  ocf:heartbeat:LVM \
+    params volgrpname="iscsivg01" \
+    op monitor interval="30s"
+crm(live)configure# primitive res_target_iscsivg01 \
+  ocf:heartbeat:iSCSITarget \
+    params iqn="iqn.2001-04.com.example:storage.example.iscsivg01" \
+      tid="1" \
+    op monitor interval="10s"</screen>
+   <note>
+    <para>
+     You <emphasis>must</emphasis> specify the numeric target id
+     (<literal>tid</literal>) if you are using the tgt implementation. For
+     IET, setting this parameter is optional.
+    </para>
+   </note>
+   <para>
+    Thus, we have configured a highly available IP address, Volume Group,
+    and iSCSI Target. We can now add Logical Units:
+   </para>
+<screen>crm(live)configure# primitive res_lu_iscsivg01_lun1 \
+  ocf:heartbeat:iSCSILogicalUnit \
+    params target_iqn="iqn.2001-04.com.example:storage.example.iscsivg01" \
+      lun="1" path="/dev/iscsivg01/lun1" \
+    op monitor interval="10s"
+crm(live)configure# primitive res_lu_iscsivg01_lun2 \
+  ocf:heartbeat:iSCSILogicalUnit \
+    params target_iqn="iqn.2001-04.com.example:storage.example.iscsivg01" \
+      lun="2" path="/dev/iscsivg01/lun2" \
+op monitor interval="10s"</screen>
+   <para>
+    Now to tie all of this together, we must first create a resource group
+    from the resources associated with our iSCSI Target:
+   </para>
+<screen>crm(live)configure# group rg_iscsivg01 \
+  res_lvm_iscsivg01 \
+  res_target_iscsivg01 res_lu_iscsivg01_lun1 res_lu_iscsivg01_lun2 \
+  res_ip_alicebob01</screen>
+   <para>
+    This group, by Pacemaker default, is <emphasis>ordered</emphasis> and
+    <emphasis>colocated</emphasis>, which means that the resources contained
+    therein will always run on the same physical node, will be started in
+    the order as specified, and stopped in reverse order.
+   </para>
+   <para>
+    Finally, we have to make sure that this resource group is also started
+    on the node where DRBD is in the Primary role:
+   </para>
+<screen>crm(live)configure# order o_drbd_before_iscsivg01 \
+  inf: ms_drbd_iscsivg01:promote rg_iscsivg01:start
+crm(live)configure# colocation c_iscsivg01_on_drbd \
+  inf: rg_iscsivg01 ms_drbd_iscsivg01:Master</screen>
+   <para>
+    Now, our configuration is complete, and may be activated:
+   </para>
+<screen>crm(live)configure# commit</screen>
+  </sect2>
+
+  <sect2 id="_creating_an_active_active_iscsi_configuration">
+   <title>Creating an Active/Active iSCSI configuration</title>
+   <para>
+    An active/active iSCSI Target consists of the following cluster
+    resources:
+   </para>
+   <para>
+    Two DRBD resources to replicate data, which are switched from and to the
+    Primary and Secondary roles as deemed necessary by the cluster resource
+    manager;
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Two LVM Volume Groups, which are made available on whichever node
+      currently holds the corresponding DRBD resource in the Primary role;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Two virtual, floating cluster IP addresses, allowing initiators to
+      connect to the target no matter which physical node it is running on;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The iSCSI Targets themselves;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      One or more iSCSI Logical Units (LUs), each corresponding to a Logical
+      Volume in one of the two LVM Volume Groups
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    <literal>10.9.9.180</literal> and <literal>10.9.9.181</literal> are the
+    virtual IP addresses to use for two targets with the iSCSI Qualified
+    Names (IQN)
+    <literal>iqn.2001-04.com.example:storage.example.iscsivg01</literal> and
+    <literal>iqn.2001-04.com.example:storage.example.iscsivg02</literal>,
+    respectively.
+   </para>
+   <para>
+    The targets are to contain two Logical Units with LUNs 1 and 2, mapping
+    to Logical Volumes named <literal>lun1</literal> and
+    <literal>lun2</literal> in each Volume Group, respectively.
+   </para>
+   <para>
+    To start configuring these resources, open the <literal>crm</literal>
+    shell as <literal>root</literal> (or any non-<literal>root</literal>
+    user that is part of the <literal>haclient</literal> group), and issue
+    the following commands:
+   </para>
+<screen>crm(live)# configure
+crm(live)configure# primitive res_drbd_iscsivg01 \
+  ocf:linbit:drbd \
+    params drbd_resource="iscsivg01" \
+    op monitor interval="10s"
+crm(live)configure# ms ms_drbd_iscsivg01 res_drbd_iscsivg01 \
+  meta master-max="1" master-node-max="1" clone-max="2" \
+    clone-node-max="1" notify="true"
+crm(live)configure# primitive res_drbd_iscsivg02 \
+  ocf:linbit:drbd \
+    params drbd_resource="iscsivg02" \
+  op monitor interval="10s"
+crm(live)configure# ms ms_drbd_iscsivg01 res_drbd_iscsivg02 \
+  meta clone-max="2" notify="true"</screen>
+   <para>
+    This will create Master/Slave resources corresponding to the DRBD
+    resources <literal>iscsivg01</literal> and <literal>iscsivg02</literal>.
+   </para>
+<screen>crm(live)configure# primitive res_ip_alicebob01 \
+  ocf:heartbeat:IPaddr2 \
+    params ip="10.9.9.180" cidr_netmask="24" \
+    op monitor interval="10s"
+crm(live)configure# primitive res_ip_alicebob02 \
+  ocf:heartbeat:IPaddr2 \
+    params ip="10.9.9.181" cidr_netmask="24" \
+    op monitor interval="10s"
+crm(live)configure# primitive res_lvm_iscsivg01 \
+  ocf:heartbeat:LVM \
+    params volgrpname="iscsivg01" \
+    op monitor interval="30s"
+crm(live)configure# primitive res_lvm_iscsivg01 \
+  ocf:heartbeat:LVM \
+    params volgrpname="iscsivg02" \
+    op monitor interval="30s"
+crm(live)configure# primitive res_target_iscsivg01 \
+  ocf:heartbeat:iSCSITarget \
+    params iqn="iqn.2001-04.com.example:storage.example.iscsivg01" \
+      tid="1" \
+    op monitor interval="10s"
+crm(live)configure# primitive res_target_iscsivg02 \
+  ocf:heartbeat:iSCSITarget \
+    params iqn="iqn.2001-04.com.example:storage.example.iscsivg02" \
+      tid="2" \
+    op monitor interval="10s</screen>
+   <note>
+    <para>
+     You <emphasis>must</emphasis> specify the numeric target id
+     (<literal>tid</literal>) if you are using the tgt implementation. For
+     IET, setting this parameter is optional.
+    </para>
+   </note>
+   <para>
+    Thus, we have configured a highly available IP address, Volume Group,
+    and iSCSI Target. We can now add Logical Units:
+   </para>
+<screen>crm(live)configure# primitive res_lu_iscsivg01_lun1 \
+  ocf:heartbeat:iSCSILogicalUnit \
+    params target_iqn="iqn.2001-04.com.example:storage.example.iscsivg01" \
+      lun="1" path="/dev/iscsivg01/lun1" \
+    op monitor interval="10s"
+crm(live)configure# primitive res_lu_iscsivg01_lun2 \
+  ocf:heartbeat:iSCSILogicalUnit \
+    params target_iqn="iqn.2001-04.com.example:storage.example.iscsivg01" \
+      lun="2" path="/dev/iscsivg0
+crm(live)configure# primitive res_lu_iscsivg02_lun1 \
+  ocf:heartbeat:iSCSILogicalUnit \
+    params target_iqn="iqn.2001-04.com.example:storage.example.iscsivg02" \
+      lun="1" path="/dev/iscsivg02/lun1" \
+    op monitor interval="10s"
+crm(live)configure# primitive res_lu_iscsivg02_lun2 \
+  ocf:heartbeat:iSCSILogicalUnit \
+    params target_iqn="iqn.2001-04.com.example:storage.example.iscsivg02" \
+      lun="2" path="/dev/iscsivg02/lun2" \
+    op monitor interval="10s"</screen>
+   <para>
+    Now to tie all of this together, we must first create resource groups
+    from the resources associated with our iSCSI Targets:
+   </para>
+<screen>crm(live)configure# group rg_iscsivg01 \
+  res_lvm_iscsivg01 \
+  res_target_iscsivg01 res_lu_iscsivg01_lun1 res_lu_iscsivg01_lun2 \
+  res_ip_alicebob01
+crm(live)configure# group rg_iscsivg02 \
+  res_lvm_iscsivg02 \
+  res_target_iscsivg02 res_lu_iscsivg02_lun1 res_lu_iscsivg02_lun2 \
+  res_ip_alicebob02</screen>
+   <para>
+    These groups, by Pacemaker default, are <emphasis>ordered</emphasis> and
+    <emphasis>colocated</emphasis>, which means that the resources contained
+    therein will always run on the same physical node, will be started in
+    the order as specified, and stopped in reverse order.
+   </para>
+   <para>
+    We now have to make sure that this resource group is also started on the
+    node where DRBD is in the Primary role:
+   </para>
+<screen>crm(live)configure# order o_drbd_before_iscsivg01 \
+  inf: ms_drbd_iscsivg01:promote rg_iscsivg01:start
+crm(live)configure# colocation c_iscsivg01_on_drbd \
+  inf: rg_iscsivg01 ms_drbd_iscsivg01:Master
+crm(live)configure# order o_drbd_before_iscsivg02 \
+  inf: ms_drbd_iscsivg02:promote rg_iscsivg02:start
+crm(live)configure# colocation c_iscsivg01_on_drbd \
+  inf: rg_iscsivg01 ms_drbd_iscsivg01:Master
+crm(live)configure# colocation c_iscsivg02_on_drbd \
+  inf: rg_iscsivg02 ms_drbd_iscsivg02:Master</screen>
+   <para>
+    Now, our configuration is complete, and may be activated:
+   </para>
+<screen>crm(live)configure# commit</screen>
+  </sect2>
+ </sect1>

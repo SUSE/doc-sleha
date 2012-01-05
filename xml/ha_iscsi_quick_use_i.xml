@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:novdoc-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<!DOCTYPE article PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN"
+                      "novdocx.dtd"
+[
+<!ENTITY % NOVDOC.DEACTIVATE.IDREF "IGNORE">
+<!ENTITY % entities SYSTEM "entity-decl.ent">
+%entities;
+]>
+<sect1 id="sec_ha_quick_iscsi_use">
+  <title>Using highly available iSCSI Targets</title>
+
+  <para>
+   This section describes some common usage scenarios for highly available
+   iSCSI Targets.
+  </para>
+
+  <sect2 id="_connecting_to_iscsi_targets_from_linux">
+   <title>Connecting to iSCSI targets from Linux</title>
+   <para>
+    The recommended way of connecting to a highly available iSCSI Target
+    from Linux is to use the initiator delivered by the Open iSCSI project
+    (<ulink url="http://www.open-iscsi.org">http://www.open-iscsi.org</ulink>).
+   </para>
+   <para>
+    After installing the Open iSCSI administration utilities, it is first
+    necessary to start the iSCSI initiatior daemon,
+    <literal>iscsid</literal>. To do so, issue one of the following commands
+    (depending on your distribution):
+   </para>
+<screen>/etc/init.d/open-iscsi start
+rcopen-iscsi start
+service open-iscsi start</screen>
+   <para>
+    Now you may start a discovery session on your target portal. Assuming
+    your cluster IP address for the target is 10.9.9.180, you may do so
+    using the following command:
+   </para>
+<screen>iscsiadm -m discovery -p 10.9.9.180 -t sendtargets</screen>
+   <para>
+    The output from this command should include the names of all targets you
+    have configured.
+   </para>
+<screen>10.9.9.180:3260,1 iqn.2001-04.com.example:storage.example.iscsivg01</screen>
+   <note>
+    <para>
+     If a configured target does not appear in this list, check whether your
+     initiator has been blocked from accessing this target via an initiator
+     restriction (see
+     <xref linkend="_restricting_target_access_by_initiator_address"/>).
+    </para>
+   </note>
+   <para>
+    Then, if you have configured your iSCSI Target to require authentication
+    (see
+    <xref linkend="_restricting_target_access_by_using_chap_credentials"/>),
+    you must set a username and password for any target you wish to connect
+    to. To do so, issue the following commands:
+   </para>
+<screen>iscsiadm -m node -p 10.9.9.180 \
+  -T iqn.2001-04.com.example:storage.example.iscsivg01 \
+  --op update \
+  -n node.session.auth.authmethod -v CHAP
+iscsiadm -m node -p 10.9.9.180 \
+  -T iqn.2001-04.com.example:storage.example.iscsivg01 \
+  --op update \
+  -n node.session.auth.username -v iscsi
+iscsiadm -m node -p 10.9.9.180 \
+  -T iqn.2001-04.com.example:storage.example.iscsivg01 \
+  --op update \
+  -n node.session.auth.password -v zi1caighaiTo</screen>
+   <para>
+    Finally, you may log in to the target, which will make all LUs
+    configured therein available as local SCSI devices:
+   </para>
+<screen>iscsiadm -m node -p 10.9.9.180 \
+  -T iqn.2001-04.com.example:storage.example.iscsivg01 \
+  --login</screen>
+  </sect2>
+
+  <sect2 id="_connecting_to_iscsi_targets_from_microsoft_windows">
+   <title>Connecting to iSCSI targets from Microsoft Windows</title>
+   <para>
+    On Microsoft Windows, iSCSI Target connections are managed by the
+    Microsoft iSCSI Initiator Service, which is available free of charge
+    from Microsoft and my be installed on Microsoft Windows Server 2003 and
+    2008.
+   </para>
+   <important>
+    <para>
+     Smooth, uninterrupted target failover in conjunction with the Microsoft
+     iSCSI Initiator is guaranteed only if the Logical Units' SCSI IDs and
+     serial numbers are persistent across the failover process. Refer to the
+     <xref linkend="_scsi_id_and_serial_number"/> for considerations on
+     consistent SCSI IDs and SNs.
+    </para>
+   </important>
+   <sect3 id="_configuring_microsoft_iscsi_initiator_using_the_control_panel_applet">
+    <title>Configuring Microsoft iSCSI Initiator using the Control Panel applet</title>
+    <para>
+     To configure access to an iSCSI target from Microsoft Windows, open the
+     Control Panel item <literal>Microsoft iSCSI Initiator</literal>. First,
+     click on the <literal>Discovery</literal> tab, then under
+     <literal>Target Portals</literal> click <literal>Add</literal> to add a
+     connection to a target portal.
+    </para>
+    <para>
+     In the <literal>IP address or DNS name</literal> field, enter the
+     floating cluster IP address of your configured iSCSI target as the
+     target IP address. You may of course also use a host name if it
+     resolves to the cluster IP address.
+    </para>
+    <figure>
+     <title>Configuring target IP address on Windows</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata fileref="screenshot-windows-add-portal.png" width="50%"   />
+      </imageobject>
+<!-- <textobject><phrase>screenshot-windows-add-portal.png</phrase></textobject>-->
+     </mediaobject>
+    </figure>
+    <para>
+     If your target is protected by CHAP authentication, click
+     <literal>Advanced&#8230;</literal> to open the advanced settings
+     dialog. Check the <literal>CHAP logon information</literal> checkbox.
+     Enter the username and password configured for target authentication.
+    </para>
+    <figure>
+     <title>Configuring CHAP authentication on Windows</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata fileref="screenshot-windows-chap-auth.png" width="50%"   />
+      </imageobject>
+<!--<textobject><phrase>screenshot-windows-chap-auth.png</phrase></textobject>-->
+     </mediaobject>
+    </figure>
+    <note>
+     <para>
+      Be sure to leave the <literal>Perform mutual authentication</literal>
+      checkbox unchecked.
+     </para>
+    </note>
+    <para>
+     Next, select the Targets tab. It should now list any targets visible to
+     the initiatior under the configured portal address. In the example
+     below, there is one target available. Since the target has not been
+     logged into, its status is listed as <literal>Inactive</literal>:
+    </para>
+    <figure>
+     <title>Discovered iSCSI target on Windows</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata fileref="screenshot-windows-discovered-target.png" width="50%"   />
+      </imageobject>
+<!--<textobject><phrase>screenshot-windows-discovered-target.png</phrase></textobject>-->
+     </mediaobject>
+    </figure>
+    <para>
+     You may now click <literal>Log On&#8230;</literal> to log on to the
+     target:
+    </para>
+    <figure>
+     <title>iSCSI target logon dialog on Windows</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata fileref="screenshot-windows-logon-target.png" width="50%"   />
+      </imageobject>
+<!--<textobject><phrase>screenshot-windows-logon-target.png</phrase></textobject>-->
+     </mediaobject>
+    </figure>
+    <para>
+     Be sure to check box the labeled <literal>Automatically restore this
+     connection when the system boots</literal>, to ensure that the
+     connection to the configured target portal is automatically restored on
+     system boot.
+    </para>
+    <para>
+     When you have configured your initiator correctly, the target should be
+     listed as <literal>Connected</literal> in the Targets list:
+    </para>
+    <figure>
+     <title>Connected target on Windows</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata fileref="screenshot-windows-connected-target.png" width="50%"   />
+      </imageobject>
+<!--<textobject><phrase>screenshot-windows-connected-target.png</phrase></textobject>-->
+     </mediaobject>
+    </figure>
+   </sect3>
+   <sect3 id="_configuring_microsoft_iscsi_initiator_using_literal_iscsicli_literal">
+    <title>Configuring Microsoft iSCSI Initiator using <literal>iscsicli</literal></title>
+    <para>
+     Microsoft iSCSI Initiator comes with a command line utility named
+     <literal>iscsicli</literal>, which may also be used to configure access
+     to iSCSI portals and targets.
+    </para>
+    <para>
+     To connect to a target portal, use the following command:
+    </para>
+<screen>C:\&gt;iscsicli QAddTargetPortal 10.9.9.180
+Microsoft iSCSI Initiator version 2.0 Build 3825
+
+The operation completed successfully.</screen>
+    <para>
+     You should now be able to retrieve information associated with the
+     newly added target:
+    </para>
+<screen>C:\&gt;iscsicli ListTargetPortals
+Microsoft iSCSI Initiator version 2.0 Build 3825
+
+Total of 1 portals are persisted:
+
+    Address and Socket   : 10.9.9.180 3260
+    Symbolic Name        :
+    Initiator Name       :
+    Port Number          : &lt;Any Port&gt;
+    Security Flags       : 0x0
+    Version              : 0
+    Information Specified: 0x0
+    Login Flags          : 0x0
+
+The operation completed successfully.</screen>
+    <para>
+     Next, list the targets accessible via this target portal:
+    </para>
+<screen>C:\&gt;iscsicli ListTargets
+Microsoft iSCSI Initiator version 2.0 Build 3825
+
+Targets List:
+    iqn.2001-04.com.linbit:storage.alicebob.iscsivg01
+The operation completed successfully.</screen>
+    <para>
+     You may now add the newly discovered target to your configuration, as a
+     persistent target. <literal>iscsicli</literal> requires that you enter
+     the same parameters both for target login, and for making the target
+     persistent:
+    </para>
+<screen>C:\&gt;iscsicli
+PersistentLoginTarget iqn.2001-04.com.linbit:storage.alicebob.iscsivg01
+T * * * * * * * * * * * * * * * 0
+Microsoft iSCSI Initiator version 2.0 Build 3825
+
+LoginTarget to iqn.2001-04.com.linbit:storage.alicebob.iscsivg01
+on &lt;no init instance&gt; to &lt;no portal&gt;/0
+The operation completed successfully.</screen>
+<screen>C:\&gt;iscsicli
+LoginTarget iqn.2001-04.com.linbit:storage.alicebob.iscsivg01
+T * * * * * * * * * * * * * * * 0
+Microsoft iSCSI Initiator version 2.0 Build 3825
+LoginTarget to iqn.2001-04.com.linbit:storage.alicebob.iscsivg01 on
+&lt;no init instance&gt; to &lt;no portal&gt;/0
+Session Id is 0xfffffadfe5f70018-0x4000013700000010
+Connection Id is 0xfffffadfe5f70018-0xf
+The operation completed successfully.</screen>
+    <note>
+     <para>
+      If your target is configured with CHAP authentication, replace the
+      trailing <literal>* * 0</literal> with <literal>&lt;username&gt;
+      &lt;password&gt; 1</literal>.
+     </para>
+    </note>
+    <para>
+     Finally, import Logical Units into your local disk configuration:
+    </para>
+<screen>C:\&gt;iscsicli bindpersistentvolumes
+Microsoft iSCSI Initiator version 2.0 Build 3825
+
+The operation completed successfully.</screen>
+   </sect3>
+   <sect3 id="_initializing_iscsi_disks_on_windows">
+    <title>Initializing iSCSI disks on Windows</title>
+    <note>
+     <para>
+      When you connect a Windows host to a target that uses tgt for the
+      first time, the Windows Plug and Play manager displays a new, unknown
+      storage controller device. This is the virtual “controller” LUN 0
+      that tgt exposes. No driver for this device exists, nor is one
+      necessary. Simply click through the New Device Wizard and choose not
+      to install any driver. This consideration does not apply if your iSCSI
+      target cluster uses an implementation other than tgt.
+     </para>
+    </note>
+    <para>
+     After you have added a target&#8217;s Logical Units to your
+     computer&#8217;s configuration as local disks, open the
+     <literal>Computer Management</literal> console from the Administrative
+     Tools menu and select <literal>Logical Disk Manager</literal>. Your new
+     disk should now be listed among the local drives available:
+    </para>
+    <figure>
+     <title>New iSCSI disks in Windows Logical Disk Manager</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata fileref="screenshot-windows-diskman-uninitialized.png" width="50%"   />
+      </imageobject>
+<!--<textobject><phrase>screenshot-windows-diskman-uninitialized.png</phrase></textobject>-->
+     </mediaobject>
+    </figure>
+    <para>
+     Right-click on one of the new disks labeled <literal>Unknown</literal>
+     and <literal>Not Initialized</literal>, and select <literal>Initialize
+     Disk</literal>. You will be prompted to select one or more disks to
+     initialize:
+    </para>
+    <figure>
+     <title>Initializing iSCSI disks in Windows</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata fileref="screenshot-windows-diskman-initialize.png" width="50%"/>
+      </imageobject>
+<!--<textobject><phrase>screenshot-windows-diskman-initialize.png</phrase></textobject>-->
+     </mediaobject>
+    </figure>
+    <para>
+     After drives are initialized, their status changes to
+     <literal>Basic</literal> and <literal>Online</literal>. You may now
+     format the drive, assign a drive letter, or mount point, just as you
+     would with a local disk.
+    </para>
+    <figure>
+     <title>iSCSI disks in Windows after initialization</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata fileref="screenshot-windows-diskman-initialized.png" width="50%" />
+      </imageobject>
+<!--  <textobject><phrase>screenshot-windows-diskman-initialized.png</phrase></textobject>-->
+     </mediaobject>
+    </figure>
+    <warning>
+     <para>
+      Do not convert the iSCSI disk to a Dynamic Disk. This is not supported
+      on Windows; iSCSI connected drives should always remain configured as
+      Basic Disks.
+     </para>
+    </warning>
+   </sect3>
+  </sect2>
+ </sect1>
