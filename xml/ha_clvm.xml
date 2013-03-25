@@ -175,13 +175,14 @@ cLVM) for more information and details to integrate here - really helpful-->
   <sect2 id="sec.ha.clvm.config.cmirrord">
     <title>Configuring Cmirrord</title>
     <!-- FATE#314367,  -->
-    <para>To track mirror log information in a cluster, the cmirrord
-        daemon is used for this task. Cluster mirrors are not possible
-        without this daemon running. </para>
-    <para>To configure 
-      We assume, <filename>/dev/sda</filename> is the shared storage
-    device. Replace it with your own device name, if neccessary. Proceed
-    as follows:</para>
+    <para>To track mirror log information in a cluster, the <systemitem
+          class="daemon">cmirrord</systemitem> daemon is used for this
+        task. Cluster mirrors are not possible without this daemon
+        running. </para>
+    <para>We assume, <filename>/dev/sda</filename> and
+      <filename>/dev/sdb</filename> are the shared storage
+        devices. Replace it with your own device name, if neccessary.
+        Proceed as follows:</para>
     <procedure>
       <step>
         <para>Create a cluster with at least two nodes.</para>
@@ -189,9 +190,9 @@ cLVM) for more information and details to integrate here - really helpful-->
       <step>
         <para>Create a clustered volume group (VG):
           <!-- which requires 
-          Pacemaker to have started dlmd and clvmd-->:</para>
-        <screen>pvcreate /dev/sda
-vgcreate -cy vg /dev/sda</screen>
+          Pacemaker to have started dlmd and clvmd--></para>
+        <screen>pvcreate /dev/sda /dev/sdb
+vgcreate -cy vg /dev/sda /dev/sdb</screen>
       </step>
       <step>
         <para>Create a mirrored-log logical volume (LG) in your
@@ -224,7 +225,6 @@ vgcreate -cy vg /dev/sda</screen>
           </step>
         </substeps>
       </step>
-      
       <step>
         <para>Create a mirrored-log LV in a another cluster VG. This is
             a different volume group from the previous one.</para>
@@ -238,6 +238,49 @@ vgcreate -cy vg /dev/sda</screen>
        </step>
       
     </procedure>
+    
+    <!-- FATE#312248: -->
+    <para>Current cLVM can only handle one physical volume (PV) per
+      mirror side. If one mirror is actually made up of several PVs that
+    need to be concatenated or striped, <command>lvcreate</command> does
+    not understand this. For this reason, <command>lvcreate</command>
+      and <systemitem>cmirrord</systemitem> metadata needs to understand
+    <quote>grouping</quote> of PVs into one side, effectively supporting
+      RAID10. </para>
+    <para>In order to support RAID10 for <systemitem
+      class="daemon">cmirrord</systemitem>, use the following procedure
+      (assuming, <filename>/dev/sda</filename> and
+      <filename>/dev/sdb</filename> are the shared storage devices):</para>
+    <procedure>
+      <!--<step>
+        <para>Create a cluster with at least two nodes.</para>
+      </step>-->
+      <step>
+        <para>Create a volume group (VG):</para>
+        <screen>pvcreate /dev/sda /dev/sdb
+vgcreate vg /dev/sda /dev/sdb</screen>
+      </step>
+      <step>
+        <para>Open the file <filename>/etc/lvm/lvm.conf</filename> and
+          go to the section <literal>allocation</literal>. Set the 
+          following line and save the file:</para>
+        <screen>mirror_legs_require_separate_pvs = 1</screen>
+      </step>
+      <step>
+        <para>Add your tags to your PVs:</para>
+        <screen>pvchange --addtag @a /dev/sda
+pvchange --addtag @b /dev/sdb</screen>
+      </step>
+      <step>
+        <para>List your tags:</para>
+        <screen>pvs -o pv_name,vg_name,pv_tags /dev/sd{a,b}</screen>
+        <para>You should receive this output:</para>
+        <screen>  PV         VG     PV Tags
+  /dev/sda vgtest a
+  /dev/sdb vgtest b</screen>
+      </step>
+    </procedure>
+    
   </sect2>
    
   <sect2 id="sec.ha.clvm.config.resources">
