@@ -1400,17 +1400,22 @@ monitor_0     interval=5s timeout=20s</screen>
    </listitem>
   </itemizedlist>
  </sect1>
+ 
  <sect1 id="sec.ha.configuration.basics.monitor.node">
   <title>Monitoring Node Health</title>
-  <para>To avoid that a node runs out of disk space or is under overload, the &hasi; provides a
-   resource agent, <systemitem>ocf:pacemaker:SysInfo</systemitem>, with which you can monitor a
-   node's health. To define how the CRM should react in case a node reachers a critical state, use
-   the global cluster option <systemitem>node-health-strategy</systemitem>. It requires external
-   entities <remark>taroth 2013-04-03: DEVs, which ones?</remark> to create node attributes, named
-   with the prefix <literal>#health</literal>, with one of the following values:
-    <literal>red</literal>, <literal>yellow</literal> or green.</para>
+  <!--fate#313815 (SP3) handle node faults gracefully-->
+  <para>To avoid that a node runs out of disk space and thus can no longer adequately manage any
+   resources that have been assigned to it, the &hasi; provides a resource agent,
+    <systemitem>ocf:pacemaker:SysInfo</systemitem>. Use it to monitor a node's health with respect
+   to disk partitions. To define how the CRM should react in case a node reaches a critical state,
+   use the global cluster option <systemitem>node-health-strategy</systemitem>. It requires external
+   entities <remark>taroth 2013-04-03: DEVs, which ones?</remark> to create node attributes that are named
+   with the prefix <literal>#health</literal>. The health node attributes may have one of the following
+   values: <literal>red</literal>, <literal>yellow</literal> or <literal>green</literal>.</para>
+  <para></para>
 
-  <para>Allowed values are:</para>
+  <para>Allowed values for <systemitem>node-health-strategy</systemitem> are: <remark>taroth
+   2013-04-03: DEVs, please provide information about the meaning of the values</remark></para>
   <variablelist>
    <varlistentry>
     <term><literal>none</literal>
@@ -1423,7 +1428,11 @@ monitor_0     interval=5s timeout=20s</screen>
     <term><literal>migrate-on-red</literal>
      </term>
     <listitem>
-     <para>???</para>
+     <para>If a health attribute of a node has reached status <literal>red</literal>, any resources
+      will be moved away from the node. The &stonith; resource will be the last one to be
+      stopped but even if the resource is not running any more, the node can still be fenced, as
+      fencing has direct access to the CIB and will continue to work. </para>
+     
     </listitem>
    </varlistentry>
    <varlistentry>
@@ -1449,10 +1458,9 @@ monitor_0     interval=5s timeout=20s</screen>
    </varlistentry>
   </variablelist>
 
+
   
-  <para>To configure the SysInfo resource agent, add a clone of
-    <systemitem>ocf:pacemaker:SysInfo</systemitem>. <remark>taroth 2013-04-03: clone must be done
-     after the primitive is defined - check again!</remark> Define which disk partitions to monitor (for
+  <para>To configure the SysInfo resource agent, define which disk partitions to monitor (for
    example, <filename>tmp</filename>, <filename>usr</filename>, <filename>var</filename>,
     <filename>dev</filename>) and the minimum free disk space required for those partitions. In
    addition, define the unit in which to measure the disk space.</para>
@@ -1469,6 +1477,9 @@ monitor_0     interval=5s timeout=20s</screen>
 params disks="/tmp" min_disk_free="100M" disk_unit="M" delay="30s" \ 
 op monitor interval="15s"</screen>
   </example>
+  <remark>taroth 2013-04-03: DEVs, what about the "delay" param - what is it good for?</remark>
+  <para>Then create a clone of <systemitem>ocf:pacemaker:SysInfo</systemitem>. 
+   <remark>taroth 2013-04-03: DEVs, what to do with the clone? run it on each cluster node?</remark></para>
 
 <!--allowed paramaters for SysInfo: 
  * delay (in seconds) - what is it good for?
@@ -1477,83 +1488,21 @@ op monitor interval="15s"</screen>
  * min_disk_free - number (only value, unity is defined above)
  * pidfile - /var/run/SysInfo-undef - what is this good for?-->
  
-
-  <!--taroth 2013-03-26: todo - fate#313815 (SP3) handle node faults gracefully
-   
-   Description:
-   
-  Out of disk space errors should be handled gracefully; instead of the node "bouncing"
-   repeatedly and destabilizing the cluster, it should detect local health issues (such as free disk
-   space, and possibly others eventually such as overheating etc) and not even try to join the
-   cluster (i.e., corosync/openais init script abort). 
-   
-   Testcase: 
-   
-   Add a clone of the ocf:pacemaker:SysInfo RA. Define disks and min_disk_free parameters appropriately: 
-   primitive   sysinfo ocf:pacemaker:SysInfo \ params disks="/tmp" min_disk_free="100M" disk_unit="M"
-   delay="30s" \ op monitor interval="15s" 
-   
-   NB: The root fs ("/") is always included in the test. Set the node-health-strategy property: 
-   property node-health-strategy="migrate-on-red" 
-   
-   Fill any of   those disks and see how the cluster copes. 
-   
-   Expected behaviour: resources should move away from
-   the node. 
-   
-   related to https://bugzilla.novell.com/show_bug.cgi?id=810037
-  
-  from  crm ra info SysInfo:
-  
-  Records various node attributes in the CIB (ocf:heartbeat:SysInfo)
-  
-  This is a SysInfo Resource Agent.
-  It records (in the CIB) various attributes of a node
-  Sample Linux output:
-  arch:   i686
-  os:     Linux-2.4.26-gentoo-r14
-  free_swap:      1999
-  cpu_info:       Intel(R) Celeron(R) CPU 2.40GHz
-  cpu_speed:      4771.02
-  cpu_cores:      1
-  cpu_load:       0.00
-  ram_total:      513
-  ram_free:       117
-  root_free:      2.4
-  
-  Sample Darwin output:
-  arch:   i386
-  os:     Darwin-8.6.2
-  cpu_info:       Intel Core Duo
-  cpu_speed:      2.16
-  cpu_cores:      2
-  cpu_load:       0.18
-  ram_total:      2016
-  ram_free:       787
-  root_free:      13
-  
-  Units:
-  free_swap: Mb
-  ram_*:     Mb
-  root_free: Gb
-  cpu_speed (Linux): bogomips
-  cpu_speed (Darwin): Ghz
-  
-  Parameters (* denotes required, [] the default):
-  
-  pidfile (string, [/var/run/resource-agents/SysInfo-undef]): 
-  PID file
-  
-  delay (string, [0s]): Dampening Delay
-  Interval to allow values to stabilize
-  
-  Operations' defaults (advisory minimum):
-  
-  start         timeout=20s
-  stop          timeout=20s
-  monitor       interval=60s timeout=20s
-  -->
-
+  <para>After resolving the issue which has led to a <literal>red</literal> status of the node,
+   clear the <literal>red</literal> status for the node by using one of the following options:</para>
+  <itemizedlist>
+   <listitem>
+    <para>Log in to the cluster and execute the following command:</para>
+    <screen>crm_attribute -N <replaceable>NODE</replaceable> -n "#health_disk" -D -l reboot</screen>
+   </listitem>
+   <listitem>
+    <para>Restart &ais; on that node.</para>
+   </listitem>
+   <listitem>
+    <para>Reboot the node.</para>
+   </listitem>
+  </itemizedlist>
+  <para>The node will be back for service and can run resources again.</para>
  </sect1>
  <sect1 id="sec.ha.configuration.basics.constraints">
   <title>Resource Constraints</title>
