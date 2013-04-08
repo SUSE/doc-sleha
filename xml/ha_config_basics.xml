@@ -1409,9 +1409,11 @@ monitor_0     interval=5s timeout=20s</screen>
   <para>To avoid that a node runs out of disk space and thus can no longer adequately manage any
    resources that have been assigned to it, the &hasi; provides a resource agent,
     <systemitem>ocf:pacemaker:SysInfo</systemitem>. Use it to monitor a node's health with respect
-   to disk partitions as described in <xref linkend="pro.ha.health.monitor"/>. It requires external
-   entities <remark>taroth 2013-04-03: DEVs, which ones?</remark> to create node attributes that are
-   named with the prefix <literal>#health</literal>. Any <literal>health#</literal>-related
+   to disk partitions as described in <xref linkend="pro.ha.health.monitor"/>. The SysInfo RA
+   creates a node attribute named <literal>#health_disk</literal> which will be set to
+    <literal>red</literal> if any of the monitored disks' free space is below a specified
+   limit.</para>
+   <!--Any <literal>health#</literal>-related
    attribute can have one of the following values: </para>
     <itemizedlist>
      <listitem>
@@ -1430,16 +1432,16 @@ monitor_0     interval=5s timeout=20s</screen>
   <para>Depending on the <systemitem>node-health-strategy</systemitem> set in the CRM configuration,
    different scores will be assigned to those values. For details, refer to <xref
     linkend="vl.node-health-strategy"/>. For general information about scores, refer to <xref
-    linkend="sec.ha.configuration.basics.constraints.scores"/>.</para>
+    linkend="sec.ha.configuration.basics.constraints.scores"/>.</para>-->
 
     <para>To define how the CRM should react in case a node's health reaches a critical state, use
-     the global cluster option <systemitem>node-health-strategy</systemitem>. Depending on the
+     the global cluster option <systemitem>node-health-strategy</systemitem>. <!--Depending on the
      values set for the option, every resource defined in the CIB will search for node attributes
      that start with the <literal>#health</literal> prefix . Its attribute values (or rather, the
      scores assigned to the value) will be summed up with whatever other scores are defined for
-     resources in the system. The scores determine on which node a resource will run.</para>
+     resources in the system. The scores determine on which node a resource will run.--></para>
   
-  <variablelist id="vl.node-health-strategy">
+<!--  <variablelist id="vl.node-health-strategy">
    <title>Possible Values of <systemitem>node-health-strategy</systemitem></title>
    <varlistentry>
     <term><literal>none</literal>
@@ -1518,26 +1520,21 @@ monitor_0     interval=5s timeout=20s</screen>
       rules to include whichever health attributes he deems appropriate for his setup. </para>
     </listitem>
    </varlistentry>
-  </variablelist>
- 
+  </variablelist>--> 
   <procedure id="pro.ha.health.monitor">
    <title>Configuring System Health Monitoring</title>
    <para>To automatically move away resources from a node in case the node runs out of disk space,
     proceed as follows:</para>
    <step>
-    <para>Configure a <systemitem>ocf:pacemaker:SysInfo</systemitem> resource. It is used to monitor
-     a node's health with regards to disk partitions:</para>
+    <para>Configure a <systemitem>ocf:pacemaker:SysInfo</systemitem> resource:</para>
     <screen><?dbsuse-fo font-size="0.71em"?>primitive sysinfo ocf:pacemaker:SysInfo \ 
-  params disks="/tmp"<co id="co.disks"/> min_disk_free="100M"<co id="co.min_disk_free"/> disk_unit="M"<co id="co.disk_unit"/> delay="30s"<co id="co.delay"/>\ 
+  params disks="/tmp /var"<co id="co.disks"/> min_disk_free="100M"<co id="co.min_disk_free"/> disk_unit="M"<co id="co.disk_unit"/> \<!--delay="30s"<co id="co.delay"/>\--> 
   op monitor interval="15s"</screen>
-    <remark>taroth 2013-04-05: DEVs, the example is copied from fate, but is it really necessary to add the
-     unit ("M") for min_disk_free? the unit as such is specified in disk_unit... please confirm</remark>
     <calloutlist>
      <callout arearefs="co.disks">
       <para>Which disk partitions to monitor. For example, <filename>/tmp</filename>,
         <filename>/usr</filename>, <filename>/var</filename>, and <filename>/dev</filename>.
-        <remark>taroth 2013-04-04: DEVs, how to specify more than one partition? comma-separated
-        list (disks="/tmp, /var" )? or add multiple disks parameters?</remark></para>
+       To specify multiple partitions as attribute value, separate them with a blank.</para>
       <note>
        <title>
         <filename>/</filename> File System Always Monitored</title>
@@ -1546,46 +1543,55 @@ monitor_0     interval=5s timeout=20s</screen>
       </note>
      </callout>
      <callout arearefs="co.min_disk_free">
-      <para>The minimum free disk space required for those partitions.</para>
+      <para>The minimum free disk space required for those partitions. Optionally, you can specify
+       the unit to use for measurement (in the example above, <literal>M</literal> for megabytes is
+       used). If not specified, <systemitem>min_disk_free</systemitem> defaults to the unit defined
+       in the <systemitem>disk_unit</systemitem> parameter.</para>
      </callout>
      <callout arearefs="co.disk_unit">
-      <para>the unit in which to measure the disk space.</para>
+      <para>The unit in which to report the disk space. </para>
      </callout>
-     <callout arearefs="co.delay">
+     <!--<callout arearefs="co.delay">
       <para>
-       <remark>taroth 2013-04-03: DEVs, what about the "delay" param - what is it good for?</remark>
+       <remark>taroth 2013-04-03: DEVs, what about the "delay" param - what is it good for? answer
+       by dejan: Pacemaker won't react immediately, but only after the attribute
+       value persists for at least this amount of time. It's actually
+       coming from the ocf:pacemaker:ping (formerly ocf:heartbeat:pingd)
+       and, given that disk changes are not as volatile as network can
+       be, less important here. It defaults to 0s.</remark>
       </para>
-     </callout>
+     </callout>-->
     </calloutlist>
    </step>
    <step>
-    <para>Create a clone of <systemitem>ocf:pacemaker:SysInfo</systemitem> to complete the
-     resource configuration. <remark>taroth 2013-04-03: DEVs, what to do with the clone? start it on
-      each cluster node?</remark></para>
+    <para>To complete the resource configuration, create a clone of
+      <systemitem>ocf:pacemaker:SysInfo</systemitem> and start it on each cluster node.</para>
    </step>
    <step>
-    <para>Set the <systemitem>node-health-strategy</systemitem>:</para>
+    <para>Set the <systemitem>node-health-strategy</systemitem> to <literal>migrate-on-red</literal>:</para>
     <screen>property node-health-strategy="migrate-on-red"</screen>
-    <para>This calculates the scores for the values of the node health attributes as described in
-      <xref linkend="vl.node-health-strategy"/>. They are added to the node-score values. </para>
+    <!--<para>This calculates the scores for the values of the node health attributes as described in
+    <xref linkend="vl.node-health-strategy"/>. They are added to the node-score values. </para>
     <para>The health monitoring process works as follows: The SysInfo resource agent sets the node's
       <systemitem>#health_disk</systemitem> attribute to <literal>red</literal> if any of the
      monitored disks' free space is below the specified limit. According to the
-      <literal>migrate-on-red</literal> policy, the policy engine then adds <literal>-INF</literal>
-     to the resources' score for that node which will cause any resources to move away from this
-     node. The &stonith; resource will be the last one to be stopped but even if the
-     &stonith; resource is not running any more, the node can still be fenced, as fencing has
-     direct access to the CIB and will continue to work. </para>
+      <literal>migrate-on-red</literal> policy, the policy engine adds <literal>-INF</literal> to the
+      resources' score for that node. </para>-->
+    <para>In case of an <systemitem>#health_disk</systemitem> attribute set to
+      <literal>red</literal>, the policy engine adds <literal>-INF</literal> to the resources' score
+     for that node. This will cause any resources to move away from this node. The &stonith;
+     resource will be the last one to be stopped but even if the &stonith; resource is not
+     running any more, the node can still be fenced. Fencing has direct access to the CIB and
+     will continue to work. </para>
    </step>
   </procedure>
   <para>After a node's health status has turned to <literal>red</literal>, solve the issue that has
    led to the problem. Then clear the <literal>red</literal> status to make the node eligible again
    for running resources. Log in to the cluster node and use one of the following methods:</para>
- 
-    <itemizedlist>
+   <itemizedlist>
      <listitem>
       <para>Execute the following command:</para>
-      <screen>crm_attribute -N <replaceable>NODE</replaceable> -n "#health_disk" -D -l reboot</screen>
+      <screen>crm node status-attr <replaceable>NODE</replaceable> delete #health_disk</screen>
      </listitem>
      <listitem>
       <para>Restart &ais; on that node.</para>
