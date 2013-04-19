@@ -2280,6 +2280,79 @@ property placement-strategy="minimal"</screen>
     </para>
    </example>
   </sect2>
+ 
+  <sect2 id="sec.ha.configuration.basics.nagios">
+  <title>Monitoring Services on Remote Hosts</title>
+   <!--from fate#313717-->
+   <!--Customers moving services to virtual guests. This feature allows a simplified setup with SLE
+    HA configured only once on the host level monitoring the virtual guests at whole. More fine
+    granular monitoring is still possible but needs full setup of HA stack inside the virtual
+    machines. 
+   Currently, monitoring of VMs happens either via the VM agent (which essentially checks if
+    the guest is showing up in the hypervisor only), or by external scripts called from the
+    VirtualDomain/Xen agent (which is awkward to configure.) 
+   The services the VM provides are not currently monitored easily. This could be changed if
+    we could use nagios/icinga probes from the host to the guest instead (assuming we have network
+    connectivity, which we probably do have.) That would allow us to gather external status on the
+    guest without requiring a modification of the guest image, and trigger appropriate
+    restarts/resource movement. 
+   This could be achieved by adding a resource agent class to LRM that wraps around
+    nagois/icinga probes so that they can be configured as resources (group/collocated with the VM
+    they apply to), and then the PE to understand that when one of those probes fails it needs to
+    invoke the recovery on the VM. (A group probably ought to do this already, since those are
+    supposed to move/restart atomically?)-->
+   <!--
+    Testcase:
+    primitive vm1 ocf:heartbeat:VirtualDomain \
+    params hypervisor="qemu:///system" config="/etc/libvirt/qemu/vm1.xml" \
+    op start interval="0" timeout="90" \
+    op stop interval="0" timeout="90" \
+    op monitor interval="10" timeout="30"
+    primitive vm1-sshd nagios:check_tcp \
+    params hostname="vm1" port="22" \
+    op start interval="0" timeout="120" \
+    op monitor interval="10"
+    group vm1-and-services vm1 vm1-sshd \
+    meta container="vm1"
+   -->
+   
+    <!--
+    - A container could be a Xen, VirtualDomain, or lxc. 
+    - Nagios plugins connect to services with the parameter "hostname". 
+       So the value should be a resolvable hostname or an IP.
+    - Since there's some time window between when the VM is started, but prior to the monitored 
+       service starting, the start timeout of the service should be long enough. 
+    - We can configure more nagios resources, which could be other types of nagios plugins, 
+       and append them into the group. If the hostnames of the services are same, we can move the 
+       parameter hostname to the group like: 
+       group  vm1-and-services vm1 vm1-sshd vm1-httpd \ 
+       meta container="vm1" \ 
+       params hostname="vm1" 
+       to avoid  specifying that for each service. 
+    - Kill or stop any of the services in the VM, cluster will detect that and restart the VM. 
+       (The behavior can be configured by specifying on-fail="..." for the service's monitor op. 
+       It defaults to "restart-container" ) 
+    - Failures of services count against VM's migration-threshold.
+    -->
+   
+   <!--
+    from https://github.com/gao-yan/pacemaker/commit/5e6380a4b3b08dcbcbfcf77aa522380e71738422:
+    +Nagios plugins allow us to monitor services on the remote hosts.
+    +http://nagiosplugins.org[Nagios Plugins].
+    +
+    +Pacemaker is able to do remote monitoring with the plugins _if they are
+    +present_.
+    +
+    +An use case is to configure them as resources belonging to a resource
+    +container, which usually is a VM, and the container will be restarted
+    +if any of them has failed. While they can also be configured as ordinary
+    +resources to be just used for monitoring hosts or services via network.
+    +
+    +The supported parameters are same as the long options of a nagios plugin. 
+   -->
+   <para></para>
+ </sect2>
+  
  </sect1>
  <sect1 id="sec.ha.configuration.basics.more">
   <title>For More Information</title>
