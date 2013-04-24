@@ -2283,38 +2283,41 @@ property placement-strategy="minimal"</screen>
   </sect2>
  
   <sect2 id="sec.ha.configuration.basics.nagios">
-  <title>Monitoring Services on Remote Hosts</title>
+   <title>Monitoring Services on Remote Hosts</title>
    <!--fate#313717 (SP3)-->
-   <para>Monitoring of virtual machines can be done with the VM agent (which only checks if
-    the guest shows up in the hypervisor), or by external scripts called from the
-    VirtualDomain/Xen agent. <remark>taroth 2013-04-19. DEVs, is the following correct?</remark> Up
-    to now, more fine-granular monitoring was only possible with a full setup of the &ha; stack
-    within the virtual machines. </para>
-   <para>By providing resource agents for Nagios plug-ins, the &hasi; now also allows to monitor
+   <para>Monitoring of virtual machines can be done with the VM agent (which only checks if the
+    guest shows up in the hypervisor), or by external scripts called from the VirtualDomain or Xen
+    agent. Up to now, more fine-granular monitoring was only possible with a full setup of the
+    &ha; stack within the virtual machines. </para>
+   <para>By providing support for Nagios plug-ins, the &hasi; now also allows to monitor
     services on remote hosts. You can collect external states on the guests without modifying the
     guest image. For example, the VM guests might run Web services or simple network resources that
     need to be accessible. With the Nagios resource agents, you can now monitor the Web service or
     the network resource on the guest. In case these services are not reachable anymore, the
-    &hasi; will trigger a restart of the respective guest or will move the resources.</para>
-   <para>If your guests are depending on external services, for example, on an NFS server that shall
-    be used by the guests, the resources on the guests can be started and managed depending on the
-    monitored NFS server.
-    <remark>taroth 2013-04-22: DEVs, what do I monitor with the Nagios RA then? the (external) NFS
-     server? or the VM guests depending on the external service?</remark></para>
-   <para>To configure the resource agents for Nagios plug-ins, the following packages must be
-    installed <remark>taroth 2013-04-19: on the host?</remark>:</para>
+    &hasi; will trigger a restart or migration of the respective guest.</para>
+   <para>If your guests depend on a service (for example, an NFS server to be used by the guest),
+    the service can either be an ordinary resource managed by the cluster or an external service
+    that is not managed by the cluster but monitored with Nagios resources instead.</para>
+   <para>To configure the Nagios resources, the following packages must be installed on the
+    host:</para>
    <itemizedlist>
-    <listitem><para>
-      <systemitem class="resource">nagios-plugins</systemitem></para></listitem>
-    <listitem><para>
-      <systemitem class="resource">nagios-plugins-metadata</systemitem></para></listitem>
+    <listitem>
+     <para>
+      <systemitem class="resource">nagios-plugins</systemitem>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <systemitem class="resource">nagios-plugins-metadata</systemitem>
+     </para>
+    </listitem>
    </itemizedlist>
    <para>&yast; or zypper will resolve any dependencies on further packages, if required.</para>
-   <para>A typical use case is to configure the resource agents for Nagios plug-ins as resources
-    belonging to a resource container, which usually is a VM. The container will be restarted if any
-    its resources has failed. Refer to <xref linkend="ex.ha.nagios.config"/> for a configuration
-    example. Alternatively, Nagios resource agents can also be configured as ordinary resources if
-    you want to use them for monitoring hosts or services via the network.</para>
+   <para>A typical use case is to configure the Nagios plug-ins as resources belonging to a resource
+    container, which usually is a VM. The container will be restarted if any its resources has
+    failed. Refer to <xref linkend="ex.ha.nagios.config"/> for a configuration example.
+    Alternatively, Nagios resource agents can also be configured as ordinary resources if you want
+    to use them for monitoring hosts or services via the network.</para>
    <example id="ex.ha.nagios.config">
     <title>Configuring Resources for Nagios Plug-ins</title>
     <screen>primitive vm1 ocf:heartbeat:VirtualDomain \
@@ -2326,29 +2329,27 @@ primitive vm1-sshd nagios:check_tcp \
   params hostname="vm1" port="22" \<co id="co.nagios.hostname"/>
   op start interval="0" timeout="120" \<co id="co.nagios.startinterval"/>
   op monitor interval="10"
-  group vm1-and-services vm1 vm1-sshd \
-meta container="vm1"<co id="co.nagios.container"/></screen>
+group vm1-and-services vm1 vm1-sshd \
+  meta container="vm1"<co id="co.nagios.container"/></screen>
     <calloutlist>
      <callout arearefs="co.nagios.hostname">
       <para>The supported parameters are same as the long options of a nagios plug-in. Nagios
        plug-ins connect to services with the parameter <literal>hostname</literal>. Therefore the
        attribute's value must be a resolvable hostname or an IP address.</para>
      </callout>
-     <callout arearefs="co.nagios.container">
-      <para>A container can be: Xen, VirtualDomain, or lxc. 
-       <remark>taroth 2013-04-22: DEVs - I don't understand - so far I only knew containers from
-        LXC. What does "container" refer to in this context? to a resource of type "ocf:heartbeat:Xen",
-        "ocf:heartbeat:VirtualDomain" or "ocf:heartbeat:lxc"?</remark></para>
-     </callout>
      <callout arearefs="co.nagios.startinterval">
-      <para>As it takes some time to get a VM up and running, the start timeout of the monitoring
-       operation must be long enough to allow starting the VM in the meantime. </para>
+      <para>As it takes some time to get the guest operating system up and its services running, the
+       start timeout of the Nagios resource must be long enough. </para>
+     </callout>
+     <callout arearefs="co.nagios.container">
+      <para>A cluster resource container of type <literal>ocf:heartbeat:Xen</literal>,
+        <literal>ocf:heartbeat:VirtualDomain</literal> or <literal>ocf:heartbeat:lxc</literal>. It
+       can either be a VM or a Linux Container.</para>
      </callout>
     </calloutlist>
     <para>The example above contains only one Nagios resource for the
      <literal>check_tcp</literal>plug-in, but multiple Nagios resources for different plug-in types
-     can be configured (for example, <literal>check_http</literal> or <literal>check_udp</literal>).
-    </para>
+     can be configured (for example, <literal>check_http</literal> or <literal>check_udp</literal>). </para>
     <para>If the hostnames of the services are the same, the <literal>hostname</literal>parameter
      can also be specified for the group, instead of adding it to the individual primitives. For
      example: </para>
@@ -2358,98 +2359,11 @@ meta container="vm1"<co id="co.nagios.container"/></screen>
     <para>If any of the services monitored by the Nagios plug-ins fail within the VM, the cluster
      will detect that and restart the container resource (the VM). Which action to take in this case
      can be configured by specifying the <literal>on-fail</literal> attribute for the service's
-     monitoring operation. It defaults to 
-     <literal>restart-container</literal>. </para>
-    <para>Failure of services will be added to the VM's migration-threshold.</para>
+     monitoring operation. It defaults to <literal>restart-container</literal>. </para>
+    <para>Failure counts of services will be taken into account when considering the VM's
+     migration-threshold.</para>
    </example>
-   
-   <!--mail by kdupke (2013-03-04):
-    This feature is about monitoring services, where no HA stack component
-    is installed, but the HA stack either manage these systems or resources
-    depend on the monitored service.
-    
-    The primary use case so far is to manage virtual guests by the HA stack.
-    Such guest might contain a web-service or a simple pingable network
-    resource.
-    
-    The monitoring agent monitors the web-service or the network resource.
-    In case these are not reachable anymore the guest usually gets restarted
-    by the HA stack.
-    
-    The secondary use case is to monitor services outside of the cluster
-    control but needed for manages services. Example could be an NFS server,
-    which shall be used by a workload (e.g. a virtual guest). The service
-    can be started and managed depending on the monitored NFS service.
-    -->
-   <!--from fate#313717-->
-   <!--Customers moving services to virtual guests. This feature allows a simplified setup with SLE
-    HA configured only once on the host level monitoring the virtual guests at whole. More fine
-    granular monitoring is still possible but needs full setup of HA stack inside the virtual
-    machines. 
-   Currently, monitoring of VMs happens either via the VM agent (which essentially checks if
-    the guest is showing up in the hypervisor only), or by external scripts called from the
-    VirtualDomain/Xen agent (which is awkward to configure.) 
-   The services the VM provides are not currently monitored easily. This could be changed if
-    we could use nagios/icinga probes from the host to the guest instead (assuming we have network
-    connectivity, which we probably do have.) That would allow us to gather external status on the
-    guest without requiring a modification of the guest image, and trigger appropriate
-    restarts/resource movement. 
-   This could be achieved by adding a resource agent class to LRM that wraps around
-    nagois/icinga probes so that they can be configured as resources (group/collocated with the VM
-    they apply to), and then the PE to understand that when one of those probes fails it needs to
-    invoke the recovery on the VM. (A group probably ought to do this already, since those are
-    supposed to move/restart atomically?)-->
-   <!--
-    Testcase:
-    primitive vm1 ocf:heartbeat:VirtualDomain \
-    params hypervisor="qemu:///system" config="/etc/libvirt/qemu/vm1.xml" \
-    op start interval="0" timeout="90" \
-    op stop interval="0" timeout="90" \
-    op monitor interval="10" timeout="30"
-    primitive vm1-sshd nagios:check_tcp \
-    params hostname="vm1" port="22" \
-    op start interval="0" timeout="120" \
-    op monitor interval="10"
-    group vm1-and-services vm1 vm1-sshd \
-    meta container="vm1"
-   -->
-   
-    <!--
-    - A container could be a Xen, VirtualDomain, or lxc. 
-    - Nagios plugins connect to services with the parameter "hostname". 
-       So the value should be a resolvable hostname or an IP.
-    - Since there's some time window between when the VM is started, but prior to the monitored 
-       service starting, the start timeout of the service should be long enough. 
-    - We can configure more nagios resources, which could be other types of nagios plugins, 
-       and append them into the group. If the hostnames of the services are same, we can move the 
-       parameter hostname to the group like: 
-       group  vm1-and-services vm1 vm1-sshd vm1-httpd \ 
-       meta container="vm1" \ 
-       params hostname="vm1" 
-       to avoid  specifying that for each service. 
-    - Kill or stop any of the services in the VM, cluster will detect that and restart the VM. 
-       (The behavior can be configured by specifying on-fail="..." for the service's monitor op. 
-       It defaults to "restart-container" ) 
-    - Failures of services count against VM's migration-threshold.
-    -->
-   
-   <!--
-    from https://github.com/gao-yan/pacemaker/commit/5e6380a4b3b08dcbcbfcf77aa522380e71738422:
-    +Nagios plugins allow us to monitor services on the remote hosts.
-    +http://nagiosplugins.org[Nagios Plugins].
-    +
-    +Pacemaker is able to do remote monitoring with the plugins _if they are
-    +present_.
-    +
-    +An use case is to configure them as resources belonging to a resource
-    +container, which usually is a VM, and the container will be restarted
-    +if any of them has failed. While they can also be configured as ordinary
-    +resources to be just used for monitoring hosts or services via network.
-    +
-    +The supported parameters are same as the long options of a nagios plugin. 
-   -->
-   <para></para>
- </sect2>
+  </sect2>
   
  </sect1>
  <sect1 id="sec.ha.configuration.basics.more">
