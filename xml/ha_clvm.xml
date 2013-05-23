@@ -173,23 +173,31 @@ cLVM) for more information and details to integrate here - really helpful-->
   </note>
 
   <sect2 id="sec.ha.clvm.config.cmirrord">
-    <title>Configuring Cmirrord</title>
-    <!-- FATE#314367,  -->
-    <para>To track mirror log information in a cluster, the <systemitem
-          class="daemon">cmirrord</systemitem> daemon is used. Cluster
-        mirrors are not possible without this daemon running. </para>
-    <para>We assume that <filename>/dev/sda</filename> and
-          <filename>/dev/sdb</filename> are the shared storage devices.
-        Replace these with your own device name(s), if necessary.
-        Proceed as follows:</para>
-    <procedure>
-      <step>
-        <para>Create a cluster with at least two nodes.</para>
-      </step>
-        <step>
-          <para>Configure your cluster to run <command>dlm</command>,
-              <command>clvmd</command>, and &stonith;:</para>
-          <screen># <command>crm</command> configure
+   <title>Configuring Cmirrord</title>
+<!-- FATE#314367,  -->
+   <para>
+    To track mirror log information in a cluster, the
+    <systemitem
+          class="daemon">cmirrord</systemitem> daemon is
+    used. Cluster mirrors are not possible without this daemon running.
+   </para>
+   <para>
+    We assume that <filename>/dev/sda</filename> and
+    <filename>/dev/sdb</filename> are the shared storage devices. Replace
+    these with your own device name(s), if necessary. Proceed as follows:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Create a cluster with at least two nodes.
+     </para>
+    </step>
+    <step>
+     <para>
+      Configure your cluster to run <command>dlm</command>,
+      <command>clvmd</command>, and &stonith;:
+     </para>
+<screen># <command>crm</command> configure
 crm(live)configure# <command>primitive</command> clvmd ocf:lvm2:clvmd \
         op stop interval="0" timeout="100" \
         op start interval="0" timeout="90" \
@@ -202,111 +210,142 @@ crm(live)configure# <command>primitive</command> sbd_stonith stonith:external/sb
 crm(live)configure# <command>group</command> base-group dlm clvmd
 crm(live)configure# <command>clone</command> base-clone base-group \
         meta interleave="true"</screen>
-        </step>
-      <step>
-        <para>Leave the crm shell with <command>exit</command> and
-          commit your changes.</para>
-      </step>
-      <step>
-        <para>Create a clustered volume group (VG):
-          <!-- which requires 
-          Pacemaker to have started dlmd and clvmd--></para>
-        <screen>pvcreate /dev/sda /dev/sdb
+    </step>
+    <step>
+     <para>
+      Leave the crm shell with <command>exit</command> and commit your
+      changes.
+     </para>
+    </step>
+    <step>
+     <para>
+      Create a clustered volume group (VG):
+<!-- which requires 
+          Pacemaker to have started dlmd and clvmd-->
+     </para>
+<screen>pvcreate /dev/sda /dev/sdb
 vgcreate -cy vg /dev/sda /dev/sdb</screen>
+    </step>
+    <step>
+     <para>
+      Create a mirrored-log logical volume (LV) in your cluster:
+     </para>
+<screen>lvcreate -nlv -m1 -l10%VG vg --mirrorlog mirrored</screen>
+    </step>
+    <step>
+     <para>
+      Use <command>lvs</command> to show the progress. If the percentage
+      number has reached 100%, the mirrored disk is successfully synced.
+     </para>
+    </step>
+    <step id="st.ha.clvm.config.cmirrord.test">
+     <para>
+      To test the clustered volume <filename>/dev/vg/lv</filename>, use the
+      following steps:
+     </para>
+     <substeps>
+      <step>
+       <para>
+        Read or write to <filename>/dev/vg/lv</filename>.
+       </para>
       </step>
       <step>
-        <para>Create a mirrored-log logical volume (LV) in your
-            cluster:</para>
-        <screen>lvcreate -nlv -m1 -l10%VG vg --mirrorlog mirrored</screen>
+       <para>
+        Deactivate your LV with <command>lvchange</command>
+        <option>-an</option>.
+       </para>
       </step>
       <step>
-        <para>Use <command>lvs</command> to show the progress. If
-          the percentage number has reached 100%, the mirrored disk is
-          successfully synced.</para>
-      </step>
-      <step id="st.ha.clvm.config.cmirrord.test">
-        <para>To test the clustered volume
-          <filename>/dev/vg/lv</filename>, use the following steps:</para>
-        <substeps>
-          <step>
-            <para>Read or write to <filename>/dev/vg/lv</filename>.</para>
-          </step>
-          <step>
-            <para>Deactivate your LV with <command>lvchange</command>
-                <option>-an</option>.</para>
-          </step>
-          <step>
-            <para>Activate your LV with <command>lvchange</command>
-                <option>-ay</option>.</para>
-          </step>
-          <step>
-            <para>Use <command>lvconvert</command> to convert a mirrored
-                log to a disk log.</para>
-          </step>
-        </substeps>
+       <para>
+        Activate your LV with <command>lvchange</command>
+        <option>-ay</option>.
+       </para>
       </step>
       <step>
-        <para>Create a mirrored-log LV in another cluster VG. This is a
-            different volume group from the previous one.</para>
+       <para>
+        Use <command>lvconvert</command> to convert a mirrored log to a disk
+        log.
+       </para>
       </step>
-             
-    </procedure>
-    
-    <!-- FATE#312248: -->
-    <para>The current cLVM can only handle one physical volume (PV) per
-        mirror side. If one mirror is actually made up of several PVs
-        that need to be concatenated or striped,
-          <command>lvcreate</command> does not understand this. For this
-        reason, <command>lvcreate</command> and
-          <systemitem>cmirrord</systemitem> metadata needs to understand
-          <quote>grouping</quote> of PVs into one side, effectively
-        supporting RAID10. </para>
-    <para>In order to support RAID10 for <systemitem class="daemon"
-          >cmirrord</systemitem>, use the following procedure (assuming
-        that <filename>/dev/sda</filename> and
-          <filename>/dev/sdb</filename> are the shared storage
-        devices):</para>
-    <procedure>
-      <!--<step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      Create a mirrored-log LV in another cluster VG. This is a different
+      volume group from the previous one.
+     </para>
+    </step>
+   </procedure>
+<!-- FATE#312248: -->
+   <para>
+    The current cLVM can only handle one physical volume (PV) per mirror
+    side. If one mirror is actually made up of several PVs that need to be
+    concatenated or striped, <command>lvcreate</command> does not understand
+    this. For this reason, <command>lvcreate</command> and
+    <systemitem>cmirrord</systemitem> metadata needs to understand
+    <quote>grouping</quote> of PVs into one side, effectively supporting
+    RAID10.
+   </para>
+   <para>
+    In order to support RAID10 for
+    <systemitem class="daemon"
+          >cmirrord</systemitem>, use the
+    following procedure (assuming that <filename>/dev/sda</filename> and
+    <filename>/dev/sdb</filename> are the shared storage devices):
+   </para>
+   <procedure>
+<!--<step>
         <para>Create a cluster with at least two nodes.</para>
       </step>
       -->
-      <step>
-        <para>Create a volume group (VG):</para>
-        <screen>pvcreate /dev/sda /dev/sdb
+    <step>
+     <para>
+      Create a volume group (VG):
+     </para>
+<screen>pvcreate /dev/sda /dev/sdb
 vgcreate vg /dev/sda /dev/sdb</screen>
-      </step>
-      <step>
-        <para>Open the file <filename>/etc/lvm/lvm.conf</filename> and
-          go to the section <literal>allocation</literal>. Set the 
-          following line and save the file:</para>
-        <screen>mirror_legs_require_separate_pvs = 1</screen>
-      </step>
-      <step>
-        <para>Add your tags to your PVs:</para>
-        <screen>pvchange --addtag @a /dev/sda
+    </step>
+    <step>
+     <para>
+      Open the file <filename>/etc/lvm/lvm.conf</filename> and go to the
+      section <literal>allocation</literal>. Set the following line and save
+      the file:
+     </para>
+<screen>mirror_legs_require_separate_pvs = 1</screen>
+    </step>
+    <step>
+     <para>
+      Add your tags to your PVs:
+     </para>
+<screen>pvchange --addtag @a /dev/sda
 pvchange --addtag @b /dev/sdb</screen>
-        <para>A tag is an unordered keyword or term assigned to the
-            metadata of a storage object. Tagging allows you to classify
-            collections of LVM storage objects in ways that you find
-            useful by attaching an unordered list of tags to their
-            metadata. </para>
-      </step>
-      <step>
-        <para>List your tags:</para>
-        <screen>pvs -o pv_name,vg_name,pv_tags /dev/sd{a,b}</screen>
-        <para>You should receive this output:</para>
-        <screen>  PV         VG     PV Tags
+     <para>
+      A tag is an unordered keyword or term assigned to the metadata of a
+      storage object. Tagging allows you to classify collections of LVM
+      storage objects in ways that you find useful by attaching an unordered
+      list of tags to their metadata.
+     </para>
+    </step>
+    <step>
+     <para>
+      List your tags:
+     </para>
+<screen>pvs -o pv_name,vg_name,pv_tags /dev/sd{a,b}</screen>
+     <para>
+      You should receive this output:
+     </para>
+<screen>  PV         VG     PV Tags
   /dev/sda vgtest a
   /dev/sdb vgtest b</screen>
-      </step>
-    </procedure>
-    <para>If you need further information regarding LVM, refer to our
-      <citetitle>Storage Administration Guide</citetitle> at
-      <ulink url="https://www.suse.com/documentation/sles11/stor_admin/data/lvm.html"/>.
-    </para>
+    </step>
+   </procedure>
+   <para>
+    If you need further information regarding LVM, refer to our
+    <citetitle>Storage Administration Guide</citetitle> at
+    <ulink url="https://www.suse.com/documentation/sles11/stor_admin/data/lvm.html"/>.
+   </para>
   </sect2>
-   
+
   <sect2 id="sec.ha.clvm.config.resources">
    <title>Creating the Cluster Resources</title>
    <para>
