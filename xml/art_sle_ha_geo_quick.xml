@@ -23,6 +23,881 @@
    </author>
   </authorgroup>
  </articleinfo>
- <abstract><para>WIP</para>
-</abstract>  
+ <abstract>
+  <para>
+   Apart from local clusters and metro area clusters, &productnamereg;
+   &productnumber; also supports multi-site clusters (geo clusters). That
+   means you can have multiple, geographically dispersed sites with a local
+   cluster each. Failover between these clusters is coordinated by a higher
+   level entity, the so-called <literal>booth</literal>. Support for
+   multi-site clusters is available as a separate option to &productname;.
+  </para>
+ </abstract>
+  
+ <!--<chapter id="cha.ha.geo">
+ <title>Multi-Site Clusters (Geo Clusters)</title>
+ <remark>taroth 2011-10-06: DEVs, how is storage access solved in multi-site
+  clusters? anything the cluster admin needs to check or configure? (with
+  regards to storage?)</remark>
+ -->
+ <sect1 id="sec.ha.geo.challenges">
+  <title>Challenges for Multi-Site Clusters</title>
+
+  <para>
+   Typically, multi-site environments are too far apart to support
+   synchronous communication between the sites and synchronous data
+   replication. That leads to the following challenges:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     How to make sure that a cluster site is up and running?
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     How to make sure that resources are only started once?
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     How to make sure that quorum can be reached between the different sites
+     and a split brain scenario can be avoided?
+    </para>
+   </listitem>
+<!--<listitem>
+    <para>How to keep the CIB up-to-date on all nodes and sites?</para>
+   </listitem>
+   -->
+   <listitem>
+    <para>
+     How to manage failover between the sites?
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     How to deal with high latency in case of resources that need to be
+     stopped?
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   In the following sections, learn how to meet these challenges with
+   &productname;.
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.geo.concept">
+  <title>Conceptual Overview</title>
+
+  <para>
+   Multi-site clusters based on &productname; can be considered as
+   <quote>overlay</quote> clusters where each cluster site corresponds to a
+   cluster node in a traditional cluster. The overlay cluster is managed by
+   the booth mechanism. It guarantees that the cluster resources will be
+   highly available across different cluster sites. This is achieved by
+   using so-called tickets that are treated as failover domain between
+   cluster sites, in case a site should be down.
+  </para>
+
+  <para>
+   The following list explains the individual components and mechanisms that
+   were introduced for multi-site clusters in more detail.
+  </para>
+
+  <variablelist id="vl.ha.geo.components">
+   <title>Components and Concepts</title>
+   <varlistentry id="vle.ha.geo.components.ticket">
+<!--taroth 2011-09-20: mail by jjzhang (ha-devel, 2011-07-26): ... we decide to 
+     change the name "token" to "ticket" in order to avoid confusion with "totem token" 
+     in corosync-->
+    <term>Ticket</term>
+    <listitem>
+     <para>
+      A ticket grants the right to run certain resources on a specific
+      cluster site. A ticket can only be owned by one site at a time.
+      Initially, none of the sites has a ticket&mdash;each ticket must be
+      granted once by the cluster administrator. After that, tickets are
+      managed by the booth for automatic failover of resources. But
+      administrators may also intervene and grant or revoke tickets
+      manually.
+     </para>
+     <para>
+      Resources can be bound to a certain ticket by dependencies. Only if
+      the defined ticket is available at a site, the respective resources
+      are started. Vice versa, if the ticket is removed, the resources
+      depending on that ticket are automatically stopped.
+     </para>
+     <para>
+      The presence or absence of tickets for a site is stored in the CIB as
+      a cluster status. With regards to a certain ticket, there are only two
+      states for a site: <literal>true</literal> (the site has the ticket)
+      or <literal>false</literal> (the site does not have the ticket). The
+      absence of a certain ticket (during the initial state of the
+      multi-site cluster) is not treated differently from the situation
+      after the ticket has been revoked: both are reflected by the value
+      <literal>false</literal>.
+     </para>
+     <para>
+      A ticket within an overlay cluster is similar to a resource in a
+      traditional cluster. But in contrast to traditional clusters, tickets
+      are the only type of resource in an overlay cluster. They are
+      primitive resources that do not need to be configured nor cloned.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry id="vle.ha.geo.components.booth">
+    <term>Booth</term>
+    <listitem>
+     <para>
+      The booth is the instance managing the ticket distribution and thus,
+      the failover process between the sites of a multi-site cluster. Each
+      of the participating clusters and arbitrators runs a service, the
+      <systemitem
+       class="resource">boothd</systemitem>. It connects
+      to the booth daemons running at the other sites and exchanges
+      connectivity details. Once a ticket is granted to a site, the booth
+      mechanism will manage the ticket automatically: If the site which
+      holds the ticket is out of service, the booth daemons will vote which
+      of the other sites will get the ticket. To protect against brief
+      connection failures, sites that lose the vote (either explicitly or
+      implicitly by being disconnected from the voting body) need to
+      relinquish the ticket after a time-out. Thus, it is made sure that a
+      ticket will only be re-distributed after it has been relinquished by
+      the previous site. See also
+      <xref
+       linkend="vle.ha.geo.components.deadman"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry id="vle.ha.geo.components.arbitrator">
+    <term>Arbitrator</term>
+    <listitem>
+     <para>
+      Each site runs one booth instance that is responsible for
+      communicating with the other sites. If you have a setup with an even
+      number of sites, you need an additional instance to reach consensus
+      about decisions such as failover of resources across sites. In this
+      case, add one or more arbitrators running at additional sites.
+      Arbitrators are single machines that run a booth instance in a special
+      mode. As all booth instances communicate with each other, arbitrators
+      help to make more reliable decisions about granting or revoking
+      tickets.
+     </para>
+     <para>
+      An arbitrator is especially important for a two-site scenario: For
+      example, if site <literal>A</literal> can no longer communicate with
+      site <literal>B</literal>, there are two possible causes for that:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        A network failure between <literal>A</literal> and
+        <literal>B</literal>.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Site <literal>B</literal> is down.
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      However, if site <literal>C</literal> (the arbitrator) can still
+      communicate with site <literal>B</literal>, site <literal>B</literal>
+      must still be up and running.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry id="vle.ha.geo.components.deadman">
+    <term>Dead Man Dependency (<literal>loss-policy="fence"</literal>)</term>
+    <listitem>
+     <para>
+      After a ticket is revoked, it can take a long time until all resources
+      depending on that ticket are stopped, especially in case of cascaded
+      resources. To cut that process short, the cluster administrator can
+      configure a <literal>loss-policy</literal> (together with the ticket
+      dependencies) for the case that a ticket gets revoked from a site. If
+      the loss-policy is set to <literal>fence</literal>, the nodes that are
+      hosting dependent resources are fenced. This considerably speeds up
+      the recovery process of the cluster and makes sure that resources can
+      be migrated more quickly.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+<!--taroth 201110-06: todo - ask eugene to redo the svg graphic 
+  (shows some strange artefacts in PDF, maybe due to import from PDF)-->
+
+  <figure>
+   <title>Example Scenario: A Two-Site Cluster (4 Nodes + Arbitrator)</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   As usual, the CIB is synchronized within each cluster, but it is not
+   synchronized across cluster sites of a multi-site cluster. You have to
+   configure the resources that will be highly available across the
+   multi-site cluster for every site accordingly.
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.geo.req">
+  <title>Requirements</title>
+
+  <itemizedlist>
+   <title>Software Requirements</title>
+   <listitem>
+    <para>
+     All clusters that will be part of the multi-site cluster must be based
+     on &productname; &productnumber;.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     &slsreg; &productnumber; must be installed on all arbitrators.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The <systemitem class="resource">booth</systemitem> package must be
+     installed on all cluster nodes <emphasis>and</emphasis> on all
+     arbitrators that will be part of the multi-site cluster.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   <remark>taroth 2011-09-21: DEVs, are there any more prerequisites? e.g.
+    network configuration? storage configuration?</remark>
+  </para>
+
+  <para>
+   The most common scenario is probably a multi-site cluster with two sites
+   and a single arbitrator on a third site. However, technically, there are
+   no limitations with regards to the number of sites and the number of
+   arbitrators involved.
+  </para>
+
+  <para>
+   Nodes belonging to the same cluster site should be synchronized via NTP.
+   However, time synchronization is not required between the individual
+   cluster sites.
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.geo.setup">
+  <title>Basic Setup</title>
+
+  <para>
+   Configuring a multi-site cluster takes the following basic steps:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+<!--Configuring Cluster Resources and Constraints-->
+    <term><xref linkend="sec.ha.geo.setup.resources" xrefstyle="select:title"/>
+    </term>
+    <listitem>
+     <orderedlist>
+      <listitem>
+<!--ticket dependencies-->
+       <para>
+        <xref linkend="pro.ha.geo.setup.rsc.constraints"
+         xrefstyle="select:title"/>
+       </para>
+      </listitem>
+      <listitem>
+<!--configuring a resource group for boothd-->
+       <para>
+        <xref linkend="pro.ha.geo.setup.rsc.boothd" xrefstyle="select:title"/>
+       </para>
+      </listitem>
+      <listitem>
+<!--adding an ordering constraint for boothd and the resource group-->
+       <para>
+        <xref linkend="pro.ha.geo.setup.rsc.order" xrefstyle="select:title"/>
+       </para>
+      </listitem>
+     </orderedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+<!--Setting Up the Booth Services-->
+    <term><xref linkend="sec.ha.geo.setup.booth" xrefstyle="select:title"/>
+    </term>
+    <listitem>
+     <orderedlist>
+      <listitem>
+<!--editing + copying booth config-->
+       <para>
+        <xref linkend="pro.ha.geo.setup.booth.config" xrefstyle="select:title"/>
+       </para>
+      </listitem>
+      <listitem>
+<!--starting boothd-->
+       <para>
+        <xref linkend="pro.ha.geo.setup.booth.service" xrefstyle="select:title"
+        />
+       </para>
+      </listitem>
+     </orderedlist>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <sect2 id="sec.ha.geo.setup.resources">
+   <title>Configuring Cluster Resources and Constraints</title>
+   <para>
+    Apart from the resources and constraints that you need to define for
+    your specific cluster setup, multi-site clusters require additional
+    resources and constraints as described below. Instead of configuring
+    them with the CRM shell, you can also do so with the &haweb;. For
+    details, refer to FIXME.<!--<xref linkend="sec.ha.config.hawk.geo.rsc"/>-->
+   </para>
+   <procedure id="pro.ha.geo.setup.rsc.constraints">
+    <title>Configuring Ticket Dependencies</title>
+    <para>
+     The <command>crm configure rsc_ticket</command> command lets you
+     specify the resources depending on a certain ticket. Together with the
+     constraint, you can set a <literal>loss-policy</literal> that defines
+     what should happen to the respective resources if the ticket is
+     revoked. The attribute <literal>loss-policy</literal> can have the
+     following values:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <literal>fence</literal>: Fence the nodes that are running the
+       relevant resources.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>stop</literal>: Stop the relevant resources.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>freeze</literal>: Do nothing to the relevant resources.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>demote</literal>: Demote relevant resources that are running
+       in <literal>master</literal> mode to <literal>slave</literal> mode.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <step>
+     <para>
+      On one of the cluster nodes, start a shell and log in as &rootuser; or
+      equivalent.
+<!--<remark>toms 2011-10-04: Shorten it to "Start a root shell on one
+        of the cluster nodes"? I guess we deal with admin-minded people here</remark>
+        taroth 2011-10-06: due to new ACL support of the crm shell, also
+        non-root users may have the rights to do so, therefore phrased it like
+        that -->
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter <command>crm configure</command> to switch to the interactive
+      shell.
+     </para>
+    </step>
+    <step id="step.ha.geo.setup.rsc.constraints">
+     <para>
+      Configure a constraint that defines which resources depend on a
+      certain ticket. For example:
+     </para>
+<screen>crm(live)configure#
+<emphasis role="strong">rsc_ticket</emphasis> rsc1-req-ticketA ticketA: rsc1 loss-policy="fence"</screen>
+     <para>
+      This creates a constraint with the ID
+      <literal>rsc1-req-ticketA</literal>. It defines that the resource
+      <literal>rsc1</literal> depends on <literal>ticketA</literal> and that
+      the node running the resource should be fenced in case
+      <literal>ticketA</literal> is revoked.
+     </para>
+     <para>
+      If resource <literal>rsc1</literal> was not a primitive, but a special
+      clone resource that can run in <literal>master</literal> or
+      <literal>slave</literal> mode, you may want to configure that only
+      <literal>rsc1</literal>'s master mode depends on
+      <literal>ticketA</literal>. With the following configuration,
+      <literal>rsc1</literal> is automatically demoted to
+      <literal>slave</literal> mode if <literal>ticketA</literal> is
+      revoked:
+     </para>
+<screen>crm(live)configure#
+<emphasis role="strong">rsc_ticket</emphasis> rsc1-req-ticketA ticketA: rsc1:Master loss-policy="demote"</screen>
+    </step>
+    <step>
+     <para>
+      If you want other resources to depend on further tickets, create as
+      many constraints as necessary with <command>rsc_ticket</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Review your changes with <command>show</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      If everything is correct, submit your changes with
+      <command>commit</command> and leave the crm live configuration with
+      <command>exit</command>.
+     </para>
+     <para>
+      The constraints are saved to the CIB.
+     </para>
+<!--For example, the command in
+      <xref linkend="step.ha.geo.setup.rsc.constraints" xreflabel="nopage"/> would result in
+      the following constraint configuration in the CIB:
+     <screen>&lt;rsc_ticket id="rsc1-req-ticketA" rsc="rsc1" role="Master" ticket="ticketA" loss-policy="fence"/></screen>-->
+    </step>
+   </procedure>
+   <procedure id="pro.ha.geo.setup.rsc.boothd">
+    <title>Configuring a Resource Group for <systemitem class="daemon"
+      >boothd</systemitem></title>
+    <para>
+     Each site needs to run one instance of
+     <systemitem class="daemon"
+      >boothd</systemitem> that communicates
+     with the other booth daemons. The daemon can be started on any node,
+     therefore it should be configured as primitive resource. To make the
+     <systemitem>boothd</systemitem> resource stay on the same node, if
+     possible, add resource stickiness to the configuration. As each daemon
+     needs a persistent IP address, configure another primitive with a
+     virtual IP address. Group booth primitives:
+    </para>
+    <step>
+     <para>
+      On one of the cluster nodes, start a shell and log in as &rootuser; or
+      equivalent.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter <command>crm configure</command> to switch to the interactive
+      shell.
+     </para>
+    </step>
+    <step>
+     <para>
+      To create both primitive resources and to add them to one group,
+      <literal>g-booth</literal>:
+     </para>
+<screen>crm(live)configure#
+<emphasis role="strong">primitive</emphasis> booth-ip ocf:heartbeat:IPaddr2 params ip="<replaceable>IP_ADDRESS</replaceable>"
+<emphasis role="strong">primitive</emphasis> booth ocf:pacemaker:booth-site \
+      meta resource-stickiness="INFINITY" \
+      op monitor interval="10s" timeout="20s"
+<emphasis role="strong">group</emphasis> g-booth booth-ip booth</screen>
+    </step>
+    <step>
+     <para>
+      Review your changes with <command>show</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      If everything is correct, submit your changes with
+      <command>commit</command> and leave the crm live configuration with
+      <command>exit</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Repeat the resource group configuration on the other cluster sites,
+      using a different IP address for each <literal>boothd</literal>
+      resource group.
+     </para>
+     <para>
+      With this configuration, each booth daemon will be available at its
+      individual IP address, independent of the node the daemon is running
+      on.
+     </para>
+    </step>
+   </procedure>
+<!--taroth 2012-02-14: fix for bnc#746863-->
+   <procedure id="pro.ha.geo.setup.rsc.order">
+    <title>Adding an Ordering Constraint</title>
+    <para>
+     If a ticket has been granted to a site but all nodes of that site
+     should fail to host the <systemitem class="daemon">boothd</systemitem>
+     resource group for any reason, a <quote>split-brain</quote> situation
+     among the geographically dispersed sites could occur. In that case, no
+     <systemitem class="daemon">boothd</systemitem> instance would be
+     available to safely manage fail-over of the ticket to another site. To
+     avoid a potential concurrency violation of the ticket (the ticket is
+     granted to multiple sites simultaneously), add an ordering constraint:
+    </para>
+    <step>
+     <para>
+      On one of the cluster nodes, start a shell and log in as &rootuser; or
+      equivalent.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter <command>crm configure</command> to switch to the interactive
+      shell.
+     </para>
+    </step>
+    <step>
+     <para>
+      Create an ordering constraint:
+     </para>
+<screen>crm(live)configure#
+<emphasis role="strong">order</emphasis> order-booth-rsc1 inf: g-booth rsc1</screen>
+     <para>
+      This defines that <literal>rsc1</literal> (that depends on
+      <literal>ticketA</literal>) can only be started after the
+      <literal>g-booth</literal> resource group.
+     </para>
+     <para>
+      In case <literal>rsc1</literal> is not a primitive, but a special
+      clone resource and configured as described in
+      <xref
+       linkend="step.ha.geo.setup.rsc.constraints"/>, the
+      ordering constraint should be configured as follows:
+     </para>
+<screen>crm(live)configure#
+<emphasis role="strong">order</emphasis> order-booth-rsc1 inf: g-booth rsc1:promote</screen>
+     <para>
+      This defines that <literal>rsc1</literal> can only be promoted to
+      master mode after the <literal>g-booth</literal> resource group has
+      started.
+     </para>
+    </step>
+    <step>
+     <para>
+      Review your changes with <command>show</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      For any other resources that depend on a certain ticket, define
+      further ordering constraints.
+     </para>
+    </step>
+    <step>
+     <para>
+      If everything is correct, submit your changes with
+      <command>commit</command> and leave the crm live configuration with
+      <command>exit</command>.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 id="sec.ha.geo.setup.booth">
+   <title>Setting Up the Booth Services</title>
+   <para>
+    After having configured the resource group for the
+    <systemitem
+     class="daemon">boothd</systemitem> and the ticket
+    dependencies, complete the booth setup:
+   </para>
+   <procedure id="pro.ha.geo.setup.booth.config">
+    <title>Editing The Booth Configuration File</title>
+    <step>
+     <para>
+      Log in to a cluster node as &rootuser; or equivalent.
+     </para>
+    </step>
+    <step>
+     <para>
+      Create <filename>/etc/booth/booth.conf</filename> and edit it
+      according to the example below:
+     </para>
+     <example>
+      <title>Example Booth Configuration File</title>
+<screen>transport="UDP" <co id="co.ha.geo.booth.config.transport"/>
+port="6666" <co id="co.ha.geo.booth.config.port"/>
+arbitrator="147.2.207.14" <co id="co.ha.geo.booth.config.arbitrator"/>
+site="147.4.215.19" <co id="co.ha.geo.booth.config.site"/>
+site="147.18.2.1"  <xref linkend="co.ha.geo.booth.config.site" xrefstyle="select:label nopage"/>
+ticket="ticketA;<co id="co.ha.geo.booth.config.ticket"/>1000<co id="co.ha.geo.booth.config.expiry"/>"
+ticket="ticketB;<xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:label nopage"/>1000<xref linkend="co.ha.geo.booth.config.expiry" xrefstyle="select:label nopage"/>"     </screen>
+      <calloutlist>
+       <callout arearefs="co.ha.geo.booth.config.transport">
+        <para>
+         Defines the transport protocol used for communication between the
+         sites. For SP2, only UDP is supported, other transport layers will
+         follow.
+        </para>
+       </callout>
+       <callout arearefs="co.ha.geo.booth.config.port">
+        <para>
+         Defines the port used for communication between the sites. Choose
+         any port that is not already used for different services. Make sure
+         to open the port in the nodes' and arbitrators' firewalls.
+        </para>
+       </callout>
+       <callout arearefs="co.ha.geo.booth.config.arbitrator">
+        <para>
+         Defines the IP address of the arbitrator. Insert an entry for each
+         arbitrator you use in your setup.
+        </para>
+       </callout>
+       <callout arearefs="co.ha.geo.booth.config.site">
+        <para>
+         Defines the IP address used for the
+         <systemitem class="daemon"
+          >boothd</systemitem> on each
+         site. Make sure to insert the correct virtual IP addresses
+         (<systemitem>IPaddr2</systemitem>) for each site, otherwise the
+         booth mechanism will not work correctly.
+        </para>
+       </callout>
+       <callout arearefs="co.ha.geo.booth.config.ticket">
+        <para>
+         Defines the ticket to be managed by the booth. For each ticket, add
+         a <literal>ticket</literal> entry.
+        </para>
+       </callout>
+       <callout arearefs="co.ha.geo.booth.config.expiry">
+        <para>
+         Optional parameter. Defines the ticket's expiry time in seconds. A
+         site that has been granted a ticket will renew the ticket
+         regularly. If the booth does not receive any information about
+         renewal of the ticket within the defined expiry time, the ticket
+         will be revoked and granted to another site. If no expiry time is
+         specified, the ticket will expire after <literal>600</literal>
+         seconds by default.
+        </para>
+       </callout>
+      </calloutlist>
+     </example>
+     <para>
+      An example booth configuration file is available at
+      <filename>/etc/booth/booth.conf.example</filename>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Verify your changes and save the file.
+     </para>
+    </step>
+    <step>
+     <para>
+      Copy <filename>/etc/booth/booth.conf</filename> to all sites and
+      arbitrators. In case of any changes, make sure to update the file
+      accordingly on all parties.
+     </para>
+     <note>
+      <title>Synchronize Booth Configuration to All Sites and Arbitrators</title>
+      <para>
+       All cluster nodes and arbitrators within the multi-site cluster must
+       use the same booth configuration. While you may need to copy the
+       files manually to the arbitrators and to one cluster node per site,
+       you can use &csync; within each cluster site to synchronize the file
+       to all nodes.
+      </para>
+     </note>
+    </step>
+   </procedure>
+   <procedure id="pro.ha.geo.setup.booth.service">
+    <title>Starting the Booth Services</title>
+    <para/>
+    <step>
+     <para>
+      Start the booth resource group on each other cluster site. It will
+      start one instance of the booth service per site.
+     </para>
+    </step>
+    <step>
+     <para>
+      Log in to each arbitrator and start the booth service:
+     </para>
+<screen>/etc/init.d/booth-arbitrator start</screen>
+     <para>
+      This starts the booth service in arbitrator mode. It can communicate
+      with all other booth daemons but in contrast to the booth daemons
+      running on the cluster sites, it cannot be granted a ticket.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    After finishing the booth configuration and starting the booth services,
+    you are now ready to start the ticket process.
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.geo.manage">
+  <title>Managing Multi-Site Clusters</title>
+
+  <para>
+   Before the booth can manage a certain ticket within the multi-site
+   cluster, you initially need to grant it to a site manually. Use the
+   <command>booth&nbsp;client</command> command line tool to grant, list, or
+   revoke tickets as described in <xref linkend="vl.ha.booth.client.cmds"/>.
+   The <command>booth&nbsp;client</command> commands work on any machine
+   where the booth daemon is running.
+  </para>
+
+<!--taroth 2013-04-24: information taken from bnc#752601, c#17-->
+
+  <variablelist id="vl.ha.booth.client.cmds">
+   <title>Overview of <command>booth client</command> Commands</title>
+   <varlistentry>
+    <term>Listing All Tickets on All Sites</term>
+    <listitem>
+<screen>#booth client list
+      
+ticket: ticketA, owner: 147.4.215.19, expires: 2013/04/24 12:00:01
+ticket: ticketB, owner: None, expires: INF</screen>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Granting a Ticket to a Site</term>
+    <listitem>
+<screen>#booth client grant -t ticketA -s 147.2.207.14
+<?dbsuse-fo font-size="0.71em"?>cluster[3100]: 2013/04/24_11:44:14 info: grant command sent, result will be
+returned asynchronously, you can get the result from the log files.</screen>
+     <para>
+      In this case, <literal>ticketA</literal> will be granted to the site
+      <literal>147.2.207.14</literal>. The grant operation will be executed
+      immediately. However, it might not be finished yet when the message
+      above appears on the screen. Find the exact status in the log files.
+     </para>
+     <para>
+      Before granting a ticket, the command will execute a sanity check. If
+      the same ticket is already granted to another site, you will be warned
+      about that and be prompted to revoke the ticket from the current site
+      first.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Revoking a Ticket From a Site</term>
+    <listitem>
+<screen>#booth client revoke -t ticketA -s 147.2.207.14
+<?dbsuse-fo font-size="0.71em"?>cluster[3100]: 2013/04/24_11:44:14 info: revoke command sent, result will be
+returned asynchronously, you can get the result from the log files.</screen>
+     <para>
+      In this case, <literal>ticketA</literal> will be revoked from the site
+      <literal>147.2.207.14</literal>. The revoke operation will be executed
+      immediately. However, it might not be finished yet when the message
+      above appears on the screen. Find the exact status in the log files.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <warning>
+   <title><command>crm_ticket</command> and <command>crm&nbsp;site&nbsp;ticket</command></title>
+   <para>
+    In case the booth service is not running for any reasons, you may also
+    manage tickets manually with <command>crm_ticket</command> or
+    <command>crm&nbsp;site&nbsp;ticket</command>. Both commands are only
+    available on cluster nodes. In case of manual intervention, use them
+    with great care as they <emphasis>cannot</emphasis> verify if the same
+    ticket is already granted elsewhere. For basic information about the
+    commands, refer to their man pages.
+   </para>
+   <para>
+    As long as booth is up and running, only use
+    <command>booth&nbsp;client</command> for manual intervention.
+   </para>
+  </warning>
+
+<!--taroth 2012-02-14:commenting the following due to bnc#746829, 
+     (option might be added again later)-->
+
+<!--<para>
+     When granting tickets, you can also specify the expiry time after which
+     a ticket will fail over to another site if it has not been renewed. The
+     default expiry time is <literal>600</literal> seconds. To specify a
+     different value, use the <option>-e</option> option:
+    </para>
+    <screen>booth client grant -t ticketA -s 147.2.207.14 -e 1000</screen>-->
+
+  <para>
+   After you have initially granted a ticket to a site, the booth mechanism
+   will take over and manage the ticket automatically. If the site holding a
+   ticket should be out of service, the ticket will automatically be revoked
+   after the expiry time and granted to another site. The resources that
+   depend on that ticket will fail over to the new site holding the ticket.
+   The nodes that have run the resources before will be treated according to
+   the <literal>loss-policy</literal> you set within the constraint.
+  </para>
+
+<!--taroth 2013-04-24: fix for bnc#752601, c#10-->
+
+  <procedure id="pro.ha.geo.manage.tickets">
+   <title>Managing Tickets Manually</title>
+   <para>
+    Assuming that you want to manually move <literal>ticketA</literal> from
+    site <literal>147.2.207.14</literal> to <literal>147.2.207.15</literal>,
+    proceed as follows:
+   </para>
+   <step>
+    <para>
+     Set <literal>ticketA</literal> to standby with the following command:
+    </para>
+<screen>crm_ticket -t ticketA -s</screen>
+   </step>
+   <step>
+    <para>
+     Wait for any resources that depend on <literal>ticketA</literal> to be
+     stopped or demoted cleanly.
+    </para>
+   </step>
+   <step>
+    <para>
+     Revoke <literal>ticketA</literal> from its current site with:
+    </para>
+<screen>booth client revoke -t ticketA -s 147.2.207.14</screen>
+   </step>
+   <step>
+    <para>
+     Wait for the revocation process to be finished successfully (check
+     <filename>/var/log/messages</filename> for details). Do not execute any
+     <literal>grant</literal> commands during this time.
+    </para>
+   </step>
+   <step>
+    <para>
+     After the ticket has been revoked from its original site, grant it to
+     the new site with:
+    </para>
+<screen>booth client grant -t ticketA -s 147.2.207.15</screen>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.geo.trouble">
+<!--taroth 2013-04-24: fix for bnc#753625-->
+
+  <title>Troubleshooting</title>
+
+  <para>
+   Booth logs to <filename>/var/log/messages</filename> and uses the same
+   logging mechanism as the CRM. Thus, changing the log level will also take
+   effect on booth logging. The booth log messages also contain information
+   about any tickets.
+  </para>
+
+  <para>
+   Both the booth log messages and the booth configuration file are included
+   in the <command>hb_report</command>.
+  </para>
+
+  <para>
+   In case of unexpected booth behavior or any problems, check
+   <filename>/var/log/messages</filename> or create an
+   <command>hb_report</command>.
+  </para>
+ </sect1>
 </article>
