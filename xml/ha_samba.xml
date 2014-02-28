@@ -131,7 +131,9 @@
  </sect1>
  <sect1 id="sec.ha.samba.basicconf">
   <title>Basic Configuration</title>
-
+  <remark>toms 2014-02-28: From "Tim": "I want to see if we can change this 
+    to match what's described in fate#316336 (i.e. separate samba and winbind resources).  
+    This is largely a testing/validation effort."</remark>
   <note>
    <title>Changed Configuration Files</title>
    <para>
@@ -228,6 +230,24 @@
 &subnetI;.11</screen>
    </step>
    <step>
+        <para>Configure Samba. Add the following lines in the <literal>[global]</literal>
+          section of <filename>/etc/samba/smb.conf</filename>. Use the hostname of your 
+          choice in place of "ctdb-test" (all nodes in the cluster
+          will appear as one big node with this name, effectively):</para>
+     <screen>[global]
+    # ...
+    # settings applicable for all CTDB deployments
+    netbios name = ctdb-test
+    clustering = yes
+    idmap config * : backend = tdb2
+    passdb backend = tdbsam
+    ctdbd socket = /var/lib/ctdb/ctdbd.socket
+    # settings necessary for CTDB on OCFS2
+    fileid:algorithm = fsid
+    vfs objects = fileid
+    # ...</screen>
+   </step>
+   <step>
     <para>
      Copy the configuration file to all of your nodes by using
      <command>csync2</command>:
@@ -238,29 +258,6 @@
      <xref linkend="pro.ha.installation.setup.csync2.start"/>.
     </para>
    </step>
-<!--
-    toms 2010-03-01: According to Tim the following step is not
-    necessary anymore:
-    »the CTDB RA will make these changes to smb.conf automatically 
-    when CTDB is started by the cluster.«    
-   -->
-<!--<step>
-    <para>Set the following global options in
-     <filename>/etc/samba/smb.conf</filename> on all nodes:</para>
-    <screen>[global]
-passdb backend = tdbsam
-clustering = yes
-idmap backend = tdb2
-private dir = /shared/samba/private
-ctdb socket = /var/lib/ctdb/ctdb.socket</screen>
-   </step>
-   <step>
-    <para>Add one or more shares to
-     <filename>/etc/samba/smb.conf</filename> on all nodes:</para>
-    <screen>[myshare]
-path = /shared/myshare
-# Other options go here, for example: read only = no</screen>
-   </step>-->
    <step>
     <para>
      Add a CTDB resource to the cluster:
@@ -271,13 +268,22 @@ path = /shared/myshare
     ctdb_manages_winbind="false" \ 
     ctdb_manages_samba="true" \
     ctdb_recovery_lock="/shared/samba/ctdb.lock" \
+    ctdb_socket="/var/lib/ctdb/ctdbd.socket" \ 
       op monitor interval="10" timeout="20" \
       op start interval="0" timeout="90" \
       op stop interval="0" timeout="100"
-&prompt.crm.conf; <command>clone</command> ctdb-clone ctdb \
-    meta globally-unique="false" interleave="true"
-&prompt.crm.conf; <command>colocation</command> ctdb-with-fs inf: ctdb-clone fs-clone
-&prompt.crm.conf; <command>order</command> start-ctdb-after-fs inf: fs-clone ctdb-clone
+&prompt.crm.conf; <command>primitive</command> nmb systemd:nmb \
+    op start timeout="60" interval="0" \
+    op stop timeout="60" interval="0" \
+    op monitor interval="60" timeout="60"
+&prompt.crm.conf; <command>primitive</command> smb systemd:smb \
+    op start timeout="60" interval="0" \
+    op stop timeout="60" interval="0" \
+    op monitor interval="60" timeout="60"
+&prompt.crm.conf; <command>group</command> ctdb-group ctdb nmb smb
+&prompt.crm.conf; <command>clone</command> ctdb-group meta interleave="true"
+&prompt.crm.conf; <command>colocation</command> ctdb-with-clusterfs inf: ctdb-clone fs-clone
+&prompt.crm.conf; <command>order</command> clusterfs-then-ctdb inf: fs-clone ctdb-clone
 &prompt.crm.conf; <command>commit</command></screen>
    </step>
    <step>
@@ -286,28 +292,41 @@ path = /shared/myshare
     </para>
 <screen>&prompt.crm.conf; <command>primitive</command> ip ocf:heartbeat:IPaddr2<!-- 
     --> params ip=&subnetII;.222 \
-  clusterip_hash="sourceip-sourceport" op monitor interval=60s
-&prompt.crm.conf; <command>clone</command> ip-clone ip meta globally-unique="true"
-&prompt.crm.conf; <command>colocation</command> ip-with-ctdb inf: ip-clone ctdb-clone
-&prompt.crm.conf; <command>order</command> start-ip-after-ctdb inf: ctdb-clone ip-clone
+    unique_clone_address="true" \
+    op monitor interval="60" \
+    meta resource-stickiness="0"
+&prompt.crm.conf; <command>clone</command> ip-clone ip \
+    meta interleave="true" clone-node-max="2" globally-unique="true"
+&prompt.crm.conf; <command>colocation</command> ip-with-ctdb 0: ip-clone ctdb-clone
+&prompt.crm.conf; <command>order</command> ip-with-ctdb 0: ip-clone ctdb-clone
 &prompt.crm.conf; <command>commit</command></screen>
+   </step>
+   <step>
+     <para>If you want winbind to the mix, enter the following lines:
+</para>
+     <screen>&prompt.crm.conf; <command>primitive</command> winbind systemd:winbind \
+    op start timeout="60" interval="0" \
+    op stop timeout="60" interval="0" \
+    op monitor interval="60" timeout="60"
+&prompt.crm.conf; <command>group</command> ctdb-group ctdb nmb winbind smb</screen>
    </step>
    <step>
     <para>
      Check the result:
     </para>
 <screen>&prompt.root;<command>crm</command> status
-Clone Set: dlm-clone
-     Started: [ hex-14 hex-13 ]
- Clone Set: o2cb-clone
-     Started: [ hex-14 hex-13 ]
- Clone Set: c-ocfs2-3
-     Started: [ hex-14 hex-13 ]
- Clone Set: ctdb-clone
-     Started: [ hex-14 hex-13 ]
- Clone Set: ip-clone (unique)
-     ip:0       (ocf::heartbeat:IPaddr2):       Started hex-13
-     ip:1       (ocf::heartbeat:IPaddr2):       Started hex-14</screen>
+Clone Set: base-clone [dlm]
+     Started: [ factory-1 ]
+     Stopped: [ factory-0 ]
+Clone Set: fs-clone [clusterfs]
+     Started: [ factory-1 ]
+     Stopped: [ factory-0 ]
+ Clone Set: ctdb-clone [ctdb-group]
+     Started: [ factory-1 ]
+     Started: [ factory-0 ]
+ Clone Set: ip-clone [ip] (unique)
+     ip:0       (ocf::heartbeat:IPaddr2):       Started factory-0
+     ip:1       (ocf::heartbeat:IPaddr2):       Started factory-1</screen>
    </step>
    <step>
     <para>
