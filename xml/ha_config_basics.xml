@@ -1477,51 +1477,129 @@ monitor_0     interval=5s timeout=20s</screen>
 
   <sect2 id="sec.ha.config.basics.constraints.types">
    <title>Types of Constraints</title>
-   <para>
-    There are three different kinds of constraints available:
-    <remark>taroth 2014-07-25: todo: https://fate.suse.com/314917: Collocating Sets for resources
-     without dependency</remark>
+   <para> There are three different kinds of constraints available: 
    </para>
    <variablelist>
     <varlistentry>
      <term>Resource Location
     </term>
      <listitem>
-      <para>
-       Locational constraints that define on which nodes a resource may be
-       run, may not be run or is preferred to be run.
-      </para>
+      <para> Locational constraints that define on which nodes a resource may be run, may not be run
+       or is preferred to be run. </para>
      </listitem>
     </varlistentry>
     <varlistentry>
      <term>Resource Colocation</term>
      <listitem>
-      <para>
-       Colocational constraints that tell the cluster which resources may or
-       may not run together on a node.
-      </para>
+      <para> Colocational constraints that tell the cluster which resources may or may not run
+       together on a node. </para>
      </listitem>
     </varlistentry>
     <varlistentry>
      <term>Resource Order</term>
      <listitem>
-      <para>
-       Ordering constraints to define the sequence of actions.
-      </para>
+      <para> Ordering constraints to define the sequence of actions. </para>
      </listitem>
     </varlistentry>
    </variablelist>
-   <para>
-    For more information on configuring constraints and detailed background
-    information about the basic concepts of ordering and colocation, refer
-    to the following documents. They are available at
-    <xref linkend="vle.ha.config.basics.more.clusterlabs.doc"/>:
-   </para>
+
+   <!--taroth 2014-07-25: explained concept of "resource sets" (see Hawk chapter),
+    https://fate.suse.com/315158: Pacemaker: allow resource sets for location constraints-->
+   <bridgehead>Using Resource Sets for Defining Constraints</bridgehead>
+   <para>As an alternative format for defining location, colocation or ordering constraints, you can
+    use <literal>resource sets</literal>, where primitives are grouped together in one set.
+    Previously this was possible either by defining a resource group (which could not always
+    accurately express the design), or by defining each relationship as an individual constraint,
+    causing a constraint explosion as the number of resources and combinations grew. 
+    The configuration via resource sets is not necessarily less verbose, but generally easier
+     to understand and maintain, as the following examples show.</para>
+
+ <example>
+  <title>A Resource Set for Location Constraints</title>
+  <para>For example, you can use the following configuration of a resource set
+   (<varname>loc-node1</varname>) in the &crmsh; to place two virtual IPs (<varname>vip1</varname> and
+   <varname>vip2</varname>) on the same node, namely <varname>node1</varname>:</para>
+  <screen>&prompt.crm.conf;<command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=&subnetI;.5
+   &prompt.crm.conf;<command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=&subnetI;.6
+   &prompt.crm.conf;<command>location</command> loc-node1 { vip1 vip2 } inf: node1 </screen>
+ </example>
+   
+    <para>If you want to use resource sets to replace a configuration of colocation constraints,
+    consider the following two examples:</para>
+   <example>
+    <title>A Chain of Colocated Resources</title>
+    <screen>&lt;constraints>
+     &lt;rsc_colocation id="coloc-1" rsc="B" with-rsc="A" score="INFINITY"/>
+     &lt;rsc_colocation id="coloc-2" rsc="C" with-rsc="B" score="INFINITY"/>
+     &lt;rsc_colocation id="coloc-3" rsc="D" with-rsc="C" score="INFINITY"/>
+    &lt;/constraints>
+  </screen>
+   </example>
+   <para>The same configuration expressed by a resource set: </para>
+   <screen>&lt;constraints>
+    &lt;rsc_colocation id="coloc-1" score="INFINITY" >
+     &lt;resource_set id="colocated-set-example" sequential="true">
+      &lt;resource_ref id="A"/>
+      &lt;resource_ref id="B"/>
+      &lt;resource_ref id="C"/>
+      &lt;resource_ref id="D"/>
+     &lt;/resource_set>
+    &lt;/rsc_colocation>
+    &lt;/constraints></screen>
+
+   <para>If you want to use resource sets to replace a configuration of ordering constraints,
+    consider the following two examples:</para>
+   <example>
+    <title>A Chain of Ordered Resources</title>
+    <screen>&lt;constraints>
+     &lt;rsc_order id="order-1" first="A" then="B" />
+     &lt;rsc_order id="order-2" first="B" then="C" />
+     &lt;rsc_order id="order-3" first="C" then="D" />
+     &lt;/constraints></screen>
+   </example>
+   <para>The same purpose can be achieved by using a resource set with ordered resources: </para>
+   <example>
+    <title>A Chain of Ordered Resources Expressed as Resource Set</title>
+    <screen>&lt;constraints>
+     &lt;rsc_order id="order-1">
+     &lt;resource_set id="ordered-set-example" sequential="true">
+     &lt;resource_ref id="A"/>
+     &lt;resource_ref id="B"/>
+     &lt;resource_ref id="C"/>
+     &lt;resource_ref id="D"/>
+     &lt;/resource_set>
+     &lt;/rsc_order>
+     &lt;/constraints>
+    </screen>
+   </example>
+  
+
+   <para>Sets can be either ordered (<literal>sequential=true</literal>) or unordered
+     (<literal>sequential=false</literal>). Furthermore, the <literal>require-all</literal>
+    attribute can be used to switch between <literal>AND</literal> and <literal>OR</literal>
+    logic.</para>
+   
+   <!--taroth 2014-07-25: https://fate.suse.com/314917: Collocating Sets for resources without dependency-->
+   <bridgehead>Resource Sets  for Colocation Constraints With Dependencies</bridgehead>
+   <para>Sometimes it is useful to be able to place a group of resources on the same node (defining
+    a colocation constraint), but without having hard dependencies between the resources. For
+    example, you want two resources to be placed on the same node, but you do
+     <emphasis>not</emphasis> want the cluster to trigger any action (that means restart the other
+    one) if one of them fails. This can be achieved on the &crmshell; by using the <command>weak
+    bond command</command>. 
+    <remark>taroth 2014-07-28: in Hawk, you have to go the hard way according to krig by defining
+     the individual resources and constraints as explained in fate#314917</remark></para>
+   
+   
+      
+   <para> For more information on configuring constraints and detailed background information about
+    the basic concepts of ordering and colocation, refer to the following documents. They are
+    available at <xref linkend="vle.ha.config.basics.more.clusterlabs.doc"/>: </para>
    <itemizedlist>
     <listitem>
      <para>
-      <citetitle>Pacemaker Explained</citetitle>, chapter
-      <citetitle>Resource Constraints</citetitle>
+      <citetitle>Pacemaker Explained</citetitle>, chapter <citetitle>Resource
+       Constraints</citetitle>
      </para>
     </listitem>
     <listitem>
@@ -1535,27 +1613,20 @@ monitor_0     interval=5s timeout=20s</screen>
      </para>
     </listitem>
    </itemizedlist>
-   <para>
-    Learn how to add the various kinds of constraints with your preferred
-    cluster management tool:
-   </para>
+   <para> Learn how to add the various kinds of constraints with your preferred cluster management
+    tool: </para>
    <itemizedlist>
     <listitem>
-     <para>
-      &hawk;: <xref linkend="sec.ha.config.hawk.constraints"/>
+     <para> &hawk;: <xref linkend="sec.ha.config.hawk.constraints"/>
      </para>
     </listitem>
     <listitem>
-     <para>
-      &crmsh;: <xref linkend="sec.ha.manual_config.constraints"/>
+     <para> &crmsh;: <xref linkend="sec.ha.manual_config.constraints"/>
      </para>
     </listitem>
    </itemizedlist>
-   <para>
-    <remark>taroth 2014-07-25: todo: explain concept of "resource sets" (see Hawk chapter),
-    https://fate.suse.com/315158: Pacemaker: allow resource sets for location constraints </remark>
-   </para>
-</sect2>
+ 
+  </sect2>
   <sect2 id="sec.ha.config.basics.constraints.scores">
    <title>Scores and Infinity</title>
    <para>
