@@ -95,14 +95,68 @@
      be regulated via ACL, see <xref linkend="cha.ha.acl"/>.</para>
    </note>
    <!--taroth 2014-07-31:  https://fate.suse.com/315163: 
-     Template for  HA NFS Server -->
-   <para>In the following steps, we will configure an NFS server as
-    example.
-    <remark>taroth 2014-07-31: todo - file enhancement bug to display the number
-    of steps required for configuration (1/10), for example), add some more
-    details to the procedure that are mentioned in the testcase and in krig's
-    comment #9 in fate</remark>
-   </para>
+     Template for  HA NFS Server-->
+   <para>In the following procedure, we will use the wizard to configure an NFS
+    server as example, which can be used as an NFS(v4/v3) fail-over server. The
+    wizard relies on the cluster having been set up using the bootstrap scripts,
+    so that key-based SSH access between nodes has been configured. You will be
+    prompted for the following information: </para>
+   <itemizedlist>
+    <listitem>
+     <para>The &rootuser; password for the machine that you are logged in to
+      via &hawk;. It needs to be the same as on all cluster nodes that
+      &hawk; needs to touch in order to modify their file systems.</para>
+    </listitem>
+    <listitem>
+     <para>The ID of the base file system resource.</para>
+    </listitem>
+    <listitem>
+     <para>Details for the NFSv4 file system root. </para>
+    </listitem>
+    <listitem>
+     <para>Details for an NFSv3 export. A directory
+      exported by an NFS server, which clients can integrate it into their
+      system. </para>
+    </listitem>
+    <listitem>
+     <para>A floating IP address.</para>
+    </listitem>
+   </itemizedlist>
+   <para>The resulting Pacemaker configuration will contain the following
+   resources:</para>
+   <variablelist>
+    <varlistentry>
+     <term>NFS Kernel Server</term>
+     <listitem>
+      <para>Manages the in-kernel Linux NFS daemon that serves locally mounted
+       file systems to clients via the NFS network protocol.</para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>NFSv4 Virtual File System Root</term>
+     <listitem>
+      <para>Manages the virtual NFS root export, needed for NFSv4 clients. This
+       resource does not hold any actual NFS-exported data, merely the empty
+       directory (<filename>/srv/nfs</filename>) that the other NFS export is
+       mounted into. </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Non-root NFS Export</term>
+     <listitem>
+      <para>Manages the NFSv3 export .</para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Floating IP Address</term>
+     <listitem>
+      <para>A virtual, floating cluster IP address, allowing NFS clients to
+       connect to the service no matter which physical node it is running
+       on.</para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   
    <step>
     <para> Start a Web browser and log in to the cluster as described in <xref
       linkend="sec.ha.config.hawk.intro.connect"/>. </para>
@@ -127,74 +181,95 @@
    <step>
     <para> Select the template for the resource you want to configure (in our
      case: <literal>NFS Server</literal>) and click
-     <guimenu>Next</guimenu>.<remark>taroth 2014-07-31: todo - check for which NFS
-      version this template can be used - NFSv4? or also different versions?</remark></para>
+     <guimenu>Next</guimenu>.</para>
    </step>
    <step>
-    <para>Enter the &rootuser; password 
-     <remark>taroth 2014-07-31: unclear from the UI for *which* machine - the
-      one I'm running Hawk on? or the one where I want to create an NFS share
-      on?</remark> and click
-      <guimenu>Next</guimenu>. Without the &rootuser; password, the
-     configuration wizard is not able to do the necessary configuration changes.</para>
-   </step>
-   <step>
-    <para>Enter the ID of the base file system resource that is to be exported
-     via NFS. Click <guimenu>Next</guimenu>.</para></step>
-   <step>
-    <para>In the next two wizard steps, you define the NFSv4 file system root
-     and the exported NFS mount point. Specify the following parameters and
-     click <guimenu>Next</guimenu>.</para>
-   <itemizedlist>
-    <listitem>
-      <para>Define a <guimenu>Resource ID</guimenu> to be used for this cluster
-      resource.</para></listitem>
-    <listitem>
-      <para>Enter a <guimenu>File System ID</guimenu>. 
-       <remark>taroth 2014-07-31: value depends on the NFS version being used
-        (see NFS Quick Start), the Hawk help text is thus confusing - check with
-        krig!</remark></para></listitem>
-   <listitem>
-      <para>Specify a <guimenu>Mount Point</guimenu>. </para></listitem>
-    <listitem>
-      <para>Enter a <guimenu>Client Spec</guimenu>. For example
-        <literal>10.9.9.0/255.255.255.0</literal>.</para></listitem>
-    <listitem>
-      <para>Specify the <guimenu>Mount Options</guimenu>. For example:
-        <literal>rw,crossmnt</literal>.</para></listitem>
-    <listitem>
-      <para>Activate <guimenu>Wait for lease time on stop</guimenu>. <!--When set,
+    <para>To configure a highly available NFS server:</para>
+    <substeps>
+     <step>
+      <para>Enter the &rootuser; password for the current machine and click
+        <guimenu>Next</guimenu>. Without the &rootuser; password, the
+       configuration wizard is not able to do the necessary configuration
+       changes.</para>
+     </step>
+     <step>
+      <para>To specify the <guimenu>Base Filesystem</guimenu> that is to be exported via NFS,
+       enter its root ID and click <guimenu>Next</guimenu>.</para>
+     </step>
+     <step>
+      <para>In the next two wizard steps, enter the details for the virtual
+       NFSv4 file system root (only needed for NFSv4 clients) and the exported
+       NFS mount point. Specify the following parameters and click
+        <guimenu>Next</guimenu>.</para>
+      <itemizedlist>
+       <listitem>
+        <para>Define a <guimenu>Resource ID</guimenu> to be used for this
+         cluster resource.</para>
+       </listitem>
+       <listitem>
+        <para>Enter a <guimenu>File System ID</guimenu>. <remark>taroth
+          2014-07-31: value depends on the NFS version being used (see NFS Quick
+          Start), the Hawk help text is thus confusing - check with
+          krig!</remark></para>
+       </listitem>
+       <listitem>
+        <para>Specify a <guimenu>Mount Point</guimenu>. </para>
+       </listitem>
+       <listitem>
+        <para>Enter a <guimenu>Client Spec</guimenu>. For example
+          <literal>10.9.9.0/255.255.255.0</literal>.</para>
+       </listitem>
+       <listitem>
+        <para>Specify the <guimenu>Mount Options</guimenu>. For example:
+          <literal>rw,crossmnt</literal>.</para>
+       </listitem>
+       <listitem>
+        <para>Activate <guimenu>Wait for lease time on stop</guimenu>.
+         <!--When set,
        it rides out the grace period before declaring the resource properly
-       stopped. --></para></listitem>
-   </itemizedlist>
+       stopped. --></para>
+       </listitem>
+      </itemizedlist>
+     </step>
+     <step>
+      <para>Configure a virtual IP added used to access the NFS mounts. Specify
+       the following parameters.</para>
+      <itemizedlist>
+       <listitem>
+        <para>Define a <guimenu>Resource ID</guimenu> to be used for this
+         cluster resource.</para>
+       </listitem>
+       <listitem>
+        <para>Enter an IP address in dotted quad notation.</para>
+       </listitem>
+       <listitem>
+        <para>Optionally, enter a <guimenu>Netmask</guimenu>. If not specified,
+         it will be determined automatically.</para>
+       </listitem>
+       <listitem>
+        <para>For LVS Direct Routing configuration, enable <guimenu>LVS
+          Support</guimenu>. Otherwise leave it disabled.</para>
+       </listitem>
+      </itemizedlist>
+     </step>
+     <step>
+      <para>Click <guimenu>Next</guimenu>.</para>
+      <para> The wizard displays the configuration snippet that will be applied
+       to the CIB.</para>
+     </step>
+     <step>
+      <para>To apply it, click <guimenu>Next</guimenu>.</para>
+     </step>
+     <step>
+      <para>To check that the NFS exports are properly set up, execute the
+       following command<remark>taroth 2014-08-01: DEVs, on which machine or
+        machines? and what should be the expected output?</remark>
+      </para>
+      <screen>exportfs -v</screen>
+      <para>You have now configured an NFS(v4/v3) fail-over server.</para>
+     </step>
+    </substeps>
    </step>
-   <step>
-    <para>Configure a virtual IP added used to access the NFS mounts. Specify
-     the following parameters.</para>
-    <itemizedlist>
-     <listitem>
-      <para>Define a <guimenu>Resource ID</guimenu> to be used for this cluster
-       resource.</para>
-     </listitem>
-     <listitem>
-      <para>Enter an IP address in dotted quad notation.</para>
-     </listitem>
-     <listitem>
-      <para>Optionally, enter a <guimenu>Netmask</guimenu>. If not specified, it
-       will be determined automatically.</para>
-     </listitem>
-     <listitem>
-      <para>For LVS Direct Routing configuration, enable <guimenu>LVS
-        Support</guimenu>. Otherwise leave it disabled.</para>
-     </listitem>
-    </itemizedlist>
-   </step>
-   <step>
-    <para>Click <guimenu>Next</guimenu>.</para>
-    <para> The wizard displays the configuration snippet that will be applied to
-     the CIB.</para>
-   </step>
-   <step><para>To apply it, click <guimenu>Next</guimenu>.</para></step>
   </procedure>
 
  </sect2>
