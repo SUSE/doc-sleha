@@ -17,50 +17,60 @@ toms 2014-05-27:
  <title>Load Balancing</title>
  <!--taroth 090519: see http://www.linuxvirtualserver.org/-->
  <para>
-  "Load Balancing" is used to cluster servers to appear as one large,
+  "Load Balancing" makes a cluster of servers appear as one large,
   fast server to outside clients.  This apparent single server is
   called a <emphasis>virtual server</emphasis>.  It consists of one or
-  more load balancers and several real servers for running services.
-  With a load balancing setup of &hasi;, you can build highly scalable
-  and highly available network services, such as Web, cache, mail,
-  FTP, media and VoIP services.
+  more load balancers dispatching incoming requests and several real
+  servers running the actual services.  With a load balancing setup of
+  &hasi;, you can build highly scalable and highly available network
+  services, such as Web, cache, mail, FTP, media and VoIP services.
  </para>
  <para>
   &hasi; supports two technologies for load balancing: &lvs; and
-  &haproxy;.
+  &haproxy;.  The key difference is &lvs; operates at OSI layer 4
+  (Transport), configuring the network layer of kernel, while
+  &haproxy; operates at layer 7 (Application), running in user space.
+  Thus &lvs; needs less ressources and can handle higher loads, while
+  &haproxy; can inspect the traffic, do SSL termination and make
+  dispatching decisions based on the content of the traffic.
+  <remark>
+   <ulink
+     url="http://serverfault.com/questions/173391/lvs-vs-haproxy-which-should-i-choose">
+    serverfault on haproxy vs lvs
+   </ulink>
+  </remark>
  </para>
  
  <para>
-  This section gives you a conceptual overview of load
-  balancing in combination with high availability, and then introduces
-  to &lvs; and &haproxy;.
+  This section gives you a conceptual overview of load balancing in
+  combination with high availability, then briefly introduces to &lvs;
+  and &haproxy; and points to further reading.
  </para>
 
  <sect1 id="sec.ha.lb.overview">
   <title>Conceptual Overview</title>
-  <remark>toms 2014-05-27: TODO: I've inserted the following para's and 
-  itemizedlist's today. Not sure if this is correct as this is dedicated
-  to both (LVS _and_ HAProxy).
-  </remark>
 
   <para>
    The real servers and the load balancers may be interconnected by
    either high-speed LAN or by geographically dispersed WAN. The load
    balancers dispatch requests to the different servers. They make
-   parallel services of the cluster appear as a virtual service on a
+   parallel services of the cluster appear as one virtual service on a
    single IP address (the virtual IP address or VIP). Request
    dispatching can use IP load balancing technologies or
    application-level load balancing technologies. Scalability of the
-   system is achieved by transparently adding or removing nodes in
-   the cluster.
+   system is achieved by transparently adding or removing nodes in the
+   cluster.
   </para>
   <para>
-   High availability is provided by detecting node or service
-   failures and reconfiguring the system appropriately.
+   High availability is provided by detecting node or service failures
+   and reconfiguring the whole virtual server system appropriately, as
+   usual.
   </para>
   
-  
-  <para>There are several load balancing strategies:</para>
+  <para>
+   There are several load balancing strategies.  Here are some Layer 4
+   strategies, suitable for &lvs;:
+  </para>
   
   <itemizedlist>
    <listitem>
@@ -102,43 +112,65 @@ toms 2014-05-27:
    </listitem>
   </itemizedlist>
   
-  <remark>toms 2014-05-27: TODO: Should insert a connection between the 
-  general issues above to the specific issues below.</remark>
-
-  <!--  toms 2014-05-27: TODO: Insert comparison table between 
-       LVS and HAProxy
-  -->
-  <para>Although there is some overlap, &haproxy; can be used in scenarios 
-  where LVS/<command>ipvsadm</command> are not adequate and vice versa:      
+  <para>
+   Here are some Layer 7 strategies, suitable for &haproxy;:
   </para>
   <itemizedlist>
    <listitem>
-    <para>SSL termination: the front-end load-balancers can handle the 
-    SSL layer and thus the cloud nodes do not need to have access to 
+    <formalpara>
+     <title>uri</title>
+     <para>
+      Inspect the http content and dispatch to a server most suitable
+      for this specific uri.
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>url parameter, rdp cookie</title>
+     <para>
+      Inspect the http content for a session parameter, possibly in
+      post parameters, or the rdp (remote desktop protocol) session
+      cookie, and dispatch to the server serving this session.
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>Although there is some overlap, &haproxy; can be used in
+  scenarios where LVS/<command>ipvsadm</command> are not adequate and
+  vice versa:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>SSL termination: the front-end load-balancers can handle the
+    SSL layer and thus the cloud nodes do not need to have access to
     the SSL keys, or could take advantage of SSL accelerators in the
     load balancers.</para>
    </listitem>
    <listitem>
-    <para>&haproxy; operates at the application level, allowing the load 
-    balancing decisions to be influenced by the content stream. This 
-    allows for persistence based on cookies and other such filters.</para>
+    <para>&haproxy; operates at the application level, allowing the
+    load balancing decisions to be influenced by the content
+    stream. This allows for persistence based on cookies and other
+    such filters.</para>
    </listitem>
   </itemizedlist>
   
-  <para>On the other hand, LVS/<command>ipvsadm</command> cannot be fully 
-  replaced by &haproxy;:</para>
+  <para>On the other hand, LVS/<command>ipvsadm</command> cannot be
+  fully replaced by &haproxy;:</para>
   
   <itemizedlist>
    <listitem>
-    <para>LVS supports <quote>direct routing</quote>, where the load balancer is only 
-    in the inbound stream, whereas the outbound traffic is routed to the 
-    clients directly. This allows for potentially much higher throughput 
-    in asymmetric environments.</para>
+    <para>LVS supports <quote>direct routing</quote>, where the load
+    balancer is only in the inbound stream, whereas the outbound
+    traffic is routed to the clients directly. This allows for
+    potentially much higher throughput in asymmetric
+    environments.</para>
    </listitem>
    <listitem>
-    <para>LVS supports stateful connection table replication (via conntrackd). 
-    This allows for load-balancer fail-over that is transparent to the 
-    client and server.</para>
+    <para>LVS supports stateful connection table replication (via
+    conntrackd).  This allows for load-balancer fail-over that is
+    transparent to the client and server.</para>
    </listitem>
   </itemizedlist>
   
@@ -776,7 +808,9 @@ toms 2014-05-27:
 
  <sect2 id="sec.ha.lb.haproxy.conf">
   <title>Setting Up  &haproxy;</title>
-  <para><remark>toms 2014-05-27: TODO Maybe add something like this</remark></para>
+  <para><remark>toms 2014-05-27: TODO Maybe add something like
+  this</remark></para>
+
  </sect2>
 
 </sect1>
