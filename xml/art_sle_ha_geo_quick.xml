@@ -27,8 +27,8 @@
   <para> Apart from local clusters and metro area clusters, &productnamereg;
    &productnumber; also supports &geo; clusters. That means you can have
    multiple, geographically dispersed sites with a local cluster each. Failover
-   between these clusters is coordinated by a higher level entity, the so-called
-   <literal>booth</literal>. Support for &geo; clusters is available as
+   between these clusters is coordinated by a higher level entity: the booth
+   daemon (&boothd;). Support for &geo; clusters is available as
    a separate extension to &hasi;, called &hageo;. </para>
   <para>
    <remark>taroth 2014-08-11: todo - https://fate.suse.com/316120: [docu]
@@ -393,13 +393,10 @@
     </para>
    </listitem>
    <listitem>
-    <para>
-     The <systemitem class="resource">booth</systemitem> package must be
-     installed on all cluster nodes <emphasis>and</emphasis> on all
-     arbitrators that will be part of the &geo; cluster. <remark>taroth
-      2014-08-07: DEVs: is this still true? or do arbitrators need the full GEO
-      pattern meanwhile?</remark>
-    </para>
+    <para> The &hageo; add-on must be installed on all cluster nodes <emphasis>and</emphasis> on
+     all arbitrators that will be part of the &geo; cluster. 
+     <!--<remark>taroth 2014-08-20: booth package would be enough (GEO pattern only consists of the booth
+      package) but to make it clear where to get the package from, phrasing like this</remark>--></para>
    </listitem>
   </itemizedlist>
   
@@ -508,7 +505,9 @@
     start/stop all instances, while the Pacemaker primitives are defined independently
     via a "config" parameter. Giving the "short" name is sufficient, ie. for
     /etc/booth/http.conf  you could specify "config=http" within the CRM
-    shell</remark>, <remark>taroth 2014-08-11: todo -
+    shell - dmuhamedagic 2014-08-14: There's no init script, sle12 is systemd. The unit file is
+    called "booth@.service". Individual services can be enabled/disabled by referencing
+    booth@&lt;name>, where name stands for the config /etc/booth/&lt;name>.conf</remark>, <remark>taroth 2014-08-11: todo -
      https://bugzilla.novell.com/show_bug.cgi?id=877817: 
      [Test Case 1378526] [316123] booth - Configuring startup 'complicated'</remark>
     
@@ -542,8 +541,18 @@ port="6666" <co id="co.ha.geo.booth.config.port"/>
 arbitrator="147.2.207.14" <co id="co.ha.geo.booth.config.arbitrator"/>
 site="147.4.215.19" <co id="co.ha.geo.booth.config.site"/>
 site="147.18.2.1"  <xref linkend="co.ha.geo.booth.config.site" xrefstyle="select:label nopage"/>
-ticket="ticketA;<co id="co.ha.geo.booth.config.ticket"/>1000<co id="co.ha.geo.booth.config.expiry"/>"
-ticket="ticketB;<xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:label nopage"/>1000<xref linkend="co.ha.geo.booth.config.expiry" xrefstyle="select:label nopage"/>"     </screen>
+ticket="ticket-A" <co id="co.ha.geo.booth.config.ticket"/>
+  expire = 30 <co id="co.ha.geo.booth.config.expiry"/>
+  timeout = 3
+  retries = 3
+  renewal-freq = 13
+  before-acquire-handler = /usr/share/booth/service-runnable d-src1 
+ticket="ticket-B" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:label nopage"/>
+  expire = 30 <xref linkend="co.ha.geo.booth.config.expiry" xrefstyle="select:label nopage"/>
+  timeout = 3
+  retries = 3
+  renewal-freq = 13
+  before-acquire-handler = /usr/share/booth/service-runnable d-src1</screen>
       <calloutlist>
        <callout arearefs="co.ha.geo.booth.config.transport">
         <para>
@@ -644,11 +653,9 @@ ticket="ticketB;<xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:
       <!--<remark>toms 2014-03-04: FIXME: Not available in SLE12 HA Beta1 anymore; 
         package booth contains still rcbooth-arbitrator script</remark>-->
 <screen>&prompt.root;<command>/etc/init.d/booth-arbitrator</command> start</screen>
-     <para>
-      This starts the booth service in arbitrator mode. It can communicate
-      with all other booth daemons but in contrast to the booth daemons
-      running on the cluster sites, it cannot be granted a ticket.
-     </para>
+    <para> This starts the booth service in arbitrator mode. It can communicate with all other booth
+     daemons but in contrast to the booth daemons running on the cluster sites, it cannot be granted
+     a ticket. Booth arbitrators take part in elections only. Otherwise, they are dormant.</para>
     </step>
    </procedure>
    <!--<para>
@@ -724,25 +731,25 @@ ticket="ticketB;<xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:
       Configure a constraint that defines which resources depend on a
       certain ticket. For example:
      </para>
-     <screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-ticketA ticketA: rsc1 loss-policy="fence"</screen>
+     <screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-ticket-A ticket-A: rsc1 loss-policy="fence"</screen>
      <para>
       This creates a constraint with the ID
-      <literal>rsc1-req-ticketA</literal>. It defines that the resource
-      <literal>rsc1</literal> depends on <literal>ticketA</literal> and that
+      <literal>rsc1-req-ticket-A</literal>. It defines that the resource
+      <literal>rsc1</literal> depends on <literal>ticket-A</literal> and that
       the node running the resource should be fenced in case
-      <literal>ticketA</literal> is revoked.
+      <literal>ticket-A</literal> is revoked.
      </para>
      <para>
       If resource <literal>rsc1</literal> was not a primitive, but a special
       clone resource that can run in <literal>master</literal> or
       <literal>slave</literal> mode, you may want to configure that only
       <literal>rsc1</literal>'s master mode depends on
-      <literal>ticketA</literal>. With the following configuration,
+      <literal>ticket-A</literal>. With the following configuration,
       <literal>rsc1</literal> is automatically demoted to
-      <literal>slave</literal> mode if <literal>ticketA</literal> is
+      <literal>slave</literal> mode if <literal>ticket-A</literal> is
       revoked:
      </para>
-     <screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-ticketA ticketA: rsc1:Master loss-policy="demote"</screen>
+     <screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-ticket-A ticket-A: rsc1:Master loss-policy="demote"</screen>
     </step>
     <step>
      <para>
@@ -767,7 +774,7 @@ ticket="ticketB;<xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:
      <!--For example, the command in
       <xref linkend="step.ha.geo.setup.rsc.constraints" xreflabel="nopage"/> would result in
       the following constraint configuration in the CIB:
-      <screen>&lt;rsc_ticket id="rsc1-req-ticketA" rsc="rsc1" role="Master" ticket="ticketA" loss-policy="fence"/></screen>-->
+      <screen>&lt;rsc_ticket id="rsc1-req-ticket-A" rsc="rsc1" role="Master" ticket="ticket-A" loss-policy="fence"/></screen>-->
     </step>
    </procedure>
    <procedure id="pro.ha.geo.setup.rsc.boothd">
@@ -864,7 +871,7 @@ ticket="ticketB;<xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:
      <screen>&prompt.crm.conf;<command>order</command> order-booth-rsc1 inf: g-booth rsc1</screen>
      <para>
       This defines that <literal>rsc1</literal> (that depends on
-      <literal>ticketA</literal>) can only be started after the
+      <literal>ticket-A</literal>) can only be started after the
       <literal>g-booth</literal> resource group.
      </para>
      <para>
@@ -1014,10 +1021,10 @@ ticket="ticketB;<xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:
      </figure>
      <para>
       <xref linkend="fig.hawk.ticket.dep.simple"/> shows a constraint with
-      the ID <literal>rsc1-req-ticketA</literal>. It defines that the
-      resource <literal>rsc1</literal> depends on <literal>ticketA</literal>
+      the ID <literal>rsc1-req-ticket-A</literal>. It defines that the
+      resource <literal>rsc1</literal> depends on <literal>ticket-A</literal>
       and that the node running the resource should be fenced in case
-      <literal>ticketA</literal> is revoked.
+      <literal>ticket-A</literal> is revoked.
      </para>
     </step>
     <step>
@@ -1032,10 +1039,10 @@ ticket="ticketB;<xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:
     clone resource that can run in <literal>master</literal> or
     <literal>slave</literal> mode, you may want to configure that only
     <literal>rsc1</literal>'s master mode depends on
-    <literal>ticketA</literal>. With the configuration shown in <xref
+    <literal>ticket-A</literal>. With the configuration shown in <xref
     linkend="fig.hawk.ticket.dep.adv"/>, <literal>rsc1</literal> is
     automatically demoted to <literal>slave</literal> mode if
-    <literal>ticketA</literal> is revoked: </para>-->
+    <literal>ticket-A</literal> is revoked: </para>-->
    <!--taroth 2012-03-13: for some strange reasons, did not manage to create a 
     master-slave resource with Hawk, always got: sorry, but s.th. went wrong-->
    <!--<figure id="fig.hawk.ticket.dep.adv">
@@ -1076,29 +1083,34 @@ ticket="ticketB;<xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="select:
     the locally defined IP addresses.</para>
 
    <!--taroth 2013-04-24: information taken from bnc#752601, c#17-->
-
+    <remark>dmuhamedagic 2014-08-13: note that client keyword is optional</remark>
    <variablelist id="vl.ha.booth.client.cmds">
     <title>Overview of <command>booth client</command> Commands</title>
     <varlistentry>
      <term>Listing All Tickets on All Sites</term>
      <listitem>
       <screen>&prompt.root; <command>booth</command> client list
-      
-ticket: ticketA, owner: 147.4.215.19, expires: 2013/04/24 12:00:01
-ticket: ticketB, owner: None, expires: INF</screen>
+ticket: ticket-A, leader: none
+ticket: ticket-B, leader: 10.2.12.101, expires: 2014-08-13 10:28:57
+</screen>
      </listitem>
     </varlistentry>
     <varlistentry>
      <term>Granting a Ticket to a Site</term>
      <listitem>
-      <screen>&prompt.root; <command>booth</command> client grant -t ticketA -s 147.2.207.14
-<?dbsuse-fo font-size="0.71em"?>cluster[3100]: 2013/04/24_11:44:14 info: grant command sent, result will be
-returned asynchronously, you can get the result from the log files.</screen>
-      <para> In this case, <literal>ticketA</literal> will be granted to the
+      <screen>&prompt.root; <command>booth</command> client grant -s 147.2.207.14 ticket-A
+booth[27891]: 2014/08/13_10:21:23 info: grant request sent, waiting for the result ...
+booth[27891]: 2014/08/13_10:21:23 info: grant succeeded!</screen>
+      <para> In this case, <literal>ticket-A</literal> will be granted to the
        site <literal>147.2.207.14</literal>. The grant operation will be
        executed immediately. However, it might not be finished yet when the
        message above appears on the screen. Find the exact status in the log
-       files or with the <command>crm_ticket -L</command> command.</para>
+       files or with the <command>crm_ticket -L</command> command.
+      </para>
+      <remark>dmuhamedagic 2014-08-13: The grant and revoke operations appear synchronous to the user. Only in case the
+       operation couldn't finish within some reasonable period (which amounts to the network timeout
+       as defined for the ticket) will the client give up on waiting for the result. There's also
+       option -w: -w Wait forever for the result (client only)</remark>
       <para> Before granting a ticket, the command will execute a sanity check.
        If the same ticket is already granted to another site, you will be warned
        about that and be prompted to revoke the ticket from the current site
@@ -1108,10 +1120,9 @@ returned asynchronously, you can get the result from the log files.</screen>
     <varlistentry>
      <term>Revoking a Ticket From a Site</term>
      <listitem>
-      <screen>&prompt.root; <command>booth</command> client revoke -t ticketA -s 147.2.207.14
-<?dbsuse-fo font-size="0.71em"?>cluster[3100]: 2013/04/24_11:44:14 info: revoke command sent, result will be
-returned asynchronously, you can get the result from the log files.</screen>
-      <para> In this case, <literal>ticketA</literal> will be revoked from the
+      <screen>&prompt.root; <command>booth</command> client revoke -t ticket-A -s 147.2.207.14
+booth[27900]: 2014/08/13_10:21:23 info: revoke succeeded!</screen>
+      <para> In this case, <literal>ticket-A</literal> will be revoked from the
        site <literal>147.2.207.14</literal>. The revoke operation will be
        executed immediately. However, it might not be finished yet when the
        message above appears on the screen. Find the exact status in the log
@@ -1143,7 +1154,7 @@ returned asynchronously, you can get the result from the log files.</screen>
      default expiry time is <literal>600</literal> seconds. To specify a
      different value, use the <option>-e</option> option:
     </para>
-    <screen>booth client grant -t ticketA -s 147.2.207.14 -e 1000</screen>-->
+    <screen>booth client grant -t ticket-A -s 147.2.207.14 -e 1000</screen>-->
 
    <para> After you have initially granted a ticket to a site, the booth
     mechanism will take over and manage the ticket automatically. If the site
@@ -1161,36 +1172,31 @@ returned asynchronously, you can get the result from the log files.</screen>
 
    <procedure id="pro.ha.geo.manage.tickets">
     <title>Managing Tickets Manually</title>
-    <para> Assuming that you want to manually move <literal>ticketA</literal>
+    <para> Assuming that you want to manually move <literal>ticket-A</literal>
      from site <literal>147.2.207.14</literal> to
      <literal>&smbip;</literal>, proceed as follows: </para>
     <step>
-     <para> Set <literal>ticketA</literal> to standby with the following
+     <para> Set <literal>ticket-A</literal> to standby with the following
       command: </para>
-     <screen>&prompt.root;<command>crm_ticket</command> -t ticketA -s</screen>
+     <screen>&prompt.root;<command>crm_ticket</command> -t ticket-A -s</screen>
     </step>
     <step>
-     <para> Wait for any resources that depend on <literal>ticketA</literal> to
+     <para> Wait for any resources that depend on <literal>ticket-A</literal> to
       be stopped or demoted cleanly. </para>
     </step>
     <step>
-     <para> Revoke <literal>ticketA</literal> from its current site with: </para>
-     <screen>&prompt.root;<command>booth</command> client revoke -t ticketA -s 147.2.207.14</screen>
+     <para> Revoke <literal>ticket-A</literal> from its current site with: </para>
+     <screen>&prompt.root;<command>booth</command> client revoke -s 147.2.207.14 ticket-A</screen>
     </step>
-    <step>
-     <para> Wait for the revocation process to be finished successfully (use 
-       <command>sudo journalctl -n</command> to check for details). <!--taroth
-        2014-06-24: /var/log/* to journalctl-->Do not execute any
-       <literal>grant</literal> commands during this time. </para>
-    </step>
+    
     <step>
      <para> After the ticket has been revoked from its original site, grant it
       to the new site with: </para>
-     <screen>booth client grant -t ticketA -s &smbip;</screen>
+     <screen>booth client grant -s &smbip; ticket-A</screen>
     </step>
    </procedure>
     <remark>phil 2013-12: Will/Should get a cleaner, more integrated workflow - "booth client move -t ticket -s new-site"
-     or something similar.</remark>
+     or something similar. - dmuhamedagic 2014-08-13: N/A</remark>
     </sect2>
   
   <sect2 id="sec.ha.geo.manage.hawk">
