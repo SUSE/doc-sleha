@@ -805,15 +805,45 @@ toms 2014-05-27:
    vanilla openSUSE with <command>vi</command>.
   </ulink>
   </remark>
- <para>To configure &haproxy;, use the following procedure:</para>
+ <para>The following section gives an overview of the &haproxy; and how
+   to set up on &ha;.
+   The load balancer distributes all requests to its backend servers. It
+   is configured as active/passive, meaning if one master fails, the slave
+   becomes the master. In such a scenario, the user will not notice any 
+   interrupt.</para>
+  <para>
+  In this section, we will use the following setup:</para>
+  
+  <itemizedlist>
+    <listitem>
+      <para>Two load balancers, with the IP addresses <systemitem 
+        class="ipaddress">&subnetI;.100</systemitem>/<systemitem 
+        class="ipaddress">&subnetI;.101</systemitem></para>
+    </listitem>
+    <listitem>
+      <para>A virtual, floating IP address <systemitem 
+        class="ipaddress">&subnetI;.99</systemitem></para>
+    </listitem>
+    <listitem>
+      <para>Our servers (usualy for Web content) 
+        <systemitem class="server">www1.&exampledomain;</systemitem> (IP: <systemitem 
+        class="ipaddress">&subnetI;.200</systemitem>) and
+        <systemitem class="server">www2.&exampledomain;</systemitem> (IP: <systemitem 
+        class="ipaddress">&subnetI;.201</systemitem>)</para>
+    </listitem>
+  </itemizedlist>
+  
+  <para>To configure &haproxy;, use the following procedure:</para>
+   
  <procedure>
    <step>
      <para>Install the <systemitem 
       class="resource">haproxy</systemitem> package.</para>
    </step>
    <step>
-     <para>Create the file <filename>/etc/haproxy/haproxy.cfg</filename>:</para>
-     <screen>global
+     <para>Create the file <filename>/etc/haproxy/haproxy.cfg</filename> 
+       with the following contents::</para>
+     <!--<screen>global
   maxconn 256
   daemon
 defaults
@@ -828,14 +858,53 @@ listen stats
   bind :80
   server www01 www1.&exampledomain;
   server www02 www2.&exampledomain;
-  server www03 www3.&exampledomain;</screen>
+  server www03 www3.&exampledomain;</screen>-->
+     <remark>toms 2014-09-17: Not sure about all the options.</remark>
+     <screen>global
+  maxconn 256
+  daemon
+
+defaults
+  log     global
+  mode    http
+  option  httplog
+  option  dontlognull
+  retries 3
+  option redispatch
+  maxconn 2000
+  contimeout      5000
+  clitimeout      50000
+  srvtimeout      50000
+
+listen my-cluster &subnetI;.99:80
+  bind :80
+  mode http
+  stats enable
+  stats auth someuser:somepassword <co id="co.ha.lb.userpw"/>
+  balance leastconn
+  cookie JSESSIONID prefix
+  option httpclose
+  option forwardfor <co id="co.ha.lb.forwardfor"/>
+  option httpchk GET /robots.txt HTTP/1.0
+  server webA &subnetI;.200:80 cookie A check
+  server webB &subnetI;.201:80 cookie B check</screen>
+     <remark>toms 2014-09-17: TODO Extend this list</remark>
+     <calloutlist>
+       <callout arearefs="co.ha.lb.userpw">
+         <para>Username and password </para>
+       </callout>
+       <callout arearefs="co.ha.lb.forwardfor">
+         <para>Pass on user's original IP address to the backend (Web) servers</para>
+       </callout>
+     </calloutlist>
    </step>
    <step>
      <para>Test your configuration file:</para>
      <screen>&prompt.root;<command>haproxy</command> -f /etc/haproxy/haproxy.cfg -c</screen>
    </step>
+   
    <step>
-     <para>Add the following line to &csync; configuration file 
+     <para>Add the following line to &csync;'s configuration file 
        <filename>/etc/csync2/csync2.cfg</filename> to make sure, &haproxy; 
        configuration file is included:</para>
      <screen>include /etc/haproxy/haproxy.cfg</screen>
@@ -851,7 +920,9 @@ listen stats
      </note>
    </step>
    <step>
-     <para>Enable &haproxy; so it is start up correctly during boot:</para>
+     <para>Enable &haproxy; on both load balancers (<systemitem 
+       class="server">www1.&exampledomain;</systemitem> and <systemitem class="server">www2.&exampledomain;</systemitem>) 
+       so it is start up correctly during boot:</para>
      <screen>&prompt.root;<command>systemctl</command> enable haproxy</screen>
    </step>
    <step>
@@ -863,9 +934,9 @@ listen stats
      <screen>&prompt.root;<command>crm</command> configure
 &prompt.crm;<command>cib</command> new haproxy-config
 &prompt.crmhp;<command>primitive</command> haproxy systemd:haproxy op monitor interval=10s
-&prompt.crmhp;<command>primitive</command> vip-admin-cluster-control IPaddr2 params ip=172.17.1.11
-&prompt.crmhp;<command>primitive</command> vip-public-cluster-control IPaddr2 params ip=192.168.126.5
-&prompt.crmhp;<command>group</command> g-haproxy vip-admin-cluster-control vip-public-cluster-control haproxy     </screen>
+&prompt.crmhp;<command>primitive</command> vip-www1 IPaddr2 params ip=&subnetI;.100
+&prompt.crmhp;<command>primitive</command> vip-www2 IPaddr2 params ip=&subnetI;.101
+&prompt.crmhp;<command>group</command> g-haproxy vip-www1 vip-www2 haproxy</screen>
    </step>
    <step>
      <para>Verify the new CIB and correct any errors:</para>
@@ -877,6 +948,7 @@ listen stats
 &prompt.crm;<command>cib</command> commit haproxy-config</screen>
    </step>
  </procedure>
+  <!--  
   <screen><![CDATA[
 ok, the overall example should be haproxy load balanced https server
 with ssl termination, so it's worthwhile using haproxy.
@@ -923,7 +995,7 @@ with ssl termination, so it's worthwhile using haproxy.
   * how to smoke test?
 
 ]]></screen>
-
+-->
  <sect2 id="sec.ha.lb.haproxy.conf">
   <title>Setting Up  &haproxy;</title>
   <para><remark>toms 2014-05-27: TODO Maybe add something like
