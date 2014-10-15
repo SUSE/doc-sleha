@@ -1122,7 +1122,13 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
         </listitem>
        </itemizedlist>
        <para>The rest of the file list depends on your specific cluster setup. The files listed in
-         <xref linkend="fig.ha.geo.csync.config"/>are only examples.</para>
+         <xref linkend="fig.ha.geo.csync.config"/> are only examples. Even though
+         <filename>ha_local.cfg</filename> is for the local cluster nodes, the content may be identical
+        on all sites. However, if &csync; is used also for applications that are site-specific,
+        then <filename>ha_local.cfg</filename> has to include files which are
+        site-specific. 
+        <remark>taroth 2014-10-15: but this would probably require a different setup for csync2.cfg
+         and ha_local.cfg, too? (see https://bugzilla.suse.com/show_bug.cgi?id=899182#c1)</remark></para>
       </listitem>
      </varlistentry>
      <varlistentry>
@@ -1183,40 +1189,69 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
        all members of that group.</para>
      </listitem>
      <listitem>
-      <para>
-       Both &csync; and <systemitem class="daemon">xinetd</systemitem> must
-       be running on <emphasis>all</emphasis> nodes.
-      </para>
-           </listitem>
+      <para> Both &csync; and <systemitem class="daemon">xinetd</systemitem> must be running on
+        <emphasis>all</emphasis> nodes. </para>
+     </listitem>
     </itemizedlist>
     
     <para>
     Before the first &csync; run, you therefore need to make the following preparations:</para>
     <procedure>
      <step>
-      <para>Copy the &csync; configuration files manually to the respective nodes.
+      <para>Log in to one machine per synchronization group and generate an authentication key for
+       the respective group:</para>
+      <screen>csync2 -k <replaceable>NAME_OF_KEYFILE</replaceable></screen>
+      <para>However, do <emphasis>not</emphasis> regenerate the key file on any other member of the
+       same group.</para>
+      <para>With regard to <xref linkend="fig.ha.geo.csync.config"/>, this would result in the
+       following key files: <filename>/etc/csync2/ha_local.key</filename> and
+        <filename>/etc/csync2/ha_global.key</filename>.</para>
+     </step>
+     <step>
+      <para>Copy each key file to <emphasis>all</emphasis> members of the respective synchronization
+       group. With regard to <xref linkend="fig.ha.geo.csync.config"/>:</para>
+      <substeps>
+       <step>
+        <para>Copy <filename>/etc/csync2/ha_global.key</filename> to all cluster nodes on all sites
+        of your &geo; cluster.</para></step>
+       <step>
+        <para>Copy <filename>/etc/csync2/ha_local.key</filename> to all cluster nodes on all sites
+         of your &geo; cluster.</para></step>
+      </substeps>
+      
+     </step>
+     <step>
+      <para>Copy the &csync; configuration files manually to the respective nodes:
         <remark>taroth 2014-09-26: DEVs, the good question here is *which ones* need to be available
         on *which* nodes or sites? unfortunately, pmarek's paper did not tell anything about this.
         :( I'm also not sure about the <literal>ha_local</literal> synchronization group: can I
         reuse that one for different local clusters? or do I need to define several local sync
         groups in reality (one for each cluster site)?</remark>
       </para>
+      <substeps>
+       <step>
+        <para>Copy <filename>/etc/csync2.cfg/ha_global.cfg</filename> to all nodes on all cluster
+         sites. It needs to be available on all hosts listed within the <literal>ha_global</literal>
+         group that is defined in the file.</para>
+       </step>
+       <step>
+        <para>Copy <filename>/etc/csync2/csync2.cfg</filename> to all nodes of the local cluster. It
+         needs to be available on all hosts listed within the <literal>ha_local</literal> group
+         defined in the file.</para>
+       </step>
+       <step><para>
+         <remark>taroth 2014-10-15: Dejan, what about ha_local.cfg? do I need to copy this manually,
+          too? if yes, must it be copied to all hosts listed in ha_local? taroth 2014-10-15: todo:
+          specify this further, depending on the answer to
+          https://bugzilla.suse.com/show_bug.cgi?id=899182#c1</remark></para></step>
+      </substeps>
+
      </step>
+
      <step>
-      <para>Generate one authentication key for each synchronization group, using the following
-       command:</para>
-      <screen>csync2 -k <replaceable>NAME_OF_KEYFILE</replaceable></screen>
-     </step>
-     <step>
-      <para> Copy the resulting key files to <emphasis>all</emphasis> members of the respective
-       synchronization group. However, do <emphasis>not</emphasis> regenerate the key files on any
-       other members of the same group.
-      </para>
-     </step>
-     <step>       
       <para> Execute the following commands on all nodes to make both xinetd and csync2 services
        start automatically at boot time: </para>
-       <screen>&prompt.root;<command>systemctl</command> enable csync2.socket
+      <screen>&prompt.root;<command>systemctl</command> enable csync2.socket
         &prompt.root;<command>systemctl</command> enable xinetd.service</screen>
      </step>
      <step>
