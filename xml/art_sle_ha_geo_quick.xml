@@ -1142,8 +1142,8 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
       <term> <filename>/etc/csync2.cfg/ha_global.cfg</filename></term>
       <listitem>
        <para>This files defines the &csync; synchronization group <literal>ha_global</literal>.
-        The group spans <emphasis>all</emphasis> cluster nodes across multiple sites. As it is
-        recommended to use a separate key for each &csync; synchronization group, this group
+        The group spans <emphasis>all</emphasis> cluster nodes across multiple sites, including the
+        arbitrator. As it is recommended to use a separate key for each &csync; synchronization group, this group
         uses <filename>/etc/csync2/ha_global.key</filename> for authentication. The
          <literal>include</literal> statements define the list of files to be synchronized within
         the <literal>ha_global</literal> synchronization group. The most important ones are the
@@ -1179,6 +1179,13 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
       </listitem>
      </varlistentry>
     </variablelist>
+    <note>
+     <para>The files <filename>csync2.cfg</filename> and <filename>ha_local.key</filename> are
+      site-specific, which means you need to create different ones for each cluster site. They are
+      identical on the nodes belonging to the same cluster but different on another cluster. Each
+       <filename>csync2.cfg</filename> file needs to contain a lists of hosts (cluster nodes)
+      belonging to the site, plus a site-specific authentication key.</para>
+    </note>
    </sect3>
    <sect3 id="sec.ha.geo.booth.sync.csync2.start">
     <title>Synchronizing Changes with &csync;</title>
@@ -1203,6 +1210,7 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
     
     <para>
     Before the first &csync; run, you therefore need to make the following preparations:</para>
+    
     <procedure>
      <step>
       <para>Log in to one machine per synchronization group and generate an authentication key for
@@ -1211,63 +1219,42 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
       <para>However, do <emphasis>not</emphasis> regenerate the key file on any other member of the
        same group.</para>
       <para>With regard to <xref linkend="fig.ha.geo.csync.config"/>, this would result in the
-       following key files: <filename>/etc/csync2/ha_local.key</filename> and
-        <filename>/etc/csync2/ha_global.key</filename>.</para>
+       following key files: <filename>/etc/csync2/ha_global.key</filename> and one local key
+       (<filename>/etc/csync2/ha_local.key)</filename>) per
+       site. </para>
      </step>
      <step>
       <para>Copy each key file to <emphasis>all</emphasis> members of the respective synchronization
        group. With regard to <xref linkend="fig.ha.geo.csync.config"/>:</para>
       <substeps>
        <step>
-        <para>Copy <filename>/etc/csync2/ha_global.key</filename> to all cluster nodes on all sites
-         of your &geo; cluster. It needs to be available on all hosts listed within the
-          <literal>ha_global</literal> group that is defined in
-         <filename>ha_global.cfg</filename>.</para>
+        <para>Copy <filename>/etc/csync2/ha_global.key</filename> to 
+         <emphasis>all</emphasis> parties (the arbitrator
+         and all cluster nodes on all sites of your &geo; cluster). The key file needs to be
+         available on all hosts listed within the <literal>ha_global</literal> group that is defined
+         in <filename>ha_global.cfg</filename>.</para>
        </step>
        <step>
-        <para>Copy <filename>/etc/csync2/ha_local.key</filename> to all cluster nodes belonging to
-         one site of your &geo; cluster. It needs to be available on all hosts listed within the
-          <literal>ha_local</literal> group defined in <filename>ha_local.cfg</filename>.</para>
+        <para>Copy the local key file for each site (<filename>/etc/csync2/ha_local.key</filename>)
+         to all cluster nodes belonging to the respective site of your &geo; cluster. </para>
        </step>
       </substeps>
      </step>
      <step>
-      <para>Copy the &csync; configuration files manually to the respective nodes. With regard
-       to <xref linkend="fig.ha.geo.csync.config"/>:
-       <!--<remark>taroth 2014-09-26: the good question here is *which ones* need to be available
-        on *which* nodes or sites? unfortunately, pmarek's paper did not tell anything about this.
-        :( I'm also not sure about the <literal>ha_local</literal> synchronization group: can I
-        reuse that one for different local clusters? or do I need to define several local sync
-        groups in reality (one for each cluster site)?</remark> taroth 2014-10-16: see also
-        bnc#899182, c#1 ff.-->
-      </para>
-      <substeps>
-       <step>
-        <para>Copy <filename>/etc/csync2.cfg/ha_global.cfg</filename> to all nodes on all cluster
-         sites. It needs to be available on all hosts listed within the <literal>ha_global</literal>
-         group that is defined in the file.</para>
-       </step>
-       <step>
-        <para>Copy <filename>/etc/csync2/csync2.cfg</filename> to all nodes belonging to one site of
-         your &geo; cluster. It needs to be available on all hosts listed within the
-          <literal>ha_local</literal> group defined in <filename>ha_local.cfg</filename>.</para>
-       </step>
-       <step>
-        <para>
-         <remark>taroth 2014-10-15: Dejan, what about ha_local.cfg? do I need to copy this manually,
-          too? if yes, must it be copied to all hosts listed in ha_local? </remark>
-        </para>
-       </step>
-      </substeps>
+      <para>Copy the site-specific <filename>/etc/csync2/csync2.cfg</filename> configuration file 
+       to all cluster nodes belonging to the respective site of your &geo; cluster. </para>
      </step>
      <step>
-      <para> Execute the following commands on all nodes to make both xinetd and csync2 services
+      <para> Execute the following commands on all nodes (and the arbitrator) 
+       <remark>taroth 2014-10-16: dejan, is it correct that the services also need to run on the
+        arbitrator? </remark> to make both xinetd and csync2 services
        start automatically at boot time: </para>
       <screen>&prompt.root;<command>systemctl</command> enable csync2.socket
 &prompt.root;<command>systemctl</command> enable xinetd.service</screen>
      </step>
      <step>
-      <para>Execute the following commands and to start both services now: </para>
+      <para>Execute the following commands on all nodes (and the arbitrator) to start both services
+       now: </para>
       <screen>&prompt.root;<command>systemctl</command> start csync2.socket
 &prompt.root;<command>systemctl</command> start xinetd.service</screen>
      </step>
