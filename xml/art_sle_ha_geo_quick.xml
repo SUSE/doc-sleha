@@ -995,14 +995,11 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
    <note>
     <title>Synchronize Booth Configuration to All Sites and Arbitrators</title>
   <para>  
-     All cluster nodes and
-     arbitrators within the &geo; cluster must use the same booth
-     configuration. While you need to copy the configuration files manually to the
-     arbitrators, you can use &csync;  to synchronize the booth configuration across
-     the cluster nodes on all sites. For details, see  <xref linkend="sec.ha.geo.booth.sync.csync2.setup"/> and 
-   <xref linkend="sec.ha.geo.booth.sync.csync2.start"/>.<remark>taroth 2014-09-30: DEVs, pmarek's
-    paper did not take into account any csync2 setup for the *arbitrators*, therefore I  guess the
-    booth config files for them need to be copied manually, is that right? </remark></para>
+     All cluster nodes and arbitrators within the &geo; cluster must use the same booth
+     configuration. You can use &csync;  to synchronize the booth configuration across
+     the arbitrator and the cluster nodes on all sites. For details, see 
+   <xref linkend="sec.ha.geo.booth.sync.csync2.setup"/> and 
+   <xref linkend="sec.ha.geo.booth.sync.csync2.start"/>.</para>
    </note>
    
    <!--taroth 2014-08-11: https://fate.suse.com/316223: [docu] sync and change config files (prio: mandatory)-->
@@ -1041,7 +1038,7 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
      the configuration files.</para>
      
     <example>
-     <title>Example &csync; Setup for &geo; Clusters</title>
+     <title>&csync; Setup for &geo; Clusters</title>
 
 
      <para>To adjust &csync; for synchronizing files not only within local clusters but also
@@ -1181,10 +1178,12 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
     </variablelist>
     <note>
      <para>The files <filename>csync2.cfg</filename> and <filename>ha_local.key</filename> are
-      site-specific, which means you need to create different ones for each cluster site. They are
+      site-specific, which means you need to create different ones for each cluster site. The files are
       identical on the nodes belonging to the same cluster but different on another cluster. Each
        <filename>csync2.cfg</filename> file needs to contain a lists of hosts (cluster nodes)
-      belonging to the site, plus a site-specific authentication key.</para>
+       belonging to the site, plus a site-specific authentication key.</para>
+     <para>The arbitrator needs a <filename>csync2.cfg</filename> file, too. It only needs to
+      reference <filename>ha_global.cfg</filename> though.</para>
     </note>
    </sect3>
    <sect3 id="sec.ha.geo.booth.sync.csync2.start">
@@ -1195,7 +1194,8 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
     <itemizedlist>
      <listitem>
       <para>
-       The same &csync; configuration is available on all nodes. 
+       The same &csync; configuration is available on all machines that belong to the same
+       synchronization group. 
       </para>
      </listitem>
      <listitem>
@@ -1204,7 +1204,7 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
      </listitem>
      <listitem>
       <para> Both &csync; and <systemitem class="daemon">xinetd</systemitem> must be running on
-        <emphasis>all</emphasis> nodes. </para>
+        <emphasis>all</emphasis> nodes and the arbitrator. </para>
      </listitem>
     </itemizedlist>
     
@@ -1242,18 +1242,17 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
      </step>
      <step>
       <para>Copy the site-specific <filename>/etc/csync2/csync2.cfg</filename> configuration file 
-       to all cluster nodes belonging to the respective site of your &geo; cluster. </para>
+       to all cluster nodes belonging to the respective site of your &geo; cluster and to the
+       arbitrator. </para>
      </step>
      <step>
-      <para> Execute the following commands on all nodes (and the arbitrator) 
-       <remark>taroth 2014-10-16: dejan, is it correct that the services also need to run on the
-        arbitrator? </remark> to make both xinetd and csync2 services
-       start automatically at boot time: </para>
+      <para> Execute the following commands on all nodes and the arbitrator 
+        to make both xinetd and csync2 services start automatically at boot time: </para>
       <screen>&prompt.root;<command>systemctl</command> enable csync2.socket
 &prompt.root;<command>systemctl</command> enable xinetd.service</screen>
      </step>
      <step>
-      <para>Execute the following commands on all nodes (and the arbitrator) to start both services
+      <para>Execute the following commands on all nodes and the arbitrator to start both services
        now: </para>
       <screen>&prompt.root;<command>systemctl</command> start csync2.socket
 &prompt.root;<command>systemctl</command> start xinetd.service</screen>
@@ -1264,7 +1263,7 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
      <title>Synchronizing Files with &csync;</title>
     <step>
      <para>To initially synchronize all files once, execute the following command 
-      on the node that you want to copy the configuration
+      on the machine that you want to copy the configuration
       <emphasis>from</emphasis>:
      </para>
      <screen>&prompt.root;<command>csync2</command> <option>-xv</option></screen>
@@ -1275,16 +1274,16 @@ ticket="tkt-sap-prod" <xref linkend="co.ha.geo.booth.config.ticket" xrefstyle="s
      </para>
      <para>
       If one or several files that are to be synchronized have been modified
-      on other nodes (not only on the current one), &csync; will report a
+      on other machines (not only on the current one), &csync; will report a
       conflict. You will get an output similar to the one below:
      </para>
      <screen>While syncing file /etc/corosync/corosync.conf:
-ERROR from peer site-3-host-1: File is also marked dirty here!
+ERROR from peer site-2-host-1: File is also marked dirty here!
 Finished with 1 errors.</screen>
     </step>
     <step>
      <para>
-      If you are sure that the file version on the current node is the
+      If you are sure that the file version on the current machine is the
       <quote>best</quote> one, you can resolve the conflict by forcing this
       file and resynchronizing:
      </para>
@@ -1300,18 +1299,17 @@ Finished with 1 errors.</screen>
      <title>Pushing Synchronization After Any Changes</title>
      <para>
       &csync; only pushes changes. It does <emphasis>not</emphasis>
-      continuously synchronize files between the nodes.
+      continuously synchronize files between the machines.
      </para>
      <para>
       Each time you update files that need to be synchronized, you need to
-      push the changes to the other nodes: Run
-      <command>csync2&nbsp;<option>-xv</option></command> on the node where
-      you did the changes. If you run the command on any of the other nodes
+      push the changes to the other machines of the same synchronization group: Run
+      <command>csync2&nbsp;<option>-xv</option></command> on the machine where
+      you did the changes. If you run the command on any of the other machines
       with unchanged files, nothing will happen.
      </para>
     </note>
    </sect3>
-   
   </sect2>
 
   <sect2 id="sec.ha.geo.setup.booth.service">
