@@ -2025,52 +2025,64 @@ Finished with 1 errors.</screen>
    
    <para>However, to ease resource configuration across cluster sites, you can export the CIB 
    from one cluster site and import the relevant configuration parts to the CIB of another
-    cluster site. Find an example configuration with instructions below.</para>
+   cluster site. Find an example configuration with instructions below.</para>
+   
    <procedure>
+      <itemizedlist>
+     <title>Prerequisites</title>
+     <listitem>
+      <para>You have a &geo; cluster with two sites: cluster &cluster1; and cluster
+       &cluster2;, for example.</para>
+     </listitem>
+     <listitem>
+      <para>The cluster names for each site are defined in the respective &corosync.conf; files,
+       according to the following example:</para>
+      <screen>totem {
+       [...]
+       cluster_name: &cluster1;
+       }
+      </screen>
+      <para>Instead of manually editing &corosync.conf;, the cluster names can also be specified
+       with the &yast; cluster module as described in the <citetitle>&admin;</citetitle> for
+       &productname; &productnumber;, available at &suse-onlinedoc;. Refer to the chapter
+       <citetitle>Installation and Basic Setup</citetitle>, procedure 
+       <citetitle>Defining the First Communication Channel</citetitle>.</para>
+     </listitem>
+    </itemizedlist>
+ 
     <step>
-     <para>Set up two sites for a &geo; cluster and define a cluster name for each site. Either
-     insert the cluster name manually in &corosync.conf;, according to the example
-     below:
-      <remark>taroth 2014-11-25: ToDo - if fate#318190 should be accepted and implemented, we could
-      probably point to /etc/corosync/corosync.conf.example in the future</remark>
-     </para>
-     <screen>totem {
-  [...]
-  cluster_name: &cluster1;
-}
-     </screen>
-     <para>Alternatively, use  the &yast; cluster module to define a cluster name as described in <xref
-      linkend="pro.ha.installation.setup.channel1"/>.</para>
-    </step>
-    <step>
-     <para>Start &cluster1; and configure a <literal>service-ip</literal> resource:</para>
-     <screen>&prompt.crm.conf; <command>primitive</command> service-ip ocf:heartbeat:IPaddr2 \
+     <para>Start the cluster &cluster1; and proceed as follows:</para>
+     <substeps>
+      <step>
+       <para>Configure a <literal>service_ip</literal> resource:</para>
+       <screen>&prompt.crm.conf; <command>primitive</command> service_ip ocf:heartbeat:IPaddr2 \
   params nic=br0 cidr_netmask=24 \
-  params rule 0: #cluster-name eq clusterA ip=192.168.0.11 \
-  params rule 0: #cluster-name eq clusterB ip=192.168.0.12 \
+  params rule 0: #cluster-name eq &cluster1; ip=192.168.0.11 \
+  params rule 0: #cluster-name eq &cluster2; ip=192.168.0.12 \
   op monitor interval=10</screen>
+      </step>
+      <step>
+       <para>Add the following constraint to make the <literal>service_ip</literal> resource depend
+        on <literal>&ticket1;</literal>:</para>
+       <screen>&prompt.crm.conf;<command>rsc_ticket</command> loc-service_ip-&ticket1; &ticket1;:  service_ip \
+  loss-policy=stop</screen>
+      </step>
+      <step>
+       <para>Tag the resources that you want to transfer to the other cluster sites: </para>
+       <screen>&prompt.crm.conf;<command>tag</command> geo_resources: service_ip rsc_ticket</screen>
+       <para>Tags can be used to group conceptually related resources without creating any
+        colocation or ordering relationship between them.</para>
+      </step>
+      <step>
+       <para>Use the <command>crm configure show tag:<replaceable>TAGNAME</replaceable></command>
+        command to view the tagged resources and to export them to a file named
+         <filename>exported.cib</filename>:</para>
+       <screen>&prompt.crm.conf;<command>show</command> tag:geo_resources geo_resources &gt; exported.cib</screen>
+      </step>
+     </substeps>
     </step>
     <step>
-     <para>Add the following constraint to make the <literal>service_ip</literal> resource depend on
-       <literal>&ticket1;</literal>:</para>
-     <screen>&prompt.crm.conf;<command>rsc_ticket</command> service-ip-req-&ticket1; &ticket1;:  service-ip \
-      loss-policy=stop</screen>
-    </step>
-    <step>
-     <para>Export the CIB from one of the nodes belonging &cluster1;, using the following
-      command:</para>
-    <screen>&prompt.root; crm configure save cib_&cluster1;.txt</screen>
-     <para>
-      <remark>taroth 2014-11-25: ygao, as the "save" command has several options, what should we use
-       here? save as XML? save as TXT? write to STDOUT?</remark>
-     </para>
-    </step>
-    <step>
-     <para>From the output (file???) copy the respective parts of the configuration that you want to
-      import into the CIB of another cluster site, &cluster2; for example.</para>
-    </step>
-    <step>
-     <para>Use the following command to integrate the configuration parts into </para></step>
+     <para>Start the cluster &cluster2; and proceed as follows:</para></step>
    </procedure>
    
   </sect2>
