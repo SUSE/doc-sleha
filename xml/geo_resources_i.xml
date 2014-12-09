@@ -1,0 +1,735 @@
+<!DOCTYPE sect1 PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+  <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+
+<sect1 id="sec.ha.geo.rsc">
+   <title>Configuring Cluster Resources and Constraints</title>
+  <para> Apart from the resources and constraints that you need to define for
+   your specific cluster setup, &geo; clusters require additional resources
+   and constraints as described below. You can either configure them with the
+   &crmshell; (&crmsh;), or with the &haweb; (&hawk;).</para>
+     
+   <sect2 id="sec.ha.geo.rsc.cli">
+   <title>From Command Line</title>
+    
+   <para> This section focuses on tasks specific to &geo; clusters. For an
+    introduction to the &crmshell; and general instructions on how to
+    configure resources and constraints with &crmsh;, refer to
+    the <citetitle>&haguide;</citetitle> for &productname;, chapter
+     <citetitle>Configuring and Managing Cluster Resources (Command Line)</citetitle>. 
+   </para>
+   
+   <procedure id="pro.ha.geo.setup.rsc.constraints">
+    <title>Configuring Ticket Dependencies</title>
+     &ticket-dependency-loss-policy;
+     <step>
+     <para>
+      On one of the cluster nodes, start a shell and log in as &rootuser; or
+      equivalent.
+      <!--<remark>toms 2011-10-04: Shorten it to "Start a root shell on one
+       of the cluster nodes"? I guess we deal with admin-minded people here</remark>
+       taroth 2011-10-06: because of new ACL support of the crm shell, also
+       non-root users may have the rights to do so, therefore phrased it like
+       that -->
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter <command>crm configure</command> to switch to the interactive
+      &crmshell;.
+     </para>
+    </step>
+    <step id="step.ha.geo.setup.rsc.constraints">
+     <para>
+      Configure a constraint that defines which resources depend on a
+      certain ticket. For example:
+     </para>
+     <screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-&ticket1; &ticket1;: rsc1 \
+  loss-policy="fence"</screen>
+     <para>
+      This creates a constraint with the ID
+      <literal>rsc1-req-&ticket1;</literal>. It defines that the resource
+      <literal>rsc1</literal> depends on <literal>&ticket1;</literal> and that
+      the node running the resource should be fenced in case
+      <literal>&ticket1;</literal> is revoked.
+     </para>
+     <para> Alternatively, you can configure resource <literal>rsc1</literal>
+      not as a primitive, but a multi-state resource that can run in
+       <literal>master</literal> or <literal>slave</literal> mode. In that case,
+      make only <literal>rsc1</literal>'s master mode depend on
+       <literal>&ticket1;</literal>. With the following configuration,
+       <literal>rsc1</literal> is automatically demoted to
+       <literal>slave</literal> mode if <literal>&ticket1;</literal> is revoked:
+     </para>
+     <screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-&ticket1; &ticket1;: rsc1:Master \
+  loss-policy="demote"</screen>
+    </step>
+    <step>
+     <para>
+      If you want other resources to depend on further tickets, create as
+      many constraints as necessary with <command>rsc_ticket</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Review your changes with <command>show</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      If everything is correct, submit your changes with
+      <command>commit</command> and leave the crm live configuration with
+      <command>exit</command>.
+     </para>
+     <para>
+      The constraints are saved to the CIB.
+     </para>
+     <!--For example, the command in
+      <xref linkend="step.ha.geo.setup.rsc.constraints" xreflabel="nopage"/> would result in
+      the following constraint configuration in the CIB:
+      <screen>&lt;rsc_ticket id="rsc1-req-&ticket1;" rsc="rsc1" role="Master" ticket="&ticket1;" loss-policy="fence"/></screen>-->
+    </step>
+   </procedure>
+   <procedure id="pro.ha.geo.setup.rsc.boothd">
+    <title>Configuring a Resource Group for <systemitem class="daemon"
+     >boothd</systemitem></title>
+     &boothd-resource-group;
+    <step>
+     <para>
+      On one of the cluster nodes, start a shell and log in as &rootuser; or
+      equivalent.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter <command>crm configure</command> to switch to the interactive
+      &crmshell;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter the following to create both primitive resources and to add them to one group,
+      <literal>g-booth</literal>:
+     </para>
+     <screen>&prompt.crm.conf;<command>primitive</command> booth-ip ocf:heartbeat:IPaddr2 \
+  params ip="<replaceable>IP_ADDRESS</replaceable>"
+&prompt.crm.conf;<command>primitive</command> booth ocf:pacemaker:booth-site \
+  meta resource-stickiness="INFINITY" \
+  op monitor interval="10s"
+  group g-booth booth-ip booth</screen>
+    </step>
+    <step>
+     <para>
+      Review your changes with <command>show</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      If everything is correct, submit your changes with
+      <command>commit</command> and leave the crm live configuration with
+      <command>exit</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Repeat the resource group configuration on the other cluster sites,
+      using a different IP address for each <literal>boothd</literal>
+      resource group.
+     </para>
+     <para>
+      With this configuration, each booth daemon will be available at its
+      individual IP address, independent of the node the daemon is running
+      on.
+     </para>
+    </step>
+   </procedure>
+   <!--taroth 2012-02-14: fix for bnc#746863-->
+   <procedure id="pro.ha.geo.setup.rsc.order">
+    <title>Adding an Ordering Constraint</title>
+    &booth-order-constraint;
+    <step>
+     <para>
+      On one of the cluster nodes, start a shell and log in as &rootuser; or
+      equivalent.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter <command>crm configure</command> to switch to the interactive
+      &crmshell;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Create an ordering constraint:
+     </para>
+     <screen>&prompt.crm.conf;<command>order</command> order-booth-rsc1 inf: g-booth rsc1</screen>
+     <para>
+      This defines that <literal>rsc1</literal> (that depends on
+      <literal>&ticket1;</literal>) can only be started after the
+      <literal>g-booth</literal> resource group.
+     </para>
+     <para>
+      In case <literal>rsc1</literal> is not a primitive, but a special
+      clone resource and configured as described in
+      <xref
+       linkend="step.ha.geo.setup.rsc.constraints"/> of 
+      <xref linkend="pro.ha.geo.setup.rsc.constraints"/>, the
+      ordering constraint should be configured as follows:
+     </para>
+     <screen>&prompt.crm.conf;<command>order</command> order-booth-rsc1 inf: g-booth rsc1:promote</screen>
+     <para>
+      This defines that <literal>rsc1</literal> can only be promoted to
+      master mode after the <literal>g-booth</literal> resource group has
+      started.
+     </para>
+    </step>
+    <step>
+     <para>
+      Review your changes with <command>show</command>.
+     </para>
+    </step>
+    <step>
+     <para>
+      For any other resources that depend on a certain ticket, define
+      further ordering constraints.
+     </para>
+    </step>
+    <step>
+     <para>
+      If everything is correct, submit your changes with
+      <command>commit</command> and leave the crm live configuration with
+      <command>exit</command>.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+  
+  <sect2 id="sec.ha.geo.rsc.hawk">
+   <title>With the &haweb; (&hawk;)</title>
+   <para> This section focuses on tasks specific to &geo; clusters. For an
+    introduction to &hawk; and general instructions on how to configure
+    resources and constraints with &hawk;, refer to the
+     <citetitle>&haguide;</citetitle> for &productname;, chapter
+     <citetitle>Configuring and Managing Cluster Resources (Web
+     Interface)</citetitle>. </para>
+
+   <procedure id="pro.ha.config.hawk.geo.rsc.constraints">
+    <title>Configuring Ticket Dependencies</title>
+    &ticket-dependency-loss-policy; <para>The following example shows two
+     alternatives to configure the constraint: One with the resource being a
+     primitive and <literal>loss-policy="fence"</literal>, the other one with
+     the resource being a multi-state resource that can run in
+      <literal>master</literal> or <literal>slave</literal> mode and with
+      <literal>loss-policy="demote"</literal>.</para>
+    <step>
+     <para> Start a Web browser and log in to &hawk;. </para>
+    </step>
+    <step>
+     <para> In the left navigation bar, select <guimenu>Constraints</guimenu>.
+      The <guimenu>Constraints</guimenu> screen shows categories for all types
+      of constraints and lists all defined constraints. </para>
+    </step>
+    <step>
+     <para> To add a new ticket dependency, click the plus icon in the
+       <guimenu>Ticket</guimenu> category. </para>
+     <para> To modify an existing constraint, click the wrench icon next to the
+      constraint and select <guimenu>Edit Constraint</guimenu>. </para>
+    </step>
+    <step>
+     <para> Enter a unique <guimenu>Constraint ID</guimenu>. When modifying
+      existing constraints, the ID is already defined. </para>
+    </step>
+    <step>
+     <para> Set a <guimenu>Loss Policy</guimenu>. </para>
+    </step>
+    <step>
+     <para> Enter the ID of the ticket that the resources should depend on.
+     </para>
+    </step>
+    <step>
+     <para> Select a resource from the list <guimenu>Add resource to
+       constraint</guimenu>. The list shows the IDs of all resources and all
+      resource templates configured for the cluster. </para>
+    </step>
+    <step id="step.geo.ticket.dependency.clone">
+     <para> To add the selected resource, click the plus icon next to the list.
+      A new list appears beneath, showing the remaining resources. Add as many
+      resources to the constraint as you want to depend on the ticket. </para>
+     <figure id="fig.hawk.ticket.dep.simple">
+      <title>&hawk;&mdash;Ticket Dependency with
+        <literal>loss-policy="fence"</literal></title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="hawk-geo-ticket-dependency1.png" width="50%"
+         format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="hawk-geo-ticket-dependency1.png" width="50%"
+         format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+     <para>
+      <xref linkend="fig.hawk.ticket.dep.simple"/> shows a constraint with the
+      ID <literal>rsc1-req-&ticket1;</literal>. It defines that the resource
+       <literal>rsc1</literal> depends on <literal>&ticket1;</literal> and that
+      the node running the resource should be fenced in case
+       <literal>&ticket1;</literal> is revoked. </para>
+     <para>If resource <literal>rsc1</literal> was not a primitive, but a
+      multi-state resource, define that only <literal>rsc1</literal>'s master
+      mode depends on <literal>&ticket1;</literal>. With the configuration shown
+      in <xref linkend="fig.hawk.ticket.dep.adv"/>, <literal>rsc1</literal> is
+      automatically demoted to <literal>slave</literal> mode if
+       <literal>&ticket1;</literal> is revoked: </para>
+     <figure id="fig.hawk.ticket.dep.adv">
+      <title>&hawk;&mdash;Ticket Dependency with
+        <literal>loss-policy="demote"</literal></title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="hawk-geo-ticket-dependency2.png" width="60%"
+         format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="hawk-geo-ticket-dependency2.png" width="50%"
+         format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+    </step>
+    <step>
+     <para> Click <guimenu>Create Constraint</guimenu> to finish the
+      configuration. A message at the top of the screen shows if the constraint
+      was successfully created. </para>
+    </step>
+   </procedure>
+
+   <procedure id="pro.ha.geo.rsc.hawk.group">
+    <title>Configuring a Resource Group for <systemitem class="daemon"
+      >boothd</systemitem></title> &boothd-resource-group; <step>
+     <para> Start a Web browser and log in to &hawk;. </para>
+    </step>
+    <step>
+     <para> In the left navigation bar, select <guimenu>Resources</guimenu>. The
+       <guimenu>Resources</guimenu> screen shows categories for all types of
+      resources. It lists any resources that are already defined. </para>
+    </step>
+    <step>
+     <para> Select the <guimenu>Primitive</guimenu> category and click the plus
+      icon. </para>
+    </step>
+    <step>
+     <para> To specify the resource for boothd: </para>
+     <substeps>
+      <step>
+       <para> Enter a unique <guimenu>Resource ID</guimenu>, for example:
+         <literal>booth-ip</literal>. </para>
+      </step>
+      <step>
+       <para> Set <guimenu>Class</guimenu> to <literal>ocf</literal>,
+         <guimenu>Provider</guimenu> to <literal>heartbeat</literal> and
+         <guimenu>Type</guimenu> to <literal>IPaddr2</literal>. </para>
+       <para> &hawk; automatically shows any required parameters for the
+        resource plus an empty drop-down box that you can use to specify
+        additional parameters. </para>
+      </step>
+      <step>
+       <para> Define the following <guimenu>Parameters</guimenu> (instance
+        attributes) for the resource and enter values for them: </para>
+       <itemizedlist>
+        <listitem>
+         <para>ip</para>
+        </listitem>
+        <listitem>
+         <para>cidr_netmask</para>
+        </listitem>
+       </itemizedlist>
+      </step>
+      <step>
+       <para> Click <guimenu>Create Resource</guimenu> to finish the
+        configuration. A message at the top of the screen shows if the resource
+        was successfully created or not. </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>Click <guimenu>Back</guimenu> to return to the list of configured
+      resources.</para>
+    </step>
+    <step>
+     <para> Select the <guimenu>Primitive</guimenu> category and click the plus
+      icon. </para>
+    </step>
+    <step>
+     <para> To specify the resource for boothd: </para>
+     <substeps>
+      <step>
+       <para> Enter a unique <guimenu>Resource ID</guimenu>, for example:
+         <literal>booth</literal>. </para>
+      </step>
+      <step>
+       <para> Set <guimenu>Class</guimenu> to <literal>ocf</literal>,
+         <guimenu>Provider</guimenu> to <literal>pacemaker</literal> and
+         <guimenu>Type</guimenu> to <literal>booth-site</literal>. </para>
+       <para> &hawk; automatically shows any required parameters for the
+        resource plus an empty drop-down box that you can use to specify
+        additional parameters. </para>
+      </step>
+      <step>
+       <para>In the <guimenu>Operations</guimenu> category, select
+         <literal>monitor</literal>. &hawk; proposes a timeout value of 20
+        and an interval of 10 seconds. Keep the proposed values and add this
+        monitoring operation by clicking the plus icon next to it. </para>
+      </step>
+      <step>
+       <para>In the <guimenu>Meta-Attributes</guimenu> category, select
+         <literal>resource-stickiness</literal> and enter
+         <literal>INFINITY</literal> as value. Click the plus icons next to the
+        value to add this meta attribute.</para>
+      </step>
+      <step>
+       <para> Click <guimenu>Create Resource</guimenu> to finish the
+        configuration. A message at the top of the screen shows if the resource
+        was successfully created or not. </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>Click <guimenu>Back</guimenu> to return to the list of configured
+      resources.</para>
+    </step>
+    <step>
+     <para>To create the group and add booth primitives to it:</para>
+     <substeps>
+      <step>
+       <para> Select the <guimenu>Group</guimenu> category and click the plus
+        icon. </para>
+      </step>
+      <step>
+       <para> Enter a unique <guimenu>Group ID</guimenu>, for example:
+         <literal>g-booth</literal>. </para>
+      </step>
+      <step>
+       <para>To define the group members, select <literal>booth-ip</literal> and
+         <literal>booth</literal> in the list of <guimenu>Available
+         Primitives</guimenu> and click the &lt; icon to add them to the
+         <guimenu>Group Children</guimenu> list. To define the order of the
+        group members, you currently need to add and remove them in the order
+        you desire. </para>
+      </step>
+      <step>
+       <para> &hawk; automatically proposes the meta attribute
+         <literal>target-role</literal>. Set its value to
+         <literal>Started</literal>. </para>
+       <figure id="fig.hawk.geo.booth.group">
+        <title>&hawk;&mdash;Resource Group for boothd</title>
+        <mediaobject>
+         <imageobject role="fo">
+          <imagedata fileref="hawk-geo-booth-group.png" width="60%" format="PNG"
+          />
+         </imageobject>
+         <imageobject role="html">
+          <imagedata fileref="hawk-geo-booth-group.png" width="50%" format="PNG"
+          />
+         </imageobject>
+        </mediaobject>
+       </figure>
+      </step>
+      <step>
+       <para> Click <guimenu>Create Group</guimenu> to finish the configuration.
+        A message at the top of the screen shows if the group was successfully
+        created. </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para> Repeat the resource group configuration on the other cluster sites,
+      using a different IP address for each <literal>boothd</literal> resource
+      group. </para>
+     <para> With this configuration, each booth daemon will be available at its
+      individual IP address, independent of the node the daemon is running on.
+     </para>
+    </step>
+   </procedure>
+
+
+   <procedure id="pro.ha.geo.rsc.hawk.order">
+    <title>Adding an Ordering Constraint</title> 
+    &booth-order-constraint; 
+    <step>
+     <para> Start a Web browser and log in to &hawk;. </para>
+    </step>
+    <step>
+     <para> In the left navigation bar, select <guimenu>Constraints</guimenu>.
+      The <guimenu>Constraints</guimenu> screen shows categories for all types
+      of constraints and lists all defined constraints. </para>
+    </step>
+    <step>
+     <para> Select the <guimenu>Order</guimenu> category and click the plus icon
+      to create a new ordering constraint. </para>
+    </step>
+    <step>
+     <para> Enter a unique <guimenu>Constraint ID</guimenu>, for example
+       <literal>order-booth-rsc1</literal>. </para>
+    </step>
+    <step>
+     <para> Set the <guimenu>Score</guimenu> to <literal>INFINITY</literal>. </para>
+     <para> For colocation constraints, the score determines the location
+      relationship between the resources. Setting the score to
+       <literal>INFINITY</literal> forces the resources to run on the same node.
+      For order constraints, the constraint is mandatory if the score is greater
+      than zero, otherwise it is only a suggestion. The default value is
+       <literal>INFINITY</literal>. </para>
+    </step>
+    <step>
+     <para> Keep the option <guimenu>Symmetrical</guimenu> enabled. This
+      specifies that resources are stopped in reverse order. </para>
+    </step>
+    <step>
+     <para> To define the resources for the constraint: </para>
+     <substeps>
+      <step>
+       <para> Select the resource group <literal>g-booth</literal> from the list
+         <guimenu>Add resource to constraint</guimenu> and click the plus icon
+        next to the list to add the resource to the ordering constraint. </para>
+
+       <figure id="fig.hawk.geo.booth.order">
+        <title>&hawk;&mdash;Ordering Constraint with Multi-state
+         Resource</title>
+        <mediaobject>
+         <imageobject role="fo">
+          <imagedata fileref="hawk-geo-order-constraint-clone.png" width="60%"
+           format="PNG"/>
+         </imageobject>
+         <imageobject role="html">
+          <imagedata fileref="hawk-geo-order-constraint-clone.png" width="50%"
+           format="PNG"/>
+         </imageobject>
+        </mediaobject>
+       </figure>
+      </step>
+      <step>
+       <para> Select the resource <literal>rsc1</literal> from the list
+         <guimenu>Add resource to constraint</guimenu> and click the plus icon
+        next to the list to add the resource to the ordering constraint. </para>
+       <para> Now you have both resources in a dependency chain. The topmost
+         (<literal>g-booth</literal>) will start first, then the next one
+         (<literal>rsc1</literal>). Usually the resources will be stopped in
+        reverse order. </para>
+      </step>
+      <step>
+       <para> In case <literal>rsc1</literal> is not a primitive, but a multi-state resource, and is
+        configured as described in <xref linkend="step.geo.ticket.dependency.clone"/> of <xref
+         linkend="pro.ha.config.hawk.geo.rsc.constraints"/>, select <literal>promote</literal> from
+        the empty drop-down box next to <literal>rsc1</literal>. This defines that
+         <literal>rsc1</literal> can only be promoted to master mode after the
+         <literal>g-booth</literal> resource group has started. </para>
+      </step>
+      <step>
+       <para>Click <guimenu>Create Constraint</guimenu>.</para>
+       <para> A message at the top of the screen shows if the constraint was
+        successfully created. </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>Click <guimenu>Back</guimenu> to return to the list of
+      constraints.</para>
+    </step>
+    <step>
+     <para> For any other resources that depend on a certain ticket, define
+      further ordering constraints. </para>
+    </step>
+   </procedure>
+  </sect2>
+  
+  <sect2 id="sec.ha.geo.rsc.sync.cib">
+   <!--taroth 2014-11-25: fate#316118: [BETA 7] CIB replication between sites-->
+   <title>Transferring the Resource Configuration to Other Cluster Sites</title>
+   <para>If you have configured resources for one cluster site, you are not done yet. You need to
+    configure all resources that must be highly available across the &geo; cluster for every
+    site accordingly. The CIB is not automatically synchronized across cluster sites of a &geo;
+    cluster. </para>
+
+   <para>However, to ease configuration across cluster sites, you can configure the resources on one
+    site, then tag the resources that you need on all cluster sites, export them from the current
+    CIB, and import them into the CIB of another cluster site. 
+    <xref linkend="pro.ha.geo.rsc.sync.cib.1" xrefstyle="select:label"/> gives an example
+    of how to do so.</para>
+
+   <procedure id="pro.ha.geo.rsc.sync.cib.1">
+    <title>Configuring Different IP Addresses, Depending on the Cluster Site</title>
+    <itemizedlist>
+     <title>Prerequisites</title>
+     <listitem>
+      <para>You have a &geo; cluster with two sites: cluster <literal>&cluster1;</literal>
+       and cluster <literal>&cluster2;</literal>, for example.</para>
+     </listitem>
+     <listitem>
+      <para>The cluster names for each site are defined in the respective &corosync.conf;
+       files:</para>
+      <screen>totem {
+       [...]
+       cluster_name: &cluster1;
+       }
+      </screen>
+      <para>Instead of manually editing &corosync.conf;, the cluster names can also be specified
+       with the &yast; cluster module as described in the <citetitle>&admin;</citetitle> for
+       &productname; &productnumber;, available at &suse-onlinedoc;. Refer to the
+       chapter <citetitle>Installation and Basic Setup</citetitle>, procedure <citetitle>Defining
+        the First Communication Channel</citetitle>.</para>
+     </listitem>
+    </itemizedlist>
+
+    <step>
+     <para>Log in to one of the nodes of cluster <literal>&cluster1;</literal> and proceed as
+      follows:</para>
+     <substeps>
+      <step>
+       <para>Start the cluster with:</para>
+       <screen>&prompt.root; <command>systemctl</command> start pacemaker.service</screen>
+      </step>
+      <step>
+       <para>Enter <command>crm configure</command> and configure a <literal>service_ip</literal>
+        resource:</para>
+       <screen>&prompt.crm.conf; <command>primitive</command> service_ip ocf:heartbeat:IPaddr2 \
+  params nic=br0 cidr_netmask=24 \
+  params rule 0: #cluster-name eq &cluster1; ip=192.168.0.11 \
+  params rule 0: #cluster-name eq &cluster2; ip=192.168.0.12 \
+  op monitor interval=10</screen>
+      </step>
+      <step>
+       <para>Add the following constraint to make the <literal>service_ip</literal> resource depend
+        on <literal>&ticket1;</literal>:</para>
+       <screen>&prompt.crm.conf;<command>rsc_ticket</command> service_ip-dep-&ticket1; \
+  &ticket1;: service_ip loss-policy=stop</screen>
+      </step>
+      <step>
+       <para>Tag the resources and the constraints that are needed across the &geo; cluster: </para>
+       <screen>&prompt.crm.conf;<command>tag</command> geo_resources: service_ip service_ip-dep-&ticket1;</screen>
+       <para>Tags can be used to group conceptually related resources without creating any
+        colocation or ordering relationship between them.</para>
+      </step>
+      <step>
+       <para>Review your changes with <command>show</command>.</para>
+      </step>
+      <step>
+       <para>If the configuration is according to your wishes, submit your changes with
+        <command>submit</command> and leave the crm live shell with <command>exit</command>.</para>
+      </step>
+      <step id="st.ha.geo.rsc.sync.cib.export.start">
+       <para>Export the tagged resources and constraints to a file named
+         <filename>exported.cib</filename>:</para>
+       <screen>crm configure show tag:geo_resources geo_resources &gt; exported.cib</screen>
+       <para>With <command>crm configure show tag:<replaceable>TAGNAME</replaceable></command> you
+        can view all resources that belong to the tag <replaceable>TAGNAME</replaceable>.</para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>Log in to one of the nodes of cluster <literal>&cluster2;</literal> and proceed as
+      follows:</para>
+     <substeps>
+      <step>
+       <para>Start the cluster with:</para>
+       <screen>&prompt.root; <command>systemctl</command> start pacemaker.service</screen>
+      </step>
+      <step>
+       <para>Copy the file <filename>exported.cib</filename> from cluster
+         <literal>&cluster1;</literal> to this node. <remark>taroth 2014-11-26: alternatively,
+         the CIB can be loaded from an URL - consider if to mention this, too</remark></para>
+      </step>
+      <step>
+       <para>Import the tagged resources and constraints from the file
+         <filename>exported.cib</filename> into the CIB of cluster
+        <literal>&cluster2;</literal>:</para>
+       <screen>crm configure load update <replaceable>PATH_TO_FILE/exported.cib</replaceable></screen>
+       <para>When using the <option>update</option> parameter for the
+        <command>crm configure load</command> command, &crmsh; tries to integrate the contents
+        of the file into the current CIB configuration (instead of replacing the current CIB with
+        the file contents).</para>
+      </step>
+      <step id="st.ha.geo.rsc.sync.cib.import.stop">
+       <para>View the updated CIB configuration with the following command:</para>
+       <screen>crm configure show</screen>
+       <para>The imported resources and constraints should appear in the CIB.</para>
+      </step>
+     </substeps>
+    </step>
+   </procedure>
+   <para>This configuration will result in the following: </para>
+   <itemizedlist>
+    <listitem>
+     <para>When granting <literal>&ticket1;</literal> to cluster
+       <literal>&cluster1;</literal>, the node hosting the resource
+       <literal>service_ip</literal> will get the IP address <literal>192.168.0.11</literal>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>When granting <literal>&ticket1;</literal> to cluster
+       <literal>&cluster2;</literal>, the node hosting the resource
+       <literal>service_ip</literal> will get the IP address <literal>192.168.0.12</literal>.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>Based on the example in <xref linkend="pro.ha.geo.rsc.sync.cib.1" xrefstyle="select:label"
+    />, you can also create resources that reference the IP parameters of the
+     <literal>service_ip</literal> resource. For example: </para>
+   <procedure>
+    <step>
+     <para>On cluster <literal>&cluster1;</literal> create a dummy resource that references the
+      IP parameters of <literal>service_ip</literal> and uses them as the value of its
+       <literal>state</literal> parameter:</para>
+     <screen>&prompt.crm.conf; primitive dummy1 ocf:pacemaker:Dummy \
+  params rule 0: #cluster-name eq &cluster1; \
+  @service_ip-instance_attributes-0-ip:state \
+  params rule 0: #cluster-name eq &cluster2; \
+  @service_ip-instance_attributes-1-ip:state \
+  op monitor interval=10</screen>
+    </step>
+    <step>
+     <para>Add a constraint to make the <literal>dummy1</literal> resource depend on
+       <literal>&ticket1;</literal>, too:</para>
+     <screen>&prompt.crm.conf;<command>rsc_ticket</command> dummy1-dep-&ticket1; \
+  &ticket1;: dummy1 loss-policy=stop</screen>
+    </step>
+    <step>
+     <para>Tag the resource and the constraint: </para>
+     <screen>&prompt.crm.conf;<command>tag</command> geo_resources2: dummy1 dummy1-dep-&ticket1;</screen>
+    </step>
+    <step>
+     <para>Review your changes with <command>show</command>, submit your changes with
+      <command>submit</command>, and leave the crm live shell with 
+      <command>exit</command>.</para>
+    </step>
+    <step>
+     <para>Export the resources tagged with <literal>geo_resources2</literal> from cluster
+       <literal>&cluster1;</literal> and import them into the CIB of cluster
+       <literal>&cluster2;</literal>, similar to <xref
+       linkend="st.ha.geo.rsc.sync.cib.export.start"/> to <xref
+       linkend="st.ha.geo.rsc.sync.cib.import.stop"/> of <xref linkend="pro.ha.geo.rsc.sync.cib.1"
+       xrefstyle="select:label"/>.</para>
+    </step>
+   </procedure>
+   <para>This configuration will result in the following: </para>
+   <itemizedlist>
+    <listitem>
+     <para>When granting <literal>&ticket1;</literal> to cluster
+       <literal>&cluster1;</literal>, the following file will be created on the node hosting the
+      <literal>dummy</literal> resource: <filename>/var/lib/heartbeat/cores/192.168.0.11</filename>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>When granting <literal>&ticket1;</literal> to cluster
+       <literal>&cluster2;</literal>, the following file will be created on the node hosting the
+       <literal>dummy</literal> resource:
+      <filename>/var/lib/heartbeat/cores/192.168.0.12</filename>. </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+  
+ </sect1>
+ 
