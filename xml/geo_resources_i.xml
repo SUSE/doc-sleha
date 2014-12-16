@@ -29,6 +29,18 @@
    </para>
   </listitem>
  </itemizedlist>
+ 
+ <important>
+  <title>No CIB Synchronization Across Sites</title>
+  <para>The CIB is <emphasis>not</emphasis> automatically synchronized across
+   cluster sites of a &geo; cluster. This means you need to configure all
+   resources that must be highly available across the &geo; cluster for
+   each site accordingly. </para>
+  <para>However, after you have configured the resources on one site, you can
+   tag the resources that are needed on all cluster sites, export them from the
+   current CIB, and import them into the CIB of another cluster site. For
+   details, see <xref linkend="sec.ha.geo.rsc.sync.cib"/>.</para>
+ </important>
 
  <sect2 id="sec.ha.geo.rsc.booth">
  <title>Ticket Dependencies and Resources for booth</title>
@@ -168,13 +180,33 @@
  </sect2>
  <sect2 id="sec.ha.geo.rsc.drbd">
   <title>Resources and Constraints for DRBD</title>
-  <para>FIXME: some intro blurb</para>
+  <para>The following resources need to be configured on each of the cluster
+   sites. To ease transfer of the configuration to other cluster sites, we will
+   configure the service IP for NFS in such a way that the IP depends on the
+   name of the cluster site where the service IP resource is running. </para>
+  
+  <para>To make this work, the cluster names for each site must be defined in
+   the respective &corosync.conf; files. For example, &corosync.conf; of
+   site 1 (<literal>&cluster1;</literal>) must contain the following
+   entry:</para>
+  <screen>totem {
+     [...]
+     cluster_name: &cluster1;
+     }
+    </screen>
+  <para>Instead of manually editing &corosync.conf;, the cluster names can
+   also be specified with the &yast; cluster module as described in the
+    <citetitle>&admin;</citetitle> for &productname;
+   &productnumber;, available at &suse-onlinedoc;. Refer to the chapter
+    <citetitle>Installation and Basic Setup</citetitle>, procedure
+    <citetitle>Defining the First Communication Channel</citetitle>.</para>
 
   <procedure id="pro.ha.geo.rsc.drbd">
    <title>Configuring the Resources for a DRBD Setup</title>
 
    <step>
-    <para> On one of the cluster nodes, start a shell and log in as
+    <para> On one of the nodes of cluster 
+     <literal>&cluster1;</literal>, start a shell and log in as
      &rootuser; or equivalent. </para>
    </step>
    <step>
@@ -182,20 +214,26 @@
      &crmshell;. </para>
    </step>
    <step>
-    <para>Configure the following basic primitives for site 1
-     (<literal>&cluster1;</literal>): a service IP, a file system
-     resource, and a resource for the NFS server:</para>
-    <screen>&prompt.crm.conf;<command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
-  params ip="192.168.202.151" iflabel="nfs" nic="eth1" cidr_netmask="24"
+    <para>Configure the (site-dependent) service IP for NFS as a basic
+     primitive:</para>
+    <screen>&prompt.crm.conf; <command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
+     params iflabel="nfs" nic="eth1" cidr_netmask="24"
+     params rule 0: #cluster-name eq &cluster1; ip=192.168.201.151\
+     params rule 0: #cluster-name eq &cluster2; ip=192.168.202.151\
+     op monitor interval=10</screen>
+    </step>
+   <step>
+    <para>Configure two more primitives (a file system resource and a resource
+     for the NFS server) by entering:</para>
+      <screen>
 <command>primitive</command> nfs_fs ocf:heartbeat:Filesystem \
   params device="/dev/drbd/by-res/nfs/0" directory="/mnt/nfs" fstype="ext4"
 <command>primitive</command> nfs_service lsb:nfs
    </screen>
    </step>
    <step>
-    <para>Configure the following primitives and multi-state resources for
-     DRBD: </para>
-     <screen>&prompt.crm.conf;<command>primitive</command> drbd_nfs ocf:linbit:drbd \
+    <para>Configure the following primitives and multi-state resources for DRBD: </para>
+    <screen>&prompt.crm.conf;<command>primitive</command> drbd_nfs ocf:linbit:drbd \
   params drbd_resource="nfs-upper" \
   op monitor interval="31" role="Slave" \
   op monitor interval="30" role="Master"
@@ -242,7 +280,7 @@
   <title>Transferring the Resource Configuration to Other Cluster Sites</title>
   <para>If you have configured resources for one cluster site, you are not done
    yet. You need to configure all resources that must be highly available across
-   the &geo; cluster for every site accordingly. The CIB is not
+   the &geo; cluster for each site accordingly. The CIB is not
    automatically synchronized across cluster sites of a &geo; cluster. </para>
 
   <para>However, to ease configuration across cluster sites, you can configure
@@ -259,7 +297,7 @@
     <listitem>
      <para>You have a &geo; cluster with two sites: cluster
        <literal>&cluster1;</literal> and cluster
-       <literal>&cluster2;</literal>, for example.</para>
+       <literal>&cluster2;</literal>.</para>
     </listitem>
     <listitem>
      <para>The cluster names for each site are defined in the respective
