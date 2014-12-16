@@ -41,6 +41,104 @@
    current CIB, and import them into the CIB of another cluster site. For
    details, see <xref linkend="sec.ha.geo.rsc.sync.cib"/>.</para>
  </important>
+ 
+ <sect2 id="sec.ha.geo.rsc.drbd">
+  <title>Resources and Constraints for DRBD</title>
+  <para>The following resources need to be configured on each of the cluster
+   sites. To ease transfer of the configuration to other cluster sites, we will
+   configure the service IP for NFS in such a way that the IP depends on the
+   name of the cluster site where the service IP resource is running. </para>
+  
+  <para>To make this work, the cluster names for each site must be defined in
+   the respective &corosync.conf; files. For example, &corosync.conf; of
+   site 1 (<literal>&cluster1;</literal>) must contain the following
+   entry:</para>
+  <screen>totem {
+   [...]
+   cluster_name: &cluster1;
+   }
+  </screen>
+  <para>Instead of manually editing &corosync.conf;, the cluster names can
+   also be specified with the &yast; cluster module as described in the
+   <citetitle>&admin;</citetitle> for &productname;
+   &productnumber;, available at &suse-onlinedoc;. Refer to the chapter
+   <citetitle>Installation and Basic Setup</citetitle>, procedure
+   <citetitle>Defining the First Communication Channel</citetitle>.</para>
+  
+  <procedure id="pro.ha.geo.rsc.drbd">
+   <title>Configuring the Resources for a DRBD Setup</title>
+   
+   <step>
+    <para> On one of the nodes of cluster 
+     <literal>&cluster1;</literal>, start a shell and log in as
+     &rootuser; or equivalent. </para>
+   </step>
+   <step>
+    <para> Enter <command>crm configure</command> to switch to the interactive
+     &crmshell;. </para>
+   </step>
+   <step>
+    <para>Configure the (site-dependent) service IP for NFS as a basic
+     primitive:</para>
+    <screen>&prompt.crm.conf; <command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
+     params iflabel="nfs" nic="eth1" cidr_netmask="24"
+     params rule 0: #cluster-name eq &cluster1; ip=192.168.201.151\
+     params rule 0: #cluster-name eq &cluster2; ip=192.168.202.151\
+     op monitor interval=10</screen>
+   </step>
+   <step>
+    <para>Configure two more primitives (a file system resource and a resource
+     for the NFS server) by entering:</para>
+    <screen>
+     <command>primitive</command> nfs_fs ocf:heartbeat:Filesystem \
+     params device="/dev/drbd/by-res/nfs/0" directory="/mnt/nfs" fstype="ext4"
+     <command>primitive</command> nfs_service lsb:nfs
+    </screen>
+   </step>
+   <step>
+    <para>Configure the following primitives and multi-state resources for DRBD:
+     <remark>taroth 2014-12-16: asked on ha-devel if drbd_nfs_lower could be
+      configured site-dependent, too - waiting for response... todo - if that
+      does not work, mention that the same resource needs to be configured for
+      site 2, too</remark></para>
+    <screen>&prompt.crm.conf;<command>primitive</command> drbd_nfs ocf:linbit:drbd \
+     params drbd_resource="nfs-upper" \
+     op monitor interval="31" role="Slave" \
+     op monitor interval="30" role="Master"
+     <command>primitive</command> drbd_nfs_lower ocf:linbit:drbd \
+     <!--could the following param be configured with rules, too?-->
+     params drbd_resource="nfs-lower-&cluster1;" \
+     op monitor interval="31" role="Slave" \
+     op monitor interval="30" role="Master"
+     <command>ms</command> ms_drbd_nfs drbd_nfs \
+     meta master-max="1" master-node-max="1" \
+     clone-max="1" clone-node-max="1" notify="true"
+     <command>ms</command> ms_drbd_nfs_lower drbd_nfs_lower \
+     meta master-max="1" master-node-max="1" \
+     clone-max="2" clone-node-max="1" notify="true"</screen>
+   </step>
+   <step>
+    <para>Add a group with the following colocation and ordering constraints: </para>
+    <screen><?dbsuse-fo font-size="0.75em"?>&prompt.crm.conf;<command>group</command> g_nfs nfs_fs nfs_service
+     <command>colocation</command> col_nfs_ip_with_lower  inf: ip_nfs:Started  ms_drbd_nfs_lower:Master
+     <command>colocation</command> col_nfs_g_with_upper   inf: g_nfs:Started  ms_drbd_nfs:Master
+     <command>colocation</command> col_nfs_upper_with_ip  inf: ms_drbd_nfs:Master  p_ip_nfs:Started
+     <command>order</command> o_lower_drbd_before_ip_nfs  inf: ms_drbd_nfs_lower:promote  ip_nfs:start
+     <command>order</command> o_ip_nfs_before_drbd        inf: p_ip_nfs:start  ms_drbd_nfs:promote
+     <command>order</command> o_drbd_nfs_before_svc       inf: ms_drbd_nfs:promote  g_nfs:start</screen>
+   </step>
+   <step>
+    <para> Review your changes with <command>show</command>. </para>
+   </step>
+   <step>
+    <para> If everything is correct, submit your changes with
+     <command>commit</command> and leave the crm live configuration with
+     <command>exit</command>. </para>
+   </step>
+   <!-- add result-->
+  </procedure>
+  
+ </sect2>
 
  <sect2 id="sec.ha.geo.rsc.booth">
  <title>Ticket Dependencies and Resources for booth</title>
@@ -178,101 +276,8 @@
    </step>
   </procedure>
  </sect2>
- <sect2 id="sec.ha.geo.rsc.drbd">
-  <title>Resources and Constraints for DRBD</title>
-  <para>The following resources need to be configured on each of the cluster
-   sites. To ease transfer of the configuration to other cluster sites, we will
-   configure the service IP for NFS in such a way that the IP depends on the
-   name of the cluster site where the service IP resource is running. </para>
-  
-  <para>To make this work, the cluster names for each site must be defined in
-   the respective &corosync.conf; files. For example, &corosync.conf; of
-   site 1 (<literal>&cluster1;</literal>) must contain the following
-   entry:</para>
-  <screen>totem {
-     [...]
-     cluster_name: &cluster1;
-     }
-    </screen>
-  <para>Instead of manually editing &corosync.conf;, the cluster names can
-   also be specified with the &yast; cluster module as described in the
-    <citetitle>&admin;</citetitle> for &productname;
-   &productnumber;, available at &suse-onlinedoc;. Refer to the chapter
-    <citetitle>Installation and Basic Setup</citetitle>, procedure
-    <citetitle>Defining the First Communication Channel</citetitle>.</para>
+ 
 
-  <procedure id="pro.ha.geo.rsc.drbd">
-   <title>Configuring the Resources for a DRBD Setup</title>
-
-   <step>
-    <para> On one of the nodes of cluster 
-     <literal>&cluster1;</literal>, start a shell and log in as
-     &rootuser; or equivalent. </para>
-   </step>
-   <step>
-    <para> Enter <command>crm configure</command> to switch to the interactive
-     &crmshell;. </para>
-   </step>
-   <step>
-    <para>Configure the (site-dependent) service IP for NFS as a basic
-     primitive:</para>
-    <screen>&prompt.crm.conf; <command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
-     params iflabel="nfs" nic="eth1" cidr_netmask="24"
-     params rule 0: #cluster-name eq &cluster1; ip=192.168.201.151\
-     params rule 0: #cluster-name eq &cluster2; ip=192.168.202.151\
-     op monitor interval=10</screen>
-    </step>
-   <step>
-    <para>Configure two more primitives (a file system resource and a resource
-     for the NFS server) by entering:</para>
-      <screen>
-<command>primitive</command> nfs_fs ocf:heartbeat:Filesystem \
-  params device="/dev/drbd/by-res/nfs/0" directory="/mnt/nfs" fstype="ext4"
-<command>primitive</command> nfs_service lsb:nfs
-   </screen>
-   </step>
-   <step>
-    <para>Configure the following primitives and multi-state resources for DRBD: </para>
-    <screen>&prompt.crm.conf;<command>primitive</command> drbd_nfs ocf:linbit:drbd \
-  params drbd_resource="nfs-upper" \
-  op monitor interval="31" role="Slave" \
-  op monitor interval="30" role="Master"
-<command>primitive</command> drbd_nfs_lower ocf:linbit:drbd \
-  params drbd_resource="nfs-lower-&cluster2;" \
-  op monitor interval="31" role="Slave" \
-  op monitor interval="30" role="Master"
-<command>ms</command> ms_drbd_nfs drbd_nfs \
-  meta master-max="1" master-node-max="1" \
-  clone-max="1" clone-node-max="1" notify="true"
-<command>ms</command> ms_drbd_nfs_lower drbd_nfs_lower \
-  meta master-max="1" master-node-max="1" \
-  clone-max="2" clone-node-max="1" notify="true"</screen>
-   </step>
-   <step>
-    <para>Add a group with the following colocation and ordering constraints: </para>
-    <screen><?dbsuse-fo font-size="0.75em"?>&prompt.crm.conf;<command>group</command> g_nfs nfs_fs nfs_service
-<command>colocation</command> col_nfs_ip_with_lower  inf: ip_nfs:Started  ms_drbd_nfs_lower:Master
-<command>colocation</command> col_nfs_g_with_upper   inf: g_nfs:Started  ms_drbd_nfs:Master
-<command>colocation</command> col_nfs_upper_with_ip  inf: ms_drbd_nfs:Master  p_ip_nfs:Started
-<command>order</command> o_lower_drbd_before_ip_nfs  inf: ms_drbd_nfs_lower:promote  ip_nfs:start
-<command>order</command> o_ip_nfs_before_drbd        inf: p_ip_nfs:start  ms_drbd_nfs:promote
-<command>order</command> o_drbd_nfs_before_svc       inf: ms_drbd_nfs:promote  g_nfs:start</screen>
-   </step>
-
-   <!--taroth 2014-12-11: check rest of phil's paper (booth config, pacemaker
- integraton) and integrate into respective sections  -->
-   <step>
-    <para> Review your changes with <command>show</command>. </para>
-   </step>
-   <step>
-    <para> If everything is correct, submit your changes with
-     <command>commit</command> and leave the crm live configuration with
-     <command>exit</command>. </para>
-   </step>
-   <!-- add result-->
-  </procedure>
-
- </sect2>
 
  
  <sect2 id="sec.ha.geo.rsc.sync.cib">
@@ -319,7 +324,8 @@
    <step>
     <para>Log in to one of the nodes of cluster
       <literal>&cluster1;</literal> and proceed as follows:</para>
-    <substeps>
+    </step>
+    <!--<substeps>
      <step>
       <para>Start the cluster with:</para>
       <screen>&prompt.root; <command>systemctl</command> start pacemaker.service</screen>
@@ -354,7 +360,7 @@
       <para>If the configuration is according to your wishes, submit your
        changes with <command>submit</command> and leave the crm live shell with
        <command>exit</command>.</para>
-     </step>
+     </step>-->
      <step id="st.ha.geo.rsc.sync.cib.export.start">
       <para>Export the tagged resources and constraints to a file named
         <filename>exported.cib</filename>:</para>
@@ -364,8 +370,8 @@
        you can view all resources that belong to the tag
         <replaceable>TAGNAME</replaceable>.</para>
      </step>
-    </substeps>
-   </step>
+<!--    </substeps>
+ </step>-->
    <step>
     <para>Log in to one of the nodes of cluster
       <literal>&cluster2;</literal> and proceed as follows:</para>
