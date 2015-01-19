@@ -306,122 +306,145 @@
   </sect2>
   
   <sect2 id="sec_ha_quick_nfs_initial_lvm_config">
-   <title>Configuring LVM</title>
+   <title>Configuring LVM on top of DRBD</title>
    <para>
-    To use LVM with DRBD, it is necessary to change some options in the LVM
-    configuration file (<filename>/etc/lvm/lvm.conf</filename>) and to remove
-    stale cache entries on the nodes:
+     If you want or need to use LVM on top of DRBD, use the following steps.
    </para>
    <orderedlist>
-    <listitem>
-     <para>
-      Open <filename>/etc/lvm/lvm.conf</filename> in a text editor.
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      Search for the line starting with <literal>filter</literal> and edit it
-      as follows:
-     </para>
-     <screen>filter = [ "r|/dev/sda.*|" ]</screen>
-     <para>
-      This masks the underlying block device from the list of devices LVM
-      scans for Physical Volume signatures. This way, LVM is instructed to
-      read Physical Volume signatures from DRBD devices, rather than from the
-      underlying backing block devices.
-     </para>
-     <para>
-      However, if you are using LVM <emphasis>exclusively</emphasis> on your
-      DRBD devices, then you may also specify the LVM filter as such:
-     </para>
-     <screen>filter = [ "a|/dev/drbd.*|", "r|.*|" ]</screen>
-    </listitem>
-    <listitem>
-     <para>
-      In addition, disable the LVM cache by setting:
-     </para>
-     <screen>write_cache_state = 0</screen>
-    </listitem>
-    <listitem>
-     <para>
-      Save your changes to the file.
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      Delete <filename>/etc/lvm/cache/.cache</filename> to remove any stale
-      cache entries.
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      Use &csync; to replicate these changes to peer node.
-     </para>
-    </listitem>
-     <listitem>
-       <remark>pmarek 2013-11-28:
-         missing activating DRBD volumes, initial sync</remark>
-       <remark>toms 2014-09-04: Like this? Not sure as it is already 
-         described in <xref linkend="step.drbd.configure"/>
-       </remark>
-       <para>Enable your DRBD volume and start the initial synchronization:</para>
-       <screen>&prompt.root;<command>drbdadm</command> primary --force <replaceable
+      <listitem>
+        <para><xref linkend="sec_ha_quick_nfs_initial_lvm_config_lvm"/></para>
+      </listitem>
+      <listitem>
+        <para><xref linkend="sec_ha_quick_nfs_initial_lvm_config_drbd"/></para>
+      </listitem>
+      <listitem>
+        <para><xref linkend="sec_ha_quick_nfs_initial_lvm_config_volume"/></para>
+      </listitem>
+    </orderedlist>
+    
+    <sect3 id="sec_ha_quick_nfs_initial_lvm_config_lvm">
+      <title>Configuring LVM</title>
+      <para>To use LVM with DRBD, it is necessary to change some options in the LVM
+        configuration file (<filename>/etc/lvm/lvm.conf</filename>) and to remove
+        stale cache entries on the nodes:</para>
+      
+      <procedure>
+        <step>
+          <para>
+            Open <filename>/etc/lvm/lvm.conf</filename> in a text editor.
+          </para>
+        </step>
+        <step>
+          <para>
+            Search for the line starting with <literal>filter</literal> and edit it
+            as follows:
+          </para>
+          <screen>filter = [ "r|/dev/sda.*|" ]</screen>
+          <para>
+            This masks the underlying block device from the list of devices LVM
+            scans for Physical Volume signatures. This way, LVM is instructed to
+            read Physical Volume signatures from DRBD devices, rather than from the
+            underlying backing block devices.
+          </para>
+          <para>
+            However, if you are using LVM <emphasis>exclusively</emphasis> on your
+            DRBD devices, then you may also specify the LVM filter as such:
+          </para>
+          <screen>filter = [ "a|/dev/drbd.*|", "r|.*|" ]</screen>
+        </step>
+        <step>
+          <para>
+            In addition, disable the LVM cache by setting:
+          </para>
+          <screen>write_cache_state = 0</screen>
+        </step>
+        <step>
+          <para>
+            Save your changes to the file.
+          </para>
+        </step>
+        <step>
+          <para>
+            Delete <filename>/etc/lvm/cache/.cache</filename> to remove any stale
+            cache entries.
+          </para>
+        </step>
+        <step>
+          <para>
+            Use &csync; to replicate these changes to peer node.
+          </para>
+        </step>
+      </procedure>
+      
+    </sect3>
+    
+    <sect3 id="sec_ha_quick_nfs_initial_lvm_config_drbd">
+      <title>Starting DRBD</title>
+      <para>Enable your DRBD volume and start the initial synchronization:</para>
+      <remark>pmarek 2013-11-28:
+          missing activating DRBD volumes, initial sync</remark>
+        <remark>toms 2014-09-04: Like this? Not sure as it is already 
+          described in <xref linkend="step.drbd.configure"/>
+        </remark>
+        <screen>&prompt.root;<command>drbdadm</command> primary --force <replaceable
       >RESOURCE</replaceable>
 &prompt.root;<command>drbdadm</command> up</screen>
-       <para>Find more information about DRBD in <xref linkend="cha.ha.drbd"/>.</para>
-     </listitem>
-   </orderedlist>
-       
-   <important>
-    <title>Automatic Synchronization</title>
-    <para>
-     Execute all of the following steps only on the node where your resource
-     is currently in the primary role. It is <emphasis>not</emphasis>
-     necessary to repeat the commands on the DRBD peer node as the changes
-     are automatically synchronized.
-    </para>
-   </important>
-   <para>
-    Now you can prepare the Physical Volume, create an LVM Volume Group with
-    Logical Volumes and create file systems on the Logical Volumes.
-    <remark>pmarek 2013-11-28: not sure why LVM is used on top of DRBD, instead
-     of below - taroth 2013-12-03: DEVs, any ideas?</remark>
-   </para>
-   <orderedlist>
-    <listitem>
-     <para>
-      To be able to create an LVM Volume Group, first initialize the DRBD
-      resource as an LVM Physical Volume. To do so, issue the following
-      command:
-     </para>
-     <screen>&prompt.root;<command>pvcreate</command> /dev/drbd/by-res/nfs</screen>
-    </listitem>
-    <listitem>
-     <para>
-      Create an LVM Volume Group that includes this Physical Volume:
-     </para>
-     <screen>&prompt.root;<command>vgcreate</command> nfs /dev/drbd/by-res/nfs</screen>
-    </listitem>
-    <listitem>
-     <para>
-      Create Logical Volumes in the Volume Group. This example assumes two
-      Logical Volumes of 20 GB each, named <literal>sales</literal> and
-      <literal>engineering</literal>:
-     </para>
-     <screen>&prompt.root;<command>lvcreate</command> -n sales -L 20G nfs
+        <para>Find more information about DRBD in <xref linkend="cha.ha.drbd"/>.</para>      
+    </sect3>
+    
+    <sect3 id="sec_ha_quick_nfs_initial_lvm_config_volume">
+      <title>Creating Volumes on the DRBD device</title>
+      <para>
+        Now you can prepare the Physical Volume, create an LVM Volume Group with
+        Logical Volumes and create file systems on the Logical Volumes.
+      </para>
+      <important>
+        <title>Automatic Synchronization</title>
+        <para>
+          Execute all of the following steps only on the node where your resource
+          is currently in the primary role. It is <emphasis>not</emphasis>
+          necessary to repeat the commands on the DRBD peer node as the changes
+          are automatically synchronized.
+        </para>
+      </important>
+      
+      <procedure>
+        <step>
+          <para>
+            To be able to create an LVM Volume Group, first initialize the DRBD
+            resource as an LVM Physical Volume. To do so, issue the following
+            command:
+          </para>
+          <screen>&prompt.root;<command>pvcreate</command> /dev/drbd/by-res/nfs</screen>
+        </step>
+        <step>
+          <para>
+            Create an LVM Volume Group that includes this Physical Volume:
+          </para>
+          <screen>&prompt.root;<command>vgcreate</command> nfs /dev/drbd/by-res/nfs</screen>
+        </step>
+        <step>
+          <para>
+            Create Logical Volumes in the Volume Group. This example assumes two
+            Logical Volumes of 20 GB each, named <literal>sales</literal> and
+            <literal>engineering</literal>:
+          </para>
+          <screen>&prompt.root;<command>lvcreate</command> -n sales -L 20G nfs
 &prompt.root;<command>lvcreate</command> -n engineering -L 20G nfs</screen>
-    </listitem>
-    <listitem>
-     <para>
-      Activate the Volume Group and create file systems on the new Logical
-      Volumes. This example assumes <literal>ext3</literal> as the file
-      system type:
-     </para>
-     <screen>&prompt.root;<command>vgchange</command> -ay nfs
+        </step>
+        <step>
+          <para>
+            Activate the Volume Group and create file systems on the new Logical
+            Volumes. This example assumes <literal>ext3</literal> as the file
+            system type:
+          </para>
+          <screen>&prompt.root;<command>vgchange</command> -ay nfs
 &prompt.root;<command>mkfs</command> -t ext3 /dev/nfs/sales
 &prompt.root;<command>mkfs</command> -t ext3 /dev/nfs/engineering</screen>
-    </listitem>
-   </orderedlist>
+        </step>
+      </procedure>
+      
+    </sect3>
   </sect2>
   
   <sect2 id="sec_ha_quick_nfs_initial_setup">
