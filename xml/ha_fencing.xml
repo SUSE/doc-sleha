@@ -103,10 +103,12 @@
    <title>&stonith; Devices</title>
    <para>
     To use node level fencing, you first need to have a fencing device. To
-    get a list of &stonith; devices which are supported by the &hasi;, run
-    the following command as &rootuser; on any of the nodes:
+    get a list of &stonith; devices which are supported by the &hasi;, run one
+    of the following commands on any of the nodes:
    </para>
-<screen>stonith -L</screen>
+   <screen>&prompt.root;stonith -L</screen>
+   <para>or</para>
+   <screen>&prompt.root;crm ra list stonith</screen>
    <para>
     &stonith; devices may be classified into the following categories:
    </para>
@@ -206,10 +208,14 @@
       <para>
        For every supported fencing device there is a &stonith; plug-in which
        is capable of controlling said device. A &stonith; plug-in is the
-       interface to the fencing device. On each node, all &stonith; plug-ins
+       interface to the fencing device.  The &stonith; plug-ins
+       contained in the <systemitem>cluster-glue</systemitem> package
        reside in <filename>/usr/lib/stonith/plugins</filename> (or in
        <filename>/usr/lib64/stonith/plugins</filename> for 64-bit
-       architectures). All &stonith; plug-ins look the same to stonithd, but
+       architectures) on each node. (If you installed the <systemitem
+        class="resource"> fence-agents</systemitem> package, too, the plug-ins
+       contained there are installed in <filename>/usr/sbin/fence_*</filename>). 
+       All &stonith; plug-ins look the same to stonithd, but
        are quite different on the other side reflecting the nature of the
        fencing device.
       </para>
@@ -225,7 +231,7 @@
   </sect2>
  </sect1>
  <sect1 id="sec.ha.fencing.config">
-  <title>&stonith; Configuration</title>
+  <title>&stonith; Resources and Configuration</title>
 
   <para>
    To set up fencing, you need to configure one or more &stonith;
@@ -308,73 +314,11 @@
     <xref
      linkend="cha.ha.manual_config"/>.
    </para>
-   <warning>
-    <title>Testing Configurations</title>
-    <para>
-     Some examples below are for demonstration and testing purposes
-     only. Do not use any of the <literal>Testing Configuration</literal>
-     examples in real-life cluster scenarios.
-    </para>
-   </warning>
-   <example>
-    <title>Testing Configuration</title>
-    <para><remark>taroth 2014-08-14: todo -
-     https://bugzilla.novell.com/show_bug.cgi?id=870963 (NEEDINFO)</remark></para>
-<screen>configure
-primitive st-null stonith:null \
-params hostlist="&node1; &node2;"
-clone fencing st-null
-commit
-   </screen>
-   </example>
-   <example>
-    <title>Testing Configuration</title>
-    <para>
-     An alternative configuration:
-    </para>
-<screen>configure
- primitive st-&node1; stonith:null \
- params hostlist="&node1;"
- primitive st-&node2; stonith:null \
- params hostlist="&node2;"
- location l-st-&node1; st-&node1; -inf: &node1;
- location l-st-&node2; st-&node2; -inf: &node2;
- commit</screen>
-    <para>
-     This configuration example is perfectly alright as far as the cluster
-     software is concerned. The only difference to a real world
-     configuration is that no fencing operation takes place.
-    </para>
-   </example>
-   <example>
-    <title>Testing Configuration</title>
-    <para>
-     A more realistic example (but still only for testing) is the following
-     external/ssh configuration: <remark>taroth 2014-08-14: todo -
-      https://bugzilla.novell.com/show_bug.cgi?id=870963 (NEEDINFO)</remark>
-    </para>
-<screen>configure
- primitive st-ssh stonith:external/ssh \
- params hostlist="&node1; &node2;"
- clone fencing st-ssh
- commit</screen>
-    <para><remark>taroth 2014-08-14: todo -
-     https://bugzilla.novell.com/show_bug.cgi?id=870963 (NEEDINFO)</remark>
-     This one can also reset nodes. The configuration is similar to the
-     first one which features the null &stonith; device. In this example,
-     clones are used. They are a CRM/Pacemaker feature. A clone is 
-     a shortcut: instead of defining <literal>n</literal> identical, yet
-     differently named resources, a single cloned resource suffices. By far
-     the most common use of clones is with &stonith; resources, as long as
-     the &stonith; device is accessible from all nodes.
-    </para>
-   </example>
+   
    <example>
     <title>Configuration of an IBM RSA Lights-out Device</title>
     <para>
-     The real device configuration is not much different, though some
-     devices may require more attributes. An IBM RSA lights-out device might
-     be configured like this:
+     An IBM RSA lights-out device might be configured like this:
     </para>
 <screen>configure
 primitive st-ibmrsa-1 stonith:external/ibmrsa-telnet \
@@ -438,7 +382,7 @@ login
 (via serial port - NOT USB!). 
 Works with higher-end APC UPSes, like
 Back-UPS Pro, Smart-UPS, Matrix-UPS, etc.
-(Smart-UPS may need to be >= Smart-UPS 700?).
+(Smart-UPS may have to be >= Smart-UPS 700?).
 See http://www.networkupstools.org/protocols/apcsmart.html
 for protocol compatibility details.
 For more information see http://www.apc.com/
@@ -452,25 +396,43 @@ hostlist</screen>
      lines.
     </para>
    </example>
+   <example id="ex.ha.fencing.kdump">
+    <title>Configuration of a kdump Device</title>
+    <para> Use the <literal>stonith:fence_kdump</literal> resource agent
+     (provided by the package <systemitem class="resource"
+      >fence-agents</systemitem>) to monitor all nodes with the kdump function
+     enabled. Find a configuration example for the resource below:</para>
+    <screen>configure
+     primitive st-kdump stonith:fence_kdump \
+     params nodename="&node1; "\ <co id="co.ha.fenc.kdump.nodename"/>
+     params pcmk_host_check="dynamic-list" \
+     params pcmk_reboot_action="off" \
+     params pcmk_monitor_action="metadata" \
+     params pcmk_reboot_retries="1" \
+     params timeout="60"
+     commit</screen>
+    <calloutlist>
+     <callout arearefs="co.ha.fenc.kdump.nodename">
+      <para>Name of the node to be fenced. If you need to monitor more than one
+       node, configure more &stonith; resources. To prevent a specific node
+       from using a fencing device, add location constraints.</para>
+     </callout>
+    </calloutlist>
+    
+    <para>The fencing action will be started after the timeout of the
+     resource.</para>
+    <para>In <filename>/etc/sysconfig/kdump</filename> on each node, configure
+      <literal>KDUMP_POSTSCRIPT</literal> to send a notification to all nodes
+     when the kdump process is finished. For example:</para>
+    <screen> /usr/lib64/fence_kdump_send -i <replaceable>INTERVAL</replaceable> -p <replaceable>PORT</replaceable> -c 1 &node1; &node2; &node3; [...]</screen>
+    <para> The node that does a kdump will restart automatically after kdump has
+     finished. Do not forget to open a port in the firewall for the
+      <literal>fence_kdump</literal> resource. The default port is
+      <literal>7410</literal>.</para>
+   </example>
   </sect2>
 
-  <sect2 id="sec.ha.fencing.config.parameters">
-   <title>Constraints Versus Clones</title>
-   <para><remark>taroth 2014-08-14: todo -
-    https://bugzilla.novell.com/show_bug.cgi?id=870963 (NEEDINFO)</remark>
-    As explained in <xref linkend="sec.ha.fencing.config.examples"/>, there
-    are several ways to configure a &stonith; resource: using constraints,
-    clones, or both. The choice of which construct to use for configuration
-    depends on several factors: nature of the fencing device, number of
-    hosts managed by the device, number of cluster nodes, or personal
-    preference.
-   </para>
-   <para><remark>taroth 2014-08-14: todo -
-    https://bugzilla.novell.com/show_bug.cgi?id=870963 (NEEDINFO)</remark>
-    If clones are safe to use with your configuration and they reduce the
-    configuration, then use cloned &stonith; resources.
-   </para>
-  </sect2>
+  
  </sect1>
  <sect1 id="sec.ha.fencing.monitor">
   <title>Monitoring Fencing Devices</title>
@@ -541,29 +503,44 @@ hostlist</screen>
       <literal>ssh </literal>
      </para>
     </listitem>
-    <listitem>
+<!--<listitem>
      <para>
       <literal>null</literal>
      </para>
-    </listitem>
+    </listitem>-->
    </itemizedlist>
   </warning>
-
   <variablelist>
+   <!--Fate#317135-->
    <varlistentry>
-    <term><literal>external/kdumpcheck</literal>
+    <term><literal>fence_kdump</literal>
     </term>
     <listitem>
-     <para>
-      This plug-in checks if a Kernel dump is in progress on a node. If so,
-      it returns <literal>true</literal>, and acts as if the node has been
+     <para> This plug-in checks if a Kernel dump is in progress on a node. If
+      so, it returns <literal>true</literal>, and acts as if the node has been
       fenced. The node cannot run any resources during the dump anyway. This
-      avoids fencing a node that is already down but doing a dump, which
-      takes some time. The plug-in must be used in concert with another,
-      real &stonith; device. For more details, see
-      <filename>/usr/share/doc/packages/cluster-glue/README_kdumpcheck.txt</filename>.
-     </para>
+      avoids fencing a node that is already down but doing a dump, which takes
+      some time. The plug-in must be used in concert with another, real
+      &stonith; device. </para>
+     <para>For configuration details, see <xref linkend="ex.ha.fencing.kdump"
+      />.</para>
     </listitem>
+    <!--Challenge:
+     <p>The <tt>kdumpcheck</tt> STONITH plugin did not work as expected. This
+     plug-in checks if a kernel dump is in progress on a node. If so, it
+     returns <tt>true</tt>, and acts as if the node has been fenced. This
+     avoids fencing a node that is already down but doing a dump, which
+     takes some time.</p>
+     
+     Solution:
+     <p>Use the <tt>stonith:fence_kdump</tt> resource agent (provided by the
+     package <tt>fence-agents</tt>) to monitor all nodes with the kdump
+     function enabled. In <tt>/etc/sysconfig/kdump</tt>, configure
+     KDUMP_POSTSCRIPT to send a notification to all nodes when the kdump
+     process is finished. The node that does a kdump will restart
+     automatically after kdump has finished.</p> <p>Do not forget to open a
+     port in the firewall for the <tt>fence_kdump</tt> resource. The default
+     port is <tt>7410</tt>.</p>-->
    </varlistentry>
    <varlistentry>
     <term><literal>external/sbd</literal>
@@ -574,7 +551,8 @@ hostlist</screen>
       pill</quote> which can be inserted into a shared disk. On
       shared-storage connection loss, it stops the node from operating.
       Learn how to use this &stonith; agent to implement storage-based
-      fencing in <xref linkend="cha.ha.storage.protect"/>. See also
+      fencing in <xref linkend="cha.ha.storage.protect" xrefstyle="select:nopage"/>, 
+      <xref linkend="pro.ha.storage.protect.fencing"/>. See also
       <ulink
        url="http://www.linux-ha.org/wiki/SBD_Fencing"/> for
       more details.
@@ -628,17 +606,6 @@ hostlist</screen>
     </listitem>
    </varlistentry>
    <varlistentry>
-    <term><literal>null</literal>
-    </term>
-    <listitem>
-     <para>
-      This is a fake device used in various testing scenarios. It always
-      claims that it has shot a node, but never does anything. Do not use it
-      unless you know what you are doing.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
     <term><literal>suicide</literal>
     </term>
     <listitem>
@@ -654,7 +621,7 @@ hostlist</screen>
   </variablelist>
 
   <para>
-   <literal>suicide</literal> and <literal>null</literal> are the only
+   <literal>suicide</literal> <!--and <literal>null</literal> -->is the only
    exceptions to the <quote>I do not shoot my host</quote> rule.
   </para>
  </sect1>
@@ -760,12 +727,14 @@ hostlist</screen>
     </term>
     <listitem>
      <itemizedlist>
-      <listitem>
+      <!-- taroth 2015-05-06: commenting for now since it is a little bit outdated
+       (clones are still used in stonith configuration examples)
+       <listitem>
        <para>
-        <citetitle>Configuring Fencing with crmsh</citetitle>: Information about
-        fencing on the home page of the Pacemaker Project.
+       <citetitle>Configuring Fencing with crmsh</citetitle>: Information about
+       fencing on the home page of the Pacemaker Project.
        </para>
-      </listitem>
+       </listitem>-->
       <listitem>
        <para>&paceex;: Explains the concepts
         used to configure Pacemaker. Contains comprehensive and very
