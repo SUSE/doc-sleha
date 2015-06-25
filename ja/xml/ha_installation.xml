@@ -1,0 +1,1251 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd">
+<!--
+*********************************
+Please see LICENSE.txt for this document's license.
+*********************************
+-->
+<chapter xml:base="ha_installation.xml" id="cha.ha.installation">
+ <title>インストールと基本セットアップ</title>
+ <abstract>
+  <para> この章では、<phrase role="productnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 </phrase></phrase>を最初からインストールしてセットアップする方法について説明します。自動セットアップまたは手動セットアップから選択します。自動セットアップでは、クラスタを起動して数分で実行できます(後でオプションを調整する選択あり)。一方、手動セットアップでは、起動時に個々のオプションを設定できます。 </para>
+
+  <para>
+   旧バージョンの<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>を実行するクラスタを移行する場合や、実行中のクラスタに属するノードでソフトウェアパッケージを更新する場合は、<xref linkend="app.ha.migration"/>を参照してください。
+  </para>
+ </abstract>
+ <sect1 id="sec.ha.installation.terms">
+  <title>用語の定義</title>
+  <para>この章では、次に定義されるいくつかの用語を使用します。</para>
+  <variablelist>
+   <varlistentry>
+    <term>既存のクラスタ</term>
+    <listitem>
+     <para>
+        <quote>既存のクラスタ</quote>という用語は、1つ以上のノードで構成されるクラスタを指すものとして使用されます。既存のクラスタは、通信チャネルを定義する基本的なCorosync設定を持ちますが、必ずしもリソース設定を持つとは限りません。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>マルチキャスト</term>
+    <listitem>
+     <para>
+        ネットワーク内で一対多数の通信に使用される技術で、クラスタ通信に使用できます。Corosyncはマルチキャストとユニキャストの両方をサポートしています。マルチキャストが会社のITポリシーに準拠しない場合、代わりにユニキャストを使用します。
+     </para>
+     <note>
+      <title>スイッチとマルチキャスト</title>
+      <para>
+       クラスタ通信にマルチキャストを使用したい場合、ご使用のスイッチがマルチキャストをサポートしていることを確認します。
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry id="vle.ha.mcastaddr">
+    <term>マルチキャストアドレス(<systemitem>mcastaddr</systemitem>)
+   </term>
+    <listitem>
+     <para>
+        Corosyncエグゼクティブによるマルチキャストに使用されるIPアドレス。このIPアドレスはIPv4またはIPv6のいずれかに設定できます。IPv6ネットワークを使用する場合は、ノードのIDを指定する必要があります。プライベートネットワークでは、どのようなマルチキャストアドレスでも使用できます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>マルチキャストポート(<systemitem>mcastport</systemitem>)</term>
+    <listitem>
+     <para>
+        クラスタ通信に使用されるポート。Corosyncでは、マルチキャストの受信用に指定する<literal>mcastport</literal>と、マルチキャストの送信用の<literal>mcastport -1</literal>の、2つのポートを使用します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ユニキャスト</term>
+    <listitem>
+     <para>
+        ひとつのあて先ネットワークにメッセージを送信する技術Corosyncはマルチキャストとユニキャストの両方をサポートしています。Corosyncでは、ユニキャストはUDP-unicast (UDPU)として実装されます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>バインドネットワークアドレス(<systemitem>bindnetaddr</systemitem>)
+  </term>
+    <listitem>
+     <para>
+      Corosyncエグゼクティブのバインド先のネットワークアドレス。クラスタ間の設定ファイルの共有を簡素化するため、Corosyncはネットワークインタフェースネットマスクを使用して、ネットワークのルーティングに使用されるアドレスビットのみをマスクします。たとえば、ローカルインタフェースが<literal>192.168.5.92</literal>でネットマスクが<literal>255.255.255.0</literal>の場合、<systemitem>bindnetaddr</systemitem>は<literal>192.168.5.0</literal>に設定します。ローカルインタフェースが<literal>192.168.5.92</literal>でネットマスクが<literal>255.255.255.192</literal>の場合は、<systemitem>bindnetaddr</systemitem>を<literal>192.168.5.64</literal>に設定します。
+     </para>
+     <note>
+      <title>すべてのノードのネットワークアドレス</title>
+      <para>
+       すべてのノード上で同じCorosync設定が使用されるため、ネットワークアドレスは、特定のネットワークインタフェースのアドレスではなく、<systemitem>bindnetaddr</systemitem>として使用します。
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry id="vle.ha.rrp">
+    <term>冗長リングプロトコル(RRP)</term>
+    <listitem>
+     <para>
+       ネットワーク障害の一部または全体に対する災害耐性のために、複数の冗長ローカルエリアネットワークが使用できるようになります。この方法では、ひとつのネットワークが作動中である限り、クラスタ通信を維持できます。Corosyncはトーテム冗長リングプロトコルをサポートします。信頼できるソートされた方式でメッセージを配信するために、論理トークンパスリングがすべての参加ノードに課せられます。ノードがメッセージをブロードキャストできるのは、トークンを保持している場合のみです。詳細については、<ulink url="http://www.rcsc.de/pdf/icdcs02.pdf"/>を参照してください。
+     </para>
+     <para>
+      Corosyncに定義済みの冗長通信チャネルを持つ場合、RRPを使用してこれらのインタフェースの使用方法をクラスタに伝えます。RRPでは次の3つのモードを使用できます(<literal>rrp_mode</literal>)。
+     </para>
+     <itemizedlist mark="bullet" spacing="normal">
+      <listitem>
+       <para>
+        <literal>active</literal>に設定した場合、Corosyncは両方のインタフェースをアクティブに使用します。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>passive</literal>に設定した場合、Corosyncは代わりに使用可能なネットワークを介してメッセージを送信します。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>none</literal>に設定した場合、RRPは無効になります。
+       </para>
+      </listitem>
+     </itemizedlist>
+
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      クラスタ内のすべてのノード、およびGeoクラスタ全体に設定ファイルを複製するために使用できる同期ツールです。Csync2は、同期グループ別にソートされた任意の数のホストを操作できます。各同期グループは、メンバーホストの独自のリストとその包含/除外パターン(同期グループ内でどのファイルを同期するか定義するパターン)を持っています。グループ、各グループに属するホスト名、および各グループの包含/除外ルールは、Csync2設定ファイル<filename>/etc/csync2/csync2.cfg</filename>で指定されます。
+     </para>
+     <para>
+      Csync2は、認証には、同期グループ内でIPアドレスと事前共有キーを使用します。管理者は、同期グループごとに1つのキーファイルを生成し、そのファイルをすべてのグループメンバにコピーする必要があります。
+     </para>
+     <para>
+      Csync2の詳細については、<ulink url="http://oss.linbit.com/csync2/paper.pdf"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><systemitem class="resource">conntrackツール</systemitem></term>
+    <listitem>
+     <para>
+      カーネル内の接続トラッキングシステムとやり取りできるようにして、iptablesでの<emphasis>ステートフルな</emphasis>パケット検査を可能にします。High Availability Extensionによって、クラスタノード間の接続ステータスを同期化するために使用されます。詳細については、<ulink url="http://conntrack-tools.netfilter.org/"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>AutoYaST</term>
+    <listitem>
+     <para>
+      AutoYaSTは、ユーザの介入なしで、1つ以上のSUSE Linux Enterpriseシステムを自動的にインストールするためのシステムです。SUSE Linux Enterpriseでは、インストールと設定のデータを含むAutoYaSTプロファイルを作成できます。このプロファイルによって、インストールする対象と、インストールしたシステムが最終的に使用準備が整ったシステムになるように設定する方法がAutoYaSTに指示されます。そこでこのプロファイルはさまざまな方法による大量配備に使用できます(たとえば、既存のクラスタノードのクローンなど)。
+     </para>
+     <para>
+      さまざまなシナリオでのAutoYaSTの使用手順については、『SUSE Linux Enterprise 12 導入ガイド<citetitle><phrase role="productnumber"><phrase os="sles"/></phrase></citetitle>』(<ulink url="http://www.suse.com/doc"/>から入手可能)を参照してください。特に、「<citetitle>Automated Installation</citetitle>」の章を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+<?dbfo-need height="20em"?>
+
+
+ <sect1 id="sec.ha.installation.overview">
+  <title>概要</title>
+
+  <para>
+   次の基本手順は、インストールおよび最初のクラスタセットアップに必要です。
+
+  </para>
+
+  <procedure>
+   <step performance="required">
+    <para>
+     <xref linkend="sec.ha.installation.add-on" xrefstyle="select:title"/>:
+    </para>
+    <para>
+     YaSTでソフトウェアパッケージをインストールします。または、コマンドライン<command>zypper</command>からインストールできます。
+    </para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> in -t pattern ha_sles</screen>
+
+   </step>
+   <step performance="required">
+    <para>
+     クラスタの初期セットアップ:
+    </para>
+    <para>
+     クラスタの一部になるすべてのノードにソフトウェアをインストールした後、最初にクラスタを設定するために次の手順が必要です。
+    </para>
+    <substeps performance="required">
+     <step performance="required">
+      <para>
+       <xref linkend="sec.ha.installation.setup.channels" xrefstyle="select:title"/>
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       オプション: <xref linkend="sec.ha.installation.setup.security" xrefstyle="select:title"/>
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       <xref linkend="sec.ha.installation.setup.csync2" xrefstyle="select:title"/>。Csync2の設定がノードでのみ行われるのに対して、サービスであるCsync2および<systemitem class="daemon">xinetd</systemitem>はすべてのノードで開始する必要があります。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       オプション: <xref linkend="sec.ha.installation.setup.conntrackd" xrefstyle="select:title"/>
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       <xref linkend="sec.ha.installation.setup.services" xrefstyle="select:title"/>
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       <xref linkend="sec.ha.installation.start" xrefstyle="select:title"/>。Corosyncサービスはすべてのノード上で開始する必要があります。
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+
+  <para>
+   クラスタセットアップの手順は、自動(ブートストラップスクリプトで)か、または手動(YaSTクラスタモジュールで、またはコマンドラインから)のいずれかで実行できます。
+  </para>
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <para>
+     自動のクラスタセットアップを選択する場合は、<xref linkend="sec.ha.installation.setup.auto"/>を参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     手動のセットアップ(または自動セットアップ後のオプション調整)は、<xref linkend="sec.ha.installation.setup.manual"/>を参照してください。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   たとえば、1つのノードをYaSTクラスタで設定してから、<command>ha-cluster-join</command>を使用して他のノードを統合させるなど、両方のセットアップ方法を組み合わせることもできます。
+  </para>
+
+  <para>
+   既存のノードをAutoYaSTで大量展開するためにクローンを作成することもできます。クローンを作成したノードには、同じパッケージがインストールされ、クローンノードは同じシステム設定を持つことになります。詳細については、<xref linkend="sec.ha.installation.autoyast"/>を参照してください。
+  </para>
+ </sect1>
+
+ <sect1 id="sec.ha.installation.add-on">
+  <title>アドオンとしてのインストール</title>
+
+  <para>
+   High Availability Extensionによるクラスタの設定と管理に必要なパッケージは、<literal>High Availability</literal>インストールパターンに含まれています。このパターンは、<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>がアドオンとしてSUSE® Linux Enterprise Serverにインストールされている場合のみ使用できます。アドオン製品のインストール方法については、『SUSE Linux Enterprise 12 導入ガイド<citetitle><phrase role="productnumber"><phrase os="sles"/></phrase></citetitle>』(<ulink url="http://www.suse.com/doc"/>から入手可能)を参照してください。特に、「<citetitle>Installing Add-On Products</citetitle>」の章を参照してください。
+
+  </para>
+
+  <procedure id="pro.ha.install.pattern">
+   <title>高可用性パターンのインストール</title>
+   <step performance="required">
+    <para>
+     YaSTを<systemitem class="username">root</systemitem>ユーザとして開始し、<menuchoice> <guimenu>ソフトウェア</guimenu><guimenu>ソフトウェア管理</guimenu></menuchoice>の順に選択します。
+    </para>
+    <para>
+     または、コマンドラインで<command>yast2 sw_single</command>を使用して、YaSTモジュールを<systemitem class="username">root</systemitem>として起動します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     <guimenu>フィルタ</guimenu>リストで、<guimenu>パターン</guimenu>を選択して、パターンリストで<guimenu>高可用性</guimenu>をアクティブにします。
+     
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     <guimenu>同意する</guimenu> ］をクリックして、パッケージのインストールを開始します。
+    </para>
+    <note><title>すべてのパーティへのソフトウェアパッケージのインストール</title>
+     <para>
+      High Availabilityクラスタに必要なソフトウェアパッケージはクラスタノードに自動的にコピーされません。<emphasis/>
+     </para>
+    </note>
+   </step>
+   <step performance="required">
+    <para>
+     クラスタの一部になる<emphasis>すべての</emphasis>マシンにHigh Availabilityパターンをインストールします。
+    </para>
+    <para>
+     SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 </phrase></phrase>と<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12</phrase></phrase>を、クラスタの一部となるすべてのノードに手動でインストールしない場合は、AutoYaSTを使用して既存のノードにクローンを作成します。詳細については、<xref linkend="sec.ha.installation.autoyast"/>を参照してください。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 id="sec.ha.installation.setup.auto">
+  <title>自動のクラスタセットアップ(ha-cluster-bootstrap)</title>
+
+  <para> <systemitem class="resource">ha-cluster-bootstrap</systemitem>パッケージは、1ノードクラスタを起動して実行させ、他のノードを追加し、既存のクラスタからノードを削除するために必要なすべての機能を提供します。</para>
+
+  <variablelist>
+   <varlistentry>
+    <term><xref linkend="pro.ha.installation.setup.ha-cluster-init" xrefstyle="select:title"/>
+    </term>
+    <listitem>
+     <para>
+      <command>ha-cluster-init</command>によって、クラスタ通信および(オプションで) STONITHメカニズムの設定に必要な基本パラメータを定義し、共有ストレージを保護します。これによって1ノードクラスタの実行が可能になります。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><xref linkend="pro.ha.installation.setup.ha-cluster-join" xrefstyle="select:title"/>
+    </term>
+    <listitem>
+     <para>
+      <command>ha-cluster-join</command>で、他のノードをクラスタに追加します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><xref linkend="pro.ha.installation.setup.ha-cluster-remove" xrefstyle="select:title"/>
+    </term>
+    <listitem>
+     <para>
+      <command>ha-cluster-remove</command>で、クラスタからノードを削除します。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para> すべてのコマンドは、最低限の時間と手動介入しか必要のないブートストラップスクリプトを実行します。初期化して追加するブートストラップスクリプトが、クラスタ通信に必要なファイアウォールで自動的にポートを開きます。この設定は、<filename>/etc/sysconfig/SuSEfirewall2.d/services/cluster</filename>に書きこまれます。ブートストラッププロセス中に設定されたオプションは、YaSTクラスタモジュールで後で変更できます。 </para>
+
+  <para>
+   自動セットアップを開始する前に、クラスタに参加するすべてのノードで次の前提条件が満たされていることを確認します。
+  </para>
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <title>前提条件</title>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.requirements.sw"/>および<xref linkend="sec.ha.requirements.other"/>にリストされている前提条件が満たされていること。
+    </para>
+   </listitem>
+   <listitem>
+    <para> <systemitem class="resource">ha-cluster-bootstrap</systemitem>パッケージがインストールされていること。 </para>
+   </listitem>
+   <listitem>
+    <para>
+     ネットワークがニーズに沿って設定されていること。たとえば、プライベートネットワークがクラスタ通信に使用可能であり、ネットワークデバイスのボンディングが設定されている。ボンディングに関する情報については、<xref linkend="cha.ha.netbonding"/>を参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     共有ストレージにSBDを使用したい場合は、SBD用の共有ブロックデバイスが1つ必要です。ブロックデバイスはフォーマットする必要がありません。また、適切なハードウェアウォッチドッグデバイスが必要です。詳細については、<xref linkend="cha.ha.storage.protect"/>を参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     すべてのノードは、同じパス(<filename>/dev/disk/by-path/...</filename>または<filename>/dev/disk/by-id/...</filename>)を通して共有ストレージを参照できる必要があります。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure id="pro.ha.installation.setup.ha-cluster-init">
+   <title>最初のノードの自動設定</title>
+   <para> <command>ha-cluster-init</command>コマンドは、NTPの設定を確認し、クラスタ通信層(Corosync)の設定、および(オプションで) SBDの設定を支援して、共有ストレージを保護します。</para>
+   
+   <para>また、<option>-t</option>オプションを使用してスクリプトを実行し、テンプレートに基づいて追加のクラスタ設定を実行できます。たとえば、<command>ha-cluster-init -t ocfs2</command>は、いくつかの共有ストレージを2つの部分に区分します(SBDには1MB、その残りをOCFS2になど)スクリプトの各機能、そのオプション、および作成および変更可能なファイルの概要については、<command>ha-cluster-init</command>のマニュアルページを参照してください。 </para>
+   <step performance="required">
+    <para>
+     クラスタノードとして使用したい物理または仮想マシンに<systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     実行によって、ブートストラップスクリプトを開始します
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-init</command></screen>
+    <para>
+     NTPがブート時に開始するよう設定されていない場合、メッセージが表示されます。スクリプトはハードウェアウォッチドッグデバイス(SBDを設定する場合に重要)も確認し、何もない場合は警告します。
+    </para>
+    <para>
+     それでも継続を選択する場合、スクリプトは自動的にSSHアクセスおよびCsync2同期ツールのキーを生成し、両方に必要なサービスを開始します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     クラスタ通信層(Corosync)を設定するには、次のとおり実行します。
+    </para>
+    <substeps performance="required">
+     <step performance="required">
+      <para>
+       バインドするネットワークアドレスを入力します。デフォルトでは、スクリプトは<systemitem>eth0</systemitem>のネットワークアドレスを提案します。または、たとえば<literal>bond0</literal>のアドレスなど、別のネットワークアドレスを入力します。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       マルチキャストアドレスを入力します。スクリプトはデフォルトとして使用できるランダムなアドレスを提案します。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       マルチキャストポートを入力します。スクリプトはデフォルトとして<literal>5405</literal>を提案します。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step performance="required">
+    <para>
+     SBDを設定するには(オプション)、SBDに使用したいブロックデバイスのパーティションに持続的なパスを入力します。パスはクラスタ内のすべてのノード全体で一致している必要があります。
+    </para>
+    <para>
+     最後に、スクリプトはPacemakerサービスを開始し、1ノードクラスタをオンラインにして、Web管理インタフェースHawkを有効にします。Hawkに使用するURLが画面に表示されます。
+    </para>
+   </step>
+   <step performance="required">
+    <para>セットアッププロセスの詳細については、<filename>/var/log/ha-cluster-bootstrap.log</filename>を確認してください。 </para>
+   </step>
+  </procedure>
+
+  <para> 1ノードクラスタが実行するようになります。<command>crm status</command>を使用してクラスタの状態を確認します。</para>
+   
+  <screen><prompt role="root">root # </prompt>crm status
+   Last updated: Thu Jul  3 11:04:10 2014
+   Last change: Thu Jul  3 10:58:43 2014
+   Current DC: alice (175704363) - partition with quorum
+   1 Nodes configured
+   0 Resources configured
+      
+   Online: [ alice ]</screen>
+
+  <important>
+   <title>セキュリティ保護されたパスワード</title>
+   <para> ブートストラップの手順で、Linuxユーザ名<systemitem class="username">hacluster</systemitem>とパスワード<literal>linux</literal>を作成します。これは、Hawkにログインする際に必要です。デフォルトのパスワードはできるだけ早くセキュリティ保護されたパスワードに変更します。 </para>
+<screen><prompt role="root">root # </prompt><command>passwd</command> hacluster</screen>
+  </important>
+
+  <procedure id="pro.ha.installation.setup.ha-cluster-join">
+   <title>既存のクラスタにノードを追加</title>
+   <para>
+    クラスタを(1つまたは複数のノードで)起動して実行する場合、<command>ha-cluster-join</command>ブートストラップスクリプトでさらにクラスタノードを追加します。スクリプトは既存のクラスタノードへのアクセスのみが必要で、ご使用のマシンで自動的に基本セットアップを完了します。次の手順に従います。詳細については、<command>ha-cluster-join</command>マニュアルページを参照してください。
+   </para>
+   <para>
+    既存のクラスタノードをYaSTクラスタモジュールで設定した場合、<command>ha-cluster-join</command>を実行する前に、次の前提条件が満たされていることを確認します。
+   </para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para>
+      既存のノードの<systemitem class="username">root</systemitem>ユーザに、パスワードなしでログインするためのSSHキーが適切に設定されている。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Csync2が既存のノードに設定されている。詳細については、<xref linkend="pro.ha.installation.setup.csync2.yast"/>を参照してください。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    Hawkによって最初のノードにログインしている場合、クラスタステータス内の変更に従い、Webインタフェース内でアクティブ化されるリソースを表示できます。
+   </para>
+   <step performance="required">
+    <para>
+     クラスタを参加させることになる物理または仮想マシンに<systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     実行によって、ブートストラップスクリプトを開始します。
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-join</command></screen>
+    <para>
+     NTPがブート時に開始するよう設定されていない場合、メッセージが表示されます。スクリプトはハードウェアウォッチドッグデバイス(SBDを設定する場合に重要)も確認し、何もない場合は警告します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     それでも継続を選択する場合、既存のノードのIPアドレスが求められます。IPアドレスを入力します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     両方のマシン間にパスワードなしのSSHアクセスを設定していない場合、既存のノードの<systemitem class="username">root</systemitem>パスワードも求められます。
+    </para>
+    <para>
+     指定されたノードにログインした後、スクリプトはCorosync設定をコピーし、SSHおよびCsync2を設定して、新しいクラスタノードとしてご使用のマシンをオンラインにします。それとは別に、Hawkに必要なサービスを開始します。OCFS2で共有ストレージを設定した場合、OCFS2ファイルシステムへのマウントポイントディレクトリも自動的に作成します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     クラスタを追加したいすべてのマシンにこの手順を繰り返します。
+    </para>
+   </step>
+   <step performance="required">
+    <para> プロセスの詳細については、<filename>/var/log/ha-cluster-bootstrap.log</filename>を確認してください。 </para>
+   </step>
+  </procedure>
+  <para><command>crm status</command>を使用してクラスタの状態を確認します。2番目のノードを正常に追加した場合、出力は次のようになります。</para>
+    <screen><prompt role="root">root # </prompt>crm status
+   Last updated: Thu Jul  3 11:07:10 2014
+   Last change: Thu Jul  3 10:58:43 2014
+   Current DC: alice (175704363) - partition with quorum
+   2 Nodes configured
+   0 Resources configured
+   
+   Online: [ alice bob ]</screen>
+
+  <important>
+   <title><systemitem>no-quorum-policy</systemitem>の確認</title>
+   <para>
+    すべてのノードを追加した後、グローバルクラスタオプションで<systemitem>no-quorum-policy</systemitem>の調整が必要であるかを確認します。これは特に2ノードクラスタで重要です。詳細については、<xref linkend="sec.ha.config.basics.global.quorum"/>を参照してください。
+   </para>
+  </important>
+
+  <procedure id="pro.ha.installation.setup.ha-cluster-remove">
+   <title>既存のクラスタからのノードの削除</title>
+   <para>
+    (複数のノードで)クラスタを起動して実行している場合、<command>ha-cluster-remove</command>ブートストラップスクリプトによって、クラスタから1つのノードを削除することができます。この場合、クラスタから削除するノードのIPアドレスまたはホスト名が必要です。次の手順に従います。詳細については、<command>ha-cluster-remove</command>マニュアルページを参照してください。
+   </para>
+
+   <step performance="required">
+    <para>
+     クラスタノードのいずれかに<systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     実行によって、ブートストラップスクリプトを開始します。
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-remove</command> <option>-c</option> <replaceable>IP_ADDR_OR_HOSTNAME</replaceable></screen>
+    <para>
+     このスクリプトは<systemitem class="daemon">sshd</systemitem>を有効にし、指定したノードのPacemakerサービスを停止させ、Csync2と同期化するためのファイルを残りのノードに伝播します。
+    </para>
+
+    <para>
+     ホスト名を指定していて、削除対象のノードにアクセスできない(またはホスト名が解決できない)場合、スクリプトによって通知が送信され、それでもノードを削除するかどうかを尋ねられます。IPアドレスを指定していて、ノードにアクセスできない場合は、ホスト名を入力するように求められ、それでもノードを削除するかどうかを尋ねられます。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     ノードをさらに削除するには、前述の手順を繰り返します。
+    </para>
+   </step>
+   <step performance="required">
+    <para> プロセスの詳細については、<filename>/var/log/ha-cluster-bootstrap.log</filename>を確認してください。 </para>
+   </step>
+  </procedure>
+
+  <para>
+   削除したノードを後で再度追加する必要が生じた場合は、<command>ha-cluster-join</command>を使用して追加します。詳細については、<xref linkend="pro.ha.installation.setup.ha-cluster-join"/>を参照してください。
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.installation.setup.manual">
+  <title>手動のクラスタセットアップ(YaST)</title>
+
+  <para>
+   最初のセットアップに関するすべての手順の概要については、<xref linkend="sec.ha.installation.overview"/>を参照してください。 
+  </para>
+
+  <sect2 id="sec.ha.installation.setup.yast2cluster">
+   <title>YaSTクラスタモジュール</title>
+   <para>
+    次のセクションでは、YaSTクラスタモジュールを使用して、セットアップの各手順を実行します。これにアクセスするには、YaSTを<systemitem class="username">root</systemitem>として起動し、<menuchoice> <guimenu>高可用性</guimenu><guimenu>クラスタ</guimenu></menuchoice>の順に選択します。または、コマンドライン<command>yast2 cluster</command>でモジュールを開始します。
+   </para>
+   <para>
+    初めてクラスタモジュールを起動した場合は、モジュールが、ウィザードのように、基本設定に必要なすべてのステップをガイドします。そうでない場合は、左パネルのカテゴリをクリックして、ステップごとに設定オプションにアクセスします。
+   </para>
+   <figure>
+    <title>YaSTクラスタモジュール - 概要</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_main.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_main.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <para>
+    YaSTクラスタモジュールが、ご使用のマシンでのクラスタ通信に必要なファイアウォールで自動的にポートを開きます。この設定は、<filename>/etc/sysconfig/SuSEfirewall2.d/services/cluster</filename>に書きこまれます。
+   </para>
+   <para>
+    YaSTクラスタモジュールのオプションには、現在のノードにしか適用しないものと、すべてのノードに自動的に移行できるものがあることにご注意ください。これについての詳しい情報は次のセクションを参照してください。
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.installation.setup.channels">
+   <title>通信チャネルの定義</title>
+   <para>
+    クラスタノード間で通信を正常に機能させるには、少なくとも1つの通信チャネルを定義します。
+   </para>
+   <important>
+    <title>冗長通信パス</title>
+    <para>
+    クラスタ通信は、2つ以上の冗長パスによって設定することを強く推奨します。これは次のように実行できます。
+    </para>
+    <itemizedlist mark="bullet" spacing="normal">
+     <listitem>
+      <para>
+       <xref linkend="cha.ha.netbonding" xrefstyle="select:title"/>。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Corosync内の2つ目の通信チャネル。詳細については、<xref linkend="pro.ha.installation.setup.channel2"/>を参照してください。
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     可能であれば、ネットワークデバイスのボンディングを選択します。
+    </para>
+   </important>
+   <procedure id="pro.ha.installation.setup.channel1">
+    <title>最初の通信チャネルの定義</title>
+    <para>
+     クラスタノード間の通信には、マルチキャスト(UDP)またはユニキャスト(UDPU)のいずれかを使用します。
+    </para>
+    <step performance="required">
+     <para>
+      YaSTクラスタモジュール内で、<guimenu>通信チャネル</guimenu>カテゴリに切り替えます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      マルチキャストを使用するには、次のとおり実行します。
+     </para>
+     <substeps performance="required">
+      <step performance="required">
+       <para>
+        <guimenu>転送</guimenu>プロトコルを<literal>Multicast</literal>に設定します。
+       </para>
+      </step>
+      <step performance="required">
+       <para>
+        <guimenu>バインドネットワークアドレス</guimenu>を定義します。クラスタマルチキャストに使用するサブネットに値を設定します。
+       </para>
+      </step>
+      <step performance="required">
+       <para>
+        <guimenu>マルチキャストアドレス</guimenu>を定義します。
+       </para>
+      </step>
+      <step performance="required">
+       <para>
+        <guimenu>マルチキャストポート</guimenu>を定義します。
+       </para>
+       <para>
+        上で入力した値で、クラスタの通信チャネルを<emphasis>1つ</emphasis>定義したことになります。マルチキャストモードでは、すべてのクラスタノードに対して同じ<systemitem>bindnetaddr</systemitem>、<systemitem>mcastaddr</systemitem>、<systemitem>mcastport</systemitem>が使用されます。クラスタ内のすべてのノードは同じマルチキャストアドレスを使用することで互いを認識します。別のクラスタは、別のマルチキャストアドレスを使用します。
+
+       </para>
+       <figure>
+        <title>YaSTクラスタ - マルチキャスト設定</title>
+        <mediaobject>
+         <imageobject role="fo">
+          <imagedata fileref="yast2_cluster_comm_multicast.png" width="100%" format="PNG"/>
+         </imageobject>
+         <imageobject role="html">
+          <imagedata fileref="yast2_cluster_comm_multicast.png" width="75%" format="PNG"/>
+         </imageobject>
+        </mediaobject>
+       </figure>
+      </step>
+     </substeps>
+    </step>
+    <step performance="required">
+     <para>
+      ユニキャストを使用するには、次のとおり実行します。
+     </para>
+     <substeps performance="required">
+      <step performance="required">
+       <para>
+        <guimenu>転送</guimenu>プロトコルを<literal>Unicast</literal>に設定します。
+       </para>
+      </step>
+      <step performance="required">
+       <para>
+        <guimenu>バインドネットワークアドレス</guimenu>を定義します。クラスタユニキャストに使用するサブネットに値を設定します。
+       </para>
+      </step>
+      <step performance="required">
+       <para>
+        <guimenu>マルチキャストポート</guimenu>を定義します。
+       </para>
+      </step>
+      <step performance="required">
+       <para> ユニキャスト通信では、Corosyncはクラスタ内のすべてのノードのIPアドレスを認識する必要があります。クラスタの一部になる各ノードで、<guimenu>追加</guimenu>をクリックし、次の詳細を入力します。</para>
+       <itemizedlist mark="bullet" spacing="normal">
+        <listitem>
+         <para>
+          <guimenu>IPアドレス</guimenu>
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>冗長IPアドレス</guimenu>(Corosyncで2つ目の通信チャネルを使用する場合にのみ必要) </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>ノードID</guimenu> (<guimenu>ノードIDの自動生成</guimenu>オプションが無効になっている場合にのみ必要)</para>
+        </listitem>
+       </itemizedlist>
+       <para>クラスタメンバーのアドレスを変更または削除するには、<guimenu>編集</guimenu>または<guimenu>削除</guimenu>ボタンを使用します。 </para>
+       <figure>
+        <title>YaSTクラスタ - ユニキャスト設定</title>
+        <mediaobject>
+         <imageobject role="fo">
+          <imagedata fileref="yast2_cluster_comm_unicast.png" width="100%" format="PNG"/>
+         </imageobject>
+         <imageobject role="html">
+          <imagedata fileref="yast2_cluster_comm_unicast.png" width="75%" format="PNG"/>
+         </imageobject>
+        </mediaobject>
+       </figure>
+      </step>
+     </substeps>
+    </step>
+    <step performance="required">
+     <para> <guimenu>ノードIDの自動生成</guimenu>オプションはデフォルトで有効になっています。IPv4アドレスを使用している場合は、ノードIDはオプションですが、IPv6アドレスを使用している場合は必須です。各クラスタノードで固有のIDを自動生成するには(各ノードでIDを手動で指定するよりもエラーの発生が少ない)、このオプションを有効のままにします。</para>
+    </step>
+    <step performance="required">
+     <para><guimenu>クラスタ名</guimenu>を定義します。</para>
+    </step>
+    <step performance="required">
+     <para><guimenu>予想票数</guimenu>の数を入力します。これは、パーティションされたクラスタでCorosyncが<xref linkend="gloss.quorum"/>を計算する場合に重要です。デフォルトでは、各ノードには<literal>1</literal>票が割り当てられています。<guimenu>予想票数</guimenu>の数は、クラスタ内のノード数と一致する必要があります。</para>
+     </step>
+    <step performance="required">
+     <para>
+      既存のクラスタでオプションを変更した場合、変更を確認して、クラスタモジュールを終了します。YaSTが設定を<filename>/etc/corosync/corosync.conf</filename>に書き込みます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      必要な場合は、2つ目の通信チャネルを次で説明されるとおり定義します。または<guimenu>次へ</guimenu>をクリックして、<xref linkend="pro.ha.installation.setup.security"/>で続行します。
+     </para>
+    </step>
+   </procedure>
+
+   <procedure id="pro.ha.installation.setup.channel2">
+    <title>冗長通信チャネルの定義</title>
+    <para>
+     ネットワークデバイスボンディングが何らかの理由で使用できない場合、第2の選択は、Corosyncに冗長通信チャネル(2つ目のリング)を定義することです。この方法では、2つの物理的に分かれたネットワークが通信に使用できます。1つのネットワークが失敗しても、クラスタノードは、もう一方のネットワークを介して通信できます。
+    </para>
+    <important>
+     <title>冗長リングおよび<filename>/etc/hosts</filename></title>
+     <para>
+      複数のリングが設定されている場合は、各ノードが複数のIPアドレスを持つことができます。これはすべてのノードの<filename>/etc/hosts</filename>に反映する必要があります。
+     </para>
+    </important>
+    <step performance="required">
+     <para>
+      YaSTクラスタモジュール内で、<guimenu>通信チャネル</guimenu>カテゴリに切り替えます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <guimenu>冗長チャネル</guimenu>を有効にします。冗長チャネルは、定義した最初の通信チャネルと同じプロトコルを使用する必要があります。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      マルチキャストを使用する場合、<guimenu>バインドネットワークアドレス</guimenu>、<guimenu>マルチキャストアドレス</guimenu>、および<guimenu>マルチキャストポート</guimenu>を冗長チャネル用に定義します。
+     </para>
+     <para>
+      ユニキャストを使用する場合、<guimenu>バインドネットワークアドレス</guimenu><guimenu>マルチキャストポート</guimenu>を定義し、クラスタの一部になるすべてのノードのIPアドレスを入力します。
+     </para>
+     <para>
+      これで、Corosyncに、2つ目のトークンパスリングを形成する追加の通信チャネルを定義したことになります。<filename>/etc/corosync/corosync.conf</filename>で、プライマリリング(設定した最初のチャネル)にはringnumber <literal>0</literal>が設定され、2つ目のリング(冗長チャネル)にはringnumber <literal>1</literal>が設定されます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      Corosyncに、異なるチャネルを使用する方法とタイミングを伝えるには、使用したい<guimenu>rrp_mode</guimenu>(<literal>active</literal>または<literal>passive</literal>)を選択します。このモードに関する詳細については、<xref linkend="vle.ha.rrp"/>を参照するか、<guimenu>ヘルプ</guimenu>をクリックしてください。RRPが使用されるとただちに、デフォルトでは、ノード間の通信に、(TCPの代わりに)SCTP (Stream Control Transmission Protocol)が使用されます。High Availability Extensionは現在のリングステータスを監視し、不具合が起きたら冗長リングを自動的に再有効化します。または、<command>corosync-cfgtool</command>によって、リングステータスを手動で確認することもできます。使用可能なオプションは<option>-h</option>で参照できます。
+     </para>
+     <para>
+      通信チャネルが1つだけ定義されている場合、<guimenu>rrp-mode</guimenu>が自動的に無効化されます(値<literal>なし</literal>)。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      既存のクラスタでオプションを変更した場合、変更を確認して、クラスタモジュールを終了します。YaSTが設定を<filename>/etc/corosync/corosync.conf</filename>に書き込みます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      クラスタ設定を先に進めるには、<guimenu>次へ</guimenu>をクリックして、<xref linkend="sec.ha.installation.setup.security"/>で続行します。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    <filename>/etc/corosync/corosync.conf.example</filename>で、UDPセットアップ用にファイル例を見つけます。UDPセットアップの例は<filename>/etc/corosync/corosync.conf.example.udpu</filename>で参照できます。
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.installation.setup.security">
+   <title>認証設定の定義</title>
+   <para>
+    次のステップでは、クラスタの認証設定を定義します。共有シークレットが必要なHMAC/SHA1認証を使用して、メッセージを保護し、認証することができます。指定した認証キー(パスワード)が、クラスタ中のすべてのノードで使用されます。
+   </para>
+   <procedure id="pro.ha.installation.setup.security">
+    <title>安全な認証を有効にする</title>
+    <step performance="required">
+     <para>
+      YaSTクラスタモジュール内で、<guimenu>Security</guimenu>カテゴリに切り替えます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <guimenu>安全認証の有効化</guimenu>をオンにします。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      新しく作成したクラスタの場合は、<guimenu>認証キーファイルの生成</guimenu>をクリックします。認証キーが作成され、<filename>/etc/corosync/authkey</filename>に書き込まれます。
+     </para>
+     <figure>
+      <title>YaSTクラスタ - セキュリティ</title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="yast2_cluster_security.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="yast2_cluster_security.png" width="75%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+     <para>
+      ご使用のマシンを既存のクラスタに参加させたい場合、新しいキーファイルは生成しないでください。代わりに、いずれかのノードから<filename>/etc/corosync/authkey</filename>を(手動またはCsync2によって)ご使用のマシンにコピーします。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      既存のクラスタでオプションを変更した場合、変更を確認して、クラスタモジュールを終了します。YaSTが設定を<filename>/etc/corosync/corosync.conf</filename>に書き込みます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      クラスタ設定を先に進めるには、<guimenu>次へ</guimenu>をクリックして、<xref linkend="sec.ha.installation.setup.csync2"/>で続行します。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 id="sec.ha.installation.setup.csync2">
+   <title>すべてのノードへの設定の転送</title>
+   <para>
+    結果として生成された設定ファイルをすべてのノードに手動でコピーする代わりに、<command>csync2</command>ツールを使用して、クラスタ内のすべてのノードにレプリケートします。
+   </para>
+   <para>
+    これには、次の基本手順を必要とします。
+   </para>
+   <procedure>
+    <step performance="required">
+     <para>
+      <xref linkend="pro.ha.installation.setup.csync2.yast" xrefstyle="select:title"/>。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <xref linkend="pro.ha.installation.setup.csync2.start" xrefstyle="select:title"/>。
+     </para>
+    </step>
+   </procedure>
+   <para>Csync2では、設定変更を追跡して、クラスタノード間でファイルの同期を取ることができます。</para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para>操作に対して重要なファイルのリストを定義できます。</para>
+    </listitem>
+    <listitem>
+     <para>(他のクラスタノードに対して)これらのファイルの変更を表示できます。</para>
+    </listitem>
+    <listitem>
+     <para>1つのコマンドで複数の設定済みファイルの同期を取ることができます。</para>
+    </listitem>
+    <listitem>
+     <para><filename>~/.bash_logout</filename>の単純なシェルスクリプトを使用して、システムからログアウトする前に、同期化されていない変更について通知できます。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>Csync2の詳細については、<ulink url="http://oss.linbit.com/csync2/"/>と<ulink url="http://oss.linbit.com/csync2/paper.pdf"/>にアクセスしてください。</para>
+   <procedure id="pro.ha.installation.setup.csync2.yast">
+    <title>YaSTによるCsync2の設定</title>
+    <step performance="required">
+     <para>
+      YaSTクラスタモジュール内で、<guimenu>Csync2</guimenu>カテゴリに切り替えます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      同期グループを指定するには、<guimenu>同期ホスト</guimenu>グループで<guimenu>追加</guimenu>をクリックし、クラスタ内のすべてのノードのローカルホスト名を入力します。ノードごとに、<command>hostname</command>コマンドから返された文字列を正確に使用する必要があります。
+     </para>
+      
+     <tip>
+      <title>ホスト名解決</title>
+      <para>ホスト名解決がネットワークで正しく機能しない場合は、各クラスタノードのホスト名とIPアドレスの組み合わせを指定することもできます。この指定には、<replaceable>HOSTNAME@IP</replaceable>文字列(たとえば、<literal>alice@192.168.2.100</literal>)を使用します。Csync2は、接続時にIPアドレスを使用します。</para>
+     </tip>
+      
+    </step>
+    <step id="step.csync2.generate.key" performance="required">
+     <para>
+      <guimenu>事前共有キーの生成</guimenu>をクリックして、同期グループのキーファイルを生成します。キーファイルは、<filename>/etc/csync2/key_hagroup</filename>に書き込まれます。このファイルは、作成後に、クラスタのすべてのメンバーに手動でコピーする必要があります。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      すべてのノード間で、通常、同期される必要のあるファイルを<guimenu>同期ファイル</guimenu>リストに入れるには、<guimenu>推奨ファイルの追加</guimenu>をクリックします。
+     </para>
+     <figure>
+      <title>YaSTクラスタ - Csync2</title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="yast2_cluster_sync.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="yast2_cluster_sync.png" width="75%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+    </step>
+    <step performance="required">
+     <para>
+      同期するファイルのリストからファイルを<guimenu>編集</guimenu>、<guimenu>追加</guimenu>、または<guimenu>削除</guimenu>する場合は、該当する各ボタンを使用します。ファイルごとに絶対パス名を入力する必要があります。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <guimenu>Csync2をオンにする</guimenu>をクリックして、Csync2をアクティブにします。これによって次のコマンドが実行され、ブート時にCsync2が自動的に起動します。
+     </para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> enable csync2.socket</screen>
+    </step>
+    <step performance="required">
+     <para>
+      既存のクラスタでオプションを変更した場合、変更を確認して、クラスタモジュールを終了します。YaSTがCsync2の設定内容を<filename>/etc/csync2/csync2.cfg</filename>に書き込みます。ここで同期プロセスを開始するには、<xref linkend="pro.ha.installation.setup.csync2.start"/>で続行します。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      クラスタ設定を先に進めるには、<guimenu>次へ</guimenu>をクリックして、<xref linkend="sec.ha.installation.setup.conntrackd"/>で続行します。
+     </para>
+    </step>
+   </procedure>
+   <procedure id="pro.ha.installation.setup.csync2.start">
+    <title>Csync2による設定ファイルの同期</title>
+    <para>
+     Csync2でファイルを正常に同期するには、次の前提条件を満たしておく必要があります。
+    </para>
+    <itemizedlist mark="bullet" spacing="normal">
+     <listitem>
+      <para>
+       同じCsync2設定をすべてのノードで使用できる必要があります。ファイル<filename>/etc/csync2/csync2.cfg</filename>を、<xref linkend="pro.ha.installation.setup.csync2.yast"/>で説明されるとおりに設定した後、すべてのノードに手動でコピーします。このファイルはCsync2で同期されるファイルのリストに含めることを推奨します。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <xref linkend="step.csync2.generate.key"/>の1つのノードで作成した<filename>/etc/csync2/key_hagroup</filename>ファイルを、クラスタ内の<emphasis/>すべてのノードにコピーしてください。このファイルは、Csync2による認証で必要になります。ただし、すべてのノードで同じファイルでなければならないので、他のノードではファイルを再生成<emphasis/>しないでください。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Csync2および<systemitem class="daemon">xinetd</systemitem>の両方が<emphasis>すべての</emphasis>ノード上で実行している必要があります。
+      </para>
+      <note>
+       <title>ブート時にサービスを開始</title>
+       <para>
+        すべてのノード上で次のコマンドを実行し、両サービスをブート時に自動的に開始させ、すぐに<systemitem class="daemon">xinetd</systemitem>を起動させます。
+       </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> enable csync2.socket
+<prompt role="root">root # </prompt><command>systemctl</command> enable xinetd.service
+<prompt role="root">root # </prompt><command>systemctl</command> start xinetd.service</screen>
+      </note>
+     </listitem>
+    </itemizedlist>
+    <step performance="required">
+     <para>
+      設定をコピーしたいノード<emphasis>から</emphasis>、次のコマンドを実行します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-xv</option></screen>
+     <para>
+      これによって、すべてのファイルをその他のノードにプッシュすることで、一度に同期を行います。すべてのファイルが正常に同期されると、Csync2がエラーなしで終了します。
+     </para>
+     <para>
+      同期対象の1つ以上のファイルが(現在のノードだけでなく)他のノード上で変更されている場合は、Csync2から衝突が報告されます。次の出力とよく似た出力が表示されます。
+     </para>
+<screen>While syncing file /etc/corosync/corosync.conf:
+ERROR from peer hex-14: File is also marked dirty here!
+Finished with 1 errors.</screen>
+    </step>
+    <step performance="required">
+     <para>
+      現在のノードのファイルバージョンが<quote>最良</quote>だと確信する場合は、そのファイルを強制して再同期を行い、競合を解決できます。
+     </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-f</option> /etc/corosync/corosync.conf
+<command>csync2</command> <option>-x</option></screen>
+    </step>
+   </procedure>
+   <para>
+    Csync2オプションの詳細については、<command>csync2 <option>-help</option></command>を実行してください。
+   </para>
+   <note>
+    <title>変更後の同期のプッシュ</title>
+    <para>
+     Csync2は変更のみをプッシュします。ノード間のファイルを絶えず同期しているわけでは<emphasis>ありません</emphasis>。
+    </para>
+    <para>
+     同期が必要なファイルを更新する際はいつも、変更を加えたノード上で<command>csync2 <option>-xv</option></command>を実行することで、変更をその他のノードにプッシュする必要があります。変更されていないファイルを持つその他のノード上でこのコマンドを実行しても、何も起こりません。
+    </para>
+   </note>
+  </sect2>
+
+  <sect2 id="sec.ha.installation.setup.conntrackd">
+   <title>クラスタノード間の接続ステータスの同期</title>
+   <para>
+    iptablesで<emphasis>ステートフルな</emphasis>パケットインスペクションを有効にするには、次の基本手順に従ってconntrackツールを設定、使用します。
+   </para>
+   <procedure>
+    <step performance="required">
+     <para>
+      <xref linkend="pro.ha.installation.setup.conntrackd" xrefstyle="select:title"/>。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <systemitem class="daemon">conntrackd</systemitem> (クラス: <literal>ocf</literal>、プロバイダ: <literal>heartbeat</literal>)のリソースの設定。Hawkを使用する場合、Hawkによって提案されるデフォルト値を使用します。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    conntrackツールを設定したら、これをLinux Virtual Serverで使用できます。<xref linkend="cha.ha.lb" xrefstyle="select:title"/>を参照してください。
+   </para>
+
+   <procedure id="pro.ha.installation.setup.conntrackd">
+    <title>YaSTによる<systemitem class="resource">conntrackd</systemitem>の設定</title>
+    <para>
+     YaSTクラスタモジュールを使用して、ユーザスペース<systemitem class="daemon">conntrackd</systemitem>を設定します。これには、その他の通信チャネルに使用されていない専用のネットワークインタフェースが必要です。デーモンは後でリソースエージェントによって起動できます。
+    </para>
+    <step performance="required">
+     <para>
+      YaSTクラスタモジュール内で、<guimenu>conntrackdの設定</guimenu>カテゴリに切り替えます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <guimenu>専用インタフェース</guimenu>を選択して、接続ステータスを同期します。選択したインタフェースのIPv4アドレスが自動的に検出され、YaSTに表示されます。これはすでに設定済みで、マルチキャストをサポートしている必要があります。
+
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      接続ステータスの同期に使用する<guimenu>マルチキャストアドレス</guimenu>を定義します。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <guimenu>グループ番号</guimenu>で、接続ステータスを同期させるグループのID番号を定義します。
+      
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <guimenu>/etc/conntrackd/conntrackd.conf の生成</guimenu>をクリックして、<systemitem class="daemon">conntrackd</systemitem>の設定ファイルを作成します。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      既存のクラスタでオプションを変更した場合、変更を確認して、クラスタモジュールを終了します。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      クラスタ設定を先に進めるには、<guimenu>次へ</guimenu>をクリックして、<xref linkend="sec.ha.installation.setup.services"/>で続行します。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaSTクラスタ - <systemitem class="resource">conntrackd</systemitem></title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_conntrackd.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_conntrackd.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 id="sec.ha.installation.setup.services">
+   <title>サービスの設定</title>
+   <para>
+    YaSTクラスタモジュールは、ブート時にノード上で一定のサービスを開始するかどうか定義します。サービスを手動で開始または停止するためにモジュールを使用することもできます。クラスタノードをオンラインにし、クラスタリソースマネージャを起動するには、Pacemakerをサービスとして実行する必要があります。
+   </para>
+   <procedure id="pro.ha.installation.setup.services">
+    <title>Pacemakerの有効化</title>
+    <step performance="required">
+     <para>
+      YaSTクラスタモジュール内で、<guimenu>サービス</guimenu>カテゴリに切り替えます。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      このクラスタノードがブートするたびにPacemakerを起動するには、<guimenu>ブート</guimenu>グループで該当するオプションを選択します。<guimenu>ブート</guimenu>グループで、<guimenu>オフ</guimenu>を選択する場合は、このノードがブートするたびに手動でPacemakerを起動する必要があります。Pacemakerを手動で起動するには、次のコマンドを使用します。
+     </para>
+      <screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker.service</screen>
+    </step>
+     <step performance="required">
+     <para>
+      Pacemakerをただちに起動または停止するには、それぞれのボタンをクリックします。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      既存のクラスタノードでオプションを変更した場合、変更を確認して、クラスタモジュールを終了します。この設定は、すべてのクラスタノードではなく、ご使用のマシンにのみ適用されることにご注意ください。
+     </para>
+     <para>
+      YaSTクラスタモジュールでのみ最初のクラスタセットアップを完了している場合、ここで基本的な設定手順が完了したことになります。<xref linkend="sec.ha.installation.start"/>に従って手順を進めます。
+     </para>
+     <figure>
+      <title>YaSTクラスタ - サービス</title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="yast2_cluster_services.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="yast2_cluster_services.png" width="75%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 id="sec.ha.installation.start">
+   <title>クラスタをオンラインにする</title>
+   <para>
+    最初のクラスタ設定が完了した後、<emphasis/>各クラスタノード上でPacemakerサービスを開始し、スタックをオンラインにします。
+   </para>
+   <procedure>
+    <title>Pacemakerの開始とその状態の確認</title>
+    <step performance="required">
+     <para>
+      既存のノードにログインします。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      サービスがすでに実行していることを確認します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> status pacemaker.service</screen>
+     <para>
+      実行されていない場合、Pacemakerをすぐに開始します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker.service</screen>
+    </step>
+    <step performance="required">
+     <para>
+      それぞれのクラスタノードに対してこの手順を繰り返します。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      ノードの1つで、<command>crm status</command>コマンドを使用してクラスタの状態を確認します。すべてのノードがオンラインの場合、出力は次のようになります。
+     </para>
+     <screen><prompt role="root">root # </prompt>crm status
+      Last updated: Thu Jul  3 11:07:10 2014
+      Last change: Thu Jul  3 10:58:43 2014
+      Current DC: alice (175704363) - partition with quorum
+      2 Nodes configured
+      0 Resources configured
+      
+      Online: [ alice bob ]</screen>
+     <para>
+      この出力は、クラスタリソースマネージャが起動し、リソースを管理できる状態にあることを示しています。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    基本設定を完了し、ノードがオンラインになったら、クラスタリソースの設定を開始できます。crmシェル(crmsh)やHA Web Konsoleなどのクラスタ管理ツールのいずれかを使用します。詳細については、<xref linkend="cha.ha.manual_config"/>または<xref linkend="cha.ha.config.hawk"/>を参照してください。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.installation.autoyast">
+  <title>AutoYaSTによる大量展開</title>
+
+  <para>
+   既存ノードのクローンであるクラスタノードを展開する場合は、次の手順を使用できます。クローンしたノードには、同じパッケージがインストールされ、クローンノードは同じシステム設定を持つことになります。
+  </para>
+
+
+
+  <procedure id="pro.ha.installation.clone.node">
+   <title>AutoYaSTによるクラスタノードのクローン作成</title>
+   <important>
+    <title>同一のハードウェアを使用している環境</title>
+    <para>
+     このシナリオでは、同じハードウェア構成の一連のマシンに<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12</phrase></phrase>が展開されていることが想定されています。
+    </para>
+   </important>
+   <para>同じでないハードウェア上にクラスタノードを展開する必要がある場合は、『SUSE Linux Enterprise 12 導入ガイド<citetitle><phrase role="productnumber"><phrase os="sles"/></phrase></citetitle>』の「自動インストール」の章、セクション「ルールベースの自動インストール」<citetitle/><citetitle/>を参照してください(<ulink url="http://www.suse.com/doc"/>から入手可能)。 </para>
+   <step performance="required">
+    <para>
+     クローンを作成するノードが正しくインストールされ、設定されていることを確認します。詳細については、<xref linkend="sec.ha.installation.add-on"/>、<xref linkend="sec.ha.installation.setup.auto"/>、または<xref linkend="sec.ha.installation.setup.manual"/>をそれぞれ参照してください。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     単純な大量インストールについては、『SUSE Linux Enterprise 12 導入ガイド<citetitle><phrase role="productnumber"><phrase os="sles"/></phrase></citetitle>』に概説された内容に従ってください。これには、次の基本ステップがあります。
+    </para>
+    <substeps performance="required">
+     <step performance="required">
+      <para>
+       AutoYaSTプロファイルの作成AutoYaST GUIを使用して、既存のシステム設定をもとにプロファイルを作成し、変更します。AutoYaSTでは、<guimenu>高可用性</guimenu>モジュールを選択し、<guimenu>クローン</guimenu>ボタンをクリックします。必要な場合は、他のモジュールの設定を調整し、その結果のコントロールファイルをXMLとして保存します。
+      </para>
+      
+      <para>DRBDを設定した場合、AutoYaST GUIでこのモジュールを選択してクローンを作成することもできます。</para>
+     </step>
+     <step performance="required">
+      <para>
+       AutoYaSTプロファイルのソースと、他のノードのインストールルーチンに渡すパラメータを決定します。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       SUSE Linux Enterprise Serverのソースと<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>インストールデータを決定します。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       自動インストールのブートシナリオを決定し、設定します。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       パラメータを手動で追加するか、または<filename>info</filename>ファイルを作成することにより、インストールルーチンにコマンド行を渡します。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       自動インストールプロセスを開始および監視します。
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+
+  <para>
+   クローンのインストールに成功したら、次の手順を実行して、クローンノードをクラスタに加えます。
+  </para>
+
+  <procedure id="pro.ha.installation.clone.start">
+   <title>クローンノードをオンラインにする</title>
+   <step performance="required">
+    <para>
+     <xref linkend="sec.ha.installation.setup.csync2"/>の説明に従って、Csync2を使用して、設定済みのノードからクローンノードへ重要な設定ファイルを転送します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     ノードをオンラインにするには、<xref linkend="sec.ha.installation.start"/>の説明のとおり、クローンノード上でPacemakerサービスを開始します。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   これで、<filename>/etc/corosync/corosync.conf</filename>ファイルがCsync2を介してクローンノードに適用されたので、クローンノードがクラスタに加わります。CIBは、クラスタノード間で自動的に同期されます。
+  </para>
+ </sect1>
+</chapter>

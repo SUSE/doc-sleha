@@ -1,0 +1,421 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd">
+<!--
+*********************************
+Please see LICENSE.txt for this document's license.
+*********************************
+-->
+<chapter xml:base="ha_rear.xml" id="cha.ha.rear">
+ <title>使用 Rear (Relax-and-Recover) 实现灾难恢复</title>
+ <abstract>
+  <para>
+   Relax-and-Recover（以前称为 <quote>ReaR</quote>，在本章中缩写为 Rear）是用于创建灾难恢复映像的管理员工具集。灾难恢复信息可通过网络储存，也可本地储存在硬盘、USB 设备、DVD/CD-R、磁带或类似媒体上。备份数据储存在网络文件系统 (NFS) 上。
+  </para>
+
+  <para>
+   请记住，必须在发生任何灾难<emphasis>之前</emphasis>配置并测试 Rear。如果灾难已经发生，使用 Rear 也无济于事。
+  </para>
+ </abstract>
+ <warning>
+  <title>需要大量测试</title>
+  <para>
+   每当创建灾难恢复媒体时，都<emphasis>始终</emphasis>必须使用<emphasis>相同的</emphasis>测试计算机测试灾难恢复。只有此过程的结果令人满意，才说明灾难恢复系统的设置正确、可靠。
+  </para>
+ </warning>
+  
+ 
+ <sect1 id="sec.ha.rear.concept">
+  <title>概念概述</title>
+   <para>Rear 支持多种备份工具（Tivoli Storage Manager、QNetix Galaxy、Symantec NetBackup、EMC NetWorker 和 HP DataProtector），并可以将其恢复媒体输出到 CD 或 PXE 环境中。恢复步骤可通过 NFS、CIFS 或其他网络文件系统执行。
+  </para>
+  <para>
+    要使用 Rear，至少需要两个相同的系统：储存生产环境的主计算机，以及测试计算机。<quote>相同的</quote>在此环境中表示，例如，使用同一内核驱动程序的网卡可以相互替换。如果某个硬件组件使用的是不同的驱动程序，则 Rear 不会认为它与其他组件相同。
+  </para> 
+  <para>
+   SUSE Linux Enterprise Server 在 <systemitem class="resource">rear<replaceable>版本</replaceable></systemitem>包中随附了一个灾难恢复系统。 
+  </para>
+   <para>  
+    请按以下方式使用 Rear：
+  </para>
+
+  <orderedlist spacing="normal">
+   <listitem>
+    <formalpara>
+     <title>准备</title>
+     <para>
+      制作可引导的 CD 备份系统。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>测试</title>
+     <para>
+      <emphasis>在任何灾难发生之前</emphasis>，全面测试恢复过程并测试主系统所在硬件上的备份！
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>恢复</title>
+     <para>
+      从恢复媒体引导，然后从备份恢复系统。
+     </para>
+    </formalpara>
+   </listitem>
+  </orderedlist>
+
+  <para>
+   为了准备救援媒体，Rear 将会执行以下步骤：
+  </para>
+
+  <orderedlist spacing="normal">
+   <title>Rear 准备恢复媒体</title>
+   <listitem>
+    <para>
+     从目标系统收集系统信息。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     储存磁盘布局（分区、文件系统、LVM、RAID 和引导加载程序）。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     克隆系统（内核驱动程序和模块、设备驱动程序配置、网络配置、系统软件和工具）。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     备份系统和用户数据。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用系统配置创建可引导的恢复媒体。
+    </para>
+   </listitem>
+  </orderedlist>
+
+  <para>
+   当灾难发生时，恢复过程包括以下操作：
+  </para>
+
+  <orderedlist spacing="normal">
+   <title>恢复过程</title>
+   <listitem>
+    <para>
+     从恢复媒体引导。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     恢复磁盘布局（分区、RAID 配置、LVM 和文件系统）。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     恢复系统和用户数据。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     恢复引导加载程序。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     重引导系统。
+    </para>
+   </listitem>
+  </orderedlist>
+ 
+  <note>
+    <title>Rear 和 Btrfs 文件系统中的子卷与快照</title>
+    <para>     
+      您应该了解，由于技术和概念方面的问题，Rear 和 Btrfs 工具存在一些限制：
+    </para>
+    <itemizedlist mark="bullet" spacing="normal">
+      <listitem>
+        <formalpara>
+          <title>包含子卷但不包含快照的 Btrfs</title>
+          <para>至少需要使用 Rear 版本 1.15，因为此版本支持恢复 Btrfs 子卷结构。可以备份和恢复数据。</para>
+        </formalpara>
+      </listitem>
+      <listitem>
+        <formalpara>
+          <title>包含子卷和快照的 Btrfs</title>
+          <para>无法对快照中的数据执行一般的备份和恢复。普通的备份工具（例如 <command>tar</command>）无法将数据与 Btrfs 快照结构区分开。解决方法之一是排除 Btrfs 快照中的数据，并将此数据与一般数据分开储存。
+          </para>
+        </formalpara>
+      </listitem>
+    </itemizedlist>
+  </note>
+ </sect1>
+  
+ <sect1 id="sec.ha.rear.drp">
+  <title>应对最坏情境：灾难恢复方案</title>
+
+  <para>
+   发生最坏情境<emphasis>之前</emphasis>，采取措施准备<emphasis>灾难恢复计划</emphasis>。灾难恢复计划是一个文档，它集中了所有风险、基础设施和预算。您可能已经准备了一些计划，但下面是常规概述：
+  </para>
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <formalpara>
+     <title>风险分析</title>
+     <para>
+      对基础设施进行可靠的风险分析。列出所有可能的威胁并评估它们的严重性。确定这些威胁的相似程度并划分优先级。建议使用简单的分类：可能性和影响。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>预算计划</title>
+     <para>
+      分析结果是一个概述，指出哪些风险可以忍受，哪些风险对业务非常关键。请自问一下，如何最大限度降低风险以及降低风险所需的费用。根据公司的规模，在灾难恢复方面的花费占总体 IT 预算的 2% 到 15%。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>灾难恢复计划开发</title>
+     <para>
+      制作核对清单、测试过程、建立并指派优先级以及列出 IT 基础设施库存。定义当基础设施中的一些服务失败时，如何处理问题。
+      
+      
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>测试</title>
+     <para>
+      定义详细的计划后，测试该计划。每年至少测试一次。使用与主要 IT 基础设施相同的测试硬件。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 id="sec.ha.rear.config.rear">
+  <title>设置 Rear</title>
+   <para>要配置 Rear，请将您的选项添加到配置文件 <filename>/etc/rear/local.conf</filename> 中。以前的文件 <filename>/etc/rear/sites.conf</filename> 已从包中去除。如果您上次设置时添加了这样一个文件，Rear 将会继续使用该文件。
+   </para>
+   <para>定义输出方法，为此，请使用 <varname>OUTPUT</varname> 
+     变量. 例如，要将恢复媒体输出为 ISO 映像，请使用：
+   </para>
+   <screen>OUTPUT=ISO</screen>
+   <para>更改配置文件后，请通过运行以下命令来确保所有设置都正确无误：</para>
+   <screen>rear dump</screen>
+   <para>检查输出并查看有无错误。</para>
+   
+   <para>
+     要了解更多信息，请参见 Rear 的手册页 (<command>man</command> <option>rear</option>)。
+   </para>    
+ </sect1>
+  
+ <sect1 id="sec.ha.rear.config.nfs">
+  <title>在 NFS 服务器上储存备份</title>
+  <para>
+   Rear 可在多种情境下使用。以下示例使用 NFS 服务器作为备份储存：
+  </para>
+
+  <procedure id="pro.ha.rear.nfs-server-backup">
+   <title>在 NFS 服务器上储存备份</title>
+   <step performance="required">
+    <para> 根据《SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12</phrase></phrase> 管理指南》的“<citetitle>通过 NFS 共享文件系统</citetitle>”一章中所述，使用 YaST 设置 NFS 服务器。网址：<ulink url="http://www.suse.com/documentation/"/>。 </para>
+   </step>
+   <step performance="required">
+     <para>确保 <filename>/etc/exports</filename> 文件中包含 NFS 服务器的正确配置：</para>
+     <screen>/srv/nfs    *(fsid=0,crossmnt,rw,no_root_squash,sync,no_subtree_check)</screen>
+   </step>
+   <step performance="required">
+    <para>
+     调整配置文件 <filename>/etc/rear/local.conf</filename>。用自己的值替换 <option>NETFS_URL</option>。 
+     </para>
+     <para>
+     如果您的 NFS 主机不是 IP 地址而是主机名，则在恢复备份时，DNS 必须处于运行状态。以下网址处的文档的 <citetitle>Various Settings</citetitle>（各种设置）部分列出了更多选项：<ulink url="http://rear.github.com/documentation/"/>。
+     
+     
+    </para>
+    <screen># Create rear rescue media as ISO image:
+OUTPUT=ISO
+# Store the backup file via NFS on an NFS server:
+BACKUP=NETFS
+# BACKUP_OPTIONS variable contains the NFS mount options and
+# with 'mount -o nolock' no rpc.statd (plus rpcbind) are needed:
+BACKUP_OPTIONS="nfsvers=3,nolock"
+# If the NFS server is not an IP address but a hostname,
+# DNS must work in the rear recovery system when the backup is restored.
+BACKUP_URL=nfs://192.168.1.1/nfs/rear/
+# Keep an older copy of the backup in a HOSTNAME.old directory
+# provided there is no '.lockfile' in the HOSTNAME directory:
+NETFS_KEEP_OLD_BACKUP_COPY=yes
+# Files in btrfs subvolumes are excluded by 'tar --one-file-system'
+# so that such files must be explictly included to be in the backup.
+# Files in the following SLE12 default btrfs subvolumes are
+# in the below example not included to be in the backup
+#   /.snapshots/*  /var/tmp/*  /tmp/*  /var/crash/*
+# but files in /home/* are included to be in the backup
+# (one line!):
+BACKUP_PROG_INCLUDE=( '/home/*' '/var/spool/*' '/var/opt/*' '/var/log/*' 
+  '/var/lib/pgsql/*' '/var/lib/mailman/*' '/var/lib/named/*' '/usr/local/*' 
+  '/srv/*' '/boot/grub2/x86_64-efi/*' '/opt/*' '/boot/grub2/i386-pc/*' )
+# Avoid that "rear recover" is 'Creating btrfs-filesystem' by default
+# also for every mounted btrfs subvolume by excluding the mountpoints
+# of the mounted btrfs subvolumes from component recreation
+# see /usr/share/doc/packages/rear/user-guide/06-layout-configuration.txt
+# and /usr/share/rear/conf/default.conf
+# When /home is a separated filesystem remove "fs:/home" from the list below
+# (one line!):
+EXCLUDE_RECREATE=( "${EXCLUDE_RECREATE[@]}" "fs:/home" "fs:/.snapshots" 
+   "fs:/var/tmp" "fs:/var/spool" "fs:/var/opt" "fs:/var/log" 
+   "fs:/var/lib/pgsql" "fs:/var/lib/mailman" "fs:/var/lib/named" 
+   "fs:/usr/local" "fs:/tmp" "fs:/srv" "fs:/var/crash" 
+   "fs:/boot/grub2/x86_64-efi" "fs:/opt" "fs:/boot/grub2/i386-pc" )
+# This option defines a root password to allow SSH connection
+# without a public/private key pair
+#SSH_ROOT_PASSWORD="password_on_the_rear_recovery_system"</screen>
+
+   </step>
+   <step performance="required">
+    <para>
+     运行以下命令准备备份：
+    </para>
+<screen>rear -v mkbackup</screen>
+   </step>
+  </procedure>
+
+  <para>
+   要在测试机上执行灾难恢复，请如下所示继续：
+  </para>
+
+  <procedure>
+   <title>在测试机上执行灾难恢复</title>
+   <step performance="required">
+    <para>
+     找到以 <filename>/var/lib/rear/output/rear-<replaceable>主机名</replaceable>.iso</filename> 名称储存的恢复 ISO 映像，将其刻录到 CD 上。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     使用恢复 CD 引导测试机。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+      从菜单选项中选择<guimenu>恢复名称</guimenu>并按 <keycap function="enter"/>。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     以 <systemitem class="username">root</systemitem> 用户身份登录（无需密码）。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     输入 <command>rear recover</command> 以启动恢复过程。恢复过程安装并配置计算机并从 NFS 服务器检索备份数据。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   执行此过程后，确保测试机已正确设置，并可替代主机。定期测试此过程，确保一切按预期运行。保留恢复 CD 的副本，以防媒体损坏。
+  </para>
+   
+  <para>要将 EMC Networker 用作备份工具，请使用以下配置文件（相应地更改 <option>BACKUP_URL</option>）：</para>
+   <screen>BACKUP=NSR
+OUTPUT=ISO
+BACKUP_URL=nfs://dd990.example.com/data/col1/rear/backup
+OUTPUT_URL=nfs://dd990.example.com/data/col1/rear/output
+NSRSERVER=backupserver.example.com
+RETENTION_TIME="Month"</screen>
+ </sect1>
+  
+ <sect1 id="sec.ha.rear.config.yast2-rear">
+  <title>使用 YaST Rear 模块</title>
+  
+  
+
+  <para>
+   YaST Rear 模块可用于进行基本设置。Rear 将恢复映像和数据保存于 NFS 后端或闪存盘中。但是，YaST Rear 模块不支持从灾难中恢复。这需要一些专业知识，并且需要由管理员手动完成。
+  </para>
+
+  <para>
+   要启动基本设置，请按如下操作：
+  </para>
+
+  <procedure>
+   <step performance="required">
+    <para>
+     确定如何启动恢复系统。如果您要从闪存盘引导，请选择 <guimenu>USB</guimenu>；如果要从 CD-ROM 引导，请选择 <guimenu>ISO</guimenu>。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     确定备份要存储的位置。选择 <guimenu>NFS</guimenu> 或 <guimenu>USB</guimenu>。
+    </para>
+    <itemizedlist mark="bullet" spacing="normal">
+     <listitem>
+      <para>
+       如果需要使用提供网络文件系统的服务器，请选择 <guimenu>NFS</guimenu>。指定该位置为 <filename>nfs://hostname/directory</filename>。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       如果您想将数据存储在 USB 记忆棒中，请选择 <guimenu>USB</guimenu>。如果没有显示 USB 设备，请连接闪存盘或 USB 磁盘，然后单击<guimenu>重新扫描 USB 设备</guimenu>。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step performance="required">
+    <para>
+     如果您想保存以前的备份副本，请查看<guimenu>保存旧的备份</guimenu>。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     如果您想添加也应包含于备份中的附加目录，请使用<guimenu>高级</guimenu>菜单并选择<guimenu>备份中其他目录</guimenu>。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     如果因内核模块缺失而使救援系统无法引导，请使用<guimenu>高级</guimenu>菜单，选择<guimenu>救援系统中的其他内核模块</guimenu>，并将相应的内核模块添加到为救援系统添加的模块的列表中。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     单击<guimenu>立即保存并运行 rear</guimenu>按钮，启动备份进程。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   YaST Rear 模块完成备份后，请测试备份以确保其按预期工作。
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.rear.more">
+  <title>更多信息</title>
+
+
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <para>
+     <ulink url="http://en.opensuse.org/SDB:Disaster_Recovery"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>rear</command> 手册页
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>/usr/share/doc/packages/rear/README</filename>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>

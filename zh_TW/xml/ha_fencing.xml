@@ -1,0 +1,549 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd">
+<!--
+*********************************
+Please see LICENSE.txt for this document's license.
+*********************************
+-->
+<chapter xml:base="ha_fencing.xml" id="cha.ha.fencing">
+ <title>圍籬區隔與 STONITH</title>
+
+ <abstract>
+ 
+  <para>
+   在 HA (High Availability) 的電腦叢集中，圍籬區隔是一個極其重要的概念。叢集有時會偵測到其中一個節點行為異常，需要將其移除。這稱為「<emphasis>圍籬區隔</emphasis>」，通常透過 STONITH 資源來執行。可將圍籬區隔定義為讓 HA 叢集處於已知狀態一種方法。
+  </para>
+
+  <para>
+   叢集中的每個資源都有相關的狀態。例如：<quote>資源 r1 已在 alice 上啟動</quote>。在 HA 叢集中，這樣的狀態隱含<quote>資源 r1 已在除節點 alice 之外的所有節點上停止</quote>的含義，因為叢集必須確保每個資源只能在一個節點上啟動。每個節點都必須報告資源發生的每一項變更。因此，叢集狀態是資源狀態和節點狀態的集合。
+  </para>
+
+  <para>
+   如果無法確切判斷某個節點或資源的狀態，就會觸發圍籬區隔。即使叢集未注意到指定節點上發生了狀況，圍籬區隔也可以確保該節點不會執行任何重要的資源。
+  </para>
+ </abstract>
+ 
+ 
+ <sect1 id="sec.ha.fencing.classes">
+  <title>圍籬區隔的類別</title>
+
+  <para>
+   有兩類圍籬區隔：資源層級圍籬區隔和節點層級圍籬區隔。後者為本章的主要主題。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>資源層級圍籬區隔</term>
+    <listitem>
+     <para>
+      如果使用資源層級圍籬區隔，叢集可以確保節點無法存取一或多個資源。一個典型範例為 SAN，在此範例中，圍籬區隔操作會變更 SAN 交換器上的規則，以拒絕從節點進行存取。
+     </para>
+     <para>
+      資源層級的圍籬區隔可利用要保護之資源所依賴的一般資源來實現。此資源只需拒絕在此節點上啟動，所依賴的資源亦不會在該節點上執行。
+      
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>節點層級圍籬區隔</term>
+    <listitem>
+     <para>
+      節點層級圍籬區隔可確保節點不會執行任何資源。這通常可以透過一種簡單但稍嫌強制的方法來實現：重設或關閉節點。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 id="sec.ha.fencing.nodes">
+  <title>節點層級圍籬區隔</title>
+
+  <para>
+   在 <phrase role="productnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> 中，圍籬區隔透過 STONITH (Shoot The Other Node in the Head) 來實現。它提供節點層級的圍籬區隔。High Availability Extension 提供了 <command>stonith</command> 指令行工具，此為一個可擴充介面，用於從遠端關閉叢集中的節點。如需可用選項的綜覽，請執行 <command>stonith --help</command>，如需詳細資訊，請參閱 <command>stonith</command> 的 man 頁面。
+  </para>
+
+  <sect2 id="sec.ha.fencing.nodes.devices">
+   <title>STONITH 裝置</title>
+   <para>
+    若要使用節點層級圍籬區隔，首先需要擁有一個圍籬區隔裝置。若要取得 High Availability Extension 支援的 STONITH 裝置清單，請在任何節點上以 <systemitem class="username">root</systemitem> 身分執行以下指令：
+   </para>
+<screen>stonith -L</screen>
+   <para>
+    STONITH 裝置可分為以下類別：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>配電裝置 (PDU)</term>
+     <listitem>
+      <para>
+       在管理重要網路、伺服器和資料中心設備的電源容量和功能方面，配電裝置扮演著至關重要的角色。它們可以提供已連接設備的遠端負載監控功能，並可進行個別插座電源控制以實現遠端電能回收。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>不斷電供電系統 (UPS)</term>
+     <listitem>
+      <para>
+       市電電源中斷時，透過其他來源供電的穩定供電系統可為連接的設備提供應急電能。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>刀鋒電源控制裝置</term>
+     <listitem>
+      <para>
+       如果您在一組刀鋒上執行叢集，則刀鋒機箱中的電源控制裝置是圍籬區隔唯一的候選裝置。當然，此裝置必須能夠管理單一刀鋒電腦。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>無人職守裝置 </term>
+     <listitem>
+      <para>
+       無人職守裝置 (IBM RSA、HP iLO、Dell DRAC) 越來越受歡迎，甚至可能會成為現貨電腦的標準裝置。不過，它們略遜於 UPS 裝置，因為它們與其主機 (叢集節點) 共享電源。如果節點斷電，則應該控制該節點的裝置就失去作用。此時，CRM 仍會不斷嘗試圍籬區隔該節點，而所有其他資源操作都需要等待該圍籬區隔/STONITH 操作完成。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>測試裝置</term>
+     <listitem>
+      <para>
+       測試裝置專用於測試用途。在硬體上，對測試裝置的要求通常比較寬松。在叢集投入運營之前，必須以真正的圍籬區隔裝置取代這些裝置。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    選擇何種 STONITH 裝置主要取決於您的預算及所使用的硬體類型。
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.fencing.nodes.implementation">
+   <title>STONITH 實作</title>
+   <para>
+    <phrase role="productnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> 的 STONITH 實作包含兩個元件：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>stonithd</term>
+     <listitem>
+      <para>
+       stonithd 是一個可由本地程序或透過網路進行存取的精靈。它接受圍籬區隔操作的相應指令，包括重設、關機和開機。它還可以檢查圍籬區隔裝置的狀態。
+      </para>
+      <para>
+       stonithd 精靈在 CRM HA 叢集中的每個節點上執行。在 DC 節點上執行的 stonithd 例項接收來自 CRM 的圍籬區隔要求。須由此程式及其他 stonithd 程式決定是否執行所需的圍籬區隔操作。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>STONITH 外掛程式</term>
+     <listitem>
+      <para>
+       每個受支援的圍籬區隔裝置都有一個可控制該裝置的 STONITH 外掛程式。STONITH 外掛程式是圍籬區隔裝置的介面。在每個節點上，所有 STONITH 外掛程式都位於 <filename>/usr/lib/stonith/plugins</filename> 中 (在 64 位元架構中，其目錄為 <filename>/usr/lib 64/stonith/plugins</filename>)。對於 stonithd 而言，所有 STONITH 外掛程式看起來都是一樣的，但在反映圍籬區隔裝置性質這一方面則大不相同。
+      </para>
+      <para>
+       某些外掛程式支援多個裝置。典型範例為 <literal>ipmilan</literal> (或 <literal>external/ipmi</literal>)，它實作 IPMI 通訊協定並可控制支援此通訊協定的任何裝置。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.fencing.config">
+  <title>STONITH 組態</title>
+
+  <para>
+   若要設定圍籬區隔，您需要設定一或多個 STONITH 資源，stonithd 精靈不需要任何組態設定。所有組態皆儲存在 CIB 中。STONITH 資源就是類別為 <literal>stonith</literal> 的資源 (請參閱<xref linkend="sec.ha.config.basics.raclasses"/>)。STONITH 資源是 STONITH 外掛程式在 CIB 中的表示。除圍籬區隔操作之外，還可對 STONITH 資源執行啟動、停止和監控操作，就如同對任何其他資源一樣。啟動或停止 STONITH 資源意味著載入和卸載節點上的 STONITH 裝置驅動程式。因此，啟動和停止只是管理操作，不能轉換為圍籬區隔裝置本身的任何操作。但是，監控並不意味著需要登入裝置 (若要驗證在需要時裝置是否會正常運作)。當 STONITH 資源容錯移轉至另一個節點後，會載入相應驅動程式以使目前節點可與 STONITH 裝置通訊。
+  </para>
+
+  <para>
+   您可以像對任何其他資源一樣來設定 STONITH 資源。如需有關設定資源的詳細資訊，請參閱<xref linkend="sec.ha.config.hawk.stonith"/>或<xref linkend="sec.ha.manual_create.stonith"/>。
+  </para>
+
+  <para>
+   參數 (屬性) 清單的內容取決於 STONITH 的相應類型。若要檢視特定裝置的參數清單，請使用 <command>stonith</command> 指令︰
+  </para>
+
+<screen>stonith -t <replaceable>stonith-device-type</replaceable> -n</screen>
+
+  <para>
+   例如，若要檢視 <literal>ibmhmc</literal> 裝置類型的參數，請輸入以下指令：
+  </para>
+
+<screen>stonith -t ibmhmc -n</screen>
+
+
+
+  <para>
+   若要取得裝置的簡短說明文字，請使用 <option>-h</option> 選項：
+  </para>
+
+<screen>stonith -t <replaceable>stonith-device-type</replaceable> -h</screen>
+
+  <sect2 id="sec.ha.fencing.config.examples">
+   <title>STONITH 資源組態範例</title>
+   <para>
+    下面提供了使用 <command>crm</command> 指令行工具的語法撰寫的一些範例組態。若要套用它們態，請將範例放入文字檔中 (例如，<filename>sample.txt</filename>)，然後執行以下指令：
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> &lt; sample.txt</screen>
+   <para>
+    如需有關使用 <command>crm</command> 指令行工具設定資源的詳細資訊，請參閱<xref linkend="cha.ha.manual_config"/>。
+   </para>
+   <warning>
+    <title>測試組態</title>
+    <para>
+     下面提供的一些範例僅用於示範和測試用途。切勿在現實叢集案例中使用任何<literal>測試組態</literal>範例。
+    </para>
+   </warning>
+   <example>
+    <title>測試組態</title>
+    <para/>
+<screen>configure
+primitive st-null stonith:null \
+params hostlist="alice bob"
+clone fencing st-null
+commit
+   </screen>
+   </example>
+   <example>
+    <title>測試組態</title>
+    <para>
+     代用組態：
+    </para>
+<screen>configure
+ primitive st-alice stonith:null \
+ params hostlist="alice"
+ primitive st-bob stonith:null \
+ params hostlist="bob"
+ location l-st-alice st-alice -inf: alice
+ location l-st-bob st-bob -inf: bob
+ commit</screen>
+    <para>
+     如果關注叢集軟體，則此組態範例極其適用。與現實組態的唯一區別在於不發生任何圍籬區隔操作。
+    </para>
+   </example>
+   <example>
+    <title>測試組態</title>
+    <para>
+     下面的 external/ssh 組態是一個更貼近實際的範例 (但仍然只用於測試)： 
+    </para>
+<screen>configure
+ primitive st-ssh stonith:external/ssh \
+ params hostlist="alice bob"
+ clone fencing st-ssh
+ commit</screen>
+    <para>
+     此組態也可重設節點。該組態與第一個組態 (為空 STONITH 裝置) 相似。在此範例中，將使用複製品。它們是 CRM/Pacemaker 功能。複製是一種捷徑：不需要定義 <literal>n</literal> 個名稱不同的相同資源，只需一個複製的資源就已足夠。複製品最常見的用法無疑是與 STONITH 資源一起使用，但前提是所有節點都可存取 STONITH 裝置。
+    </para>
+   </example>
+   <example>
+    <title>IBM RSA 無人職守裝置組態</title>
+    <para>
+     實際裝置組態並沒有明顯差異，雖然某些裝置可能需要更多屬性。可按如下所示設定 IBM RSA 無人職守裝置：
+    </para>
+<screen>configure
+primitive st-ibmrsa-1 stonith:external/ibmrsa-telnet \
+params nodename=alice ipaddr=192.168.0.101 \
+userid=USERID passwd=PASSW0RD
+primitive st-ibmrsa-2 stonith:external/ibmrsa-telnet \
+params nodename=bob ipaddr=192.168.0.102 \
+userid=USERID passwd=PASSW0RD
+location l-st-alice st-ibmrsa-1 -inf: alice
+location l-st-bob st-ibmrsa-2 -inf: bob
+commit</screen>
+    <para>
+     本範例中使用了位置條件約束，這是因為 STONITH 操作失敗的可能性總是存在，所以，在做為執行者的節點上的 STONITH 操作也不可靠。如果重設節點，它將無法傳送關於圍籬區隔操作結果的通知。想傳送通知的唯一方法是，假設操作即將成功，然後提前傳送通知。但如果操作失敗，可能就會出現問題。因此，依照慣例，stonithd 拒絕終止其主機。
+    </para>
+   </example>
+   <example>
+    <title>UPS 圍籬區隔裝置組態</title>
+    <para>
+     UPS 類型圍籬區隔裝置的組態與上述範例相似。此處不做詳述。所有 UPS 裝置都採用相同的機制進行圍籬區隔，而存取裝置的方式卻有所不同。舊式 UPS 裝置只有一個序列埠，通常會使用特殊的序列纜線以 1200 鮑率進行連接。許多新型 UPS 裝置仍然只有一個序列埠，但它們通常還使用 USB 或乙太網路介面。可以使用的連線類型取決於外掛程式所支援的類型。
+    </para>
+    <para>
+     例如，使用 <command>stonith -t <replaceable>stonith 裝置類型</replaceable> -n</command> 指令比較 <literal>apcmaster</literal> 與 <literal>apcsmart</literal> 裝置：
+    </para>
+<screen>stonith -t apcmaster -h</screen>
+    <para>
+     傳回下列資訊：
+    </para>
+<screen>STONITH Device: apcmaster - APC MasterSwitch (via telnet)
+NOTE: The APC MasterSwitch accepts only one (telnet)
+connection/session a time. When one session is active,
+subsequent attempts to connect to the MasterSwitch will fail.
+For more information see http://www.apc.com/
+List of valid parameter names for apcmaster STONITH device:
+ipaddr
+login
+ password</screen>
+    <para>
+     使用
+    </para>
+<screen>stonith -t apcsmart -h</screen>
+    <para>
+     您將取得下列輸出：
+    </para>
+<screen>STONITH Device: apcsmart - APC Smart UPS
+(via serial port - NOT USB!). 
+Works with higher-end APC UPSes, like
+Back-UPS Pro, Smart-UPS, Matrix-UPS, etc.
+(Smart-UPS may need to be &gt;= Smart-UPS 700?).
+See http://www.networkupstools.org/protocols/apcsmart.html
+for protocol compatibility details.
+For more information see http://www.apc.com/
+List of valid parameter names for apcsmart STONITH device:
+ttydev
+hostlist</screen>
+    <para>
+     第一個外掛程式支援具有網路埠和 Telnet 通訊協定的 APC UPS。第二個外掛程式使用 APC SMART 通訊協定 (透過眾多 APC UPS 產品線皆支援的序列線)。
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 id="sec.ha.fencing.config.parameters">
+   <title>條件約束與複製品</title>
+   <para>
+    正如<xref linkend="sec.ha.fencing.config.examples"/> 所述，設定 STONITH 資源的方法有數種：使用條件約束、複製品或兩者皆用。選擇使用何種構想進行組態設定取決於幾項因素：圍籬區隔裝置的性質、裝置管理的主機數、叢集節點數，或個人優先設定。
+   </para>
+   <para>
+    如果在您的組態中使用複製品不會帶來不良後果，且它們確實可以減輕組態設定工作，則可以使用複製的 STONITH 資源。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.fencing.monitor">
+  <title>監控圍籬區隔裝置</title>
+
+  <para>
+   如同任何其他資源一樣，STONITH 類別代辦也支援用於檢查狀態的監控操作。
+  </para>
+
+
+
+  <note>
+   <title>監控 STONITH 資源</title>
+   <para>
+    您應定期監控 STONITH 資源，但不宜過於頻繁。對大多數裝置而言，不低於 1800 秒 (30 分鐘) 的監控間隔應已足夠。
+   </para>
+  </note>
+
+  <para>
+   圍籬區隔裝置是 HA 叢集必不可少的一部分，但需要用到它們的情況卻是越少越好。電源管理設備常常會受到大量廣播流量的影響。有些裝置在每分鐘達到十個左右連線時便無法處理。如果兩個用戶端同時嘗試連接，有些裝置還會發生混淆。大部分裝置都不能同時處理多個工作階段。
+  </para>
+
+  <para>
+   通常，只需每隔幾個小時檢查一次圍籬區隔裝置的狀態即可。需要執行圍籬區隔操作以及電源開關發生故障的機率很小。
+  </para>
+
+  <para>
+   如需如何使用指令行設定監控操作的詳細資訊，請參閱<xref linkend="sec.ha.manual_config.monitor"/>。
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.fencing.special">
+  <title>特殊圍籬區隔裝置</title>
+
+  <para>
+   除了用於處理實際 STONITH 裝置的外掛程式外，我們還提供了一些用於特別目的的 STONITH 外掛程式。
+  </para>
+
+  <warning>
+   <title>僅供測試之用</title>
+   <para>
+    下面提到的一些 STONITH 外掛程式僅用於演示和測試目的。請不要在實際情況中使用以下任一裝置，否則可能會導致資料毀損以及無法預期的後果：
+   </para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para>
+      <literal>external/ssh </literal>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <literal>ssh </literal>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <literal>null</literal>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </warning>
+
+  <variablelist>
+   <varlistentry>
+    <term><literal>external/kdumpcheck</literal>
+    </term>
+    <listitem>
+     <para>
+      此外掛程式可檢查節點上是否正在執行核心傾印。如果是，它會傳回 <literal>true</literal>，並且在執行操作時將節點視為已圍籬區隔。節點在傾印期間無法執行任何資源。這樣可避免圍籬區隔已關閉但正在傾印的節點，省下相應的時間。外掛程式必須與另一個實際的 STONITH 裝置搭配使用。如需詳細資料，請參閱 <filename>/usr/share/doc/packages/cluster-glue/README_kdumpcheck.txt</filename>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>external/sbd</literal>
+    </term>
+    <listitem>
+     <para>
+      這是一個自我圍籬區隔裝置。它會對可插入到共享磁碟中的所謂<quote>毒藥丸</quote>做出反應。當共享儲存的連接中斷時，該裝置會讓節點停止運作。若要瞭解如何使用此 STONITH 代辦執行基於儲存的圍籬區隔，請參閱<xref linkend="cha.ha.storage.protect"/>。也可參閱 <ulink url="http://www.linux-ha.org/wiki/SBD_Fencing"/> 以取得詳細資料。
+     </para>
+
+     <important>
+      <title><literal>external/sbd</literal> 和 DRBD</title>
+      <para>
+       <literal>external/sbd</literal> 圍籬區隔機制要求從每個節點都能直接讀取 SBD 分割區。因此不能使用 DRBD* 裝置存取 SBD 分割區。
+      </para>
+      <para>
+       但您可以對 DRBD 叢集使用圍籬區隔機制，前提是 SBD 分割區位於並非鏡像複製或複製的共享磁碟上。
+      </para>
+     </important>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>external/ssh</literal>
+    </term>
+    <listitem>
+     <para>
+      另一個基於軟體的<quote>圍籬區隔</quote>機制。各節點之間必須能夠以 <systemitem class="username">root</systemitem> 身分相互登入，且無需輸入密碼。該機制需要一個參數 <literal>hostlist</literal>，指定它的目標節點。由於無法重設實際發生故障的節點，因此該機制不能用於實際的叢集，只能用於測試和演示。如果將其用於共享儲存，可能會導致資料毀損。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>meatware</literal>
+    </term>
+    <listitem>
+     <para>
+      <literal>meatware</literal> 需要使用者協助才能運作。呼叫 <literal>meatware</literal> 時，它會記錄 CRIT 嚴重程度訊息，該訊息會在節點的主控台上顯示。然後，操作員會確認該節點已關閉，並發出 <command>meatclient(8)</command> 指令。此指令指示 <literal>meatware</literal> 通知叢集應將該節點視為已停止。如需詳細資訊，請參閱 <filename>/usr/share/doc/packages/cluster-glue/README.meatware</filename>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>null</literal>
+    </term>
+    <listitem>
+     <para>
+      這是一個虛構的裝置，用於各種測試案例。它總是聲稱自己關閉了一個節點，但從來不會執行任何動作。除非您完全瞭解所執行的操作，否則切勿使用它。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>suicide</literal>
+    </term>
+    <listitem>
+     <para>
+      這是一個僅限軟體的裝置，它可以使用 <command>reboot</command> 指令重新開機執行它所在的節點。這需要由節點的作業系統執行動作，在某些情況下可能會失敗。因此，應儘可能避免使用此裝置。不過，在一個節點的叢集上使用還是安全的。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   <literal>suicide</literal> 和 <literal>null</literal> 是<quote>I do not shoot my host</quote>(我自己不關閉我的主機) 規則唯一的例外。
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.fencing.recommend">
+  <title>基本建議</title>
+
+  <para>
+   請查看以下建議清單，以免發生常見錯誤：
+  </para>
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <para>
+     不要同時設定多個電源開關。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     若要測試您的 STONITH 裝置及其組態，請拔下每個節點上的插頭，並驗證相應節點是否發生圍籬區隔。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     在加有負載的情況下測試您的資源，並驗證逾時值是否合適。設定的逾時值太小可能會觸發 (不必要的) 圍籬區隔操作。如需詳細資訊，請參閱<xref linkend="sec.ha.config.basics.timeouts"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     針對您的設定使用適當的圍籬區隔裝置。如需詳細資料，另請參閱<xref linkend="sec.ha.fencing.special"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     設定一或多個 STONITH 資源。依預設，全域叢集選項 <literal>stonith-enabled</literal> 設為 <literal>true</literal>。如果未定義 STONITH 資源，叢集將拒絕啟動任何資源。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     由於以下原因，請不要將全域叢集選項 <systemitem>stonith-enabled</systemitem> 設定為 <literal>false</literal>：
+    </para>
+    <itemizedlist mark="bullet" spacing="normal">
+     <listitem>
+      <para>
+       系統不支援未啟用 STONITH 的叢集。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       DLM/OCFS2 不允許永久等待一個永遠不會發生的圍籬區隔操作。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     不要將全域叢集選項 <systemitem>startup-fencing</systemitem> 設定為 <literal>false</literal>。由於以下原因，該選項預設設定為 <literal>true</literal>：如果節點在叢集啟動期間處於未知狀態，系統將圍籬區隔該節點一次，以確定其狀態。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 id="sec.ha.fencing.more">
+  <title>更多資訊</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><filename>/usr/share/doc/packages/cluster-glue</filename>
+    </term>
+    <listitem>
+     <para>
+      在安裝的系統中，此目錄包含許多 STONITH 外掛程式和裝置的讀我檔案。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><ulink url="http://www.linux-ha.org/wiki/STONITH"/>
+    </term>
+    <listitem>
+     <para>
+      有關 STONITH 的資訊位於 The High Availability Linux Project 的首頁中。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><ulink url="http://www.clusterlabs.org/doc/"/>
+    </term>
+    <listitem>
+     <itemizedlist mark="bullet" spacing="normal">
+      <listitem>
+       <para>
+        《<citetitle>Fencing and Stonith</citetitle>》(圍籬區隔與 Stonith)︰有關圍籬區隔的資訊位於 Pacemaker Project 的首頁上。
+       </para>
+      </listitem>
+      <listitem>
+       <para> 《<citetitle>Pacemaker Explained</citetitle> (<citetitle>Pacemaker 1.1 for Corosync 2.x and crmsh</citetitle>)》(Pacemaker 說明 (適用於 Corosync 2.x 與 crmsh 的 Pacemaker 1.1))：解釋設定 Pacemaker 時用到的概念。包含全面詳盡的資訊，以供參考。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><ulink url="http://techthoughts.typepad.com/managing_computers/2007/10/split-brain-quo.html"/>
+    </term>
+    <listitem>
+     <para>
+      說明 HA 叢集中的電腦分裂、最低節點數和圍籬區隔之概念的文章。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>

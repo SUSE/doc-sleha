@@ -1,0 +1,563 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd">
+<!--
+*********************************
+Please see LICENSE.txt for this document's license.
+*********************************
+-->
+<chapter xml:base="ha_storage_protection.xml" id="cha.ha.storage.protect">
+ <title>儲存保護</title>
+ <abstract>
+
+  <para>
+   高可用性叢集堆疊的首要任務是保護資料的完整性。具體是透過防止在未經協調的情況下同時存取資料儲存來實現此目標。舉例來說，叢集中只會掛接一次 Ext3 檔案系統，以及只有在與其他叢集節點協調後才會掛接 OCFS2 磁碟區。在正常運作的叢集中，如果使用中的資源超出其同步限制，Pacemaker 會偵測到此情況，並啟動復原操作。而且，其規則引擎永遠不會超出這些限制。
+  </para>
+
+  <para>
+   但是，如果系統中有數個協調者，便可能導致網路分割區或軟體出現故障。如果系統允許出現這種所謂的電腦分裂情況，就有可能產生資料損毀。為此，叢集堆疊中新增了數道安全層以降低風險。
+  </para>
+
+  <para>
+   其中最關鍵的元件是 IO 圍籬區隔/STONITH，它可以確保在啟動儲存裝置之前先終止其他所有存取。其他機制包括 cLVM2 獨佔式啟動或 OCFS2 檔案鎖定支援，它們可保護系統，避免管理或應用程式故障。如果再加以適當設定，這些安全措施就可以有效地防止電腦分裂現象，避免對系統造成損害。
+  </para>
+
+  <para>
+   本章先介紹可充分利用自身儲存的 IO 圍籬區隔機制，然後介紹為確保獨佔式儲存存取而增設的保護層。這兩項機制聯合可實現更高級別的保護。
+  </para>
+ </abstract>
+ <sect1 id="sec.ha.storage.protect.fencing">
+  <title>基於儲存的圍籬區隔</title>
+
+  <para>
+   使用一或多個 STONITH 區塊裝置 (SBD)、<literal>監視程式</literal>支援和 <literal>external/sbd</literal> STONITH 代辦，可以有效地避免出現電腦分裂的情況。
+  </para>
+
+  <sect2 id="sec.ha.storage.protect.fencing.oview">
+   <title>綜覽</title>
+   <para>
+    如果一個環境中的所有節點都可以存取共享儲存，系統會格式化裝置的一小塊分割區用於 SBD。該分割區的大小取決於所用磁碟的區塊大小 (對於區塊大小為 512 位元組的標準 SCSI 磁碟，該分割區大小為 1 MB；區塊大小為 4 KB 的 DASD 磁碟需要 4 MB)。設定各自的精靈之後，系統會連接每個節點上 SBD，然後啟動其餘的叢集堆疊。當其他所有叢集元件都關閉後，SBD 才會終止，這樣便確保了只要叢集資源啟動，SBD 就會加以監督。
+   </para>
+   <para>
+    精靈會自動在分割區上為自己配置一個訊息槽，然後持續監控，查看是否有傳送給它的訊息。一旦收到訊息，精靈會立即回應請求，例如為圍籬區隔啟動關機或重新開機操作。
+   </para>
+   <para>
+    精靈還會持續監控與儲存裝置的連線，如果該分割區不再可存取，精靈就會自行終止。這樣可保證精靈不會錯過圍籬區隔訊息。如果叢集資料位於其他分割區的同一個邏輯單位，則一旦與儲存失去連線，載入的工作便會終止，因此不會增加故障點。
+   </para>
+   <para>
+    <literal>監視程式</literal>支援進一步提升了安全性。最新的系統支援<literal>硬體監視程式</literal>，該程式需要由某個軟體元件來<quote>激發</quote>或<quote>餽送</quote>。該軟體元件 (通常是精靈) 會定期將服務脈沖寫入監視程式。如果精靈停止向監視程式輸送脈沖，硬體將強制系統重新啟動。這樣可以保障 SBD 程序自身不出現故障，例如沒有回應或陷入 IO 錯誤。
+   </para>
+   <para>
+    如果已啟動 Pacemaker 整合，則在大部分裝置的連線已中斷的情況下，SBD 將不會自我圍籬區隔。例如，假定您的叢集包含 3 個節點：A、B 和 C。由於網路分隔，A 只能看到它自己，而 B 和 C 之間仍然能夠通訊。此時就有兩個叢集分割區，一個由於節點占多數 (B 和 C) 而達到最低節點數，另一個 (A) 則未達到。如果在大部分圍籬區隔裝置無法連接時發生這種情況，節點 A 將立即確認終止，但是節點 B 和 C 將繼續執行。
+   </para>
+  </sect2>
+
+
+
+  <sect2 id="sec.ha.storage.protect.fencing.number">
+   <title>SBD 裝置數目</title>
+   <para>
+    SBD 支援使用 1-3 個裝置：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>1 個裝置</term>
+     <listitem>
+      <para>
+       最簡單的實作。這種組態適合所有資料均位於同一共享儲存上的叢集。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>2 個裝置</term>
+     <listitem>
+      <para>
+       這種組態主要適用於這樣的環境：使用基於主機的鏡像複製，但是沒有第三個儲存裝置可用。如果 SBD 失去對一個鏡像複製方的存取能力，它不會立即終止，以便允許叢集繼續執行。不過，由於 SBD 掌握的情況不夠全面，它無法偵測儲存的不對稱分裂，所以當只有一個鏡像複製方可用時，它不會圍籬區隔另一方。因此，在其中一個儲存陣列已關閉的情況下，它無法自動容許再一次的故障。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>3 個裝置</term>
+     <listitem>
+      <para>
+       最可靠的組態。它具有從一個裝置中斷 (可能是由於失敗或維護) 的情況中復原的能力。只有在不止一個裝置中斷的情況下，SBD 才會自行終止。如果至少有兩個裝置仍然可存取，就可以成功傳輸圍籬區隔訊息。
+      </para>
+      <para>
+       這種組態適合儲存不限制為單個陣列的較複雜情況。基於主機的鏡像複製解決方案可以在每個鏡像複製方設定一個 SBD (不鏡像複製自身)，在 iSCSI 上另外設定一個連接中斷器。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 id="sec.ha.storageprotection.fencing.setup">
+   <title>設定基於儲存的保護</title>
+   <para>
+    設定基於儲存的保護時必須執行下列步驟︰
+   </para>
+   <procedure>
+    <step performance="required">
+     <para>
+      <xref linkend="pro.ha.storage.protect.sbd.create" xrefstyle="select:title"/>
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <xref linkend="pro.ha.storage.protect.watchdog" xrefstyle="select:title"/>
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <xref linkend="pro.ha.storage.protect.sbd.daemon" xrefstyle="select:title"/>
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <xref linkend="pro.ha.storage.protect.sbd.test" xrefstyle="select:title"/>
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      <xref linkend="pro.ha.storage.protect.fencing" xrefstyle="select:title"/>
+     </para>
+    </step>
+   </procedure>
+   <para>
+    下列所有程序都必須以 <systemitem class="username">root</systemitem> 身分執行。在啟動之前，確定已符合下列要求︰
+   </para>
+   <important>
+    <title>要求</title>
+    <itemizedlist mark="bullet" spacing="normal">
+     <listitem>
+      <para>
+       環境中必須有所有節點都能存取的共享儲存。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       共享儲存節區不得使用基於主機的 RAID、cLVM2 或 DRBD*。
+       
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       但是，建議使用基於儲存的 RAID 和多重路徑來提升可靠性。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </important>
+   <sect3 id="pro.ha.storage.protect.sbd.create">
+    <title>建立 SBD 分割區</title>
+    <para>
+     建議在裝置啟動時建立 1MB 的分割區。如果 SBD 裝置位於多重路徑群組中，MPIO 的向下路徑偵測可能會導致一定程度的延遲，因此需要調整 SBD 使用的逾時。達到 <literal>msgwait</literal> 逾時後，系統會認為訊息已傳送到節點。對多重路徑而言，這一時間也就是 MPIO 偵測到路徑故障並切換到下一個路徑所需的時間。您可能需要在自己的環境中對此進行測試。如果節點上執行的 SBD 精靈更新監視程式計時器的速度不夠快，此節點將自行終止。請在特定的環境中測試所選逾時。如果只對一個 SBD 裝置使用多路徑儲存，請密切關注發生的容錯移轉延遲。
+    </para>
+     
+    <note>
+     <title>SBD 分割區的裝置名稱</title>
+     <para>
+      在下例中，SBD 分割區以 <filename>/dev/<replaceable>SBD</replaceable></filename> 表示。請將其取代為實際的路徑名稱，例如 <filename>/dev/sdc1</filename>。
+     </para>
+    </note>
+    <important>
+     <title>覆寫現有資料</title>
+     <para>
+      確定要用於 SBD 的裝置沒有儲存任何資料。<command>sdb</command> 指令無需使用者確認即會直接覆寫裝置。
+     </para>
+    </important>
+    <procedure>
+     <step performance="required">
+      <para>
+       使用下列指令啟始化 SBD 裝置︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> create</screen>
+      <para>
+       此指令會在裝置中寫入標頭，並為最多 255 個共享此裝置的節點建立插槽 (採用預設時間設定)。
+      </para>
+      <para>
+       如果您要將多個裝置用於 SBD，請多次指定 <option>-d</option> 選項來提供這些裝置，例如：
+      </para>
+<screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD1</replaceable> -d /dev/<replaceable>SBD2</replaceable> -d /dev/<replaceable>SBD3</replaceable> create</screen>
+     </step>
+     <step performance="required">
+      <para>
+       如果 SBD 裝置位於多重路徑群組中，則調整 SBD 使用的逾時。逾時可以在啟始化 SBD 裝置時指定 (所有逾時均以秒計)︰
+      </para>
+
+<screen><prompt role="root">root # </prompt><command>/usr/sbin/sbd</command> -d /dev/<replaceable>SBD</replaceable> -4 180<co id="co.msgwait"/> -1 90<co id="co.watchdog"/> create</screen>
+      <calloutlist>
+       <callout arearefs="co.msgwait">
+        <para>
+         <option>-4</option> 選項用於指定 <literal>msgwait</literal> 的逾時。在上面的範例中，該逾時設定為 <literal>180</literal> 秒。
+        </para>
+       </callout>
+       <callout arearefs="co.watchdog">
+        <para>
+         <option>-1</option> 選項用於指定<literal>監視程式</literal>的逾時。在上面的範例中，該逾時設定為 <literal>90</literal> 秒。
+        </para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step performance="required">
+      <para>
+       使用下列指令查看寫入裝置的內容︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> dump 
+Header version     : 2
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 5
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 10</screen>
+     </step>
+    </procedure>
+    <para>
+     如您所見，逾時也會存入標頭，以確保所有參與的節點在逾時上達成一致。
+    </para>
+   </sect3>
+   <sect3 id="pro.ha.storage.protect.watchdog">
+    <title>設定軟體監視程式</title>
+    <para>在未由其他軟體使用的情況下，監視程式可以在發生 SBD 失敗時保護系統。</para>
+     
+     <important><title>存取監視程式計時器</title>
+       <para>此時不能有任何其他軟體存取監視程式計時器。有些硬體廠商交付的系統管理軟體 (例如 HP ASR 精靈) 會使用監視程式來進行系統重設。如果 SBD 使用了監視程式，請停用此類軟體。</para>
+     </important>
+     
+     <para>
+     依預設，<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 的核心中會啟用監視程式支援：本產品隨附了多個不同的核心模組，可提供特定於硬體的監視程式驅動程式。High Availability Extension 使用 SBD 精靈做為給監視程式<quote>餵食</quote>的軟體元件。如果已依<xref linkend="pro.ha.storage.protect.sbd.daemon"/>所述進行設定，SBD 精靈會在您使用 <command>systemctl</command> <option>start pacemaker.service</option> 使相應節點上線時自動啟動。
+    </para>
+    <para>
+     通常，適當的硬體監視程式驅動程式會在系統開機時自動載入。<literal>softdog</literal> 是最常見的驅動程式，不過建議您使用實際硬體中整合的驅動程式。例如︰
+    </para>
+    <itemizedlist mark="bullet" spacing="normal">
+     <listitem>
+      <para>
+       在 HP 硬體上，就是 <systemitem>hpwdt</systemitem> 驅動程式。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       如果系統配有 Intel TCO，則可以使用 <literal>iTCO_wdt</literal> 驅動程式。
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para> 如需選項清單，請參閱 <filename>/usr/src/<replaceable>核心版本</replaceable>/drivers/watchdog</filename>。或者，使用以下指令列出已安裝的具有您核心版本的驅動程式： </para>
+<screen><prompt role="root">root # </prompt><command>rpm</command> -ql kernel-<replaceable>VERSION</replaceable> | <command>grep</command> watchdog</screen>
+    <para>
+     由於大多數監視程式驅動程式的名稱都包含類似 <literal>wd</literal>、<literal>wdt</literal> 或 <literal>dog</literal> 的字串，因此，請使用以下指令檢查目前載入了哪個驅動程式：
+    </para>
+    <screen><prompt role="root">root # </prompt><command>lsmod</command> | <command>egrep</command> "(wd|dog)" </screen>
+    <para>若要自動載入監視程式驅動程式，請建立檔案 <filename>/etc/modules-load.d/watchdog.conf</filename>，並在其中包含含有驅動程式名稱的一行。如需詳細資訊，請參閱 man 頁面 <literal>modules-load.d</literal>。
+     </para>
+     <para>如果您變更了監視程式的逾時，則必須也要變更另外兩個值 (<literal>msgwait</literal> 和 <literal>stonith-timeout</literal>)。監視程式逾時主要視您的儲存延遲而定。此值指定大多數裝置必須在此時間範圍內成功完成其讀取操作。否則，節點會自行圍籬區隔。 
+      </para>
+     <para>以下<quote>公式</quote>大致表達了這三個值之間的關係：
+    </para>
+     
+     <example id="ex.ha.storage.protect.sbd-timings">
+       <title>使用 SBD 做為 STONITH 裝置的叢集計時</title>
+       <screen>Timeout (msgwait) = (Timeout (watchdog) * 2)
+stonith-timeout = Timeout (msgwait) + 20%</screen>
+     </example>
+     
+     <para>例如，如果將逾時監視程式設定為 120，則需要將 <literal>msgwait</literal> 設定為 240，將 <literal>stonith-timeout</literal> 設定為 288。您可以使用 <command>cs_make_sbd_devices</command> 檢查輸出：
+     </para>
+     
+     <screen><prompt role="root">root # </prompt><command>cs_make_sbd_devices</command> --dump
+==Dumping header on disk /dev/sdb
+Header version     : 2.1
+UUID               : 619127f4-0e06-434c-84a0-ea82036e144c
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 20
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 40
+==Header on disk /dev/sdb is dumped</screen>
+     <para>如果您要設定新叢集，<command>ha-cluster-init</command> 指令會將上述因素納入考量。</para>
+   </sect3>
+   <sect3 id="pro.ha.storage.protect.sbd.daemon">
+    <title>啟動 SBD 精靈</title>
+    <para>
+     SBD 精靈是叢集堆疊的重要組成部分。只要叢集堆疊正在執行，SBD 精靈就必須執行，即使叢集堆疊的一部分損毀時也是如此，這樣這一部分才能被圍籬區隔。
+    </para>
+
+    <procedure>
+     <step performance="required">
+      <para>使用以下指令使 SBD 精靈在開機時啟動：
+      </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> enable sbd.service</screen>
+     </step>
+     <step performance="required">
+       <para>執行 <command>ha-cluster-init</command>。此程序檔可確保正確設定 SBD，並將組態檔案 <filename>/etc/sysconfig/sbd</filename> 新增至需要與 Csync2 同步化的檔案清單。 </para>
+       <para>若要手動設定 SBD，請執行以下步驟：</para>
+            <para> 若要啟動 Corosync init 程序檔和停止 SBD，請編輯 <filename>/etc/sysconfig/sbd</filename> 檔案，搜尋以下行，搜尋時將 <replaceable>SBD</replaceable> 取代為您的 SBD 裝置： </para>
+            <screen>SBD_DEVICE="/dev/<replaceable>SBD</replaceable>"</screen>
+            <para>
+       如果您需要在第一行中指定多個裝置，請用分號分隔各裝置 (裝置的順序無關緊要)：
+      </para>
+<screen>SBD_DEVICE="/dev/<replaceable>SBD1</replaceable>; /dev/<replaceable>SBD2</replaceable>; /dev/<replaceable>SBD3</replaceable>"</screen>
+      <para>
+       如果無法存取 SBD 裝置，精靈將無法啟動 Corosync 以及禁止其啟動。
+      </para>
+      <note><title>在開機時啟動服務</title>
+       <para>
+        如果節點無法存取 SBD 裝置，便有可能陷入重新開機的無限循環。從技術層面而言，這種行為並沒有錯，但根據您的管理規則，這很有可能會帶來麻煩。若出現這種情況，最好不要讓 Corosync 和 Pacemaker 在開機時自動啟動。
+       </para>
+      </note>
+     </step>     
+     <step performance="required">
+      <para>
+       繼續下一步之前，請先執行 <command>systemctl</command> <literal>restart pacemaker.service</literal>，以確保所有節點上的 SBD 均已啟動。
+      </para>
+     </step>
+    </procedure>
+   </sect3>
+   <sect3 id="pro.ha.storage.protect.sbd.test">
+    <title>測試 SBD</title>
+    <para/>
+    <procedure>
+     <step performance="required">
+      <para>
+       下列指令會從 SBD 裝置傾印節點插槽及其目前的訊息︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> list</screen>
+      <para>
+       現在您會看到，此處列出 SBD 的所有叢集節點均已啟動，訊息槽應顯示<literal>清除</literal>。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       嘗試向其中一個節點傳送一則測試訊息︰
+      </para>
+      
+<screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> message nodea test</screen>
+     </step>
+     <step performance="required">
+      <para>
+       節點會在系統記錄檔案中確認收到訊息︰
+      </para>
+<screen>Aug 29 14:10:00 nodea sbd: [13412]: info: Received command test from nodeb</screen>
+      <para>
+       這証實了節點上的 SBD 目前的確在正常執行，並且可以接收訊息。
+      </para>
+     </step>
+    </procedure>
+   </sect3>
+   <sect3 id="pro.ha.storage.protect.fencing">
+    <title>設定圍籬區隔資源</title>
+    <procedure>
+     <step performance="required">
+      <para>
+       若要完成 SBD 設定，請依照以下方式在 CIB 中將 SBD 做為 STONITH/圍籬區隔機制啟用︰
+      </para>
+      
+
+<screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)configure# </prompt><command>property</command> stonith-enabled="true"
+<prompt role="custom">crm(live)configure# </prompt><command>property</command> stonith-timeout="40s"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> stonith_sbd stonith:external/sbd \
+   op start interval="0" timeout="15" start-delay="10"
+<prompt role="custom">crm(live)configure# </prompt><command>commit</command>
+<prompt role="custom">crm(live)configure# </prompt><command>quit</command></screen> 
+      <para>
+       不需要複製品資源，因為如果發生問題，系統無論如何都會關閉相應的節點。
+      </para>
+      <para>
+       為 <literal>stonith-timeout</literal> 設定何值取決於 <literal>msgwait</literal> 的逾時。<literal>msgwait</literal> 逾時應該大於基礎 IO 系統的最大允許逾時。例如，普通 SCSI 磁碟的最大允許逾時為 30 秒。如果您將 <literal>msgwait</literal> 逾時值設定為 30 秒，那麼將 <literal>stonith-timeout</literal> 設定為 40 秒較為妥當。
+      </para>
+        
+      <para>
+       由於系統會自動配置節點插槽，因此不需要手動定義主機清單。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       因為現在透過 SBD 機制來實現圍籬區隔功能，所以請停用先前設定過的其他所有圍籬區隔裝置。
+      </para>
+     </step>
+    </procedure>
+    <para>
+     資源啟動後，叢集的共享儲存圍籬區隔組態即已成功設定，叢集將在需要對節點進行圍籬區隔時使用此方法。
+    </para>
+   </sect3>
+   
+   <sect3 id="sec.ha..storageprotection.sgpersist">
+     <title>設定 sg_persist 資源</title>
+     <para/>
+     
+     <procedure>
+       <step performance="required">
+         <para>以 <systemitem class="username">root</systemitem> 身分登入並啟動一個外圍程序。</para>
+       </step>
+       <step performance="required">
+         <para>建立組態檔案 <filename>/etc/sg_persist.conf</filename>：</para>
+         <screen>sg_persist_resource_MDRAID1() {
+      devs="/dev/sdd /dev/sde"
+      required_devs_nof=2
+}</screen>
+       </step>
+       <step performance="required">
+         <para>執行以下指令以建立基本資源 <literal>sg_persist</literal>：</para>
+         <screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> sg ocf:heartbeat:sg_persist \
+    params config_file=/etc/sg_persist.conf \
+           sg_persist_resource=MDRAID1 \
+           reservation_type=1 \
+    op monitor interval=60 timeout=60</screen>
+       </step>
+       <step performance="required">
+         <para>將 <literal>sg_persist</literal> 基本資源新增至主要-從屬群組：</para>
+         <screen><prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms-sg sg \
+    meta master-max=1 notify=true</screen>
+       </step>
+       <step performance="required">
+         <para>在 alice 伺服器上設定主要資源，在 bob 節點上設定從屬資源：</para>
+         <screen><prompt role="custom">crm(live)configure# </prompt><command>location</command> ms-sg-alice-loc ms-sg inf: alice
+<prompt role="custom">crm(live)configure# </prompt><command>location</command> ms-sg-bob-loc ms-sg 100: bob</screen>
+       </step>
+       <step performance="required">
+         <para>執行一些測試。當資源處於主要/從屬狀態時，在主伺服器上，您可以在 <filename>/dev/sdc1</filename> 中執行掛接和寫入，而在從屬伺服器上，則無法寫入。</para>
+       </step>
+     </procedure>
+     
+     <para>通常，您可能希望將上述資源與<literal>檔案系統</literal>資源 (例如 OCFS2) 結合使用。在這種情況下，需要執行下列步驟：</para>
+     
+     <procedure>
+       <step performance="required">
+         <para>新增 OCFS2 基本資源：</para>
+         <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ocfs2 ocf:heartbeat:Filesystem \
+    params device="/dev/sdc1" directory="/mnt/ocfs2" fstype=ocfs2</screen>
+       </step>
+       <step performance="required">
+         <para>從基礎群組建立複製品：</para>
+         <screen><prompt role="custom">crm(live)configure# </prompt><command>clone</command> cl-group basegroup</screen>
+       </step>
+       <step performance="required">
+         <para>新增 <literal>ms-sg</literal> 與 <literal>cl-group</literal> 之間的關係：</para>
+         <screen><prompt role="custom">crm(live)configure# </prompt><command>colocation</command> ocfs2-group-on-ms-sg inf: cl-group ms-sg:Master
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> ms-sg-before-ocfs2-group inf: ms-sg:promote cl-group</screen>
+       </step>
+       <step performance="required">
+         <para>使用 <command>edit</command> 指令檢查所有變更。</para>
+       </step>
+       <step performance="required">
+         <para>提交您的變更。</para>
+       </step>
+     </procedure>
+   </sect3>
+    
+   <sect3 id="sec.ha..storageprotection.more">
+    <title>更多資訊</title>
+    <para>
+     <ulink url="http://www.linux-ha.org/wiki/SBD_Fencing"/>
+    </para>
+   </sect3>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.storageprotection.exstoract">
+  <title>確保啟動獨佔性儲存</title>
+
+  <para>
+   本節介紹的 <literal>sfex</literal> 是一個附加的低層機制，用於將對共享儲存的存取鎖定給某個節點。請注意，sfex 並不會取代 STONITH。由於 sfex 需要使用共享儲存，因此建議在儲存的其他分割區上使用上述 <literal>external/sbd</literal> 圍籬區隔機制。
+  </para>
+
+  <para>
+   由於內在設計的原因，sfex 無法用於要求同時作業的工作負載 (如 OCFS2)，但可用做傳統容錯移轉式工作負載的保護層。其效果與保留 SCSI-2 類似，但更加常用。
+  </para>
+
+  <sect2 id="sec.ha.storageprotection.exstoract.description">
+   <title>綜覽</title>
+   <para>
+    在共享儲存環境中，會額外設定一個小分割區，用於儲存一或多個鎖定。
+   </para>
+   <para>
+    節點必須先取得保護鎖定，才能獲取受保護的資源。次序由 Pacemaker 強制設定，sfex 元件可確保即使 Pacemaker 遇到電腦分裂的狀況，系統也不會多次授予鎖定。
+   </para>
+   <para>
+    系統必須定期重新整理鎖定，這樣即使節點停止回應，也不會永久封鎖鎖定，其他節點仍能繼續處理。
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.storageprotection.exstoract.requirements">
+   <title>設定</title>
+   <para>
+    下例說明了如何建立用於 sfex 的共享分割區，以及如何在 CIB 中為 sfex 鎖定設定資源。一個 sfex 分割區可保存任意個鎖定 (預設為一個)，每個鎖定需要配置 1 KB 儲存空間。
+   </para>
+   <important>
+    <title>要求</title>
+    <itemizedlist mark="bullet" spacing="normal">
+     <listitem>
+      <para>
+       sfex 的共享分割區應與您要保護的資料位於同一個邏輯單位上。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       共享 sfex 分割區不得使用基於主機的 RAID 或 DRBD。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       可以使用 cLVM2 邏輯磁碟區。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </important>
+   <procedure>
+    <title>建立 sfex 分割區</title>
+    <step performance="required">
+     <para>
+      建立一個共享分割區用於 sfex。記下此分割區的名稱，並用其取代下面的 <filename>/dev/sfex</filename>。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      使用以下指令建立 sfex 中繼資料︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>sfex_init</command> -n 1 /dev/sfex</screen>
+    </step>
+    <step performance="required">
+     <para>
+      驗證該中繼資料已正確建立︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>sfex_stat</command> -i 1 /dev/sfex ; echo $?</screen>
+     <para>
+      此指令應傳回 <literal>2</literal>，因為目前並未鎖定。
+     </para>
+    </step>
+   </procedure>
+   <procedure>
+    <title>設定 sfex 鎖定的資源</title>
+    <step performance="required">
+     <para>
+      sfex 鎖定透過 CIB 中的資源表示，設定如下所示︰
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> sfex_1 ocf:heartbeat:sfex \
+#	params device="/dev/sfex" index="1" collision_timeout="1" \
+      lock_timeout="70" monitor_interval="10" \
+#	op monitor interval="10s" timeout="30s" on_fail="fence"</screen>
+    </step>
+    <step performance="required">
+     <para>
+      若要透過 sfex 鎖定保護資源，請在保護對象與 sfex 資源之間建立強制性順序和配置條件約束。假設要保護之資源的 ID 為 <literal>filesystem1</literal>︰
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> order-sfex-1 inf: sfex_1 filesystem1
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> colo-sfex-1 inf: filesystem1 sfex_1</screen>
+    </step>
+    <step performance="required">
+     <para>
+      如果使用群組語法，請將 sfex 資源做為第一個資源新增到群組中︰
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> LAMP sfex_1 filesystem1 apache ipaddr</screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.storage.moreinfo">
+  <title>更多資訊</title>
+
+  <para>
+   請參閱 <ulink url="http://www.linux-ha.org/wiki/SBD_Fencing"/> 和 <command>man sbd</command>。
+  </para>
+ </sect1>
+</chapter>

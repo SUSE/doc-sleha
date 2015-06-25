@@ -1,0 +1,421 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd">
+<!--
+*********************************
+Please see LICENSE.txt for this document's license.
+*********************************
+-->
+<chapter xml:base="ha_rear.xml" id="cha.ha.rear">
+ <title>Rear (Relax-and-Recover)による障害復旧</title>
+ <abstract>
+  <para>
+   Relax-and-Recover (以前の略称<quote>ReaR</quote>を、この章ではRearと呼ぶ)は、障害復旧イメージを作成するための管理者用ツールセットです。障害復旧情報はネットワークを通して、またはローカルでハードディスク、USBデバイス、DVD/CD-R、テープなどのメディアに保存できます。バックアップデータはNFS (Network File System)に保存されます。
+  </para>
+
+  <para>
+   Rearでは、障害が発生する<emphasis/>「前に」設定とテストを完了しておく必要があることにご注意ください。障害がすでに発生している場合、Rearは回復を行いません。
+  </para>
+ </abstract>
+ <warning>
+  <title>十分なテストが必要です。</title>
+  <para>
+   障害復旧メディアを作成する際は「常に」、<emphasis/><emphasis/>「同一の」テストマシンで障害復旧をテストすることが重要です。テストで満足する結果が得られたら、障害復旧システムは適切および確実に設定されたことになります。
+  </para>
+ </warning>
+  
+ 
+ <sect1 id="sec.ha.rear.concept">
+  <title>概念の概要</title>
+   <para>Rearはいくつかのバックアップツール(Tivoli Storage Manager、QNetix Galaxy、Symantec NetBackup、EMC NetWorker、HP DataProtector)をサポートしており、回復メディアをCDまたはPXE環境に出力できます。復元のステップは、NFS、CIFS、またはその他のネットワークファイルシステムによって実行できます。
+  </para>
+  <para>
+    Rearを使用するには、少なくとも2台の同一のシステム、運用環境が保存されるメインマシンとテストマシンが必要です。ここでの<quote>同一</quote>のコンテキストは、 たとえば、ネットワークカードを同じカーネルドライバを使用して他のものに置き換えられるということです。ハードウェアコンポーネントが同じドライバを使用していない場合、Rearは同じとみなしません。
+  </para> 
+  <para>
+   SUSE Linux Enterprise Serverには、<systemitem class="resource">rear<replaceable>VERSION</replaceable></systemitem>パッケージの障害復旧システムが付属しています。 
+  </para>
+   <para>  
+    Rearは、次の方法で使用されます。
+  </para>
+
+  <orderedlist spacing="normal">
+   <listitem>
+    <formalpara>
+     <title>準備</title>
+     <para>
+      ブート可能なCDバックアップシステムを作成します。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>テスト</title>
+     <para>
+      <emphasis/>障害が発生する前に、回復プロセスと、メインシステムと同一のハードウェアにバックアップしたプロセスを完全にテストします。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>回復</title>
+     <para>
+      回復メディアからブートし、バックアップからシステムを復元します。
+     </para>
+    </formalpara>
+   </listitem>
+  </orderedlist>
+
+  <para>
+   レスキューメディアを準備するには、Rearで次の手順を実行します。
+  </para>
+
+  <orderedlist spacing="normal">
+   <title>Rearによる回復メディアの準備</title>
+   <listitem>
+    <para>
+     ターゲットシステムからシステム情報を収集します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ディスクレイアウト(パーティション、ファイルシステム、LVM、RAID、およびブートローダ)を保存します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     システム(カーネルのドライバとモジュール、デバイスドライバの設定、ネットワークの設定、システムソフトウェアおよびツール)のクローンを作成します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     システムおよびユーザデータをバックアップします。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     システム設定でブート可能な回復メディアを作成します。
+    </para>
+   </listitem>
+  </orderedlist>
+
+  <para>
+   障害発生時の回復プロセスは、次のアクションで構成されます。
+  </para>
+
+  <orderedlist spacing="normal">
+   <title>回復プロセス</title>
+   <listitem>
+    <para>
+     回復メディアからブートします。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ディスクレイアウト(パーティション、RAID設定、LVM、ファイルシステム)を復元します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     システムおよびユーザデータを復元します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ブートローダを復元します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     システムを再起動します。
+    </para>
+   </listitem>
+  </orderedlist>
+ 
+  <note>
+    <title>Btrfsファイルシステムにサブボリュームとスナップショットを持つRear</title>
+    <para>     
+      技術的および概念的な問題のため、RearおよびBtrfsツールには、いくつかの制限があることを認識しておく必要があります。
+    </para>
+    <itemizedlist mark="bullet" spacing="normal">
+      <listitem>
+        <formalpara>
+          <title>サブボリュームを持つが、スナップショットは持たないBtrfs</title>
+          <para>Rearバージョン1.15以上が必要です。このバージョンは、Btrfsサブボリューム構造の復元をサポートしているからです。データのバックアップおよび復元は正常に機能するはずです。</para>
+        </formalpara>
+      </listitem>
+      <listitem>
+        <formalpara>
+          <title>スナップショットを含むサブボリュームを持つBtrfs</title>
+          <para>通常のバックアップおよび復元は、スナップショットのデータに対しては機能しません。通常のバックアップツール(たとえば、<command>tar</command>)は、データとBtrfsスナップショット構造を区別することができません。1つの回避策は、Btrfsスナップショットのデータを除外して、このデータと通常のデータを個別に保存する方法です。
+          </para>
+        </formalpara>
+      </listitem>
+    </itemizedlist>
+  </note>
+ </sect1>
+  
+ <sect1 id="sec.ha.rear.drp">
+  <title>最悪のシナリオへの準備: 障害復旧プラン</title>
+
+  <para>
+   最悪のシナリオが発生する<emphasis>前に</emphasis>、<emphasis>障害復旧プラン</emphasis>によって対策を講じます。障害復旧プランは、すべてのリスク、インフラストラクチャ、予算が記述されているドキュメントです。すでにプランをお持ちかもしれませんが、一般的な概要は次のとおりです。
+  </para>
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <formalpara>
+     <title>リスクの分析</title>
+     <para>
+      インフラの確かなリスク分析を実施します。可能性のあるすべての脅威を一覧表示し、深刻度を評価します。これらの脅威が発生する可能性を判断し、優先順位を設定します。可能性と影響の簡単な分類を使用することを推奨します。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>予算のプラニング</title>
+     <para>
+      分析結果には、どのリスクが耐えうるもので、どれがビジネスにとって致命的であるかを全般的に示します。リスクを最小化する方法と、かかるコストを自分自身で検討します。会社の規模に応じて、IT予算全体の2～15%を障害復旧に使用します。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>障害復旧プランの作成</title>
+     <para>
+      チェックリストの作成、手順のテスト、優先順位の設定と割り当て、ITインフラのインベントリ調査を行います。インフラのサービスが失敗した際、問題に対処する方法を定義します。
+      
+      
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>テスト</title>
+     <para>
+      念入りなプランを定義したら、それをテストします。最低でも1年に1度テストします。ご使用のメインITインフラと同じテストハードウェアを使用します。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 id="sec.ha.rear.config.rear">
+  <title>Rearの設定</title>
+   <para>Rearを設定するには、設定ファイル<filename>/etc/rear/local.conf</filename>にオプションを追加します。以前のファイル<filename>/etc/rear/sites.conf</filename>は、パッケージから削除されました。このファイルを前回のセットアップから引き継いでいる場合、Rearは依然としてそのファイルを使用します。
+   </para>
+   <para>OUTPUT変数を使用して、 <varname>出力方法を</varname> 
+     定義します。たとえば、回復メディアをISOイメージとして出力するには、次の設定を使用します。
+   </para>
+   <screen>OUTPUT=ISO</screen>
+   <para>設定ファイルを変更したら、次のコマンドを実行して、すべてが正しいかどうかを確認します。</para>
+   <screen>rear dump</screen>
+   <para>出力を調べて、エラーを探します。</para>
+   
+   <para>
+     詳細については、Rear (<command>man</command> <option>rear</option>)のマニュアルページを参照してください。
+   </para>    
+ </sect1>
+  
+ <sect1 id="sec.ha.rear.config.nfs">
+  <title>NFSサーバでバックアップを保存</title>
+  <para>
+   Rearはさまざまなシナリオで使用できます。次の例では、NFSサーバをバックアップストレージとして使用します。
+  </para>
+
+  <procedure id="pro.ha.rear.nfs-server-backup">
+   <title>NFSサーバでバックアップを保存</title>
+   <step performance="required">
+    <para> 『SUSE Linux Enterprise Server 12 管理ガイド<phrase role="productnumber"><phrase os="sles"/></phrase>』の「<citetitle/>NFSでのファイルシステムの共有」の章で説明されているとおり、YaSTでNFSサーバを設定します。<ulink url="http://www.suse.com/documentation/"/>から入手できます。 </para>
+   </step>
+   <step performance="required">
+     <para>NFSサーバが<filename>/etc/exports</filename>ファイルで適切に設定されていることを確認します。</para>
+     <screen>/srv/nfs    *(fsid=0,crossmnt,rw,no_root_squash,sync,no_subtree_check)</screen>
+   </step>
+   <step performance="required">
+    <para>
+     設定ファイル<filename>/etc/rear/local.conf</filename>を適応させます。<option>NETFS_URL</option>を自分の値に置き換えます。 
+     </para>
+     <para>
+     NFSホストがIPアドレスではないがホスト名である場合、バックアップが保存される際にDNSが作動する必要があります。その他のオプションは「<citetitle>設定</citetitle>」セクション(<ulink url="http://rear.github.com/documentation/"/>のマニュアル内)でリストされています。
+     
+     
+    </para>
+    <screen># Create rear rescue media as ISO image:
+OUTPUT=ISO
+# Store the backup file via NFS on an NFS server:
+BACKUP=NETFS
+# BACKUP_OPTIONS variable contains the NFS mount options and
+# with 'mount -o nolock' no rpc.statd (plus rpcbind) are needed:
+BACKUP_OPTIONS="nfsvers=3,nolock"
+# If the NFS server is not an IP address but a hostname,
+# DNS must work in the rear recovery system when the backup is restored.
+BACKUP_URL=nfs://192.168.1.1/nfs/rear/
+# Keep an older copy of the backup in a HOSTNAME.old directory
+# provided there is no '.lockfile' in the HOSTNAME directory:
+NETFS_KEEP_OLD_BACKUP_COPY=yes
+# Files in btrfs subvolumes are excluded by 'tar --one-file-system'
+# so that such files must be explictly included to be in the backup.
+# Files in the following SLE12 default btrfs subvolumes are
+# in the below example not included to be in the backup
+#   /.snapshots/*  /var/tmp/*  /tmp/*  /var/crash/*
+# but files in /home/* are included to be in the backup
+# (one line!):
+BACKUP_PROG_INCLUDE=( '/home/*' '/var/spool/*' '/var/opt/*' '/var/log/*' 
+  '/var/lib/pgsql/*' '/var/lib/mailman/*' '/var/lib/named/*' '/usr/local/*' 
+  '/srv/*' '/boot/grub2/x86_64-efi/*' '/opt/*' '/boot/grub2/i386-pc/*' )
+# Avoid that "rear recover" is 'Creating btrfs-filesystem' by default
+# also for every mounted btrfs subvolume by excluding the mountpoints
+# of the mounted btrfs subvolumes from component recreation
+# see /usr/share/doc/packages/rear/user-guide/06-layout-configuration.txt
+# and /usr/share/rear/conf/default.conf
+# When /home is a separated filesystem remove "fs:/home" from the list below
+# (one line!):
+EXCLUDE_RECREATE=( "${EXCLUDE_RECREATE[@]}" "fs:/home" "fs:/.snapshots" 
+   "fs:/var/tmp" "fs:/var/spool" "fs:/var/opt" "fs:/var/log" 
+   "fs:/var/lib/pgsql" "fs:/var/lib/mailman" "fs:/var/lib/named" 
+   "fs:/usr/local" "fs:/tmp" "fs:/srv" "fs:/var/crash" 
+   "fs:/boot/grub2/x86_64-efi" "fs:/opt" "fs:/boot/grub2/i386-pc" )
+# This option defines a root password to allow SSH connection
+# without a public/private key pair
+#SSH_ROOT_PASSWORD="password_on_the_rear_recovery_system"</screen>
+
+   </step>
+   <step performance="required">
+    <para>
+     次を実行してバックアップを準備します。
+    </para>
+<screen>rear -v mkbackup</screen>
+   </step>
+  </procedure>
+
+  <para>
+   テストマシンで障害復旧を実行するには、次のとおり続行します。
+  </para>
+
+  <procedure>
+   <title>テストマシンで障害復旧を実行</title>
+   <step performance="required">
+    <para>
+     <filename>/var/lib/rear/output/rear-<replaceable>HOSTNAME</replaceable>.iso</filename>として保存される回復ISOイメージを見つけ、CDに書き込みます。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     回復CDでテストマシンをブートします。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+      メニューの選択から<guimenu>Recover NAME (名前の回復)</guimenu>を選択して、<keycap function="enter"/>を押します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     <systemitem class="username">root</systemitem>としてログインします(パスワードは必要なし)。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     <command>rear recover</command>と入力し、回復プロセスを開始します。回復プロセスがマシンをインストールおよび設定し、NFSサーバからバックアップデータを取り出します。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   この手順後、テストマシンが正常に設定され、メインマシンの代わりとして機能できることを確認します。この手順を定期的にテストし、すべてが想定通りに作動することを確認します。メディアが損傷した時に備えて、回復CDのコピーを保管します。
+  </para>
+   
+  <para>EMC Networkerをバックアップツールとして使用するには、次の設定ファイルを使用します(それに伴って、<option>BACKUP_URL</option>を変更します)。</para>
+   <screen>BACKUP=NSR
+OUTPUT=ISO
+BACKUP_URL=nfs://dd990.example.com/data/col1/rear/backup
+OUTPUT_URL=nfs://dd990.example.com/data/col1/rear/output
+NSRSERVER=backupserver.example.com
+RETENTION_TIME="Month"</screen>
+ </sect1>
+  
+ <sect1 id="sec.ha.rear.config.yast2-rear">
+  <title>YaST Rearモジュールの使用</title>
+  
+  
+
+  <para>
+   YaST Rearモジュールを使用して基本セットアップを開始できます。Rearは、回復イメージとデータをNFSバックエンドまたはフラッシュディスクに保存します。ただし、YaST Rearモジュールは障害からの復旧はサポートしていません。障害復旧には専門知識が必要なので、管理者が手動で実行する必要があります。
+  </para>
+
+  <para>
+   基本セットアップを開始するには、次の手順に従います。
+  </para>
+
+  <procedure>
+   <step performance="required">
+    <para>
+     回復システムの開始方法を決定します。フラッシュディスクから起動する場合は<guimenu>USB</guimenu>、CD-ROMから起動する場合は<guimenu>ISO</guimenu>を選択します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     バックアップの保存先を決定します。<guimenu>NFS</guimenu>または<guimenu>USB</guimenu>のどちらかを選択します。
+    </para>
+    <itemizedlist mark="bullet" spacing="normal">
+     <listitem>
+      <para>
+       ネットワークファイルシステムを提供するサーバを使用する必要がある場合は、<guimenu>NFS</guimenu>を選択します。場所には<filename>nfs://hostname/directory</filename>を指定します。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       USBスティックにデータを保存する場合は、<guimenu>USB</guimenu>を選択します。USBデバイスが表示されない場合は、フラッシュディスクまたはUSBディスクを接続して、<guimenu>USBデバイスの再スキャン</guimenu>をクリックします。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step performance="required">
+    <para>
+     以前のバックアップコピーを保存しておく必要がある場合は、<guimenu>古いバックアップを保持</guimenu>をオンにします。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     バックアップに含む必要があるディレクトリを追加する場合は、<guimenu>詳細</guimenu>メニューで<guimenu>バックアップに追加するディレクトリ</guimenu>を選択します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     カーネルモジュールが見つからないためにレスキューシステムをブートできない場合は、<guimenu>詳細</guimenu>メニューで<guimenu>レスキューシステムで利用する追加のカーネルモジュール</guimenu>を選択し、レスキューシステムに追加されたモジュールのリストにそれぞれのカーネルモジュールを追加します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     <guimenu>今すぐReaRを保存して実行</guimenu>ボタンをクリックして、バックアッププロセスを開始します。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   YaST Rearモジュールでバックアップが完了したら、バックアップが想定どおりに機能することを確認します。
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.rear.more">
+  <title>その他の情報</title>
+
+
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <para>
+     <ulink url="http://en.opensuse.org/SDB:Disaster_Recovery"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>rear</command>マニュアルページ
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>/usr/share/doc/packages/rear/README</filename>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>

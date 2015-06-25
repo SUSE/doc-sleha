@@ -1,0 +1,584 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd">
+<!--
+*********************************
+Please see LICENSE.txt for this document's license.
+*********************************
+-->
+<chapter xml:base="ha_config_hawk.xml" id="cha.ha.config.hawk">
+ <title>クラスタリソースの設定と管理(Webインタフェース)</title>
+ <abstract>
+  <para>
+   クラスタリソースを設定および管理するには、HA Web Konsole (Hawk)、Webベースユーザインタフェース、またはcrmシェル(crmsh)コマンドラインユーティリティのいずれかを使用します。</para>
+  
+  <para>Hawkを使用すれば、Linux以外のマシンからも、Linuxクラスタを監視し、管理することができます。さらにこれは、ご使用のシステムが最小限のグラフィカルユーザインタフェースしか提供していない場合に最適なソリューションです。
+  </para>
+
+  <para>
+   この章では、Hawkを紹介し、グローバルクラスタオプションの変更、基本的なリソースと高度なリソース(グループとクローン)の作成、制約の設定、フェールオーバーノードとフェールバックノードの指定、リソースモニタリングの設定、リソースの始動、クリーンアップ、または削除、および手動によるリソースの移行など、クラスタリソースの設定と管理のための基本的な作業について説明します。Hawkは、クラスタステータスの詳細な分析のために、クラスタレポート(<literal>hb_report</literal>)を生成します。クラスタの履歴を表示できます。また、シミュレータにより、可能性のある障害シナリオを検討することができます。
+  </para>
+</abstract>
+  
+
+ <sect1 id="sec.ha.config.hawk.intro">
+  <title>Hawk - 概要</title>
+  <para>HawkのWebインタフェースを使用すれば、Linux以外のマシンからも、Linuxクラスタを監視し、管理することができます。さらにこれは、ご使用のシステムが最小限のグラフィカルユーザインタフェースしか提供していない場合に最適なソリューションです。 </para>
+  
+  <sect2 id="sec.ha.config.hawk.intro.connect">
+   <title>Hawkの起動とログイン</title>
+   
+   <para>このWebインタフェースは、<systemitem class="resource">hawk</systemitem>パッケージに含まれています。これは、Hawkで接続するすべてのクラスタノードにインストールする必要があります。Hawkを使用してクラスタノードにアクセスするマシンに必要なものは、JavaScriptとクッキーを有効にして接続を確立できる(グラフィカル)Webブラウザだけです。
+   </para>
+    
+   <para>
+    Hawkを使用するには、このWebインタフェースで接続するノード上で、それぞれのWebサービスが開始されている必要があります。 
+   </para>
+   <para><systemitem class="resource">ha-cluster-bootstrap</systemitem>パッケージからスクリプトを使用してクラスタをセットアップした場合、Hawkサービスはすでに開始されています。その場合は、<xref linkend="pro.ha.hawk.service"/>をスキップして<xref linkend="pro.ha.hawk.login"/>に進みます。</para>
+   
+   <procedure id="pro.ha.hawk.service">
+    <title>Hawkサービスの開始</title>
+    <step performance="required">
+     <para>
+      接続先にするノードで、シェルを開き、<systemitem class="username">root</systemitem>としてログインします。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      次のように入力して、サービスのステータスをチェックします。
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> status hawk.service</screen>
+   </step>
+    <step performance="required">
+     <para>
+      サービスが実行されていない場合は、次のコマンドでサービスを開始します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start hawk.service</screen>
+   <para>
+      ブート時にHawkを自動的にブートしたい場合は、次のコマンドを実行します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> enable hawk.service</screen>
+    </step>
+   </procedure>
+   
+   <note>
+    <title>ユーザの認証</title>
+    <para>Hawkユーザは<systemitem class="groupname">haclient</systemitem>グループのメンバーである必要があります。インストール時に<systemitem class="username">hacluster</systemitem>という名前のLinuxユーザが作成されますが、このユーザが<systemitem class="groupname">haclient</systemitem>グループに追加されます。セットアップ用に<command>ha-cluster-init</command>スクリプトを使用している場合は、<systemitem class="username">hacluster</systemitem>ユーザに対してデフォルトパスワードが設定されます。</para>
+    <para>Hawkを開始する前に、<systemitem>hacluster</systemitem>ユーザのパスワードを設定するか変更してください。または、<systemitem class="groupname">haclient</systemitem>グループのメンバーである新しいユーザを作成してください。 </para>
+    <para>
+     Hawkを使用して接続する各ノードでこれを実行します。
+    </para>
+   </note>
+   
+   <procedure id="pro.ha.hawk.login">
+    <title>Hawk Webインタフェースへのログイン</title>
+    <para>Hawk Webインタフェースは、HTTPSプロトコルとポート<literal>7630</literal>を使用します。</para>
+     <step performance="required">
+     <para>
+      任意のコンピュータで、Webブラウザを起動し、JavaScriptとクッキーが有効なことを確認します。
+     </para>
+    </step>
+    <step performance="required">
+     <para>
+      URLとして、Hawk Webサービスを実行するクラスタノードのIPアドレスまたはホスト名を入力します。または、クラスタオペレータが設定した<literal>IPaddr(2)</literal>リソースのアドレスを入力します。
+     </para>
+<screen>https://<replaceable>HOSTNAME_OR_IP_ADDRESS</replaceable>:7630/</screen>
+     <note>
+      <title>証明書の警告</title>
+      <para>初めてURLにアクセスしようとするときに証明書の警告が表示される場合は、自己署名証明書が使用されています。自己署名証明書は、デフォルトでは信頼されません。 </para>
+      <para>証明書を検証するための詳細情報については、クラスタのオペレータに問い合わせてください。</para>
+      <para> 続行するには、ブラウザに例外を追加して警告をバイパスします。 
+      </para>
+      <para>自己署名証明書を公式認証局によって署名された証明書で置き換える方法の詳細については、<xref linkend="vle.ha.hawk.certificate"/>を参照してください。
+      </para>
+     </note>
+    </step>
+    <step performance="required">
+     <para>
+      Hawkログイン画面で、<systemitem class="username">hacluster</systemitem>ユーザ(または、<systemitem class="groupname">haclient</systemitem>グループのメンバーである他の任意のユーザ)の<guimenu>ユーザ名</guimenu>と<guimenu>パスワード</guimenu>を入力します。 
+     </para>
+    </step>
+    <step performance="required">
+     <para><guimenu>ログイン</guimenu>をクリックします。</para>
+     <para> <guimenu>クラスタの状態</guimenu>画面が開き、クラスタノードとリソースのステータスが表示されます。表示される情報は、crmシェルの<command>crm status</command>の出力と似ています。 </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 id="sec.ha.config.hawk.intro.main">
+   <title>メイン画面: クラスタステータス</title>
+   
+   <para>
+    ログインした後、Hawkは<guimenu>クラスタステータス</guimenu>画面を表示します。重要なグローバルクラスタパラメータと、クラスタノードおよびリソースのステータスを示すサマリが表示されます。ノードとリソースのステータスを表示するのに、次のカラーコードが用いられます。
+   </para>
+   <itemizedlist id="il.ha.config.hawk.colors" mark="bullet" spacing="normal">
+    <title>Hawkのカラーコード</title>
+    <listitem>
+     <para> 緑: OK。たとえば、リソースが実行中か、ノードがオンラインです。 </para>
+    </listitem>
+    <listitem>
+     <para>
+      赤: 不良。クリーンでないたとえば、リソースに障害が発生したか、ノードがクリーンにシャットダウンされませんでした。
+     </para>
+    </listitem>
+    <listitem>
+     <para> 黄: 過渡期。たとえば、現在、ノードがシャットダウン中か、またはリソースが起動中または停止中です。保留中のリソースをクリックして詳細を表示すると、現在リソースが変更しようとしている先の状態も表示されます(<literal>Starting</literal>、<literal>Stopping</literal>、<literal>Moving</literal>、<literal>Promoting</literal>、または<literal>Demoting</literal>)。 </para>
+     
+     <note>
+      <title>リソースの移行状態の表示</title>
+      <para>リソースの移行状態は、操作のプロパティ
+        <varname>record-pending</varname> が<literal>true</literal>に設定されている場合にのみ表示されます。<command>ha-cluster-init</command>スクリプトでクラスタをセットアップしている場合は、このプロパティは、デフォルトでグローバルにオンになります。手動で有効にするには、Hawkの<guimenu>クラスタ設定</guimenu>画面を使用して<guimenu>操作のデフォルト</guimenu>の下にプロパティを追加して有効にするか、次のコマンドを使用します。</para>
+      <screen><prompt role="root">root # </prompt><command>crm</command> configure op_defaults record-pending=true</screen>
+     </note>
+    </listitem>
+    <listitem>
+     <para>
+      灰色: 実行中でありません。ただし、クラスタは、それが実行中であることを期待しています。たとえば、管理者が停止したか、<literal>standby</literal>モードにしたノードです。オフラインのノードも、灰色で表示されます(クリーンにシャットダウンされた場合)。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    カラーコードの他に、Hawkの<guimenu>クラスタの状態</guimenu>画面のすべてのビューには、ノード、リソース、チケットの状態やエラーメッセージに関するアイコンも表示されます。
+   </para>
+   <para>
+    リソースに障害が発生した場合は、詳細を示す障害メッセージが画面上部に赤色で表示されます。障害の原因を分析するには、エラーメッセージをクリックします。これにより、Hawkの<guimenu>履歴エクスプローラ</guimenu>が自動的に開き、20分の時間範囲でデータの収集がトリガされます(障害の発生前10分と発生後10分)。詳細については、<xref linkend="pro.ha.config.hawk.history.explorer"/>を参照してください。
+   </para>
+   <figure pgwide="0">
+    <title>Hawk - クラスタステータス(サマリビュー)</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk-cluster-status-main.png" width="90%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk-cluster-status-main.png" width="80%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <para>
+    <guimenu>クラスタステータス</guimenu>画面はほぼリアルタイムで更新されます。次のビューの中から選択します。これらのビューには、右上隅の3つのアイコンでアクセスできます。
+   </para>
+
+   <variablelist>
+    <title>Hawkクラスタステータスビュー</title>
+    <varlistentry>
+     <term>サマリビュー</term>
+     <listitem>
+      <para>
+       重要なグローバルクラスタのパラメータと、クラスタノードおよびリソースのステータスが同時に確認できるように表示されます。セットアップにGeoクラスタ(マルチサイトクラスタ)が含まれている場合、サマリビューにはチケットも表示されます。特定のカテゴリ(チケット、ノード、またはリソース)に属しているすべての要素に関する詳細を表示するには、リンクとしてマークされているカテゴリタイトルをクリックします。それ以外の場合は、個々の要素をクリックして詳細を表示します。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>ツリービュー</term>
+     <listitem>
+      <para>
+       重要なグローバルクラスタパラメータと、クラスタノードおよびリソースのステータスが拡張ビューで表示されます。セットアップにGeoクラスタ(マルチサイトクラスタ)が含まれている場合、ツリービューにはチケットも表示されます。それぞれのカテゴリに属する要素を展開したり折りたたんだりするには、矢印をクリックします。<guimenu>サマリビュー</guimenu>とは異なり、このビューはリソースのIDとステータスだけでなく、タイプも表示します(たとえばプリミティブ、クローン、またはグループ)。 </para>
+      
+      <para>グループの場合は、同じタイプ(グループ内)のリソースが一緒に表示されるビューに切り替えることもできます。リソースカテゴリの<literal>ab</literal>アイコンを押すと、リソースが個別に表示される通常のビューとタイプ別に結合されるビューを切り替えることができます。たとえば、あるグループに<literal>ocf:pacemaker:Dummy</literal>タイプの3つのリソースがあり、その1つのみが実行されている場合、タイプ別ビューには、灰色の背景に<literal>1/3 ocf:pacemaker:Dummy<replaceable> NODENAME</replaceable></literal>が表示されます。これは、リソースの1/3しか起動されていないことを示しています。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>テーブルビュー</term>
+     <listitem>
+      <para>
+       このビューは、現在どのリソースがどのノード上で実行されているかを簡潔に表示するため、大きめのクラスタに特に便利です。アクティブ化されていないノードまたはリソースも表示されます。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    メイン画面の最上位の行には、ログインに使用したユーザ名が表示されます。Webインタフェースから<guimenu>ログアウト</guimenu>して、ユーザ名の隣にあるレンチアイコンから次の<guimenu>ツール</guimenu>にアクセスすることもできます。
+   </para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para>
+      <guimenu>シミュレータ</guimenu>:詳細については、<xref linkend="sec.ha.config.hawk.simulator"/>を参照してください。
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      <guimenu>クラスタダイアグラム</guimenu>:ノードのグラフィック表現とCIBで設定されたリソースについては、このエントリを選択します。このダイアグラムには、リソースとノード割り当て(スコア)の間の順序とコロケーションも表示されます。
+     </para>
+     <figure id="fig.ha.cluster.diagram" pgwide="0">
+      <title>Hawk - クラスタダイアグラム</title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="hawk-cluster-diagram.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="hawk-cluster-diagram.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>クラスタレポート</guimenu>(<command>hb_report</command>):詳細については、<xref linkend="sec.ha.config.hawk.crm_report"/>を参照してください。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    ノードおよびリソースで基本的な操作(リソースの起動や停止、ノードのオンライン化、詳細の表示など)を実行するには、それぞれのノードまたはリソースの隣にあるレンチアイコンをクリックします。これにより、コンテキストメニューが表示されます。任意のステータス画面上のいずれかのクローン、グループ、またはマスタ/スレーブの子リソースについては、コンテキストメニューから<guimenu>親</guimenu>メニュー項目を選択します。これをクリックすることで、そのプリミティブが属している最上位のクローンまたはグループの開始や停止などを実行できます。
+   </para>
+   <para>
+    リソースの設定、制約、グローバルクラスタオプションなどより複雑な作業については、左側のナビゲーションバーを使用します。そこから、次の画面にアクセスできます。
+   </para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para><guimenu>クラスタの状態</guimenu>: 詳細については、<xref linkend="sec.ha.config.hawk.intro.main"/>を参照してください。</para>
+    </listitem>
+    <listitem>
+     <para><guimenu>履歴エクスプローラ</guimenu>: 詳細については、<xref linkend="pro.ha.config.hawk.history.explorer"/>を参照してください。</para>
+    </listitem>
+    <listitem>
+     <para><guimenu>セットアップウィザード</guimenu>: 詳細については、<xref linkend="sec.ha.config.hawk.wizard"/>を参照してください。</para>
+    </listitem>
+    <listitem>
+     <para><guimenu>クラスタ設定</guimenu>: 詳細については、<xref linkend="sec.ha.config.hawk.global"/>を参照してください。</para>
+    </listitem>
+    <listitem>
+     <para><guimenu>アクセス制御リスト</guimenu>: 詳細については、<xref linkend="cha.ha.acl"/>を参照してください。</para>
+    </listitem>
+    <listitem>
+     <para><guimenu>リソース</guimenu>: 詳細については、<xref linkend="sec.ha.config.hawk.rsc"/>を参照してください。</para>
+    </listitem>
+    <listitem>
+     <para><guimenu>制約</guimenu>: 詳細については、<xref linkend="sec.ha.config.hawk.rsc"/>を参照してください。</para>
+    </listitem>
+   </itemizedlist>
+   
+   <note>
+    <title>Hawkで利用できる機能</title>
+    <para>
+     デフォルトでは、<systemitem class="username">root</systemitem>または<systemitem class="username">hacluster</systemitem>としてログインしたユーザは、すべてのクラスタ設定作業への、完全な読み込み/書き込みのアクセス権を持ちます。ただし、<xref linkend="cha.ha.acl" xrefstyle="select:title"/>を使用すれば、より詳細なアクセス権限を定義することができます。
+    </para>
+    <para>
+     CRMでACLが有効になっている場合、Hawkで利用できる機能は、割り当てられたユーザ役割とアクセスパーミッションごとに異なります。加えて、Hawkの次の機能は、ユーザ<systemitem class="username">hacluster</systemitem>だけが使用できます。
+    </para>
+    <itemizedlist mark="bullet" spacing="normal">
+     <listitem>
+      <para>
+       <literal>hb_report</literal>の生成。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <guimenu>履歴エクスプローラ</guimenu>の使用。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       ノードまたリソースの最近のイベントの表示。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </note>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.config.hawk.global">
+  
+  <title>グローバルクラスタオプションの設定</title>
+
+  <para>
+   グローバルクラスタオプションは、一定の状況下でのクラスタの動作を制御します。これらは、セットにグループ化され、Hawk、<command>crm</command>シェルなどのクラスタ管理ツールで表示し、変更することができます。事前に定義されている値は、通常は、そのまま保持できます。ただし、クラスタの主要機能を正しく機能させるには、クラスタの基本的なセットアップ後に、次のパラメータを調整する必要があります。
+  </para>
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.config.basics.global.quorum" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.config.basics.global.stonith" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure id="pro.ha.config.hawk.global">
+   <title>グローバルクラスタオプションを変更する</title>
+   <step performance="required">
+    <para>
+     <xref linkend="sec.ha.config.hawk.intro.connect"/>で説明したように、Webブラウザを起動してクラスタにログインします。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     左のナビゲーションバーで、<guimenu>クラスタのプロパティ</guimenu>を選択して、グローバルクラスタオプションとそれらの現在の値を表示します。Hawkは、<guimenu>CRM設定</guimenu>、<guimenu>リソースのデフォルト</guimenu>、<guimenu>操作のデフォルト</guimenu>に関する重要なパラメータを表示します。
+     
+    </para>
+    <figure pgwide="0">
+     <title>Hawk - クラスタ設定</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-cluster-props.png" width="80%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-cluster-props.png" width="80%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step performance="required">
+    <para>
+     クラスタの要件に応じて、<guimenu>CRM Configuration</guimenu>を調整します。
+    </para>
+    <substeps performance="required">
+     <step performance="required">
+      <para>
+       <guimenu>no-quorum-policy</guimenu>を適切な値に設定します。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       なんらかの理由でフェンシングを無効にする必要がある場合は、<guimenu>stonith-enabled</guimenu>の選択を解除します。
+      </para>
+      <important>
+       <title>STONITHがない場合はサポートなし</title>
+       <para>
+        STONITHがないクラスタはサポートされません。
+       </para>
+      </important>
+     </step>
+     <step performance="required">
+      <para>
+       CRM設定からプロ化ティを削除するには、プロパティの横のマイナスアイコンをクリックします。プロパティが削除されたら、クラスタはそのプロパティがデフォルト値に設定されているように動作します。デフォルト値の詳細については、<xref linkend="sec.ha.config.basics.meta.attr"/>を参照してください。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       CRM設定に新しいプロパティを追加するには、ドロップダウンボックスからプロパティを1つ選択し、プラスアイコンをクリックします。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step performance="required">
+    <para>
+     <guimenu>リソースのデフォルト</guimenu>または<guimenu>操作のデフォルト</guimenu>を変更する必要がある場合は、次のような処理を実行します。
+    </para>
+    <substeps performance="required">
+     <step performance="required">
+      <para>
+       すでに表示されているデフォルトの値を変更するには、それぞれの入力フィールドで値を編集します。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       新しいリソースのデフォルトまたは操作のデフォルトを追加するには、空のドロップダウンリストから1つ選択し、プラスアイコンをクリックして値を入力します。定義されたデフォルト値が存在する場合は、Hawkから自動的に提示されます。
+      </para>
+     </step>
+     <step performance="required">
+      <para>
+       リソースまたは操作のデフォルトを削除するには、パラメータの横のマイナスアイコンをクリックします。<guimenu>リソースのデフォルト</guimenu>と<guimenu>操作のデフォルト</guimenu>に値が指定されていない場合、クラスタは<xref linkend="sec.ha.config.basics.meta.attr"/>および<xref linkend="sec.ha.config.basics.operations"/>にドキュメントされているデフォルト値を使用します。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step performance="required">
+    <para>
+     変更内容を確認します。
+    </para>
+   </step>
+  </procedure>
+
+
+ </sect1>
+
+ <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="ha_hawk_rsc_config_i.xml" parse="xml"/>
+ <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="ha_hawk_rsc_manage_i.xml" parse="xml"/>
+ 
+ <sect1 id="sec.ha.config.hawk.dashboard">
+
+
+  <title>複数のクラスタの監視</title>
+
+  <para>
+   複数のクラスタを監視するためのシングルポイント管理としてHawkを使用できます。Hawkの<guimenu>クラスタダッシュボード</guimenu>では、複数のクラスタのサマリを表示することができます。ここには各サマリのノード、リソース、チケット(Geoクラスタを使用している場合)の数と、それぞれの状態が表示されます。このサマリには、それぞれのクラスタに障害が表示されているかどうかも示されます。
+  </para>
+
+  <para>
+   <guimenu>Cluster Dashboard</guimenu>に表示されているクラスタ情報は、永続クッキーに保存されます。つまり、<guimenu>Cluster Dashboard</guimenu>を表示するHawkインスタンスを決定し、そのインスタンスを常に使用する必要があります。Hawkを実行するマシンは、その目的のためにクラスタの一部である必要はなく、別個の無関係のシステムで構いません。
+  </para>
+
+  <procedure id="pro.ha.config.hawk.dashboard">
+   <title>Hawkによる複数クラスタの監視</title>
+   <itemizedlist mark="bullet" spacing="normal">
+    <title>前提条件</title>
+    <listitem>
+     <para>
+      Hawkの<guimenu>クラスタダッシュボード</guimenu>で監視するすべてのクラスタは、<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase><phrase role="productnumber"><phrase os="sles"> 12</phrase></phrase>を実行している必要があります。それより前のバージョンの<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>を実行しているクラスタは監視できません。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      すべてのクラスタノードにあるHawkの自己署名証明書を独自の証明書(または公式認証局によって署名された証明書)で置き換えていない場合は、<emphasis/>「すべての」クラスタの<emphasis/>「すべての」ノードで、少なくとも1回はHawkにログインします。証明書を検証します(または、ブラウザで例外を追加して警告をスキップします)。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Mozilla Firefoxをご使用の場合は、環境設定を<guimenu>サードパーティのCookieも保存する</guimenu>に変更する必要があります。そうでない場合、監視対象のクラスタのクッキーが設定されないため、監視しようとするクラスタにログインできなくなります。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <step performance="required">
+    <para>
+     複数のクラスタを監視するマシン上で、Hawk Webサービスを開始します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     Webブラウザを起動して、Hawkを実行するマシンのIPアドレスまたはホスト名を入力します。
+    </para>
+<screen>https://<replaceable>IPaddress</replaceable>:7630/</screen>
+   </step>
+   <step performance="required">
+    <para>
+     Hawkのログイン画面で、右上隅の<guimenu>ダッシュボード</guimenu>リンクをクリックします。
+    </para>
+    <para>
+     <guimenu>クラスタの追加</guimenu>ダイアログが表示されます。
+    </para>
+    <informalfigure>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-dashboard-add-cluster.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-dashboard-add-cluster.png" width="80%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </informalfigure>
+   </step>
+   <step performance="required">
+    <para>
+     <guimenu>Cluster Dashboard</guimenu>でクラスタを識別するためのカスタムの<guimenu>クラスタ名</guimenu>を入力します。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     クラスタノードのいずれかの<guimenu>ホスト名</guimenu>を入力し、変更内容を確認します。
+    </para>
+    <para>
+     <guimenu>クラスタダッシュボード</guimenu>が開き、追加したクラスタのサマリが表示されます。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     ダッシュボードにクラスタをさらに追加するには、プラスアイコンをクリックして、次のクラスタの詳細を入力します。
+    </para>
+    <figure>
+     <title>Hawk - Cluster Dashboard</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-dashboard-multiple-clusters.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-dashboard-multiple-clusters.png" width="80%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step performance="required">
+    <para>
+     ダッシュボードからクラスタを削除するには、クラスタのサマリの隣の<literal>x</literal>アイコンをクリックします。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     クラスタの詳細を表示するには、ダッシュボード上でクラスタのボックス内の任意の場所をクリックします。
+    </para>
+    <para>
+     これにより、新しいブラウザウィンドウまたは新しいブラウザタブが開きます。クラスタに現在ログインしていない場合は、Hawkのログイン画面が開きます。ログインしたら、Hawkのサマリビューに、そのクラスタの<guimenu>クラスタステータス</guimenu>が表示されます。ここで、Hawkによって通常どおりにクラスタを管理できます。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     <guimenu>クラスタダッシュボード</guimenu>は独立したブラウザウィンドウまたはタブで開いたままになっているので、ダッシュボードとHawkによる個々のクラスタの管理とは、簡単に切り替えることができます。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   ノードまたはリソースに関するステータス変更は、<guimenu>Cluster Dashboard</guimenu>内でほぼ即時に反映されます。
+  </para>
+
+ 
+
+ </sect1>
+ <sect1 id="sec.ha.config.hawk.geo">
+  <title>GeoクラスタのＨａｗｋ</title>
+  <para>地理的に離れたクラスタ(Geoクラスタ)に関連するHawk機能の詳細については、『Geo Clustering for SUSE Linux Enterprise High Availability Extensionクイックスタート』<citetitle><phrase role="productname"><phrase os="sles"/></phrase></citetitle>を参照してください。</para>
+ </sect1>
+  
+ <sect1 id="sec.ha.config.hawk.trouble">
+  <title>トラブルシューティング</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>Hawkログファイル</term>
+    <listitem>
+     <para>
+      Hawkログファイルは、<filename>/srv/www/hawk/log</filename>にあります。Hawkにアクセスできない場合には、これらのファイルをチェックしてください。
+     </para>
+     <para> Hawkでリソースを始動または停止する際に問題が発生した場合は、Pacemakerのログメッセージを確認します。Pacemakerログの場所は、<filename>/etc/corosync/corosync.conf</filename>の<literal>logging</literal>セクションで指定されています。 
+       
+      </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>認証ファイル</term>
+    <listitem>
+     <para>
+      <systemitem class="groupname">haclient</systemitem>グループのメンバーである新規ユーザでHawkにログインできない(または、Hawkがこのユーザからのログインを受け入れるまでに遅延がある)場合は、<systemitem class="daemon">nscd</systemitem>デーモンを停止してください。</para>
+     <screen><command>systemctl</command> stop nscd.service</screen>      
+     <para>Try again(再試行してください).  </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry id="vle.ha.hawk.certificate">
+    <term>自己署名証明書の置き換え</term>
+    <listitem>
+     <para>
+      Hawkの最初の起動で自己署名証明書に関する警告が発行されるのを避けるには、自動生成された証明書を、独自の証明書または公式認証局(CA)によって署名された証明書で置き換えてください。
+     </para>
+     <para>
+      証明書は<filename>/etc/lighttpd/certs/hawk-combined.pem</filename>に保存され、キーと証明書の両方を含んでいます。 </para>
+     <para>
+      パーミッションを変更して、<systemitem class="username">root</systemitem>だけがファイルをアクセスできるようにします。
+     </para>
+     <screen>chown root.root /etc/lighttpd/certs/hawk-combined.pem
+      chmod 600 /etc/lighttpd/certs/hawk-combined.pem</screen>
+     <para> 
+      新しいキーと証明書を作成した後、または受け取った後に、次のコマンドを実行してそれらを組み合わせます。 </para>
+<screen>cat <replaceable>keyfile</replaceable> <replaceable>certificatefile</replaceable> &gt; /etc/lighttpd/certs/hawk-combined.pem</screen>
+     </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>履歴エクスプローラ/hb_reportの使用後に、Hawkへのログインが失敗する</term>
+    <listitem>
+     <para>
+
+      <guimenu>履歴エクスプローラ</guimenu>や<guimenu>hb_report</guimenu>で定義した期間、およびその期間中にクラスタで発生したイベントによっては、Hawkが、非常に大量の情報を集める場合があります。この情報は、<filename>/tmp</filename>ディレクトリのログファイルに保存されます。この場合、ノードの残りディスクスペースが大きく消費されることがあります。<guimenu>履歴エクスプローラ</guimenu>または<guimenu>hb_report</guimenu>の使用後にHawkが応答しなくなった場合には、クラスタノードのハードディスクを確認して、対応するログファイルを削除してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Cluster Dashboard</guimenu>: ホストに接続できない</term>
+    <listitem>
+     <para>
+      Hawkのダッシュボードにクラスタが追加できない場合は、<xref linkend="pro.ha.config.hawk.dashboard"/>に示されている前提条件をチェックしてください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Cluster Dashboard</guimenu>: アクセスできないノード</term>
+    <listitem>
+     <para>
+      <guimenu>Cluster Dashboard</guimenu>は、ステータスについてクラスタあたり1つのノードのみをポールします。ポールされたノードがダウンした場合、ダッシュボードは別のノードにポールして循環させます。この場合、Hawkは、そのノードがアクセス不可であることに関する警告メッセージをすぐに表示します。Hawkが交信する別のノードを見つけたら、メッセージは表示されなくなります。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>

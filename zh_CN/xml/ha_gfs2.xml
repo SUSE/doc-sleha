@@ -1,0 +1,374 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd">
+<!--
+*********************************
+Please see LICENSE.txt for this document's license.
+*********************************
+-->
+<chapter xml:base="ha_gfs2.xml" id="cha.ha.gfs2">
+  <title>GFS2</title>
+   <abstract>
+  <para>
+   全局文件系统 2 或称 GFS2 是适用于 Linux 计算机群集的共享磁盘文件系统。GFS2 允许所有节点直接同时访问同一个共享块储存。GFS2 不提供断开操作模式，也没有客户端角色或服务器角色。GFS2 群集中的所有节点以对等体的形式运行。GFS2 最多支持 32 个群集节点。在群集中使用 GFS2 需要通过硬件来访问共享储存，并需要通过一个锁管理器来控制对储存的访问。
+  </para>
+  <para>如果性能是其中一个主要要求，SUSE 建议为群集环境使用 OCFS2 而不要使用 GFS2。我们的测试表明，与采用此设置的 GFS2 相比，OCFS2 的表现更好。</para>
+ </abstract>
+ <sect1 id="sec.ha.gfs2.utils">
+  <title>GFS2 包和管理实用程序</title>
+  <para>
+    要使用 GFS2，请确保在群集的每个节点上安装适用于您的内核的 <systemitem class="resource">gfs2-utils</systemitem> 和匹配的 <systemitem class="resource">gfs2-kmp-*</systemitem> 包。
+  </para>
+
+  <para>
+   <systemitem class="resource">gfs2-utils</systemitem> 包提供以下实用程序，用于管理 GFS2 卷。有关语法信息，请参见其手册页。
+  </para>
+
+  <table>
+   <title>GFS2 实用程序</title>
+   <tgroup cols="2">
+    <thead>
+     <row>
+      <entry>
+       <para>
+        GFS2 实用程序
+       </para>
+      </entry>
+      <entry>
+       <para>
+        描述
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        fsck.gfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        检查文件系统的错误并进行选择性的修改。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        gfs2_jadd
+       </para>
+      </entry>
+      <entry>
+       <para>
+        将其他日记添加到 GFS2 文件系统。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        gfs2_grow
+       </para>
+      </entry>
+      <entry>
+       <para>
+        产生 GFS2 文件系统。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        mkfs.gfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        在设备上创建 GFS2 文件系统，这通常是一个共享设备或分区。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        tunegfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        允许查看和处理 GFS2 文件系统参数，例如 <varname>UUID</varname>、 <varname>label</varname>、 <varname>lockproto</varname> 和 <varname>locktable</varname>。
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+
+ <sect1 id="sec.ha.gfs2.create.service">
+  <title>配置 GFS2 服务和 STONITH 资源</title>
+  <para>
+   在创建 GFS2 卷之前，必须先配置 DLM 和 STONITH 资源。GFS2 使用由运行于用户空间中的 Corosync 提供的群集成员资格服务。因此，需要将 DLM 配置为位于群集中每个节点上的克隆资源。
+  </para>
+  <procedure id="pro.gfs2.stonith">
+     <title>配置 STONITH 资源</title>
+     <note>
+       <title>所需的 STONITH 设备</title>
+       <para>
+         您需要配置屏蔽设备。没有一个适当的 STONITH 机制（如 <literal>external/sbd</literal>），则配置会失败。
+       </para>
+     </note>
+     <step performance="required">
+       <para>
+         启动壳层，并以 <systemitem class="username">root</systemitem> 用户身份或同等身份登录。
+       </para>
+     </step>
+     <step performance="required">
+       <para>
+         如<xref linkend="pro.ha.storage.protect.sbd.create"/>中所述，创建 SBD 分区。
+       </para>
+     </step>
+     <step performance="required">
+       <para>
+         运行 <command>crm <option>configure</option></command>。
+       </para>
+     </step>
+     <step performance="required">
+       <para>
+         将 <literal>external/sbd</literal> 配置为屏蔽设备，并将 <literal>/dev/sdb2</literal> 作为存储检测信号和屏蔽的共享储存上的专用分区：
+       </para>
+       <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> sbd_stonith stonith:external/sbd \
+     meta target-role="Started"</screen>
+     </step>
+     <step performance="required">
+       <para>
+         使用 <command>show</command> 复查更改。
+       </para>
+     </step>
+     <step performance="required">
+       <para>
+         如果全部都正确，请使用 <command>commit</command> 提交更改，并使用 <command>exit</command> 退出 crm 当前配置。
+       </para>
+     </step>
+   </procedure>
+   
+  <procedure id="pro.gfs2.resources">
+   <title>配置 DLM 资源</title>
+   <para>
+    这种配置由包含多个原始资源的基本组和一个基本克隆构成。基本组和基本克隆随后可以用于各种方案（例如，用于 GFS2 和 cLVM）。您只需视需要使用相应的基元资源扩展基本组。由于基本组具有内部共置和顺序约束，因此您无需指定多个单个组、克隆及其依赖性，方便进行总体设置。
+   </para>
+   <para>
+    对群集中的一个节点执行以下步骤：
+   </para>
+   <step performance="required">
+    <para>
+     启动壳层，并以 <systemitem class="username">root</systemitem> 用户身份或同等身份登录。
+    </para>
+   </step>
+   <step performance="required">
+    <para>输入以下命令以创建 DLM 的基元资源： </para>
+    <screen><prompt role="root">root # </prompt><command>crm</command> configure primitive dlm ocf:pacemaker:controld \
+     op monitor interval="60" timeout="60"</screen>
+    <para> <literal>dlm</literal> 克隆资源会控制分布式锁管理器服务，并确保此服务在群集中的所有节点上都启动。如果所有信息均正确，请按 <literal>y</literal> 提交更改。 </para>
+   </step>
+   <step performance="required">
+    <para>
+     使用 <command>show</command> 复查更改：
+    </para>
+      <screen><prompt role="root">root # </prompt><command>crm</command> show</screen>
+   </step>
+  </procedure>
+ </sect1>
+
+
+ <sect1 id="sec.ha.gfs2.create">
+  <title>创建 GFS2 卷</title>
+
+  <para>
+   按<xref linkend="sec.ha.gfs2.create.service"/>中所述将 DLM 配置为群集资源后，将系统配置为使用 GFS2 并创建 GFS2 卷。
+  </para>
+
+  <note>
+   <title>用于存储应用程序和数据文件的 GFS2 卷</title>
+   <para>
+    我们建议您通常应将应用程序文件和数据文件储存在不同的 GFS2 卷上。如果应用程序卷和数据卷具有不同的装入要求，则必须将它们储存在不同的卷上。
+   </para>
+  </note>
+
+  <para>
+   开始之前要准备计划用于 GFS2 卷的块设备。将这些设备留作可用空间。
+  </para>
+
+  <para>
+   然后，按<xref linkend="pro.gfs2.volume"/>中所述使用 <command>mkfs.gfs2</command> 创建并格式化 GFS2 卷。此命令最重要的参数列于<xref linkend="tab.ha.gfs2.mkfs.gfs2.params"/>中。有关更多信息和命令语法，请参见 <command>mkfs.gfs2</command> 手册页。
+  </para>
+
+  <table id="tab.ha.gfs2.mkfs.gfs2.params">
+   <title>重要的 GFS2 参数</title>
+   <tgroup cols="2">
+     <colspec colname="c1" colwidth="1*"/>
+     <colspec colname="c2" colwidth="3*"/>
+    <thead>
+     <row>
+      <entry>
+       <para>
+        GFS2 参数
+       </para>
+      </entry>
+      <entry>
+       <para>
+        描述和建议
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+
+     <row>
+      <entry>
+       <para>
+        锁定协议名称 (<option>-p</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        要使用的锁定协议的名称。可接受的锁定协议包括 lock_dlm（用于共享储存）；如果您将 GFS2 用作本地文件系统（只有 1 个节点），则可以指定 lock_nolock 协议。如果未指定此选项，假定采用 lock_dlm 协议。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        锁定表名称 (<option>-t</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        与您正在使用的锁定模块对应的锁定表字段。该字段的格式为 <replaceable>clustername</replaceable>:<replaceable>fsname</replaceable>。<replaceable>clustername</replaceable> 必须与群集配置文件 <filename>/etc/corosync/corosync.conf</filename> 中的条目匹配。只允许此群集的成员使用此文件系统。<replaceable>fsname</replaceable> 是唯一的文件系统名称（1 到 16 个字符），用于将此 GFS2 文件系统与创建的其他文件系统区分开来。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        日记数量 (<option>-j</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        要为 gfs2_mkfs 创建的日记数量。要装入该文件系统的每台计算机至少需要一个日记。如果未指定此选项，将创建一个日记。
+       </para>
+      </entry>
+     </row>
+
+    </tbody>
+   </tgroup>
+  </table>
+
+  <procedure id="pro.gfs2.volume">
+   <title>创建并格式化 GFS2 卷</title>
+   <para>
+    只在群集节点之<emphasis>一</emphasis>上执行以下步骤。
+   </para>
+   <step performance="required">
+    <para>
+     以 <systemitem class="username">root</systemitem> 用户身份打开终端窗口并登录。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     使用命令 <command>crm status</command> 检查群集是否联机。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     使用 <command>mkfs.gfs2</command> 实用程序创建并格式化卷。有关此命令的语法的信息，请参见 <command>mkfs.gfs2</command> 手册页。
+    </para>
+    <para>
+     例如，要在 <filename>/dev/sdb1</filename> 上创建最多支持 32 个群集节点的新的 GFS2 文件系统，请使用以下命令：
+    </para>
+    <screen><prompt role="root">root # </prompt>mkfs.gfs2 -t hacluster:mygfs2 -p lock_dlm -j 32 /dev/sdb1</screen>
+
+     <para><systemitem class="server">hacluster</systemitem> 名称与文件 <filename>/etc/corosync/corosync.conf</filename> 中的条目 <option>cluster_name</option> 相关（这是默认设置）。
+     </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.gfs2.mount">
+  <title>装入 GFS2 卷</title>
+
+  <para>
+   可以手动装入 GFS2 卷，也可以按<xref linkend="pro.gfs2.mount.cluster"/>中所述使用群集管理器将其装入。
+  </para>
+
+  <procedure id="pro.gfs2.mount.manual">
+   <title>手动装入 GFS2 卷</title>
+   <step performance="required">
+    <para>
+     以 <systemitem class="username">root</systemitem> 用户身份打开终端窗口并登录。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     使用命令 <command>crm status</command> 检查群集是否联机。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     使用 <command>mount</command> 命令从命令行装入卷。
+    </para>
+   </step>
+  </procedure>
+
+  <warning>
+   <title>手动装入的 GFS2 设备</title>
+   <para>
+    如果因方便测试而手动装入了 GFS2 文件系统，在开始将其作为群集资源使用前，请务必再将其卸载。
+   </para>
+  </warning>
+
+  <procedure id="pro.gfs2.mount.cluster">
+   <title>使用群集管理器装入 GFS2 卷</title>
+   <para>
+    要为 High Availability 软件装入 GFS2 卷，请在群集中配置 ocf 文件系统资源。以下过程使用 <command>crm</command> 外壳配置群集资源。或者，也可以使用 Hawk 配置资源。
+   </para>
+   <step performance="required">
+    <para>
+     启动壳层，并以 <systemitem class="username">root</systemitem> 用户身份或同等身份登录。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     运行 <command>crm <option>configure</option></command>。
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     配置 Pacemaker 以在群集中的每个节点上装入 GFS2 文件系统：
+    </para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> gfs2-1 ocf:heartbeat:Filesystem \
+     params device="/dev/sdb1" directory="/mnt/shared" fstype="gfs2" \
+     op monitor interval="20" timeout="40"</screen>
+   </step>
+    <step performance="required">
+    <para> 创建一个基本组，该组包含您在<xref linkend="pro.gfs2.resources"/>中创建的 <literal>dlm</literal> 基元以及 <literal>gfs2-1</literal> 基元。克隆组： </para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> base-group dlm  gfs2-1
+     <command>clone</command> base-clone base-group \
+     meta interleave="true"</screen>
+    <para>由于基本组具有内部共置和顺序约束，Pacemaker 将仅在同样已运行 <literal>dlm</literal> 资源的节点上启动 <systemitem class="resource">gfs2-1</systemitem> 资源。</para>
+   </step>
+    <step performance="required">
+    <para>
+     使用 <command>show</command> 复查更改。
+     
+    </para>
+   </step>
+   <step performance="required">
+    <para>
+     如果全部都正确，请使用 <command>commit</command> 提交更改，并使用 <command>exit</command> 退出 crm 当前配置。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>
