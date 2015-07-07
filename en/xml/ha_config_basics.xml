@@ -1,0 +1,2882 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd" [
+ <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+ <!ENTITY % entities SYSTEM "entity-decl.ent">
+ %entities;
+]>
+<chapter id="cha.ha.config.basics">
+ <title>Configuration and Administration Basics</title>
+ <abstract>
+  <para>
+   The main purpose of an HA cluster is to manage user services. Typical
+   examples of user services are an Apache Web server or a database. From
+   the user's point of view, the services do something specific when ordered
+   to do so. To the cluster, however, they are only resources which may be
+   started or stopped&mdash;the nature of the service is irrelevant to the
+   cluster.
+  </para>
+
+  <para>
+   In this chapter, we will introduce some basic concepts you need to know
+   when configuring resources and administering your cluster. The following
+   chapters show you how to execute the main configuration and
+   administration tasks with each of the management tools the &hasi;
+   provides.
+  </para>
+ </abstract>
+ <sect1 id="sec.ha.config.basics.global">
+  <title>Global Cluster Options</title>
+
+  <para>
+   Global cluster options control how the cluster behaves when confronted
+   with certain situations. They are grouped into sets and can be viewed and
+   modified with the cluster management tools like &hawk; and the
+   <command>crm</command> shell.
+  </para>
+
+  <sect2 id="sec.ha.config.basics.global.all">
+   <title>Overview</title>
+   <para>
+    For an overview of all global cluster options and their default values,
+    see &paceex;, available from &clusterlabs-doc;. Refer to section
+    <citetitle>Available Cluster Options</citetitle>.
+   </para>
+   <para>
+    The predefined values can usually be kept. However, to make key
+    functions of your cluster work correctly, you need to adjust the
+    following parameters after basic cluster setup:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <xref linkend="sec.ha.config.basics.global.quorum"
+      xrefstyle="select:title"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="sec.ha.config.basics.global.stonith"
+      xrefstyle="select:title"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    Learn how to adjust those parameters with the cluster management tools
+    of your choice:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      &hawk;: <xref linkend="pro.ha.config.hawk.global"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      &crmsh;: <xref linkend="sec.ha.config.crm.global"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.global.quorum">
+   <title>Option <literal>no-quorum-policy</literal></title>
+   <para>
+    This global option defines what to do when a cluster partition does not
+    have quorum (no majority of nodes is part of the partition).
+   </para>
+   <para>
+    Allowed values are:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>ignore</literal>
+     </term>
+     <listitem>
+      <para>
+       The quorum state does not influence the cluster behavior; resource
+       management is continued.
+      </para>
+      <para>
+       This setting is useful for the following scenarios:
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         Two-node clusters: Since a single node failure would always result
+         in a loss of majority, usually you want the cluster to carry on
+         regardless. Resource integrity is ensured using fencing, which also
+         prevents split brain scenarios.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         Resource-driven clusters: For local clusters with redundant
+         communication channels, a split brain scenario only has a certain
+         probability. Thus, a loss of communication with a node most likely
+         indicates that the node has crashed, and that the surviving nodes
+         should recover and start serving the resources again.
+        </para>
+        <para>
+         If <literal>no-quorum-policy</literal> is set to
+         <literal>ignore</literal>, a 4-node cluster can sustain concurrent
+         failure of three nodes before service is lost. With the other
+         settings, it would lose quorum after concurrent failure of two
+         nodes.
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>freeze</literal>
+     </term>
+     <listitem>
+      <para>
+       If quorum is lost, the cluster partition freezes. Resource management
+       is continued: running resources are not stopped (but possibly
+       restarted in response to monitor events), but no further resources
+       are started within the affected partition.
+      </para>
+      <para>
+       This setting is recommended for clusters where certain resources
+       depend on communication with other nodes (for example, OCFS2 mounts).
+       In this case, the default setting
+       <literal>no-quorum-policy=stop</literal> is not useful, as it would
+       lead to the following scenario: Stopping those resources would not be
+       possible while the peer nodes are unreachable. Instead, an attempt to
+       stop them would eventually time out and cause a <literal>stop
+       failure</literal>, triggering escalated recovery and fencing.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>stop</literal> (default value)</term>
+     <listitem>
+      <para>
+       If quorum is lost, all resources in the affected cluster partition
+       are stopped in an orderly fashion.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>suicide</literal>
+     </term>
+     <listitem>
+      <para>
+       If quorum is lost, all nodes in the affected cluster partition are
+       fenced.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.global.stonith">
+   <title>Option <literal>stonith-enabled</literal></title>
+   <para>
+    This global option defines if to apply fencing, allowing &stonith;
+    devices to shoot failed nodes and nodes with resources that cannot be
+    stopped. By default, this global option is set to
+    <literal>true</literal>, because for normal cluster operation it is
+    necessary to use &stonith; devices. According to the default value, the
+    cluster will refuse to start any resources if no &stonith; resources
+    have been defined.
+   </para>
+   <para>
+    If you need to disable fencing for any reasons, set
+    <literal>stonith-enabled</literal> to <literal>false</literal>, but be
+    aware that this has impact on the support status for your product.
+    Furthermore, with <literal>stonith-enabled="false"</literal>, resources
+    like the Distributed Lock Manager (DLM) and all services depending on
+    DLM (such as cLVM2, GFS2, and OCFS2) will fail to start.
+<!--taroth 2014-07-25: fate#315195:  Improve behaviour of DLM services if fencing is
+     disabled-->
+   </para>
+   <important>
+    <title>No Support Without &stonith;</title>
+    <para>
+     A cluster without &stonith; is not supported.
+    </para>
+   </important>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.config.basics.resources">
+  <title>Cluster Resources</title>
+
+  <para>
+   As a cluster administrator, you need to create cluster resources for
+   every resource or application you run on servers in your cluster. Cluster
+   resources can include Web sites, e-mail servers, databases, file systems,
+   virtual machines, and any other server-based applications or services you
+   want to make available to users at all times.
+  </para>
+
+  <sect2 id="sec.ha.config.basics.resources.management">
+   <title>Resource Management</title>
+<!--taroth 2010-02-23: fix for bnc#578583-->
+   <para>
+    Before you can use a resource in the cluster, it must be set up. For
+    example, if you want to use an Apache server as a cluster resource, set
+    up the Apache server first and complete the Apache configuration before
+    starting the respective resource in your cluster.
+   </para>
+   <para>
+    If a resource has specific environment requirements, make sure they are
+    present and identical on all cluster nodes. This kind of configuration
+    is not managed by the &hasi;. You must do this yourself.
+   </para>
+   <note>
+    <title>Do Not Touch Services Managed by the Cluster</title>
+    <para>
+     When managing a resource with the &hasi;, the same resource must not be
+     started or stopped otherwise (outside of the cluster, for example
+     manually or on boot or reboot). The &hasi; software is responsible for
+     all service start or stop actions.
+    </para>
+    <para>
+     If you need to execute testing or maintenance tasks after the services
+     are already running under cluster control, make sure to put the
+     resources, nodes, or the whole cluster into maintenance mode before you
+     touch any of them manually. For details, see
+     <xref
+      linkend="sec.ha.config.basics.maint.mode"/>.
+    </para>
+   </note>
+   <para>
+    After having configured the resources in the cluster, use the cluster
+    management tools to start, stop, clean up, remove or migrate any
+    resources manually. For details how to do so with your preferred cluster
+    management tool:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      &hawk;: <xref linkend="cha.ha.config.hawk"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      &crmsh;: <xref linkend="cha.ha.manual_config"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.raclasses">
+   <title>Supported Resource Agent Classes</title>
+   <para>
+    For each cluster resource you add, you need to define the standard that
+    the resource agent conforms to. Resource agents abstract the services
+    they provide and present an accurate status to the cluster, which allows
+    the cluster to be non-committal about the resources it manages. The
+    cluster relies on the resource agent to react appropriately when given a
+    start, stop or monitor command.
+   </para>
+   <para>
+    Typically, resource agents come in the form of shell scripts. The &hasi;
+    supports the following classes of resource agents:
+   </para>
+<!--taroth 2014-07-24: https://bugzilla.novell.com/show_bug.cgi?id=853520-->
+   <variablelist>
+    <varlistentry id="vle.ha.resources.ocf.ra">
+     <term>Open Cluster Framework (OCF) Resource Agents</term>
+     <listitem>
+      <para>
+       OCF RA agents are best suited for use with &ha;, especially when you
+       need multi-state resources or special monitoring abilities. The
+       agents are generally located in
+       <filename>/usr/lib/ocf/resource.d/<replaceable>provider</replaceable>/</filename>.
+       Their functionality is similar to that of LSB scripts. However, the
+       configuration is always done with environmental variables which allow
+       them to accept and process parameters easily. The OCF specification
+       (as it relates to resource agents) can be found at
+       <ulink
+        url="http://www.opencf.org/cgi-bin/viewcvs.cgi/specs/ra/resource-agent-api.txt?rev=HEAD&amp;content-type=text/vnd.viewcvs-markup"
+       />.
+       OCF specifications have strict definitions of which exit codes must
+       be returned by actions, see <xref linkend="sec.ha.errorcodes"/>. The
+       cluster follows these specifications exactly.
+      </para>
+      <para>
+       All OCF Resource Agents are required to have at least the actions
+       <literal>start</literal>, <literal>stop</literal>,
+       <literal>status</literal>, <literal>monitor</literal>, and
+       <literal>meta-data</literal>. The <literal>meta-data</literal> action
+       retrieves information about how to configure the agent. For example,
+       if you want to know more about the <literal>IPaddr</literal> agent by
+       the provider <literal>heartbeat</literal>, use the following command:
+      </para>
+<screen>OCF_ROOT=/usr/lib/ocf /usr/lib/ocf/resource.d/heartbeat/IPaddr meta-data</screen>
+      <para>
+       The output is information in XML format, including several sections
+       (general description, available parameters, available actions for the
+       agent).
+      </para>
+      <para>
+       Alternatively, use the &crmsh; to view information on OCF resource
+       agents. For details, see <xref linkend="sec.ha.manual_config.ocf"/>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Linux Standards Base (LSB) Scripts</term>
+     <listitem>
+      <para>
+       LSB resource agents are generally provided by the operating
+       system/distribution and are found in
+       <filename>/etc/init.d</filename>. To be used with the cluster, they
+       must conform to the LSB init script specification. For example, they
+       must have several actions implemented, which are, at minimum,
+       <literal>start</literal>, <literal>stop</literal>,
+       <literal>restart</literal>, <literal>reload</literal>,
+       <literal>force-reload</literal>, and <literal>status</literal>. For
+       more information, see
+       <ulink
+        url="http://refspecs.linuxbase.org/LSB_4.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html"
+       />.
+      </para>
+      <para>
+       The configuration of those services is not standardized. If you
+       intend to use an LSB script with &ha;, make sure that you understand
+       how the relevant script is configured. Often you can find information
+       about this in the documentation of the relevant package in
+       <filename>/usr/share/doc/packages/<replaceable>PACKAGENAME</replaceable></filename>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Systemd</term>
+     <listitem>
+      <para>
+       Starting with &sle; 12, systemd is a replacement for the popular
+       System V init daemon. Pacemaker can manage systemd services if they
+       are present. Instead of init scripts, systemd has unit files.
+       Generally the services (or unit files) are provided by the operating
+       system. In case you want to convert existing init scripts, find more
+       information at
+       <ulink
+       url="http://0pointer.de/blog/projects/systemd-for-admins-3.html"/>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Service</term>
+     <listitem>
+      <para>
+       There are currently many <quote>common</quote> types of system
+       services that exist in parallel: <literal>LSB</literal> (belonging to
+       System V init), <literal>systemd</literal>, and (in some
+       distributions) <literal>upstart</literal>. Therefore, Pacemaker
+       supports a special alias which intelligently figures out which one
+       applies to a given cluster node. This is particularly useful when the
+       cluster contains a mix of systemd, upstart, and LSB services.
+       Pacemaker will try to find the named service in the following order:
+       as an LSB (SYS-V) init script, a Systemd unit file, or an Upstart
+       job.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Nagios</term>
+     <listitem>
+      <para>
+       Monitoring plug-ins (formerly called Nagios plug-ins) allow to
+       monitor services on remote hosts. Pacemaker can do remote monitoring
+       with the monitoring plug-ins if they are present. For detailed
+       information, see
+       <xref linkend="sec.ha.config.basics.remote.nagios"
+       />.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>&stonith; (Fencing) Resource Agents</term>
+     <listitem>
+      <para>
+       This class is used exclusively for fencing related resources. For
+       more information, see <xref linkend="cha.ha.fencing"/>.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    The agents supplied with the &hasi; are written to OCF specifications.
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.resources.types">
+   <title>Types of Resources</title>
+   <para>
+    The following types of resources can be created:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>Primitives</term>
+     <listitem>
+      <para>
+       A primitive resource, the most basic type of resource.
+      </para>
+      <para>
+       Learn how to create primitive resources with your preferred cluster
+       management tool:
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         &hawk;: <xref linkend="pro.ha.config.hawk.primitives"/>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         &crmsh;: <xref linkend="sec.ha.manual_config.create"/>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Groups</term>
+     <listitem>
+      <para>
+       Groups contain a set of resources that need to be located together,
+       started sequentially and stopped in the reverse order. For more
+       information, refer to
+       <xref
+        linkend="sec.ha.config.basics.resources.advanced.groups"/>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Clones</term>
+     <listitem>
+      <para>
+       Clones are resources that can be active on multiple hosts. Any
+       resource can be cloned, provided the respective resource agent
+       supports it. For more information, refer to
+       <xref
+        linkend="sec.ha.config.basics.resources.advanced.clones"/>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Multi-state Resources (formerly known as Master/Slave Resources)</term>
+     <listitem>
+      <para>
+       Multi-state resources are a special type of clone resources that can
+       have multiple modes. For more information, refer to
+       <xref
+        linkend="sec.ha.config.basics.resources.advanced.masters"/>.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.resources.templates">
+   <title>Resource Templates</title>
+   <para>
+    If you want to create lots of resources with similar configurations,
+    defining a resource template is the easiest way. After having been
+    defined, it can be referenced in primitives&mdash;or in certain types of
+    constraints, as described in
+    <xref
+     linkend="sec.ha.config.basics.constraints.templates"/>.
+   </para>
+   <para>
+    If a template is referenced in a primitive, the primitive will inherit
+    all operations, instance attributes (parameters), meta attributes, and
+    utilization attributes defined in the template. Additionally, you can
+    define specific operations or attributes for your primitive. If any of
+    these are defined in both the template and the primitive, the values
+    defined in the primitive will take precedence over the ones defined in
+    the template.
+   </para>
+   <para>
+    Learn how to define resource templates with your preferred cluster
+    configuration tool:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      &hawk;: <xref linkend="sec.ha.config.hawk.templates"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      &crmsh;: <xref linkend="sec.ha.manual_config.rsc_template"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.resources.advanced">
+   <title>Advanced Resource Types</title>
+   <para>
+    Whereas primitives are the simplest kind of resources and therefore easy
+    to configure, you will probably also need more advanced resource types
+    for cluster configuration, such as groups, clones or multi-state
+    resources.
+   </para>
+   <sect3 id="sec.ha.config.basics.resources.advanced.groups">
+    <title>Groups</title>
+    <para>
+     Some cluster resources depend on other components or resources. They
+     require that each component or resource starts in a specific order and
+     runs together on the same server with resources it depends on. To
+     simplify this configuration, you can use cluster resource groups.
+    </para>
+    <example id="ex.ha.config.resource.group">
+     <title>Resource Group for a Web Server</title>
+     <para>
+      An example of a resource group would be a Web server that requires an
+      IP address and a file system. In this case, each component is a
+      separate resource that is combined into a cluster resource group. The
+      resource group would run on one or more servers. In case of a software
+      or hardware malfunction, the group would fail over to another server
+      in the cluster, similar to an individual cluster resource.
+     </para>
+    </example>
+    <figure pgwide="0">
+     <title>Group Resource</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="webserver_groupresource_a.svg" width="70%"
+        format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="webserver_groupresource_a.png" width="63%"
+        format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+<!--taroth 2011-09-16: comment by bwiedemann: shouldn't IP address be resource #3 instead of
+     resource #1 (see also configuration of group "g_nfs" in the NFS Quick Start,
+     http://docserv.suse.de/generated/books/SLE-HA/SLE-ha-nfs-quick_sd_remarks_comments/art_ha_quick_nfs.html#sec_ha_quick_nfs_resources_ipaddr),
+     because otherwise clients accessing the Web-service using this IP before the Web server is
+     started would get a connection refused error instead of retrying-->
+<!--taroth 2011-11-23: verified with [ha-devel]: example is OK like that, according to
+     dmuhamedagic-->
+    <para>
+     Groups have the following properties:
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>Starting and Stopping</term>
+      <listitem>
+       <para>
+        Resources are started in the order they appear in and stopped in the
+        reverse order.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Dependency</term>
+      <listitem>
+       <para>
+        If a resource in the group cannot run anywhere, then none of the
+        resources located after that resource in the group is allowed to
+        run.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Contents</term>
+      <listitem>
+       <para>
+        Groups may only contain a collection of primitive cluster resources.
+        Groups must contain at least one resource, otherwise the
+        configuration is not valid. To refer to the child of a group
+        resource, use the child’s ID instead of the group’s ID.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Constraints</term>
+      <listitem>
+       <para>
+        Although it is possible to reference the group’s children in
+        constraints, it is usually preferable to use the group’s name
+        instead.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Stickiness</term>
+      <listitem>
+       <para>
+        Stickiness is additive in groups. Every <emphasis>active</emphasis>
+        member of the group will contribute its stickiness value to the
+        group’s total. So if the default
+        <literal>resource-stickiness</literal> is <literal>100</literal> and
+        a group has seven members (ﬁve of which are active), the group as
+        a whole will prefer its current location with a score of
+        <literal>500</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Resource Monitoring</term>
+      <listitem>
+       <para>
+        To enable resource monitoring for a group, you must configure
+        monitoring separately for each resource in the group that you want
+        monitored.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     Learn how to create groups with your preferred cluster management tool:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       &hawk;: <xref linkend="pro.ha.config.hawk.group"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &crmsh;: <xref linkend="sec.ha.manual_config.group"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+   <sect3 id="sec.ha.config.basics.resources.advanced.clones">
+    <title>Clones</title>
+    <para>
+     You may want certain resources to run simultaneously on multiple nodes
+     in your cluster. To do this you must configure a resource as a clone.
+     Examples of resources that might be configured as clones include
+     &stonith; and cluster file systems like OCFS2. You can clone any
+     resource provided. This is supported by the resource’s Resource
+     Agent. Clone resources may even be configured differently depending on
+     which nodes they are hosted.
+    </para>
+    <para>
+     There are three types of resource clones:
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>Anonymous Clones</term>
+      <listitem>
+       <para>
+        These are the simplest type of clones. They behave identically
+        anywhere they are running. Because of this, there can only be one
+        instance of an anonymous clone active per machine.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Globally Unique Clones</term>
+      <listitem>
+       <para>
+        These resources are distinct entities. An instance of the clone
+        running on one node is not equivalent to another instance on another
+        node; nor would any two instances on the same node be equivalent.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Stateful Clones (Multi-state Resources)</term>
+      <listitem>
+       <para>
+        Active instances of these resources are divided into two states,
+        active and passive. These are also sometimes called primary and
+        secondary, or master and slave. Stateful clones can be either
+        anonymous or globally unique. See also
+        <xref
+         linkend="sec.ha.config.basics.resources.advanced.masters"/>.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     Clones must contain exactly one group or one regular resource.
+    </para>
+    <para>
+     When configuring resource monitoring or constraints, clones have
+     different requirements than simple resources. For details, see
+     &paceex;, available from &clusterlabs-doc;. Refer to section
+     <citetitle>Clones - Resources That Get Active on Multiple
+     Hosts</citetitle>.
+    </para>
+    <para>
+     Learn how to create clones with your preferred cluster management tool:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       &hawk;: <xref linkend="pro.ha.config.hawk.clone"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &crmsh;: <xref linkend="sec.ha.manual_config.clone"/>.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+   <sect3 id="sec.ha.config.basics.resources.advanced.masters">
+    <title>Multi-state Resources</title>
+    <para>
+     Multi-state resources are a specialization of clones. They allow the
+     instances to be in one of two operating modes (called
+     <literal>master</literal> or <literal>slave</literal>, but can mean
+     whatever you want them to mean). Multi-state resources must contain
+     exactly one group or one regular resource.
+    </para>
+    <para>
+     When configuring resource monitoring or constraints, multi-state
+     resources have different requirements than simple resources. For
+     details, see &paceex;, available from &clusterlabs-doc;. Refer to
+     section <citetitle>Multi-state - Resources That Have Multiple
+     Modes</citetitle>.
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.meta.attr">
+   <title>Resource Options (Meta Attributes)</title>
+   <para>
+    For each resource you add, you can define options. Options are used by
+    the cluster to decide how your resource should behave&mdash;they tell
+    the CRM how to treat a specific resource. Resource options can be set
+    with the <command>crm_resource --meta</command> command or with &hawk;
+    as described in <xref linkend="pro.ha.config.hawk.primitives"/>.
+   </para>
+   <table id="tab.ha.basics.meta">
+    <title>Options for a Primitive Resource</title>
+    <tgroup cols="3">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         Option
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Description
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Default
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         <literal>priority</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         If not all resources can be active, the cluster will stop lower
+         priority resources to keep higher priority ones active.
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>0</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>target-role</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         In what state should the cluster attempt to keep this resource?
+         Allowed values: <literal>stopped</literal>,
+         <literal>started</literal>, <literal>master</literal>.
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>started</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>is-managed</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Is the cluster allowed to start and stop the resource? Allowed
+         values: <literal>true</literal>, <literal>false</literal>. If the
+         value is set to <literal>false</literal>, the status of the
+         resource is still monitored and any failures are reported (which is
+         different from setting a resource to
+         <literal>maintenance="true"</literal>).
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>true</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>maintenance</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Can the resources be touched manually? Allowed values:
+         <literal>true</literal>, <literal>false</literal>. If set to
+         <literal>true</literal>, all resources become unmanaged: the
+         cluster will stop monitoring them and thus be oblivious about their
+         status. You can stop or restart cluster resources at will, without
+         the cluster attempting to restart them.
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>false</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>resource-stickiness</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         How much does the resource prefer to stay where it is?
+<!--taroth 2014-07-24:
+          default-resource-stickiness is deprecated: Defaults to
+         the value of <literal>default-resource-stickiness</literal> in the
+         <literal>rsc_defaults</literal> section.-->
+        </para>
+       </entry>
+       <entry>
+        <para>
+         calculated
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>migration-threshold</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         How many failures should occur for this resource on a node before
+         making the node ineligible to host this resource?
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>INFINITY</literal> (disabled)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>multiple-active</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         What should the cluster do if it ever finds the resource active on
+         more than one node? Allowed values: <literal>block</literal> (mark
+         the resource as unmanaged), <literal>stop_only</literal>,
+         <literal>stop_start</literal>.
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>stop_start</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>failure-timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         How many seconds to wait before acting as if the failure had not
+         occurred (and potentially allowing the resource back to the node on
+         which it failed)?
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>0</literal> (disabled)
+        </para>
+       </entry>
+      </row>
+<!--taroth 2010-03-10: removing globally-unique again as it does not
+              apply here (see ha-devel mails): globally-unique is a meta attribute 
+               for a clone/master resource type, default=false, it doesn't need to be 
+               set in SLE HA 11 environments -->
+      <row>
+       <entry>
+        <para>
+         <literal>allow-migrate</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Allow resource migration for resources which support
+         <literal>migrate_to</literal>/<literal>migrate_from</literal>
+         actions.
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>false</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-node</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         The name of the remote node this resource defines. This both
+         enables the resource as a remote node and defines the unique name
+         used to identify the remote node. If no other parameters are set,
+         this value will also be assumed as the host name to connect to at
+         <varname>remote-port</varname>port.
+        </para>
+        <warning>
+         <title>Use Unique IDs</title>
+         <para>
+          This value must not overlap with any existing resource or node
+          IDs.
+         </para>
+        </warning>
+       </entry>
+       <entry>
+        <para>
+         none (disabled)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-port</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Custom port for the guest connection to pacemaker_remote.
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>3121</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-addr</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         The IP address or host name to connect to if the remote node’s
+         name is not the host name of the guest.
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>remote-node</literal> (value used as host name)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-connect-timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         How long before a pending guest connection will time out.
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>60s</literal>
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.inst.attr">
+   <title>Instance Attributes (Parameters)</title>
+<!--info by dejan (SLEHA 11)-->
+<!--The crm now supports a set of ra commands:
+    
+    [0]s390vm13:~ > crm ra help
+    
+    Resource Agents (RA) lists and documentation.
+    
+    
+    Available commands:
+    
+            classes          list classes and providers
+            list             list RA for a class (and provider)
+            meta             show meta data for a RA
+            providers        show providers for a RA
+    
+    Perhaps you could use that instead of invoking agents by hand.-->
+   <para>
+    The scripts of all resource classes can be given parameters which
+    determine how they behave and which instance of a service they control.
+    If your resource agent supports parameters, you can add them with the
+    <command>crm_resource</command> command or with
+<!--the GUI as described in
+    <xref linkend="pro.ha.config.gui.parameters"/>. Alternatively, use-->
+    &hawk; as described in
+    <xref
+     linkend="pro.ha.config.hawk.primitives"/>. In the
+    <command>crm</command> command line utility and in &hawk;, instance
+    attributes are called <literal>params</literal> or
+    <literal>Parameter</literal>, respectively. The list of instance
+    attributes supported by an OCF script can be found by executing the
+    following command as &rootuser;:
+   </para>
+<screen>&prompt.root;<command>crm</command> ra info <replaceable>[class:[provider:]]resource_agent</replaceable></screen>
+   <para>
+    or (without the optional parts):
+   </para>
+<screen>&prompt.root;<command>crm</command> ra info <replaceable>resource_agent</replaceable></screen>
+   <para>
+    The output lists all the supported attributes, their purpose and default
+    values.
+   </para>
+   <para>
+    For example, the command
+   </para>
+<screen>&prompt.root;<command>crm</command> ra info IPaddr</screen>
+   <para>
+    returns the following output:
+   </para>
+<screen>Manages virtual IPv4 addresses (portable version) (ocf:heartbeat:IPaddr)
+    
+This script manages IP alias IP addresses
+It can add an IP alias, or remove one.   
+    
+Parameters (* denotes required, [] the default):
+    
+ip* (string): IPv4 address
+The IPv4 address to be configured in dotted quad notation, for example
+"192.168.1.1".                                                        
+    
+nic (string, [eth0]): Network interface
+The base network interface on which the IP address will be brought
+online.                                                           
+    
+If left empty, the script will try and determine this from the    
+routing table.                                                    
+    
+Do NOT specify an alias interface in the form eth0:1 or anything here;
+rather, specify the base interface only.                              
+    
+cidr_netmask (string): Netmask
+The netmask for the interface in CIDR format. (ie, 24), or in
+dotted quad notation  255.255.255.0).                        
+    
+If unspecified, the script will also try to determine this from the
+routing table.                                                     
+    
+broadcast (string): Broadcast address
+Broadcast address associated with the IP. If left empty, the script will
+determine this from the netmask.                                        
+    
+iflabel (string): Interface label
+You can specify an additional label for your IP address here.
+    
+lvs_support (boolean, [false]): Enable support for LVS DR
+Enable support for LVS Direct Routing configurations. In case a IP
+address is stopped, only move it to the loopback device to allow the
+local node to continue to service requests, but no longer advertise it
+on the network.                                                       
+    
+local_stop_script (string): 
+Script called when the IP is released
+    
+local_start_script (string): 
+Script called when the IP is added
+    
+ARP_INTERVAL_MS (integer, [500]): milliseconds between gratuitous ARPs
+milliseconds between ARPs                                         
+    
+ARP_REPEAT (integer, [10]): repeat count
+How many gratuitous ARPs to send out when bringing up a new address
+    
+ARP_BACKGROUND (boolean, [yes]): run in background
+run in background (no longer any reason to do this)
+    
+ARP_NETMASK (string, [ffffffffffff]): netmask for ARP
+netmask for ARP - in nonstandard hexadecimal format.
+    
+Operations' defaults (advisory minimum):
+    
+start         timeout=90
+stop          timeout=100
+monitor_0     interval=5s timeout=20s</screen>
+   <note>
+    <title>Instance Attributes for Groups, Clones or Multi-state Resources</title>
+    <para>
+     Note that groups, clones and multi-state resources do not have instance
+     attributes. However, any instance attributes set will be inherited by
+     the group's, clone's or multi-state resource's children.
+    </para>
+   </note>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.operations">
+   <title>Resource Operations</title>
+   <para>
+    By default, the cluster will not ensure that your resources are still
+    healthy. To instruct the cluster to do this, you need to add a monitor
+    operation to the resource’s definition. Monitor operations can be
+    added for all classes or resource agents. For more information, refer to
+    <xref
+     linkend="sec.ha.config.basics.monitoring"/>.
+   </para>
+   <table>
+    <title>Resource Operation Properties</title>
+    <tgroup cols="2">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         Operation
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Description
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         <literal>id</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Your name for the action. Must be unique. (The ID is not shown).
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>name</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         The action to perform. Common values: <literal>monitor</literal>,
+         <literal>start</literal>, <literal>stop</literal>.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>interval</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         How frequently to perform the operation. Unit: seconds
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         How long to wait before declaring the action has failed.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>requires</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         What conditions need to be satisfied before this action occurs.
+         Allowed values: <literal>nothing</literal>,
+         <literal>quorum</literal>, <literal>fencing</literal>. The default
+         depends on whether fencing is enabled and if the resource’s class
+         is <literal>stonith</literal>. For &stonith; resources, the default
+         is <literal>nothing</literal>.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>on-fail</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         The action to take if this action ever fails. Allowed values:
+        </para>
+        <itemizedlist>
+         <listitem>
+          <para>
+           <literal>ignore</literal>: Pretend the resource did not fail.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>block</literal>: Do not perform any further operations
+           on the resource.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>stop</literal>: Stop the resource and do not start it
+           elsewhere.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>restart</literal>: Stop the resource and start it again
+           (possibly on a different node).
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>fence</literal>: Bring down the node on which the
+           resource failed (&stonith;).
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>standby</literal>: Move <emphasis>all</emphasis>
+           resources away from the node on which the resource failed.
+          </para>
+         </listitem>
+        </itemizedlist>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>enabled</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         If <literal>false</literal>, the operation is treated as if it does
+         not exist. Allowed values: <literal>true</literal>,
+         <literal>false</literal>.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>role</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Run the operation only if the resource has this role.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>record-pending</literal>
+        </para>
+       </entry>
+       <entry>
+<!--lmb 20210-03-09: record-pending can be set either globally or on a per-resource basis to
+         have the CIB reflect the state of "in-flight" operations on resources.
+         Normally the CIB only gets updated once an op finishes.
+         This allows user interfaces to display transient state more accurately
+         and timely (for example, a database would be shown to be "starting"
+         instead of still "stopped"), but since it causes additional CIB updates
+         (the start of every operation needs to be recorded) there is a marginal
+         performance cost, so it isn't enabled by default.-->
+        <para>
+         Can be set either globally or for individual resources. Makes the
+         CIB reflect the state of <quote>in-flight</quote> operations on
+         resources.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>description</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Description of the operation.
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.timeouts">
+   <title>Timeout Values</title>
+   <para>
+    Timeouts values for resources can be influenced by the following
+    parameters:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <varname>op_defaults</varname> (global timeout for operations),
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      a specific timeout value defined in a resource template,
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      a specific timeout value defined for a resource.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <note>
+    <title>Priority of Values</title>
+    <para>
+     If a <emphasis>specific</emphasis> value is defined for a resource, it
+     takes precedence over the global default. A specific value for a
+     resource also takes precedence over a value that is defined in a
+     resource template.
+    </para>
+   </note>
+<!--For example, setting
+     <literal>default-action-timeout</literal> to <literal>240</literal> will result in a timeout
+     of <literal>240</literal> seconds for every action or operation, if not configured otherwise in
+     <literal>op_defaults</literal> or the respective resource.-->
+<!--taroth 2014-08-06: the following KB article is depecrated, because it only applies to SLE 11 where 
+    default-action-timeout was still present:
+    <para>
+    For information on how to set the default parameters, refer to the
+    technical information document <citetitle>default action timeout and
+    default op timeout</citetitle>. It is available at
+    <ulink url="http://www.suse.com/support/kb/doc.php?id=7009584"/>.-->
+   <para>
+    Getting timeout values right is very important. Setting them too low
+    will result in a lot of (unnecessary) fencing operations for the
+    following reasons:
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      If a resource runs into a timeout, it fails and the cluster will try
+      to stop it.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      If stopping the resource also fails (for example, because the timeout
+      for stopping is set too low), the cluster will fence the node. It
+      considers the node where this happens to be out of control.
+     </para>
+    </listitem>
+   </orderedlist>
+
+   <para>
+    You can adjust the global default for operations and set any specific
+    timeout values with both &crmsh; and &hawk;. The best practice for
+    determining and setting timeout values is as follows:
+   </para>
+   <procedure>
+    <title>Determining Timeout Values</title>
+    <step>
+     <para>
+      Check how long it takes your resources to start and stop (under load).
+     </para>
+    </step>
+    <step>
+     <para>
+      If needed, add the <varname>op_defaults</varname> parameter and set
+      the (default) timeout value accordingly:
+     </para>
+     <substeps>
+      <step>
+       <para>
+        For example, set <literal>op_defaults</literal> to
+        <literal>60</literal> seconds:
+       </para>
+<screen>&prompt.crm.conf; op_defaults timeout=60</screen>
+      </step>
+      <step>
+       <para>
+        For resources that need longer periods of time, define individual
+        timeout values.
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      When configuring operations for a resource, add separate
+      <literal>start</literal> and <literal>stop</literal> operations. When
+      configuring operations with &hawk;, it will provide useful timeout
+      proposals for those operations.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.config.basics.monitoring">
+  <title>Resource Monitoring</title>
+
+  <para>
+   If you want to ensure that a resource is running, you must configure
+   resource monitoring for it.
+  </para>
+
+  <para>
+   If the resource monitor detects a failure, the following takes place:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Log file messages are generated, according to the configuration
+     specified in the <literal>logging</literal> section of
+     <filename>/etc/corosync/corosync.conf</filename>.
+<!--ygao 2014-08-04: From a recent change of corosync.conf.example,
+      /var/log/cluster/corosync.log is no longer used by default. The failures
+      of operations will be logged into syslog like <filename>/var/log/messages</filename>.
+      ygao 2014-08-07: o be complete, actually even if the "logfile" is explicitly
+      configured in corosync.conf, it will be used by pacemaker only if
+      "PCMK_logfile" is not configured in /etc/sysconfig/pacemaker (which is
+      pacemaker's own configuration.)
+     -->
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The failure is reflected in the cluster management tools (&hawk;,
+     <command>crm status</command>), and in the CIB status section.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The cluster initiates noticeable recovery actions which may include
+     stopping the resource to repair the failed state and restarting the
+     resource locally or on another node. The resource also may not be
+     restarted, depending on the configuration and state of the cluster.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+<!--fate#310860-->
+
+  <para>
+   If you do not configure resource monitoring, resource failures after a
+   successful start will not be communicated, and the cluster will always
+   show the resource as healthy.
+  </para>
+  
+
+  <variablelist>
+   <varlistentry>
+    <term>Monitoring Stopped Resources</term>
+    <listitem>
+     <para> Usually, resources are only monitored by the cluster as long as they are running.
+      However, to detect concurrency violations, also configure monitoring for resources which are
+      stopped. For example: </para>
+
+     <screen>primitive dummy1 ocf:heartbeat:Dummy \
+    op monitor interval="300s" role="Stopped" timeout="10s" \
+    op monitor interval="30s" timeout="10s"</screen>
+
+     <para> This configuration triggers a monitoring operation every <literal>300</literal> seconds
+      for the resource <literal>dummy1</literal> as soon as it is in
+       <literal>role="Stopped"</literal>. When running, it will be monitored every
+       <literal>30</literal> seconds. </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Probing</term>
+    <!-- fate#314355 (SP3): pacemaker: calculate a default probe timeout-->
+    <listitem>
+     <para> The CRM executes an initial monitoring for each resource on every node, the so-called
+       <literal>probe</literal>. A probe is also executed after the cleanup of a resource. If
+      multiple monitoring operations are defined for a resource, the CRM will select the one with
+      the smallest interval and will use its timeout value as default timeout for probing. If no
+      monitor operation is configured, the cluster-wide default applies. The default is
+       <literal>20</literal> seconds (if not specified otherwise by configuring the
+       <varname>op_defaults</varname> parameter). If you do not want to rely on the automatic
+      calculation or the <systemitem>op_defaults</systemitem> value, define a specific monitoring
+      operation for the <emphasis>probing</emphasis> of this resource. Do so by adding a monitoring
+      operation with the <literal>interval</literal> set to <literal>0</literal>, for example: </para>
+     <screen>&prompt.crm.conf;<command>primitive</command> rsc1 ocf:pacemaker:Dummy \
+    op monitor interval="0" timeout="60"</screen>
+     <para> The probe of <systemitem>rsc1</systemitem> will time out in <literal>60s</literal>,
+      independent of the global timeout defined in <varname>op_defaults</varname>, or any other
+      operation timeouts configured. If you did not set <literal>interval="0"</literal> for
+      specifying the probing of the respective resource, the CRM will automatically check for any
+      other monitoring operations defined for that resource and will calculate the timeout value for
+      probing as described above. </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   Learn how to add monitor operations to resources with your preferred
+   cluster management tool:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     &hawk;: <xref linkend="pro.ha.config.hawk.operations"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     &crmsh;: <xref linkend="sec.ha.manual_config.monitor"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 id="sec.ha.config.basics.constraints">
+  <title>Resource Constraints</title>
+
+  <para>
+   Having all the resources configured is only part of the job. Even if the
+   cluster knows all needed resources, it might still not be able to handle
+   them correctly. Resource constraints let you specify which cluster nodes
+   resources can run on, what order resources will load, and what other
+   resources a specific resource is dependent on.
+  </para>
+
+  <sect2 id="sec.ha.config.basics.constraints.types">
+   <title>Types of Constraints</title>
+   <para>
+    There are three different kinds of constraints available:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>Resource Location
+    </term>
+     <listitem>
+      <para>
+       Locational constraints that define on which nodes a resource may be
+       run, may not be run or is preferred to be run.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Resource Colocation</term>
+     <listitem>
+      <para>
+       Colocational constraints that tell the cluster which resources may or
+       may not run together on a node.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Resource Order</term>
+     <listitem>
+      <para>
+       Ordering constraints to define the sequence of actions.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <sect3 id="sec.ha.config.basics.constraints.rscset">
+    <title>Resource Sets</title>
+<!--taroth 2014-07-25: explained concept of "resource sets" (see Hawk chapter),
+     https://fate.suse.com/315158: Pacemaker: allow resource sets for location constraints
+    -->
+    <para></para>
+    <sect4 id="sec.ha.config.basics.constraints.rscset.constraints">
+     <title>Using Resource Sets for Defining Constraints</title>
+     <para>
+      As an alternative format for defining location, colocation or ordering
+      constraints, you can use <literal>resource sets</literal>, where
+      primitives are grouped together in one set. Previously this was
+      possible either by defining a resource group (which could not always
+      accurately express the design), or by defining each relationship as an
+      individual constraint. The latter caused a constraint explosion as the
+      number of resources and combinations grew. The configuration via
+      resource sets is not necessarily less verbose, but is easier to
+      understand and maintain, as the following examples show.
+     </para>
+     <example id="ex.config.basic.resourceset.loc">
+      <title>A Resource Set for Location Constraints</title>
+      <para>
+       For example, you can use the following configuration of a resource
+       set (<varname>loc-&node1;</varname>) in the &crmsh; to place two
+       virtual IPs (<varname>vip1</varname> and <varname>vip2</varname>) on
+       the same node, <varname>&node1;</varname>:
+      </para>
+<screen>&prompt.crm.conf;<command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=&subnetI;.5
+&prompt.crm.conf;<command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=&subnetI;.6
+&prompt.crm.conf;<command>location</command> loc-&node1; { vip1 vip2 } inf: &node1; </screen>
+     </example>
+     <para>
+      If you want to use resource sets to replace a configuration of
+      colocation constraints, consider the following two examples:
+     </para>
+     <example>
+      <title>A Chain of Colocated Resources</title>
+<screen>&lt;constraints>
+     &lt;rsc_colocation id="coloc-1" rsc="B" with-rsc="A" score="INFINITY"/>
+     &lt;rsc_colocation id="coloc-2" rsc="C" with-rsc="B" score="INFINITY"/>
+     &lt;rsc_colocation id="coloc-3" rsc="D" with-rsc="C" score="INFINITY"/>
+&lt;/constraints></screen>
+     </example>
+     <para>
+      The same configuration expressed by a resource set:
+     </para>
+<screen>&lt;constraints>
+    &lt;rsc_colocation id="coloc-1" score="INFINITY" >
+     &lt;resource_set id="colocated-set-example" sequential="true">
+      &lt;resource_ref id="A"/>
+      &lt;resource_ref id="B"/>
+      &lt;resource_ref id="C"/>
+      &lt;resource_ref id="D"/>
+     &lt;/resource_set>
+    &lt;/rsc_colocation>
+&lt;/constraints></screen>
+     <para>
+      If you want to use resource sets to replace a configuration of
+      ordering constraints, consider the following two examples:
+     </para>
+     <example>
+      <title>A Chain of Ordered Resources</title>
+<screen>&lt;constraints>
+     &lt;rsc_order id="order-1" first="A" then="B" />
+     &lt;rsc_order id="order-2" first="B" then="C" />
+     &lt;rsc_order id="order-3" first="C" then="D" />
+&lt;/constraints></screen>
+     </example>
+     <para>
+      The same purpose can be achieved by using a resource set with ordered
+      resources:
+     </para>
+     <example>
+      <title>A Chain of Ordered Resources Expressed as Resource Set</title>
+<screen>&lt;constraints>
+     &lt;rsc_order id="order-1">
+     &lt;resource_set id="ordered-set-example" sequential="true">
+     &lt;resource_ref id="A"/>
+     &lt;resource_ref id="B"/>
+     &lt;resource_ref id="C"/>
+     &lt;resource_ref id="D"/>
+     &lt;/resource_set>
+     &lt;/rsc_order>
+&lt;/constraints></screen>
+     </example>
+     <para>
+      Sets can be either ordered (<literal>sequential=true</literal>) or
+      unordered (<literal>sequential=false</literal>). Furthermore, the
+      <literal>require-all</literal> attribute can be used to switch between
+      <literal>AND</literal> and <literal>OR</literal> logic.
+     </para>
+    </sect4>
+    <sect4 id="sec.ha.config.basics.constraints.rscset.constraints.dep">
+     <title>Resource Sets for Colocation Constraints Without Dependencies</title>
+<!--taroth 2014-07-25: https://fate.suse.com/314917: Collocating Sets for resources without dependency-->
+     <para>
+      Sometimes it is useful to place a group of resources on the same node
+      (defining a colocation constraint), but without having hard
+      dependencies between the resources. For example, you want two
+      resources to be placed on the same node, but you do
+      <emphasis>not</emphasis> want the cluster to restart the other one if
+      one of them fails. This can be achieved on the &crmshell; by using the
+      <command>weak bond</command> command.
+     </para>
+     <para>
+      Learn how to set these <quote>weak bonds</quote> with your preferred
+      cluster management tool:
+     </para>
+     <itemizedlist>
+<!--taroth 2014-07-28: for Hawk, you need to go the hard way according to krig by defining
+      the individual resources and constraints as explained in fate#314917-->
+<!--<listitem>
+      <para> &hawk;: <xref linkend="..."/>
+      </para>
+     </listitem>-->
+      <listitem>
+       <para>
+        &crmsh;:
+        <xref linkend="sec.ha.manual_config.constraints.weak-bond"/>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </sect4>
+   </sect3>
+   <sect3 id="sec.ha.config.basics.constraints.more">
+    <title>For More Information</title>
+    <para>
+     Learn how to add the various kinds of constraints with your preferred
+     cluster management tool:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       &hawk;: <xref linkend="sec.ha.config.hawk.constraints"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &crmsh;: <xref linkend="sec.ha.manual_config.constraints"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     For more information on configuring constraints and detailed background
+     information about the basic concepts of ordering and colocation, refer
+     to the following documents. They are available at &clusterlabs-doc;:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       &paceex;, chapter <citetitle>Resource Constraints</citetitle>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <citetitle>Colocation Explained</citetitle>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <citetitle>Ordering Explained</citetitle>
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.constraints.scores">
+   <title>Scores and Infinity</title>
+   <para>
+    When defining constraints, you also need to deal with scores. Scores of
+    all kinds are integral to how the cluster works. Practically everything
+    from migrating a resource to deciding which resource to stop in a
+    degraded cluster is achieved by manipulating scores in some way. Scores
+    are calculated on a per-resource basis and any node with a negative
+    score for a resource cannot run that resource. After calculating the
+    scores for a resource, the cluster then chooses the node with the
+    highest score.
+   </para>
+   <para>
+    <literal>INFINITY</literal> is currently deﬁned as
+    <literal>1,000,000</literal>. Additions or subtractions with it stick to
+    the following three basic rules:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Any value + INFINITY = INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Any value - INFINITY = -INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      INFINITY - INFINITY = -INFINITY
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    When defining resource constraints, you specify a score for each
+    constraint. The score indicates the value you are assigning to this
+    resource constraint. Constraints with higher scores are applied before
+    those with lower scores. By creating additional location constraints
+    with different scores for a given resource, you can specify an order for
+    the nodes that a resource will fail over to.
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.constraints.templates">
+   <title>Resource Templates and Constraints</title>
+   <para>
+    If you have defined a resource template (see
+    <xref linkend="sec.ha.config.basics.resources.templates"/>), it can be
+    referenced in the following types of constraints:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      order constraints,
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      colocation constraints,
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      rsc_ticket constraints (for &geo; clusters).
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    However, colocation constraints must not contain more than one reference
+    to a template. Resource sets must not contain a reference to a template.
+   </para>
+<!--taroth 2011-11-23: https://bugzilla.novell.com/show_bug.cgi?id=729634-->
+   <para>
+    Resource templates referenced in constraints stand for all primitives
+    which are derived from that template. This means, the constraint applies
+    to all primitive resources referencing the resource template.
+    Referencing resource templates in constraints is an alternative to
+    resource sets and can simplify the cluster configuration considerably.
+    For details about resource sets, refer to
+    <xref linkend="pro.ha.config.hawk.constraints.sets"/>.
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.failover">
+   <title>Failover Nodes</title>
+   <para>
+    A resource will be automatically restarted if it fails. If that cannot
+    be achieved on the current node, or it fails <literal>N</literal> times
+    on the current node, it will try to fail over to another node. Each time
+    the resource fails, its failcount is raised. You can define a number of
+    failures for resources (a <literal>migration-threshold</literal>), after
+    which they will migrate to a new node. If you have more than two nodes
+    in your cluster, the node a particular resource fails over to is chosen
+    by the &ha; software.
+   </para>
+   <para>
+    However, you can specify the node a resource will fail over to by
+    configuring one or several location constraints and a
+    <literal>migration-threshold</literal> for that resource.
+   </para>
+   <para>
+    Learn how to specify failover nodes with your preferred cluster
+    management tool:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      &hawk;: <xref linkend="sec.ha.config.hawk.failover"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      &crmsh;: <xref linkend="sec.ha.manual_config.failover"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <example id="ex.ha.config.basics.failover">
+    <title>Migration Threshold&mdash;Process Flow</title>
+    <para>
+     For example, let us assume you have configured a location constraint
+     for resource <literal>rsc1</literal> to preferably run on
+     <literal>&node1;</literal>. If it fails there,
+     <literal>migration-threshold</literal> is checked and compared to the
+     failcount. If failcount >= migration-threshold then the resource is
+     migrated to the node with the next best preference.
+    </para>
+    <para>
+     After the threshold has been reached, the node will no longer be
+     allowed to run the failed resource until the resource's failcount is
+     reset. This can be done manually by the cluster administrator or by
+     setting a <literal>failure-timeout</literal> option for the resource.
+    </para>
+    <para>
+     For example, a setting of <literal>migration-threshold=2</literal> and
+     <literal>failure-timeout=60s</literal> would cause the resource to
+     migrate to a new node after two failures. It would be allowed to move
+     back (depending on the stickiness and constraint scores) after one
+     minute.
+    </para>
+   </example>
+   <para>
+    There are two exceptions to the migration threshold concept, occurring
+    when a resource either fails to start or fails to stop:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Start failures set the failcount to <literal>INFINITY</literal> and
+      thus always cause an immediate migration.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Stop failures cause fencing (when <literal>stonith-enabled</literal>
+      is set to <literal>true</literal> which is the default).
+     </para>
+     <para>
+      In case there is no STONITH resource defined (or
+      <literal>stonith-enabled</literal> is set to
+      <literal>false</literal>), the resource will not migrate.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    For details on using migration thresholds and resetting failcounts with
+    your preferred cluster management tool:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      &hawk;: <xref linkend="sec.ha.config.hawk.failover"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      &crmsh;: <xref linkend="sec.ha.manual_config.failover"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.failback">
+   <title>Failback Nodes</title>
+ &failback-nodes;
+   <para>
+    Consider the following implications when specifying resource stickiness
+    values:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>Value is <literal>0</literal>:</term>
+     <listitem>
+      <para>
+       This is the default. The resource will be placed optimally in the
+       system. This may mean that it is moved when a <quote>better</quote>
+       or less loaded node becomes available. This option is almost
+       equivalent to automatic failback, except that the resource may be
+       moved to a node that is not the one it was previously active on.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Value is greater than <literal>0</literal>:</term>
+     <listitem>
+      <para>
+       The resource will prefer to remain in its current location, but may
+       be moved if a more suitable node is available. Higher values indicate
+       a stronger preference for a resource to stay where it is.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Value is less than <literal>0</literal>:</term>
+     <listitem>
+      <para>
+       The resource prefers to move away from its current location. Higher
+       absolute values indicate a stronger preference for a resource to be
+       moved.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Value is <literal>INFINITY</literal>:</term>
+     <listitem>
+      <para>
+       The resource will always remain in its current location unless forced
+       off because the node is no longer eligible to run the resource (node
+       shutdown, node standby, reaching the
+       <literal>migration-threshold</literal>, or configuration change).
+       This option is almost equivalent to completely disabling automatic
+       failback.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Value is <literal>-INFINITY</literal>:</term>
+     <listitem>
+      <para>
+       The resource will always move away from its current location.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.utilization">
+   <title>Placing Resources Based on Their Load Impact</title>
+   <para>
+    Not all resources are equal. Some, such as &xen; guests, require that
+    the node hosting them meets their capacity requirements. If resources
+    are placed such that their combined need exceed the provided capacity,
+    the resources diminish in performance (or even fail).
+   </para>
+   <para>
+    To take this into account, the &hasi; allows you to specify the
+    following parameters:
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      The capacity a certain node <emphasis>provides</emphasis>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The capacity a certain resource <emphasis>requires</emphasis>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      An overall strategy for placement of resources.
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    Learn how to configure these settings with your preferred cluster
+    management tool:
+   </para>
+   <itemizedlist>
+<!-- taroth 2011-11-23: not available yet in Hawk:<listitem><para>&hawk;: <xref linkend=""/></para></listitem>-->
+    <listitem>
+     <para>
+      &crmsh;: <xref linkend="sec.ha.manual_config.utilization"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    A node is considered eligible for a resource if it has sufficient free
+    capacity to satisfy the resource's requirements. The nature of the
+    capacities is completely irrelevant for the &hasi;; it only makes sure
+    that all capacity requirements of a resource are satisfied before moving
+    a resource to a node.
+   </para>
+   <para>
+    To manually configure the resource's requirements and the capacity a
+    node provides, use utilization attributes. You can name the utilization
+    attributes according to your preferences and define as many name/value
+    pairs as your configuration needs. However, the attribute's values must
+    be integers.
+   </para>
+<!--taroth 2013-03-26: fate#313105 (SP3)-->
+   <para>
+    If multiple resources with utilization attributes are grouped or have
+    colocation constraints, the &hasi; takes that into account. If possible,
+    the resources will be placed on a node that can fulfill
+    <emphasis>all</emphasis> capacity requirements.
+   </para>
+   <note>
+    <title>Utilization Attributes for Groups</title>
+    <para>
+     It is impossible to set utilization attributes directly for a resource
+     group. However, to simplify the configuration for a group, you can add
+     a utilization attribute with the total capacity needed to any of the
+     resources in the group.
+    </para>
+   </note>
+   <para>
+    The &hasi; also provides means to detect and configure both node
+    capacity and resource requirements automatically:
+   </para>
+<!--fate#310115-->
+   <para>
+    The <systemitem>NodeUtilization</systemitem> resource agent checks the
+    capacity of a node (regarding CPU and RAM).
+<!--<remark>taroth 2011-11-21: DEVs, another parameter mentioned in the RA
+     is "utilization_hv_memory": "enable setting the memory utilization of 
+     hypervisor" - not sure when to use which: "utilization_memory" for 
+     physical machines only, "utilization_hv_memory" for virtual ones? 
+     ygao 2014-08-04: 
+     According to the RA, the "host_memory" way is for common use. Setting
+     utilization_host_memory=true, the "host_memory" capacity of the host is
+     calculated from /proc/meminfo:
+     
+     sys_mem=$(( $(awk '/MemTotal/{printf("%d\n",$2/1024);exit(0)}'
+     /proc/meminfo) - $OCF_RESKEY_utilization_host_memory_reservation ))
+     
+     While if the node is hosting xen VMs, the "hv_memory" is preferred to be
+     used instead. Setting utilization_hv_memory=true, the capacity of the
+     node/hypervisor can be calculated more accurately via "xm info":
+     
+     hv_mem=$(( $(xm info | awk '/total_memory/{printf("%d\n",$3);exit(0)}')
+     - $OCF_RESKEY_utilization_hv_memory_reservation ))
+     
+      (- Hmm, we really need to merge the logic into the existing RA
+     "SysInfo" in the future instead of maintaining this out-of-tree RA.)
+     
+     - taroth 2014-08-07: according to ygao, both utilization_hv_memory and 
+     utilization_hv_memory are instanc attributes for the RA, and both of them 
+     default to true anyway, so we do not need to mention them here explicitly
+    -->
+    To configure automatic detection, create a clone resource of the
+    following class, provider, and type:
+    <literal>ocf:pacemaker:NodeUtilization</literal>. One instance of the
+    clone should be running on each node. After the instance has started, a
+    utilization section will be added to the node's configuration in CIB.
+   </para>
+<!--fate#310116-->
+   <para>
+    For automatic detection of a resource's minimal requirements (regarding
+    RAM and CPU) the <systemitem>Xen</systemitem> resource agent has been
+    improved. Upon start of a <systemitem>Xen</systemitem> resource, it will
+    reflect the consumption of RAM and CPU. Utilization attributes will
+    automatically be added to the resource configuration.
+   </para>
+<!--fate#310117-->
+   <para>
+    Apart from detecting the minimal requirements, the &hasi; also allows to
+    monitor the current utilization via the
+    <systemitem>VirtualDomain</systemitem> resource agent. It detects CPU
+    and RAM use of the virtual machine. To use this feature, configure a
+    resource of the following class, provider and type:
+    <literal>ocf:heartbeat:VirtualDomain</literal>. The following instance
+    attributes are available: <varname>autoset_utilization_cpu</varname> and
+    <varname>autoset_utilization_hv_memory</varname>. Both default to
+    <literal>true</literal>. This updates the utilization values in the CIB
+    during each monitoring cycle.
+   </para>
+   <para>
+    Independent of manually or automatically configuring capacity and
+    requirements, the placement strategy must be specified with the
+    <literal>placement-strategy</literal> property (in the global cluster
+    options). The following values are available:
+   </para>
+  &placement-strategy-values;
+   <example id="ex.ha.config.basics.utilization">
+    <title>Example Configuration for Load-Balanced Placing</title>
+    <para>
+     The following example demonstrates a three-node cluster of equal nodes,
+     with four virtual machines.
+    </para>
+<screen>node &node1; utilization memory="4000"
+node &node2; utilization memory="4000"
+node  &node3; utilization memory="4000"
+primitive xenA ocf:heartbeat:Xen utilization hv_memory="3500" \
+     params xmfile="/etc/xen/shared-vm/vm1"
+     meta priority="10" 
+primitive xenB ocf:heartbeat:Xen utilization hv_memory="2000" \
+     params xmfile="/etc/xen/shared-vm/vm2"
+     meta priority="1"
+primitive xenC ocf:heartbeat:Xen utilization hv_memory="2000" \
+     params xmfile="/etc/xen/shared-vm/vm3"
+     meta priority="1"
+primitive xenD ocf:heartbeat:Xen utilization hv_memory="1000" \
+     params xmfile="/etc/xen/shared-vm/vm4"
+     meta priority="5"
+property placement-strategy="minimal"</screen>
+    <para>
+     With all three nodes up, resource <literal>xenA</literal> will be
+     placed onto a node first, followed by <literal>xenD</literal>.
+     <literal>xenB</literal> and <literal>xenC</literal> would either be
+     allocated together or one of them with <literal>xenD</literal>.
+    </para>
+    <para>
+     If one node failed, too little total memory would be available to host
+     them all. <literal>xenA</literal> would be ensured to be allocated, as
+     would <literal>xenD</literal>. However, only one of the remaining
+     resources <literal>xenB</literal> or <literal>xenC</literal> could
+     still be placed. Since their priority is equal, the result would still
+     be open. To resolve this ambiguity as well, you would need to set a
+     higher priority for either one.
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 id="sec.ha.config.basics.tags">
+   <title>Grouping Resources by Using Tags</title>
+<!--taroth 2014-07-29: https://fate.suse.com/315101: Group multiple resource groups and master/slaves to be started/stopped together-->
+   <para>
+    Tags are a new feature that has been added to Pacemaker recently. Tags
+    are a way to refer to multiple resources at once, without creating any
+    colocation or ordering relationship between them. This can be useful for
+    grouping conceptually related resources. For example, if you have
+    several resources related to a database, create a tag called
+    <literal>databases</literal> and add all resources related to the
+    database to this tag. This allows you to stop or start them all with a
+    single command.
+   </para>
+   <para>
+    Tags can also be used in constraints. For example, the following
+    location constraint <literal>loc-db-prefer</literal> applies to the set
+    of resources tagged with <literal>databases</literal>:
+   </para>
+<screen>location loc-db-prefer databases 100: &node1;</screen>
+   <para>
+    Learn how to create tags with your preferred cluster management tool:
+   </para>
+   <itemizedlist>
+<!--<listitem>
+        <para>
+          &hawk;: <xref linkend="pro.ha.config.hawk.group"/>
+        </para>
+      </listitem>-->
+    <listitem>
+     <para>
+      &crmsh;: <xref linkend="sec.ha.manual_config.tag"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.config.basics.remote">
+  <title>Managing Services on Remote Hosts</title>
+
+<!--fate#313717 (SP3)-->
+
+  <para>
+   The possibilities for monitoring and managing services on remote hosts
+   has become increasingly important during the last few years.
+   &productname; 11 SP3 offered fine-grained monitoring of services on
+   remote hosts via monitoring plug-ins. The recent addition of the
+   <literal>pacemaker_remote</literal> service now allows &productname;
+   &productnumber; to fully manage and monitor resources on remote hosts
+   just as if they were a real cluster node&mdash;without the need to
+   install the cluster stack on the remote machines.
+  </para>
+
+  <sect2 id="sec.ha.config.basics.remote.nagios">
+   <title>Monitoring Services on Remote Hosts with Monitoring Plug-ins</title>
+   <para>
+    Monitoring of virtual machines can be done with the VM agent (which only
+    checks if the guest shows up in the hypervisor), or by external scripts
+    called from the VirtualDomain or Xen agent. Up to now, more fine-grained
+    monitoring was only possible with a full setup of the &ha; stack within
+    the virtual machines.
+   </para>
+   <para>
+    By providing support for monitoring plug-ins (formerly named Nagios
+    plug-ins), the &hasi; now also allows you to monitor services on remote
+    hosts. You can collect external statuses on the guests without modifying
+    the guest image. For example, VM guests might run Web services or simple
+    network resources that need to be accessible. With the Nagios resource
+    agents, you can now monitor the Web service or the network resource on
+    the guest. In case these services are not reachable anymore, the &hasi;
+    will trigger a restart or migration of the respective guest.
+   </para>
+   <para>
+    If your guests depend on a service (for example, an NFS server to be
+    used by the guest), the service can either be an ordinary resource,
+    managed by the cluster, or an external service that is monitored with
+    Nagios resources instead.
+   </para>
+   <para>
+    To configure the Nagios resources, the following packages must be
+    installed on the host:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <systemitem class="resource">monitoring-plugins</systemitem>
+<!-- taroth 2014-07-31: just learned from
+       https://mailman.suse.de/mailman/private/research/2014-July/007170.html that the
+       nagios-plugins  package  (plus its ~60 subpackages) has been renamed to "monitoring-plugins" for RC1, see also
+       fate#317780-->
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <systemitem class="resource">monitoring-plugins-metadata</systemitem>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    &yast; or Zypper will resolve any dependencies on further packages, if
+    required.
+   </para>
+   <para>
+    A typical use case is to configure the monitoring plug-ins as resources
+    belonging to a resource container, which usually is a VM. The container
+    will be restarted if any of its resources has failed. Refer to
+    <xref linkend="ex.ha.nagios.config"/> for a configuration example.
+    Alternatively, Nagios resource agents can also be configured as ordinary
+    resources if you want to use them for monitoring hosts or services via
+    the network.
+   </para>
+   <example id="ex.ha.nagios.config">
+    <title>Configuring Resources for Monitoring Plug-ins</title>
+     <screen>primitive vm1 ocf:heartbeat:VirtualDomain \
+    params hypervisor="qemu:///system" config="/etc/libvirt/qemu/vm1.xml" \
+    op start interval="0" timeout="90" \
+    op stop interval="0" timeout="90" \
+    op monitor interval="10" timeout="30"
+primitive vm1-sshd nagios:check_tcp \
+    params hostname="vm1" port="22" \ <co id="co.nagios.hostname"/>
+    op start interval="0" timeout="120" \ <co id="co.nagios.startinterval"/>
+    op monitor interval="10"
+group g-vm1-and-services vm1 vm1-sshd \
+    meta container="vm1" <co id="co.nagios.container"/></screen>
+    <calloutlist>
+     <callout arearefs="co.nagios.hostname">
+      <para>
+       The supported parameters are the same as the long options of a
+       monitoring plug-in. Monitoring plug-ins connect to services with the
+       parameter <literal>hostname</literal>. Therefore the attribute's
+       value must be a resolvable host name or an IP address.
+      </para>
+     </callout>
+     <callout arearefs="co.nagios.startinterval">
+      <para>
+       As it takes some time to get the guest operating system up and its
+       services running, the start timeout of the monitoring resource must
+       be long enough.
+      </para>
+     </callout>
+     <callout arearefs="co.nagios.container">
+      <para>
+       A cluster resource container of type
+       <literal>ocf:heartbeat:Xen</literal>,
+       <literal>ocf:heartbeat:VirtualDomain</literal> or
+       <literal>ocf:heartbeat:lxc</literal>. It can either be a VM or a
+       Linux Container.
+      </para>
+     </callout>
+    </calloutlist>
+    <para>
+     The example above contains only one resource for the
+     <literal>check_tcp</literal>plug-in, but multiple resources for
+     different plug-in types can be configured (for example,
+     <literal>check_http</literal> or <literal>check_udp</literal>).
+    </para>
+    <para>
+     If the host names of the services are the same, the
+     <literal>hostname</literal> parameter can also be specified for the
+     group, instead of adding it to the individual primitives. For example:
+    </para>
+<screen>group g-vm1-and-services vm1 vm1-sshd vm1-httpd \ 
+     meta container="vm1" \ 
+     params hostname="vm1" </screen>
+    <para>
+     If any of the services monitored by the monitoring plug-ins fail within
+     the VM, the cluster will detect that and restart the container resource
+     (the VM). Which action to take in this case can be configured by
+     specifying the <literal>on-fail</literal> attribute for the service's
+     monitoring operation. It defaults to
+     <literal>restart-container</literal>.
+    </para>
+    <para>
+     Failure counts of services will be taken into account when considering
+     the VM's migration-threshold.
+    </para>
+   </example>
+  </sect2>
+
+  <sect2  id="sec.ha.config.basics.remote.pace.remote">
+   <title>Managing Services on Remote Nodes with <literal>pacemaker_remote</literal></title>
+   <para>
+    With the <literal>pacemaker_remote</literal> service, &ha; clusters can
+    be extended to virtual nodes or remote bare-metal machines. They do not
+    need to run the cluster stack to become members of the cluster.
+   </para>
+   <para>
+    The &hasi; can now launch virtual environments (KVM and LXC), plus the
+    resources that live within those virtual environments without requiring
+    the virtual environments to run &pace; or &corosync;.
+   </para>
+   <para>
+    For the use case of managing both virtual machines as cluster resources
+    plus the resources that live within the VMs, you can now use the
+    following setup:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      The <quote>normal</quote> (bare-metal) cluster nodes run the &hasi;.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The virtual machines run the <literal>pacemaker_remote</literal>
+      service (almost no configuration required on the VM's side).
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The cluster stack on the <quote>normal</quote> cluster nodes launches
+      the VMs and connects to the <literal>pacemaker_remote</literal>
+      service running on the VMs to integrate them as remote nodes into the
+      cluster.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    As the remote nodes do not have the cluster stack installed, this has
+    the following implications:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Remote nodes do not take part in quorum.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Remote nodes cannot become the DC.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Remote nodes are not bound by the scalability limits (&corosync; has a
+      member limit of 16 nodes).
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    Find more information about the <literal>remote_pacemaker</literal>
+    service, including multiple use cases with detailed setup instructions
+    in <citetitle>Pacemaker Remote&mdash;Extending High Availability into
+    Virtual Nodes</citetitle>, available at
+    <ulink url="http://www.clusterlabs.org/doc/"/>.
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.config.basics.monitor.health">
+  <title>Monitoring System Health</title>
+
+<!--fate#313815 (SP3) handle node faults gracefully-->
+
+  <para>
+   To prevent a node from running out of disk space and thus being unable to
+   manage any resources that have been assigned to it, the &hasi; provides a
+   resource agent, <systemitem>ocf:pacemaker:SysInfo</systemitem>. Use it to
+   monitor a node's health with regard to disk partitions.
+<!-- as described in <xref linkend="pro.ha.health.monitor"/>.-->
+   The SysInfo RA creates a node attribute named
+   <literal>#health_disk</literal> which will be set to
+   <literal>red</literal> if any of the monitored disks' free space is below
+   a specified limit.
+  </para>
+
+<!--Any <literal>health#</literal>-related
+   attribute can have one of the following values: </para>
+   <itemizedlist>
+   <listitem>
+   <para>red</para>
+   </listitem>
+   <listitem>
+   <para>yellow</para>
+   </listitem>
+   <listitem>
+   <para>green</para>
+   </listitem>
+   <listitem>
+   <para>an integer value</para>
+   </listitem>
+   </itemizedlist>
+   <para>Depending on the <systemitem>node-health-strategy</systemitem> set in the CRM configuration,
+   different scores will be assigned to those values. For details, refer to <xref
+   linkend="vl.node-health-strategy"/>. For general information about scores, refer to <xref
+   linkend="sec.ha.config.basics.constraints.scores"/>.</para>-->
+
+  <para>
+   To define how the CRM should react in case a node's health reaches a
+   critical state, use the global cluster option
+   <systemitem>node-health-strategy</systemitem>.
+<!--Depending on the
+    values set for the option, every resource defined in the CIB will search for node attributes
+    that start with the <literal>#health</literal> prefix . Its attribute values (or rather, the
+    scores assigned to the value) will be summed up with whatever other scores are defined for
+    resources in the system. The scores determine on which node a resource will run.-->
+  </para>
+
+<!--  <variablelist id="vl.node-health-strategy">
+   <title>Possible Values of <systemitem>node-health-strategy</systemitem></title>
+   <varlistentry>
+   <term><literal>none</literal>
+   </term>
+   <listitem>
+   <para>Default value. This setting does not take into account any score calculations within the
+   CRM. </para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+   <term><literal>migrate-on-red</literal>
+   </term>
+   <listitem>
+   <para>This setting will use the following scores for the <literal>#health</literal> attribute
+   values: </para>
+   <itemizedlist>
+   <listitem>
+   <para>red: <literal>-INF</literal></para>
+   </listitem>
+   <listitem>
+   <para>yellow: <literal>0</literal></para>
+   </listitem>
+   <listitem>
+   <para>green: <literal>0</literal></para>
+   </listitem>
+   </itemizedlist>
+   <para>If a health attribute of a node has reached status <literal>red</literal>, any resources
+   will be moved away from the node. </para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+   <term><literal>only-green</literal>
+   </term>
+   <listitem>
+   <para>This setting will use the following scores for the <literal>#health</literal> attribute
+   values: </para>
+   <itemizedlist>
+   <listitem>
+   <para>red: <literal>-INF</literal></para>
+   </listitem>
+   <listitem>
+   <para>yellow: <literal>-INF</literal></para>
+   </listitem>
+   <listitem>
+   <para>green: <literal>0</literal></para>
+   </listitem>
+   </itemizedlist>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+   <term><literal>progressive</literal>
+   </term>
+   <listitem>
+   <para>The scores for the <literal>#health</literal> attribute values will then be taken from
+   the corresponding policy engine settings:</para>
+   <itemizedlist>
+   <listitem>
+   <para><systemitem>node-health-red</systemitem>: default value <literal>-INF</literal></para>
+   </listitem>
+   <listitem>
+   <para><systemitem>node-health-yellow</systemitem>: default value: <literal>0</literal></para>
+   </listitem>
+   <listitem>
+   <para>
+   <systemitem>node-health-green</systemitem>: default value: <literal>0</literal>
+   </para>
+   </listitem>
+   </itemizedlist>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+   <term><literal>custom</literal>
+   </term>
+   <listitem>
+   <para>Defines that custom rules are applied. In that case, the system administrator must define
+   rules to include whichever health attributes he deems appropriate for his setup. </para>
+   </listitem>
+   </varlistentry>
+   </variablelist>-->
+
+  <procedure id="pro.ha.health.monitor">
+   <title>Configuring System Health Monitoring</title>
+   <para>
+    To automatically move resources away from a node in case the node runs
+    out of disk space, proceed as follows:
+   </para>
+   <step>
+    <para>
+     Configure an <systemitem>ocf:pacemaker:SysInfo</systemitem> resource:
+    </para>
+<screen><?dbsuse-fo font-size="0.71em"?>primitive sysinfo ocf:pacemaker:SysInfo \ 
+     params disks="/tmp /var"<co id="co.disks"/> min_disk_free="100M"<co id="co.min_disk_free"/> disk_unit="M"<co id="co.disk_unit"/> \<!--delay="30s"<co id="co.delay"/>\--> 
+     op monitor interval="15s"</screen>
+    <calloutlist>
+     <callout arearefs="co.disks">
+      <para>
+       Which disk partitions to monitor. For example,
+       <filename>/tmp</filename>, <filename>/usr</filename>,
+       <filename>/var</filename>, and <filename>/dev</filename>. To specify
+       multiple partitions as attribute values, separate them with a blank.
+      </para>
+      <note>
+       <title><filename>/</filename> File System Always Monitored</title>
+       <para>
+        You do not need to specify the root partition
+        (<filename>/</filename>) in <literal>disks</literal>. It is always
+        monitored by default.
+       </para>
+      </note>
+     </callout>
+     <callout arearefs="co.min_disk_free">
+      <para>
+       The minimum free disk space required for those partitions.
+       Optionally, you can specify the unit to use for measurement (in the
+       example above, <literal>M</literal> for megabytes is used). If not
+       specified, <systemitem>min_disk_free</systemitem> defaults to the
+       unit defined in the <systemitem>disk_unit</systemitem> parameter.
+      </para>
+     </callout>
+     <callout arearefs="co.disk_unit">
+      <para>
+       The unit in which to report the disk space.
+      </para>
+     </callout>
+<!--<callout arearefs="co.delay">
+      <para>
+      <remark>taroth 2013-04-03: DEVs, what about the "delay" param - what is it good for? answer
+      by dejan: Pacemaker won't react immediately, but only after the attribute
+      value persists for at least this amount of time. It's actually
+      coming from the ocf:pacemaker:ping (formerly ocf:heartbeat:pingd)
+      and, given that disk changes are not as volatile as network can
+      be, less important here. It defaults to 0s.</remark>
+      </para>
+      </callout>-->
+    </calloutlist>
+   </step>
+   <step>
+    <para>
+     To complete the resource configuration, create a clone of
+     <systemitem>ocf:pacemaker:SysInfo</systemitem> and start it on each
+     cluster node.
+    </para>
+   </step>
+   <step>
+    <para>
+     Set the <systemitem>node-health-strategy</systemitem> to
+     <literal>migrate-on-red</literal>:
+    </para>
+<screen>property node-health-strategy="migrate-on-red"</screen>
+<!--<para>This calculates the scores for the values of the node health attributes as described in
+     <xref linkend="vl.node-health-strategy"/>. They are added to the node-score values. </para>
+     <para>The health monitoring process works as follows: The SysInfo resource agent sets the node's
+     <systemitem>#health_disk</systemitem> attribute to <literal>red</literal> if any of the
+     monitored disks' free space is below the specified limit. According to the
+     <literal>migrate-on-red</literal> policy, the policy engine adds <literal>-INF</literal> to the
+     resources' score for that node. </para>-->
+    <para>
+     In case of a <systemitem>#health_disk</systemitem> attribute set to
+     <literal>red</literal>, the policy engine adds <literal>-INF</literal>
+     to the resources' score for that node. This will cause any resources to
+     move away from this node. The &stonith; resource will be the last one
+     to be stopped but even if the &stonith; resource is not running
+     anymore, the node can still be fenced. Fencing has direct access to the
+     CIB and will continue to work.
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   After a node's health status has turned to <literal>red</literal>, solve
+   the issue that led to the problem. Then clear the <literal>red</literal>
+   status to make the node eligible again for running resources. Log in to
+   the cluster node and use one of the following methods:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Execute the following command:
+    </para>
+<screen>&prompt.root;<command>crm</command> node status-attr <replaceable>NODE</replaceable> delete #health_disk</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Restart &pace; and &corosync; on that node.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Reboot the node.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   The node will be returned to service and can run resources again.
+  </para>
+ </sect1>
+ <sect1 id="sec.ha.config.basics.maint.mode">
+  <title>Maintenance Mode</title>
+
+<!--taroth 2014-07-25: https://bugzilla.novell.com/show_bug.cgi?id=829864: 
+   Use of maintenance mode, see also https://mailman.suse.de/mailman/private/ha-devel/2014-July/004007.html-->
+  
+  &maint-mode-basics;
+  
+   <para>
+   With regard to that, &hasi; provides <literal>maintenance</literal>
+   options on several levels:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     for resources
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     for nodes
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     for the whole cluster
+    </para>
+   </listitem>
+  </itemizedlist>
+  
+  &warning-maint-mode;
+  
+  <para>
+   In maintenance mode, you can stop or restart cluster resources at
+   will&mdash;the &hasi; will not attempt to restart them. All resources
+   automatically become unmanaged: The &hasi; will cease monitoring them and
+   thus be oblivious to their status. You can even stop all &pace; services
+   on a node, and all daemons and processes originally started as
+   &pace;-managed cluster resources will continue to run. If you attempt to
+   start &pace; services on a node while the cluster is in maintenance mode,
+   &pace; will initiate a single one-shot monitor operation (a
+   <quote>probe</quote>) for every resource to evaluate which resources are
+   currently running on that node. However, it will take no further action
+   other than determining the resources' status.
+  </para>
+
+  <para>
+   For details on setting or unsetting maintenance mode with your preferred
+   cluster management tool:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     &hawk;: <xref linkend="sec.ha.config.hawk.maint.mode"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     &crmsh;: <xref linkend="sec.ha.manual_config.cli.maint.mode"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+<!--<sect1 id="sec.ha.config.basics.2-node">
+  <title>Two-Node Clusters</title>
+  <para>
+   <remark>taroth 2014-06-30: idea - describe all important configuration options for two-node
+   clusters in this section: expected votes, no-quorum-policy=ignore etc. - taroth 2014-08-12:
+   unfortunately, no input so far, therefore commenting section for now</remark>
+  </para>
+ </sect1>-->
+ <sect1 id="sec.ha.config.basics.more">
+  <title>For More Information</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><ulink url="http://crmsh.github.io/"/>
+    </term>
+    <listitem>
+     <para>
+      Home page of the &crmshell; (&crmsh;), the advanced command line
+      interface for &ha; cluster management.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><ulink url="http://crmsh.github.io/documentation"/>
+    </term>
+    <listitem>
+     <para>
+      Holds several documents about the &crmshell;, including a
+      <citetitle>Getting Started</citetitle> tutorial for basic cluster
+      setup with &crmsh; and the comprehensive <citetitle>Manual</citetitle>
+      for the &crmshell;. The latter is available at
+      <ulink
+       url="http://crmsh.github.io/man-2.0/"/>. Find the
+      tutorial at
+      <ulink
+        url="http://crmsh.github.io/start-guide/"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><ulink url="http://clusterlabs.org/"/>
+    </term>
+    <listitem>
+     <para>
+      Home page of Pacemaker, the cluster resource manager shipped with the
+      &hasi;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>&clusterlabs-doc; 
+    </term>
+    <listitem>
+     <para>
+      Holds several comprehensive manuals and some shorter documents
+      explaining general concepts. For example:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        &paceex;: Contains comprehensive and very detailed information for
+        reference.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Configuring Fencing with crmsh</citetitle>: How to
+        configure and use &stonith; devices.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Colocation Explained</citetitle>
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Ordering Explained</citetitle>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><ulink url="http://linux-ha.org"/>
+    </term>
+    <listitem>
+     <para>
+      Home page of the The High Availability Linux Project.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>

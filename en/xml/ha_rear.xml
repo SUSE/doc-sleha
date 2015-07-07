@@ -1,0 +1,505 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd" [
+ <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+ <!ENTITY % entities SYSTEM "entity-decl.ent">
+ %entities;
+]>
+<!-- toms 2014-02-26:
+  - rear-SUSE is not available anymore in SLE12 Beta1
+  - No YaST module for Rear
+  - 2014-05-14: Btrfs and Rear: 
+    http://en.opensuse.org/SDB:Disaster_Recovery#All_filesystems_are_equal.2C_but_some_are_more_equal_than_others
+-->
+
+<!--Fates #310991, 312336-->
+<!--taroth 2011-09-19: information sources: 
+  /usr/share/doc/packages/rear/README
+  /usr/share/doc/packages/rear-SUSE
+  http://sourceforge.net/projects/rear/files/documentation/
+
+-->
+<chapter id="cha.ha.rear">
+ <title>Disaster Recovery with &rear; (&rear.long;)</title>
+ <abstract>
+  <para> &rear.long; (formerly <quote>ReaR</quote>, in this chapter
+   abbreviated as &rear;) is a disaster recovery framework for use by system
+   administrators. It is a collection of Bash scripts that need to be adjusted
+   to the specific production environment that is to be protected in case of
+   disaster.</para>
+  <para>No disaster recovery solution will just work out-of-the-box. Therefore
+   it is essential to take preparations <emphasis>before</emphasis> any disaster
+   happens. </para>
+  
+ </abstract>
+ 
+  <sect1 id="sec.ha.rear.concept">
+  <title>Conceptual Overview</title>
+  
+ <!-- taroth 2015-03-26: the following slides by jsmeix provide excellent input:
+ https://en.opensuse.org/images/8/8b/Relax-and-Recover_jsmeix_presentation.pdf
+-->
+  <para>The following sections describe the general disaster recovery concept and the basic steps
+   you need to execute for successful recovery with &rear;. They also provide some guidance on
+   &rear; requirements, <!--&rear; versions shipped with the current product, -->some limitations
+   to be aware of, and scenarios and backup tools.</para>
+   
+   
+   <sect2 id="sec.ha.rear.concept.drp">
+    <title>Creating a Disaster Recovery Plan</title>
+    
+    <para>
+     <emphasis>Before</emphasis> the worst scenario happens, take action: analyze
+     your IT infrastructure for any substantial risks, evaluate your budget,
+     and create a disaster recovery plan. If you do not already have a
+     disaster recovery plan at hand, find some information on each step below:
+    </para>
+    
+    <itemizedlist>
+     <listitem>
+      <formalpara>
+       <title>Risk Analysis</title>
+       <para>
+        Conduct a solid risk analysis of your infrastructure. List all the
+        possible threats and evaluate how serious they are. Determine how
+        likely these threats are and prioritize them. It is recommended to use
+        a simple categorization: probability and impact.
+       </para>
+      </formalpara>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>Budget Planning</title>
+       <para>
+        The outcome of the analysis is an overview, which risks can be
+        tolerated and which are critical for your business. Ask yourself how
+        you can minimize risks and how much will it cost. Depending on how big
+        your company is, spend two to fifteen percent of the overall IT budget
+        on disaster recovery.
+       </para>
+      </formalpara>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>Disaster Recovery Plan Development</title>
+       <para> Make checklists, test procedures, establish and assign priorities,
+        and inventory your IT infrastructure. Define how to deal with a problem
+        when some services in your infrastructure fail. </para>
+      </formalpara>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>Test</title>
+       <para>
+        After defining an elaborate plan, test it. Test it at least once a
+        year. Use the same testing hardware as your main IT infrastructure.
+       </para>
+      </formalpara>
+     </listitem>
+    </itemizedlist>
+   </sect2>
+  
+  <sect2 id="sec.ha.rear.concept.recovery">
+   <title>What Does Disaster Recovery Mean?</title>
+   <para>If a system in a production environment has been destroyed (for
+    whatever reasons&mdash;be it broken hardware, a misconfiguration or
+    software problems), you need to recreate the system. The recreation can be
+    done either on the same hardware or on compatible replacement hardware.
+    Recreating a system means more than just restoring files from a backup. It
+    also includes preparing the system's storage (with regards to file systems,
+    partitioning, or mount points), and reinstalling the boot loader.</para>
+  </sect2>
+   
+  <sect2 id="sec.ha.rear.concept.basics">
+   <title>How Does Disaster Recovery With &rear; Work?</title>
+   <para>While the system is up and running, create a backup of the files and create a recovery
+    system on a recovery medium. The recovery system contains a recovery installer.</para>
+   <para>In case the system has been destroyed, replace broken hardware (if needed), boot the recovery
+    system from the recovery medium and launch the recovery installer. The recovery installer
+    recreates the system: First, it prepares the storage (partitioning, file systems, mount points),
+    then it restores the files from the backup. Finally, it reinstalls the boot loader. </para>
+  </sect2>
+   
+   
+  <sect2 id="sec.ha.rear.concept.requirements">
+   <title>&rear; Requirements</title>
+   <para>
+    To use &rear; you need at least two identical systems: the machine
+    that runs your production environment and an identical test machine.
+    <quote>Identical</quote> in this context means that you can, for example, 
+    replace a network card with another one using the same Kernel driver. </para>
+   <warning>
+    <title>Identical Drivers Required</title>
+    <para>If a hardware component does not use the same driver like the one in
+     your production environment, it is not considered identical by
+     &rear;.</para>
+   </warning>
+  </sect2>
+  
+  <!--taroth 2015-06-03: merged from SLE HA 11 SP4, not relevant for SLE HA 12 SPx-->
+   <!--<sect2 id="sec.ha.rear.concept.versions">
+   <title>&rear; Versions</title>
+   <para>&productname; 11 SP4 ships two &rear; versions in
+    parallel:</para>
+   <itemizedlist>
+    <listitem>
+     <para>&rear; version <literal>1.10.0</literal> (included in RPM
+      package: <systemitem class="resource">rear</systemitem>). For the
+      documentation of this &rear; version, see the &haguide; for
+      &productname; 11 SP3. It is available from
+      &suse-onlinedoc;.</para>
+    </listitem>
+    <listitem>
+     <para>&rear; version <literal>1.16</literal> (included in RPM package
+       <systemitem class="resource">rear116</systemitem>). This version is
+      documented in the current chapter. </para>
+    </listitem>
+   </itemizedlist>
+   <important>
+    <para>If you have a tested and fully functional disaster recovery procedure
+     with &rear; version 1.10.0 there is <emphasis>no</emphasis> need to
+     upgrade. In that case, keep the &rear; package and do not change your
+     disaster recovery method!</para>
+    <para>However, if &rear; version 1.10.0 does not fulfill your particular
+     needs (see also <xref linkend="sec.ha.rear.concept.limit"
+      xrefstyle="select:label"/>), you can manually upgrade to &rear;
+     version 1.16. The packages <systemitem class="resource">rear</systemitem>
+     and <systemitem class="resource">rear116</systemitem> intentionally
+     conflict with each other to prevent that your installed version gets
+     accidentally replaced with another version.</para>
+    <para>For each &rear; version upgrade you must carefully re-validate
+     whether your particular disaster recovery procedure still works.</para>
+   </important>
+  </sect2>-->
+  
+  <sect2 id="sec.ha.rear.concept.limit" >
+   <title>Limitations with Btrfs</title>
+    <para>The following limitations apply if you use Btrfs.</para>
+   
+    <variablelist>
+     <varlistentry>
+      <term>Your System Includes Subvolumes, but No Snapshots Subvolumes</term>
+      <listitem>
+       <para>&rear; version 1.16 is required. This version supports recreating
+        <quote>normal</quote> Btrfs subvolume structure (no snapshot subvolumes). </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Your System Includes Snapshot Subvolumes</term>
+      <listitem>
+      <warning>
+       <para>Btrfs snapshot subvolumes <emphasis>cannot</emphasis> be backed up
+        and restored as usual with file-based backup software.</para>
+      </warning>
+      <para>While recent snapshots in subvolumes on Btrfs file systems need
+       almost no disk space (because of Btrfs' copy-on-write functionality),
+       those files would be backed up as complete files when using file-based
+       backup software. They would end up twice in the backup with their
+       original file size. Therefore, it would be impossible to restore the
+       snapshots as they have been before on the original system.</para>
+       <!-- from: https://en.opensuse.org/SDB:Disaster_Recovery#btrfs -->
+       <!--<para>The main reason is: When there are btrfs snapshot subvolumes and you
+        run usual file-based backup software (for example,
+        <command>tar</command>) to back up the whole
+        data of the btrfs filesystem then all what there is in snapshot
+        subvolumes gets backed up as complete files. For example if there is
+        a 8GB disk with a Btrfs filesystem where 5GB disk space is used and there
+        is a recent snapshot. A recent snapshot needs almost no disk space
+        because of btrfs' copy on write functionality. But 'tar' would create a
+        backup that has an uncompressed size of about 10GB because the files
+        appear twice: Under their regular path and additionally under the
+        snapshot subvolume's path. It would be impossible to restore that tarball
+        on the disk. This means btrfs snapshot subvolumes cannot be backed up and
+        restored as usual with file-based backup software. </para>-->
+      </listitem>
+     </varlistentry>
+    </variablelist>
+  </sect2>
+  
+  <sect2 id="sec.ha.rear.concept.scenarios">
+   <title>Scenarios and Backup Tools</title>
+   <para>&rear; can create a disaster recovery system (including a
+    specific recovery installer) that can be booted from a
+    local medium (like a hard disk, a flash disk, a DVD/CD-R) or via PXE. The
+    backup data can be stored on a network file system, for example NFS, as described in <xref
+     linkend="ex.ha.rear.nfs-server-backup" xrefstyle="select:label"/>.
+    </para>
+   <para>&rear; does not replace a file backup, but complements it. By
+    default, &rear; supports the generic <command>tar</command> command, and
+    several third-party backup tools (such as Tivoli Storage Manager, QNetix
+    Galaxy, Symantec NetBackup, EMC NetWorker, or HP DataProtector). Refer to
+     <xref linkend="ex.ha.rear.config.EMC" xrefstyle="select:label"/> for an example configuration of
+    using &rear; with EMC NetWorker as backup tool.</para>
+  </sect2>
+  
+  
+  <sect2 id="sec.ha.rear.concept.overview">
+   <title>Basic Steps</title>
+   <para>For a successful recovery with &rear; in case of disaster, you need to execute the
+    following basic steps: </para>
+
+   
+   <variablelist>
+     <varlistentry><!--Setting Up &rear; and Your Backup Solution-->
+     <term><xref linkend="sec.ha.rear.config" xrefstyle="select:title"/></term>
+     <listitem>
+      <para>This includes tasks like editing the &rear; configuration file,
+       adjusting the Bash scripts, and configuring the
+       backup solution that you want to use. </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry><!--Creating the Recovery Installation System-->
+     <term><xref linkend="sec.ha.rear.mkbackup" xrefstyle="select:title"/></term>
+     <listitem>
+      <para>While the system to be protected is up and running use the
+       <command>rear mkbackup</command> command to create a file backup and to generate a
+       recovery system that contains a system-specific &rear; recovery installer.</para>
+     </listitem>
+    </varlistentry>
+    <varlistentry><!--Testing the Disaster Recovery Process-->
+     <term><xref linkend="sec.ha.rear.testing" xrefstyle="select:title"/></term>
+     <listitem>
+      <para> Whenever you have created a disaster recovery medium with
+       &rear;, test the disaster recovery process thoroughly. It is
+       essential to use a test machine that has <emphasis>identical</emphasis>
+       hardware like the one that is part of your production environment. For
+       details, refer to <xref linkend="sec.ha.rear.concept.requirements"/>.</para>
+     </listitem>
+    </varlistentry>
+    <varlistentry><!--Recovering from Disaster-->
+     <term><xref linkend="sec.ha.rear.recover" xrefstyle="select:title"/></term>
+     <listitem>
+      <para>After a disaster has occurred, replace any broken hardware (if
+       necessary). Then boot the &rear; recovery system and start the
+       recovery installer with the <command>rear recover</command> command.
+     </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+  
+ <sect1 id="sec.ha.rear.config">
+  <title>Setting Up &rear; and Your Backup Solution</title>
+  <para>To set up &rear;, you need to edit at least the &rear; configuration file
+    <filename>/etc/rear/local.conf</filename> and, if needed, the Bash scripts that are part
+    of the &rear; framework. </para>
+  <para>In particular, you need to define the following tasks that
+   &rear; should do:</para>
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>How to  back up files and how to create and store the disaster
+      recovery system</title>
+     <para> This needs to be configured in
+       <filename>/etc/rear/local.conf</filename>. </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>What to recreate exactly (partitioning, file systems, mount points etc.)</title>
+     <para>This can be defined in
+       <filename>/etc/rear/local.conf</filename> (for example, what to exclude).
+      To recreate non-standard systems, you  may have to enhance the Bash scripts.</para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>How the recovery process works</title>
+     <para>To change how &rear; generates the recovery installer, or to adapt what the
+      &rear; recovery installer does, you have to edit the Bash scripts.</para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+  
+  <para>To configure &rear;, add your options to the
+    <filename>/etc/rear/local.conf</filename> configuration file. (The former
+   configuration file <filename>/etc/rear/sites.conf</filename> has been removed
+   from the package. However, if you have such a file from your last setup,
+   &rear; will still use it). </para>
+  
+  <para>A default &rear; configuration for reference is available at
+   <filename>/usr/share/rear/conf/default.conf</filename>. Other example
+   configurations (<filename>*example.conf</filename>) are available in the same
+   directory. Find more information in the &rear; man page. </para>
+  <para>After you have changed the &rear; configuration file, run the
+   following command and check its output:</para>
+   <screen>rear dump</screen>
+  
+  <example id="ex.ha.rear.nfs-server-backup">
+   <title>Using an NFS Server to Store the File Backup</title>
+   <para>&rear; can be used in different scenarios. The following example uses
+    an NFS server as storage for the file backup.
+   </para>
+  </example>
+  
+  <procedure>
+     <step>
+    <para>Set up an NFS server with &yast; as described in the &sls;
+     &productnumber; &admin;, chapter <citetitle>Sharing File Systems
+      with NFS</citetitle>. It is available from &suse-onlinedoc;. </para>
+   </step>
+   <step>
+    <para>Define the configuration for your NFS server in the <filename>/etc/exports</filename>
+     file. Make sure the directory on the NFS server (where you want the backup data to be
+     available), has the right mount options. For example:</para>
+     <screen><replaceable>/srv/nfs</replaceable> *(fsid=0,crossmnt,rw,no_root_squash,sync,no_subtree_check)</screen>
+    <para>If needed, replace <filename>/srv/nfs</filename> with the path to your backup data on the
+     NFS server and adjust the mount options. You will probably need
+      <literal>no_root_squash</literal> to access the backup data as the
+     <command>rear mkbackup</command> command runs as &rootuser;.</para>
+   </step>
+   <step>
+    <para> Adjust the various <varname>BACKUP</varname> parameters in the configuration file
+      <filename>/etc/rear/local.conf</filename> to make &rear; store the file backup
+       on the respective NFS server. Find an example in
+     your installed system under
+      <filename>/usr/share/rear/conf/SLE12-btrfs-example.conf</filename>. </para>
+    </step>
+  </procedure>
+  
+  <example id="ex.ha.rear.config.EMC">
+   <title>Using Third-Party Backup Tools Like EMC NetWorker</title>
+   <para> Using third-party backup tools instead of <command>tar</command>
+    requires appropriate settings in the &rear; configuration file.</para>
+   <para>The following is an example configuration for EMC NetWorker. Add this
+    configuration snippet to <filename>/etc/rear/local.conf</filename> and
+    adjust it according to your setup:</para>
+   <screen>BACKUP=NSR
+    OUTPUT=ISO
+    BACKUP_URL=nfs://<replaceable>host.&exampledomain;/path/to/your/rear/backup</replaceable>
+    OUTPUT_URL=nfs://<replaceable>host.&exampledomain;/path/to/your/rear/backup</replaceable>
+    NSRSERVER=<replaceable>backupserver.&exampledomain;</replaceable>
+    RETENTION_TIME="Month"</screen>
+  </example>
+  
+ </sect1>
+
+ <sect1 id="sec.ha.rear.mkbackup" >
+ <title>Creating the Recovery Installation System</title>
+  <para>After you have configured &rear; as described in <xref
+    linkend="sec.ha.rear.config" xrefstyle="select:label"/>, create the
+    recovery installation system (including the &rear; recovery installer) plus the file backup with the
+    following command:</para>
+  <screen>rear -d  -D mkbackup</screen> 
+  <para>It executes the following steps: </para>
+ 
+ <orderedlist>
+  <listitem>
+    <para> Analyzing the target system and gathering information, in particular about the disk layout
+     (partitioning, file systems, mount points) and about the boot loader. </para>
+  </listitem>
+  <listitem>
+   <para>
+    Creating a bootable recovery system with the information gathered in the first step.
+    The resulting &rear; recovery installer is <emphasis>specific</emphasis> to
+    the system that you want to protect from disaster. It can only be used to
+    recreate this specific system.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Calling the configured backup tool to back up system and user files.
+   </para>
+  </listitem>
+  
+ </orderedlist>
+</sect1>
+ 
+ <sect1 id="sec.ha.rear.testing">
+  <title>Testing the Recovery Process</title>
+
+  <para> After having created the recovery system, test the recovery
+   process on a test machine with identical hardware. See also <xref
+    linkend="sec.ha.rear.concept.requirements"/>. Make sure the test machine
+   is correctly set up and can serve as a replacement for your main machine.
+   </para>
+
+  <warning>
+   <title>Extensive Testing on Identical Hardware</title>
+   <para>Thorough testing of the disaster recovery process on machines is
+    required. Test the recovery procedure on a regular basis to ensure
+    everything works as expected. </para>
+  </warning>
+
+  <procedure id="pro.ha.rear.testing">
+   <title>Performing a Disaster Recovery on a Test Machine</title>
+   <step>
+    <para>Create a recovery medium by burning the recovery system that you have created in <xref linkend="sec.ha.rear.mkbackup"
+      xrefstyle="select:label"/> to a DVD or CD . Alternatively, you can use a network boot via
+     PXE.</para>
+   </step>
+   <step>
+    <para>Boot the test machine from the recovery medium. </para>
+   </step>
+   <step>
+    <para> From the menu, select <guimenu>Recover</guimenu>. </para>
+   </step>
+   <step>
+    <para> Log in as &rootuser; (no password needed). </para>
+   </step>
+   <step>
+    <para> Enter the following command to start the recovery installer:</para>
+    <screen>rear -d -D recover</screen>
+    <para>For details about the steps that &rear; takes during the
+     process, see <xref linkend="ol.ha.rear.recovers.steps"/>. </para>
+   </step>
+   <step>
+    <para>After the recovery process has finished, check if the system has been
+     successfully recreated and can serve as a replacement for your original
+     system in the production environment.</para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.ha.rear.recover">
+  <title>Recovering from Disaster</title>
+  <para>In case a disaster has occurred, exchange any broken hardware if necessary. Then proceed as
+   described in <xref linkend="pro.ha.rear.testing" xrefstyle="select:label"/>, using either the repaired machine (or a
+   tested, identical machine that can serve as a replacement for your original system).</para>
+  
+<para>The <command>rear recover</command> command will  execute the following steps:</para>  
+  
+  <orderedlist id="ol.ha.rear.recovers.steps">
+   <title>Recovery Process</title>
+   <listitem>
+   <para>
+   Restoring the disk layout (partitions, file systems, and mount points).
+   </para>
+   </listitem>
+   <listitem>
+   <para>
+   Restoring the system and user files from the backup.
+   </para>
+   </listitem>
+   <listitem>
+   <para>
+   Restoring the boot loader.
+   </para>
+   </listitem>
+   </orderedlist>
+  </sect1>
+ 
+  
+ <sect1 id="sec.ha.rear.more">
+  <title>For More Information</title>
+
+<!-- http://rear.github.com/documentation/ -->
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <ulink url="http://en.opensuse.org/SDB:Disaster_Recovery"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>rear</command> man page
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>/usr/share/doc/packages/rear/README</filename>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>

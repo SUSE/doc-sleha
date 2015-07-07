@@ -1,0 +1,188 @@
+<!DOCTYPE sect1 PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+  <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+
+<sect1 id="sec.ha.geo.concept">
+ <title>Conceptual Overview</title>
+ 
+ <para> &geo; clusters based on &productname; can be considered <quote>overlay</quote>
+  clusters where each cluster site corresponds to a cluster node in a traditional cluster. The
+  overlay cluster is managed by the booth mechanism. It guarantees that the cluster resources will
+  be highly available across different cluster sites. This is achieved by using cluster objects called tickets 
+  that are treated as failover domain between cluster sites, in case a site should be down. Booth
+  guarantees that every ticket is owned by only one site at a time.</para>
+ 
+ <para>
+  The following list explains the individual components and mechanisms that
+  were introduced for &geo; clusters in more detail.
+ </para>
+ 
+ <variablelist id="vl.ha.geo.components">
+  <title>Components and Ticket Management</title>
+  <varlistentry id="vle.ha.geo.components.ticket">
+   <term>Ticket</term>
+   <listitem>
+    <para>
+     A ticket grants the right to run certain resources on a specific
+     cluster site. A ticket can only be owned by one site at a time.
+     Initially, none of the sites has a ticket&mdash;each ticket must be
+     granted once by the cluster administrator. After that, tickets are
+     managed by the booth for automatic failover of resources. But
+     administrators may also intervene and grant or revoke tickets
+     manually.
+    </para>
+    <para>After a ticket is administratively revoked, it is not managed by booth anymore. For booth
+     to start managing the ticket again, the ticket must be again granted to a site.</para>
+    <para>
+     Resources can be bound to a certain ticket by dependencies. Only if
+     the defined ticket is available at a site, the respective resources
+     are started. Vice versa, if the ticket is removed, the resources
+     depending on that ticket are automatically stopped.
+    </para>
+    <para>
+     The presence or absence of tickets for a site is stored in the CIB as
+     a cluster status. With regard to a certain ticket, there are only two
+     states for a site: <literal>true</literal> (the site has the ticket)
+     or <literal>false</literal> (the site does not have the ticket). The
+     absence of a certain ticket (during the initial state of the
+     &geo; cluster) is not treated differently from the situation
+     after the ticket has been revoked. Both are reflected by the value
+     <literal>false</literal>.
+    </para>
+    <para>
+     A ticket within an overlay cluster is similar to a resource in a
+     traditional cluster. But in contrast to traditional clusters, tickets
+     are the only type of resource in an overlay cluster. They are
+     primitive resources that do not need to be configured or cloned.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry id="vle.ha.geo.components.booth">
+   <term>Booth Cluster Ticket Manager</term>
+   <listitem>
+    <para>
+     Booth is the instance managing the ticket distribution, and thus,
+     the failover process between the sites of a &geo; cluster. Each
+     of the participating clusters and arbitrators runs a service, the
+     &boothd;. It connects
+     to the booth daemons running at the other sites and exchanges
+     connectivity details. After a ticket has been granted to a site, the booth
+     mechanism can manage the ticket automatically: If the site that
+     holds the ticket is out of service, the booth daemons will vote which
+     of the other sites will get the ticket. To protect against brief
+     connection failures, sites that lose the vote (either explicitly or
+     implicitly by being disconnected from the voting body) need to
+     relinquish the ticket after a time-out. Thus, it is made sure that a
+     ticket will only be redistributed after it has been relinquished by
+     the previous site. See also
+     <xref
+      linkend="vle.ha.geo.components.deadman"/>.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry id="vle.ha.geo.components.arbitrator">
+   <term>Arbitrator</term>
+   <listitem>
+    <para>
+     Each site runs one booth instance that is responsible for
+     communicating with the other sites. If you have a setup with an even
+     number of sites, you need an additional instance to reach consensus
+     about decisions such as failover of resources across sites. In this
+     case, add one or more arbitrators running at additional sites.
+     Arbitrators are single machines that run a booth instance in a special
+     mode. As all booth instances communicate with each other, arbitrators
+     help to make more reliable decisions about granting or revoking
+     tickets. Arbitrators cannot hold any tickets.
+    </para>
+    <para>
+     An arbitrator is especially important for a two-site scenario: For
+     example, if site <literal>A</literal> can no longer communicate with
+     site <literal>B</literal>, there are two possible causes for that:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       A network failure between <literal>A</literal> and
+       <literal>B</literal>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Site <literal>B</literal> is down.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     However, if site <literal>C</literal> (the arbitrator) can still
+     communicate with site <literal>B</literal>, site <literal>B</literal>
+     must still be up and running.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>Ticket Failover</term>
+   <listitem>
+    <para>If the ticket gets lost, which means other booth instances do not hear from the ticket
+     owner in a sufficiently long time, one of the remaining sites will acquire the ticket. This is
+     what is called ticket failover. If the remaining members cannot form a majority, then the
+     ticket cannot fail over. </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry id="vle.ha.geo.components.deadman">
+   <term>Dead Man Dependency (<literal>loss-policy="fence"</literal>)</term>
+   <listitem>
+    <para>
+     After a ticket is revoked, it can take a long time until all resources
+     depending on that ticket are stopped, especially in case of cascaded
+     resources. To cut that process short, the cluster administrator can
+     configure a <literal>loss-policy</literal> (together with the ticket
+     dependencies) for the case that a ticket gets revoked from a site. If
+     the loss-policy is set to <literal>fence</literal>, the nodes that are
+     hosting dependent resources are fenced.  
+    </para>
+    <warning>
+     <title>Potential Loss of Data</title>
+     <para>On the one hand, <literal>loss-policy="fence"</literal> considerably
+      speeds up the recovery process of the cluster and makes sure that
+      resources can be migrated more quickly. </para>
+     <para>On the other hand, it can lead to loss of all unwritten data, such
+      as:</para>
+     <itemizedlist>
+      <listitem>
+       <para>Data lying on shared storage (for example, DRBD).</para>
+      </listitem>
+      <listitem>
+       <para>Data in a replicating database (for example, MariaDB or
+        PostgreSQL) that has not yet reached the other site, because of a slow
+        network link.</para>
+      </listitem>
+     </itemizedlist>
+    </warning>
+   </listitem>
+  </varlistentry>
+ </variablelist>
+ 
+ <figure id="fig.ha.geo.example1">
+  <title>Two-Site Cluster (4 Nodes + Arbitrator)</title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+ 
+ <para>The most common scenario is probably a &geo; cluster with two sites and a single
+  arbitrator on a third site. This requires three booth instances, see <xref
+   linkend="fig.ha.geo.example1"/>. The upper limit is (currently) 16 booth instances. </para>
+ 
+ <para> As usual, the CIB is synchronized within each cluster, but it is not automatically
+  synchronized across sites of a &geo; cluster. However, as of &productname; 12,
+  transferring resource configurations to other cluster sites is easier than before. For details
+  see <xref linkend="sec.ha.geo.rsc.sync.cib"/>. </para>
+</sect1>

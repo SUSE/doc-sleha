@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE appendix PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+  <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+
+<appendix id="cha.ha.config.example">
+ <title>Example Configuration for OCFS2 and cLVM</title>
+ <remark>taroth 2014-08-15: todo - for next revision, also take into account GFS2
+  here...</remark>
+ <para>
+  The following is an example configuration that can help you setting up
+  your resources for use of either OCFS2, cLVM, or both. The configuration
+  below does not represent a complete cluster configuration but is only an
+  extract, including all resources needed for OCFS2 and cLVM, and ignoring
+  any other resources that you might need. Attributes and attribute values
+  may need adjustment to your specific setup.
+ </para>
+ <example id="ex.ha.config.ocfs2.clvm">
+  <title>Cluster Configuration for OCFS2 and cLVM</title>
+<!--taroth 2010-08-28: according to lmb, Xin Wei 
+   extended the clvm RA to always just start cmirrord as well,
+   so it doesn't need to be manually configured anymore.-->
+<screen>primitive clvm ocf:lvm2:clvmd \
+     params daemon_timeout="30" 
+primitive dlm ocf:pacemaker:controld \
+     op monitor interval="60" timeout="60"
+<!--primitive o2cb ocf:ocfs2:o2cb \
+     op monitor interval="60" timeout="60"-->
+primitive ocfs2-1 ocf:heartbeat:Filesystem \
+     params device="/dev/sdb1" directory="/mnt/shared" fstype="ocfs2" options="acl" \
+     op monitor interval="20" timeout="40"
+primitive sbd_stonith stonith:external/sbd \
+     meta target-role="Started" op monitor interval="15" \
+     timeout="15" start-delay="15" 
+primitive vg1 ocf:heartbeat:LVM \
+     params volgrpname="cluster-vg" \
+     op monitor interval="60" timeout="60"
+group base-group dlm<!-- o2cb--> clvm vg1 ocfs2-1
+clone base-clone base-group \
+     meta interleave="true"
+  </screen>
+ </example>
+ <para>
+  The configuration with a base group (including several primitives) and a
+  base clone simplifies the overall setup: The base group has internal
+  colocation and ordering and can always remain the same, apart from two
+  resources:
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    <systemitem class="resource">vg1</systemitem>&mdash;the resource for the
+    volume group. Only configure this resource if your setup includes cVLM.
+    Otherwise omit it from the cluster configuration and from the base
+    group.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <systemitem class="resource">ocfs2-1</systemitem>&mdash;the resource for
+    mounting the OCFS2 file system. Only configure this resource if your
+    setup includes OCFS2. Otherwise omit it from the cluster configuration
+    and from the base group.
+   </para>
+  </listitem>
+ </itemizedlist>
+ <para>
+  All of the other resources mentioned in
+  <xref
+   linkend="ex.ha.config.ocfs2.clvm"/> can be configured and be
+  running in the cluster regardless of your setup.
+ </para>
+</appendix>

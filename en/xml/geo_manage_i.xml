@@ -1,0 +1,488 @@
+<!DOCTYPE sect1 PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+  <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+
+<sect1 id="sec.ha.geo.manage">
+   <title>Managing &geo; Clusters</title>
+   <para> Before booth can manage a certain ticket within the &geo;
+    cluster, you initially need to grant it to a site manually.
+   
+   </para>
+   <sect2 id="sec.ha.geo.manage.cli">
+ <title>From Command Line</title>
+   
+   <para>Use the <command>booth&nbsp;client</command> command line tool to grant, list, or
+    revoke tickets as described in <xref linkend="vl.ha.booth.client.cmds"/>. The
+    <command>booth&nbsp;client</command> commands can be run on any machine in the cluster, not
+    only the ones having the &boothd; running. The <command>booth&nbsp;client</command>
+    commands try to find the <quote>local</quote> cluster by looking at the booth configuration file
+    and the locally defined IP addresses. If you do not specify a site which the booth client should
+    connect to (using the <option>-s</option> option), it will always connect to the local site. </para>
+    <note>
+    <title>Syntax Changes</title>
+    <para>The syntax of booth client commands has been simplified since &productname; 11. For
+     example, the <literal>client</literal> keyword can be omitted for <option>list</option>,
+      <option>grant</option>, or <option>revoke</option> operations: <command>booth list</command>.
+     Also, the <option>-t</option> option can be omitted when specifying a ticket. </para>
+    <para>The former syntax is still supported. For detailed information, see the
+      <literal>Synopsis</literal> section in the booth man page. However, the examples in this
+     manual use the simplified syntax. </para>
+    </note>
+
+   <!--taroth 2013-04-24: information taken from bnc#752601, c#17-->
+    <variablelist id="vl.ha.booth.client.cmds">
+    <title>Overview of <command>booth client</command> Commands</title>
+    <varlistentry>
+     <term>Listing All Tickets</term>
+     <listitem>
+      <screen>&prompt.root; <command>booth</command> list
+ticket: &ticket1;, leader: none
+ticket: &ticket2;, leader: 10.2.12.101, expires: 2014-08-13 10:28:57
+      </screen>
+      <para>If you do not specify a certain site with <option>-s</option>, the information about the
+       tickets will be requested from the local booth instance.</para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Granting a Ticket to a Site</term>
+     <listitem>
+      <screen>&prompt.root; <command>booth</command> grant -s 192.168.201.151 &ticket1;
+booth[27891]: 2014/08/13_10:21:23 info: grant request sent, waiting for the result ...
+booth[27891]: 2014/08/13_10:21:23 info: grant succeeded!</screen>
+      <para> In this case, <literal>&ticket1;</literal> will be granted to the site
+       <literal>192.168.201.151</literal>. If you omit the <option>-s</option> option, booth will
+       automatically connect to the current site (the site you are running the booth client on) and
+       will request the <command>grant</command> operation. </para>
+      <para> Before granting a ticket, the command will execute a sanity check. If the same ticket
+       is already granted to another site, you will be warned about that and be prompted to revoke
+       the ticket from the current site first. </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Revoking a Ticket From a Site</term>
+     <listitem>
+      <screen>&prompt.root; <command>booth</command> revoke &ticket1;
+booth[27900]: 2014/08/13_10:21:23 info: revoke succeeded!</screen>
+      <para>Booth will check to which site the ticket is currently granted and will request the
+       <command>revoke</command> operation for <literal>&ticket1;</literal>. The revoke operation will
+       be executed immediately.</para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+   <para>The <command>grant</command> and, under certain circumstances, <command>revoke</command>
+    operations may take a while to return a definite operation's outcome. The client will wait for
+    the result up to the ticket's <varname>timeout</varname> value before it gives up
+    waiting&mdash;unless the <option>-w</option> option was used, in which case the client waits
+    indefinitely. Find the exact status in the log files or with the
+    <command>crm_ticket -L</command> command.</para>
+
+
+   <warning>
+    <title><command>crm_ticket</command> and
+     <command>crm&nbsp;site&nbsp;ticket</command></title>
+    <para> In case the booth service is not running for any reasons, you may
+     also manage tickets manually with <command>crm_ticket</command> or
+     <command>crm&nbsp;site&nbsp;ticket</command>. Both commands are
+     only available on cluster nodes. In case of intervention, use them
+     with great care as they <emphasis>cannot</emphasis> verify if the same
+     ticket is already granted elsewhere. For more information, read the man pages. 
+    </para>
+    <para> As long as booth is up and running, only use
+     <command>booth&nbsp;client</command> for manual intervention. </para>
+   </warning>
+
+   <para> After you have initially granted a ticket to a site, the booth
+    mechanism will take over and manage the ticket automatically. If the site
+    holding a ticket should be out of service, the ticket will automatically be
+    revoked after the expiry time and granted to another site. The resources
+    that depend on that ticket will fail over to the new site holding the
+    ticket. The nodes that have run the resources before will be treated
+    according to the <literal>loss-policy</literal> you set within the
+    constraint. </para>
+  
+   <!--taroth 2013-04-24: fix for bnc#752601, c#10-->
+
+   <procedure id="pro.ha.geo.manage.tickets">
+    <title>Managing Tickets Manually</title>
+   <para> Assuming that you want to manually move <literal>ticket-nfs</literal> from site
+     <literal>&cluster1;</literal> (with the virtual IP <literal>192.168.201.151</literal>) to
+    site <literal>&cluster2;</literal> (with the virtual IP <literal>192.168.202.151</literal>),
+    proceed as follows: </para>
+    <step>
+     <para> Set <literal>ticket-nfs</literal> to standby with the following
+      command: </para>
+     <screen>&prompt.root;<command>crm_ticket</command> -t ticket-nfs -s</screen>
+    </step>
+    <step>
+     <para> Wait for any resources that depend on <literal>ticket-nfs</literal> to
+      be stopped or demoted cleanly. </para>
+    </step>
+    <step>
+     <para> Revoke <literal>ticket-nfs</literal> from site <literal>&cluster1;</literal> with: </para>
+     <screen>&prompt.root;<command>booth</command> revoke -s 192.168.201.151 ticket-nfs</screen>
+    </step>
+    <step>
+     <para> After the ticket has been revoked from its original site, grant it
+      to the site <literal>&cluster2;</literal> with: </para>
+     <screen>booth grant -s 192.168.202.151 ticket-nfs</screen>
+    </step>
+   </procedure>
+    <remark>phil 2013-12: Will/Should get a cleaner, more integrated workflow - "booth client move -t ticket -s new-site"
+     or something similar. - dmuhamedagic 2014-08-13: N/A</remark>
+    </sect2>
+  
+  <sect2 id="sec.ha.geo.manage.hawk">
+   <title>With the &haweb; (&hawk;)</title>
+   <para> You can use &hawk; as a single point of administration for
+    monitoring multiple clusters. &hawk;'s <guimenu>Cluster
+     Dashboard</guimenu> allows you to view a summary of multiple clusters, with
+    each summary listing the number of nodes, resources, tickets, and their
+    state. The summary also shows whether any failures have appeared in the
+    respective cluster. </para>
+
+   <para>To manage cluster site tickets and to test the impact of ticket
+    failover with the <guimenu>Simulator</guimenu>, you can switch from
+    the <guimenu>Cluster Dashboard</guimenu> to other &hawk; functions
+    that are available after logging in to an individual cluster. &hawk;
+    allows you to grant or revoke tickets, to view ticket details, and to test
+    the impact of ticket failover with the <guimenu>Simulator</guimenu>. </para>
+
+
+
+   <sect3 id="sec.ha.geo.manage.hawk.dashboard">
+<!--taroth 2014-08-27: CAVE - the following is copied from ha_config_hawk.xml,
+ find a better solution next time-->
+    <title>Monitoring Multiple Clusters with the Cluster Dashboard</title>
+
+   <para> The cluster information displayed in the <guimenu>Cluster
+      Dashboard</guimenu> is stored in a persistent cookie. This means you need
+     to decide which &hawk; instance you want to view the <guimenu>Cluster
+      Dashboard</guimenu> on, and always use that one. The machine you are
+     running &hawk; on does not even need to be part of any cluster for that
+     purpose&mdash;it can be a separate, unrelated system. </para>
+
+    <procedure id="pro.ha.config.hawk.geo.dashboard">
+     <title>Monitoring Multiple Clusters with &hawk;</title>
+     <itemizedlist>
+      <title>Prerequisites</title>
+      <listitem>
+       <para> All clusters to be monitored from &hawk;'s <guimenu>Cluster
+         Dashboard</guimenu> must be running &productname;
+        &productnumber;. It is not possible to monitor clusters that are
+        running earlier versions of &productname;. </para>
+      </listitem>
+      <listitem>
+       <para> If you did not replace the self-signed certificate for &hawk;
+        on every cluster node with your own certificate (or a certificate signed
+        by an official Certificate Authority), log in to &hawk; on
+         <emphasis>every</emphasis> node in <emphasis>every</emphasis> cluster
+        at least once. Verify the certificate (and add an exception in the
+        browser to bypass the warning). </para>
+      </listitem>
+      <listitem>
+       <para> If you are using Mozilla Firefox, you must change its preferences
+        to <guimenu>Accept third-party cookies</guimenu>. Otherwise cookies from
+        monitored clusters will not be set, thus preventing login to the
+        clusters you are trying to monitor. </para>
+      </listitem>
+     </itemizedlist>
+     <step>
+      <para> Start the &hawk; Web service on a machine you want to use for
+       monitoring multiple clusters. </para>
+     </step>
+     <step>
+      <para> Start a Web browser and as URL enter the IP address or host name of
+       the machine that runs &hawk;: </para>
+      <screen>https://<replaceable>IPaddress</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para> On the &hawk; login screen, click the
+        <guimenu>Dashboard</guimenu> link in the right upper corner. </para>
+      <para> The <guimenu>Add Cluster</guimenu> dialog appears. </para>
+      <informalfigure>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk-dashboard-add-cluster.png" width="100%"
+          format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk-dashboard-add-cluster.png" width="80%"
+          format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </step>
+     <step>
+      <para> Enter a custom <guimenu>Cluster Name</guimenu> with which to
+       identify the cluster in the <guimenu>Cluster Dashboard</guimenu>. </para>
+     </step>
+     <step>
+      <para> Enter the <guimenu>Host Name</guimenu> of one of the cluster nodes
+       and confirm your changes. </para>
+      <para> The <guimenu>Cluster Dashboard</guimenu> opens and shows a summary
+       of the cluster that you have added. </para>
+     </step>
+     <step>
+      <para> To add more clusters to the dashboard, click the plus icon and
+       enter the details for the next cluster. </para>
+      <figure>
+       <title>&hawk;&mdash;Cluster Dashboard</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk-dashboard-multiple-clusters.png" width="100%"
+          format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk-dashboard-multiple-clusters.png" width="80%"
+          format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+     <step>
+      <para> To remove a cluster from the dashboard, click the
+        <literal>x</literal> icon next to the cluster's summary. </para>
+     </step>
+     <step>
+      <para> To view more details about a cluster, click somewhere in the
+       cluster's box on the dashboard. </para>
+      <para> This opens a new browser window or new browser tab. If you are not
+       currently logged in to the cluster, this takes you to the &hawk;
+       login screen. After having logged in, &hawk; shows the
+        <guimenu>Cluster Status</guimenu> of that cluster in the summary view.
+       From here, you can administer the cluster with &hawk; as usual.
+      </para>
+     </step>
+     <step>
+      <para> As the <guimenu>Cluster Dashboard</guimenu> stays open in a
+       separate browser window or tab, you can easily switch between the
+       dashboard and the administration of individual clusters in &hawk;.
+      </para>
+     </step>
+    </procedure>
+
+    <para> Any status changes for nodes or resources are reflected almost
+     immediately within the <guimenu>Cluster Dashboard</guimenu>. </para>
+
+
+    <!--from bnc#808703:  
+     Hawk's status screen is for viewing detailed status of one cluster (which is
+     why you can't add other clusters to monitor when you're on the status screen).
+     
+     The dashboard is for showing summary details of many clusters, any of which you
+     can click to get to the (more detailed) status screen showing that cluster
+     only.
+     
+     You don't need to log in to hawk to visit the dashboard screen.  But you do
+     need to be logged in to any clusters that are being viewed in the dashboard
+     (since beta3 the dashboard will prompt for login details for each monitored
+     cluster if you're not already logged in).  This is probably where the confusion
+     starts.  That and the fact that any Hawk instance can also show a dashboard...
+     
+     It might help to look at it this way.  Assume you have two clusters (c0 and
+     c1), and happen to have a separate unrelated system running Hawk, which you
+     only use for its dashboard functionality (in fact there doesn't even need to be
+     a cluster running on that system at all).  If you view the dashboard on that
+     system, you don't need to log into hawk on that node, as you're not interested
+     in that system itself - you just want to use its dashboard to monitor clusters
+     c0 and c1.-->
+   </sect3>
+
+   <sect3 id="sec.ha.geo.manage.hawk.tickets">
+    <title>Managing Tickets with &hawk;</title>
+
+    <note>
+     <title>Granting Tickets to Current Site</title>
+     <para>
+      <remark>taroth 2014-08-27: it is not explicitly mentioned in fate#316119, therefore I'm
+       wondering if the same is true for any revoke operations? or does that work
+       differently?</remark>Though you can view tickets for all sites with &hawk;, any grant
+      operations triggered by &hawk; only apply to the current site (that you are currently
+      connected to with &hawk;). To grant a ticket to another site of your &geo; cluster,
+      start &hawk; on one of the cluster nodes belonging to the respective site.</para>
+    </note>
+
+
+    <procedure id="pro.ha.config.hawk.viewtickets">
+     <title>Granting, Revoking and Viewing with &hawk;</title>
+     <para><remark>taroth 2014-0827: DEVs, is the following still true?</remark>
+      Tickets are visible in &hawk; if they have been granted or revoked at
+      least once or if they are referenced in a ticket dependency. In case a
+      ticket is referenced in a ticket dependency, but has not been granted to
+      any site yet, &hawk; displays it as <literal>revoked</literal>. </para>
+     <step>
+      <para> Start a Web browser and log in to the
+       cluster.<!-- as described in
+        <xref
+        linkend="sec.ha.config.hawk.intro.connect"/>.-->
+      </para>
+     </step>
+     <step>
+      <para> In the left navigation bar, select <guimenu>Cluster
+        Status</guimenu>. </para>
+     </step>
+     <step>
+      <para>Switch to the <guimenu>Summary View</guimenu> or the <guimenu>Tree
+        View</guimenu> to view tickets. Along with information about cluster
+       nodes and resources, &hawk; also displays a
+        <guimenu>Tickets</guimenu> category. </para>
+      <para>It shows the following information:<remark>tarot 2014-08-27: DEVs,
+       is the following correct?</remark></para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         <guimenu>Granted</guimenu>: Tickets that are granted to the current
+         site.</para>
+       </listitem>
+       <listitem>
+        <para>
+         <guimenu>Elsewhere</guimenu>: Tickets that are granted to another
+         site.</para>
+       </listitem>
+       <listitem>
+        <para><guimenu>Revoked</guimenu>: Tickets that have been revoked.</para>
+       </listitem>
+      </itemizedlist>
+      <figure>
+       <title>&hawk; Cluster Status (Summary View)&mdash;Ticket
+        Overview</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk-geo-status-tickets.png" width="100%"
+          format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk-geo-status-tickets.png" width="80%"
+          format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+     <step>
+      <para>To view more details, either click the title of the
+        <guimenu>Tickets</guimenu> category or the individual ticket entries
+       that are marked as links. Hover the cursor over the information icon next
+       to the ticket to display the following information: time when the ticket
+       was last granted, <remark>taroth 2014-08-27: DEVs, not sure what
+        leader means here? does it display the IP address of the site that holds
+        the ticket? (=the virtual IP configured for boothd at that
+        site)?</remark>the leader, and the ticket expiry date.</para>
+      <figure>
+       <title>&hawk; Cluster Status (Summary View)&mdash;Ticket
+        Details</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk-geo-ticket-details.png" width="100%"
+          format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk-geo-ticket-details.png" width="80%"
+          format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+     <step>
+      <para>To revoke a ticket, click the wrench icon next to the ticket and
+       select <guimenu>Revoke</guimenu>. Confirm your choice when &hawk;
+       prompts for a confirmation. </para>
+      <para>If the ticket cannot be revoked for any reason, &hawk; shows an
+       error message. After the ticket has been successfully revoked, &hawk;
+       will update the ticket status in the <guimenu>Tickets</guimenu>
+       category.</para>
+     </step>
+     <step>
+      <para>You can only grant tickets that are not already given to any site.
+       To grant a ticket to the current site:</para>
+      <substeps>
+       <step>
+        <para>Click the wrench icon next to a ticket with the current status
+          <guimenu>Revoked</guimenu> and select <guimenu>Grant</guimenu>.</para>
+       </step>
+       <step>
+        <para>Confirm your choice when &hawk; prompts for a confirmation. </para>
+        <para>If the ticket cannot be granted for any reason, &hawk; shows
+         an error message. After the ticket has been successfully granted,
+         &hawk; will update the ticket status in the
+          <guimenu>Tickets</guimenu> category.</para>
+       </step>
+      </substeps>
+     </step>
+    </procedure>
+
+
+    <procedure id="pro.ha.config.hawk.geo.simulator">
+     <title>Simulating Granting and Revoking Tickets</title>
+     <para> &hawk;'s <guimenu>Simulator</guimenu> allows you to explore
+      failure scenarios before they happen. To explore whether your resources that
+      depend on a certain ticket behave as expected, you can also test the
+      impact of granting or revoking tickets. </para>
+     <step>
+      <para> Start a Web browser and log in to &hawk;. </para>
+     </step>
+     <step>
+      <para> Click the wrench icon next to the user name in the top-level row,
+       and select <guimenu>Simulator</guimenu>. </para>
+      <para> &hawk;'s background changes color to indicate the simulator is
+       active. A simulator dialog opens in the bottom right hand corner of the
+       screen. Its title <guimenu>Simulator (initial state)</guimenu> indicates
+       that the <guimenu>Cluster Status</guimenu> screen still reflects the current
+       state of the cluster. </para>
+     </step>
+     <step>
+      <para> To simulate status change of a ticket: </para>
+      <substeps>
+       <step>
+        <para> Click <guimenu>+Ticket</guimenu> in the simulator control dialog.
+        </para>
+       </step>
+       <step>
+        <para> Select the <guimenu>Action</guimenu> you want to simulate.
+        </para>
+       </step>
+       <step>
+        <para> Confirm your changes to add them to the queue of events listed in
+         the controller dialog below <guimenu>Injected State</guimenu>. </para>
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para> To start the simulation, click <guimenu>Run</guimenu> in the
+       simulator control dialog. The <guimenu>Cluster Status</guimenu> screen
+       displays the impact of the simulated events. The simulator control dialog
+       changes to <guimenu>Simulator (final state)</guimenu>. </para>
+     </step>
+     <step>
+      <para> To exit the simulation mode, close the simulator control dialog.
+       The <guimenu>Cluster Status</guimenu> screen switches back to its normal
+       color and displays the current cluster state. </para>
+     </step>
+    </procedure>
+    <figure>
+     <title>&hawk;Simulator&mdash;Tickets</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-geo-simulator-tickets.png" width="100%"
+        format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-geo-simulator-tickets.png" width="80%"
+        format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+    <para> For more information about &hawk;'s <guimenu>Simulator</guimenu>
+     (and which other scenarios can be explored with it), refer to the
+      <citetitle>&haguide;</citetitle> for &productname;, available from
+     &suse-onlinedoc;. Refer to chapter <citetitle>Configuring and Managing
+      Cluster Resources (Web Interface)</citetitle>, section <citetitle>
+      Exploring Potential Failure Scenarios</citetitle>.</para>
+   </sect3>
+
+  </sect2>
+</sect1>
+ 

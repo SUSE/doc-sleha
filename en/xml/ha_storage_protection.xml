@@ -1,0 +1,796 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+  <!ENTITY % NOVDOC.DEACTIVATE.IDREF "INCLUDE">
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+<!--taroth 2010-03-19: some sections have IDs that do not match our style guide
+ conventions because of the last minute changes down here, no time left to fix this now-->
+<!--taroth 2012-01-16: for next revision, check completely against 
+    http://www.linux-ha.org/wiki/SBD_Fencing-->
+<chapter id="cha.ha.storage.protect">
+ <title>Storage Protection</title>
+ <abstract>
+<!--
+   toms 2010-03-02:
+   This abstract needs to be shortend or moved to another sect, but 
+   for the time being, I've inserted it here:
+  -->
+  <para>
+   The &ha; cluster stack's highest priority is protecting the integrity of
+   data. This is achieved by preventing uncoordinated concurrent access to
+   data storage: For example, Ext3 file systems are only mounted once in the
+   cluster, OCFS2 volumes will not be mounted unless coordination with other
+   cluster nodes is available. In a well-functioning cluster Pacemaker will
+   detect if resources are active beyond their concurrency limits and
+   initiate recovery. Furthermore, its policy engine will never exceed these
+   limitations.
+  </para>
+
+  <para>
+   However, network partitioning or software malfunction could potentially
+   cause scenarios where several coordinators are elected. If this so-called
+   split brain scenarios were allowed to unfold, data corruption might
+   occur. Hence, several layers of protection have been added to the cluster
+   stack to mitigate this.
+  </para>
+
+  <para>
+   The primary component contributing to this goal is IO fencing/&stonith;
+   since it ensures that all other access prior to storage activation is
+   terminated. Other mechanisms are cLVM2 exclusive activation or OCFS2 file
+   locking support to protect your system against administrative or
+   application faults. Combined appropriately for your setup, these can
+   reliably prevent split brain scenarios from causing harm.
+  </para>
+
+  <para>
+   This chapter describes an IO fencing mechanism that leverages the storage
+   itself, followed by the description of an additional layer of protection
+   to ensure exclusive storage access. These two mechanisms can be combined
+   for higher levels of protection.
+  </para>
+ </abstract>
+ <sect1 id="sec.ha.storage.protect.fencing">
+  <title>Storage-based Fencing</title>
+
+  <para>
+   You can reliably avoid split brain scenarios by using one or more
+   &stonith; Block Devices (SBD), <literal>watchdog</literal> support and
+   the <literal>external/sbd</literal> &stonith; agent.
+  </para>
+
+  <sect2 id="sec.ha.storage.protect.fencing.oview">
+   <title>Overview</title>
+   <para>
+    In an environment where all nodes have access to shared storage, a small
+    partition of the device is formatted for use with SBD. The size of the
+    partition depends on the block size of the used disk (1&nbsp;MB for 
+    standard SCSI disks with 512&nbsp;Byte block size; DASD disks with 
+    4&nbsp;kB block size need 4&nbsp;MB). After the
+    respective daemon is configured, it is brought online on each node
+    before the rest of the cluster stack is started. It is terminated after
+    all other cluster components have been shut down, thus ensuring that
+    cluster resources are never activated without SBD supervision.
+   </para>
+   <para>
+    The daemon automatically allocates one of the message slots on the
+    partition to itself, and constantly monitors it for messages addressed
+    to itself. Upon receipt of a message, the daemon immediately complies
+    with the request, such as initiating a power-off or reboot cycle for
+    fencing.
+   </para>
+   <para>
+    The daemon constantly monitors connectivity to the storage device, and
+    terminates itself in case the partition becomes unreachable. This
+    guarantees that it is not disconnected from fencing messages. If the
+    cluster data resides on the same logical unit in a different partition,
+    this is not an additional point of failure: The work-load will terminate
+    anyway if the storage connectivity has been lost.
+   </para>
+   <para>
+    Increased protection is offered through <literal>watchdog</literal>
+    support. Modern systems support a <literal>hardware watchdog</literal>
+    that needs to be <quote>tickled</quote> or <quote>fed</quote> by a
+    software component. The software component (usually a daemon) regularly
+    writes a service pulse to the watchdog&mdash;if the daemon stops feeding
+    the watchdog, the hardware will enforce a system restart. This protects
+    against failures of the SBD process itself, such as dying, or becoming
+    stuck on an IO error.
+   </para>
+   <para>
+    If Pacemaker integration is activated, SBD will not self-fence if device
+    majority is lost. For example, your cluster contains 3 nodes: A, B, and
+    C. Because of a network split, A can only see itself while B and C can still
+    communicate. In this case, there are two cluster partitions, one with
+    quorum because of being the majority (B, C), and one without (A). If this
+    happens while the majority of fencing devices are unreachable, node A
+    would immediately commit suicide, but the nodes B and C would continue
+    to run.
+   </para>
+  </sect2>
+
+<!--fate#309375-->
+
+  <sect2 id="sec.ha.storage.protect.fencing.number">
+   <title>Number of SBD Devices</title>
+   <para>
+    SBD supports the use of 1-3 devices:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>One Device</term>
+     <listitem>
+      <para>
+       The most simple implementation. It is appropriate for clusters where
+       all of your data is on the same shared storage.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Two Devices</term>
+     <listitem>
+      <para>
+       This configuration is primarily useful for environments that use
+       host-based mirroring but where no third storage device is available.
+       SBD will not terminate itself if it loses access to one mirror leg,
+       allowing the cluster to continue. However, since SBD does not have
+       enough knowledge to detect an asymmetric split of the storage, it
+       will not fence the other side while only one mirror leg is available.
+       Thus, it cannot automatically tolerate a second failure while one of
+       the storage arrays is down.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Three Devices</term>
+     <listitem>
+      <para>
+       The most reliable configuration. It is resilient against outages of
+       one device&mdash;be it because of failures or maintenance. SBD will only
+       terminate itself if more than one device is lost. Fencing messages
+       can be successfully be transmitted if at least two devices are still
+       accessible.
+      </para>
+      <para>
+       This configuration is suitable for more complex scenarios where
+       storage is not restricted to a single array. Host-based mirroring
+       solutions can have one SBD per mirror leg (not mirrored itself), and
+       an additional tie-breaker on iSCSI.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 id="sec.ha.storageprotection.fencing.setup">
+   <title>Setting Up Storage-based Protection</title>
+   <para>
+    The following steps are necessary to set up storage-based protection:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      <xref linkend="pro.ha.storage.protect.sbd.create" xrefstyle="select:title" />
+     </para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="pro.ha.storage.protect.watchdog" xrefstyle="select:title"/>
+     </para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="pro.ha.storage.protect.sbd.daemon" xrefstyle="select:title" />
+     </para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="pro.ha.storage.protect.sbd.test" xrefstyle="select:title"/>
+     </para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="pro.ha.storage.protect.fencing" xrefstyle="select:title"/>
+     </para>
+    </step>
+   </procedure>
+   <para>
+    All of the following procedures must be executed as &rootuser;. Before
+    you start, make sure the following requirements are met:
+   </para>
+   <important>
+    <title>Requirements</title>
+    <itemizedlist>
+     <listitem>
+      <para>
+       The environment must have shared storage reachable by all nodes.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       The shared storage segment must not use host-based RAID,
+       cLVM2, nor DRBD*.
+       <remark>taroth 2011-11-03: todo -check with DEVs: according to bg, at least
+        primary-primary should work </remark>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       However, using storage-based RAID and multipathing is recommended for
+       increased reliability.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </important>
+   <sect3 id="pro.ha.storage.protect.sbd.create">
+    <title>Creating the SBD Partition</title>
+    <para>
+     It is recommended to create a 1MB partition at the start of the device.
+     If your SBD device resides on a multipath group, you need to adjust the
+     timeouts SBD uses, as MPIO's path down detection can cause some
+     latency. After the <literal>msgwait</literal> timeout, the message is
+     assumed to have been delivered to the node. For multipath, this should
+     be the time required for MPIO to detect a path failure and switch to
+     the next path. You may need to test this in your environment. The node
+     will terminate itself if the SBD daemon running on it has not updated
+     the watchdog timer fast enough. 
+     
+     Test your chosen timeouts in your specific environment. In case you use 
+     a multipath storage with just one SBD device, pay special attention to 
+     the failover delays incurred.
+    </para>
+     
+    <note>
+     <title>Device Name for SBD Partition</title>
+     <para>
+      In the following, this SBD partition is referred to by
+      <filename>/dev/<replaceable>SBD</replaceable> </filename>. Replace it
+      with your actual path name, for example:
+      <filename>/dev/sdc1</filename>.
+     </para>
+    </note>
+    <important>
+     <title>Overwriting Existing Data</title>
+     <para>
+      Make sure the device you want to use for SBD does not hold any data.
+      The <command>sbd</command> command will overwrite the device without
+      further requests for confirmation.
+     </para>
+    </important>
+    <procedure>
+     <step>
+      <para>
+       Initialize the SBD device with the following command:
+      </para>
+<screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> create</screen>
+      <para>
+       This will write a header to the device, and create slots for up to
+       255 nodes sharing this device with default timings.
+      </para>
+      <para>
+       If you want to use more than one device for SBD, provide the devices
+       by specifying the <option>-d</option> option multiple times, for
+       example:
+      </para>
+<screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD1</replaceable> -d /dev/<replaceable>SBD2</replaceable> -d /dev/<replaceable>SBD3</replaceable> create</screen>
+     </step>
+     <step>
+      <para>
+       If your SBD device resides on a multipath group, adjust the timeouts
+       SBD uses. This can be specified when the SBD device is initialized
+       (all timeouts are given in seconds):
+      </para>
+<!--taroth 2010-06-22: fix for http://doccomments.provo.novell.com/admin/viewcomment/14391#-->
+<screen>&prompt.root;<command>/usr/sbin/sbd</command> -d /dev/<replaceable>SBD</replaceable> -4 180<co id="co.msgwait"/> -1 90<co id="co.watchdog"/> create</screen>
+      <calloutlist>
+       <callout arearefs="co.msgwait">
+        <para>
+         The <option>-4</option> option is used to specify the
+         <literal>msgwait</literal> timeout. In the example above, it is set
+         to <literal>180</literal> seconds.
+        </para>
+       </callout>
+       <callout arearefs="co.watchdog">
+        <para>
+         The <option>-1</option> option is used to specify the
+         <literal>watchdog</literal> timeout. In the example above, it is
+         set to <literal>90</literal> seconds.
+        </para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step>
+      <para>
+       With the following command, check what has been written to the
+       device:
+      </para>
+<screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> dump 
+Header version     : 2
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 5
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 10</screen>
+     </step>
+    </procedure>
+    <para>
+     As you can see, the timeouts are also stored in the header, to ensure
+     that all participating nodes agree on them.
+    </para>
+   </sect3>
+   <sect3 id="pro.ha.storage.protect.watchdog">
+    <title>Setting Up the Software Watchdog</title>
+    <para>Watchdog will protect the system against SBD failures, 
+      if no other software uses it.</para>
+     
+     <important><title>Accessing the Watchdog Timer</title>
+       <para>No other software must access the watchdog timer. Some 
+         hardware vendors ship systems management software that uses the 
+         watchdog for system resets (for example, HP ASR daemon).
+         Disable such software, if watchdog is used by SBD.</para>
+     </important>
+     
+     <para>
+     In &productname;, watchdog support in the Kernel is enabled by default:
+     It ships with several different Kernel modules that provide
+     hardware-specific watchdog drivers. The &hasi; uses the SBD daemon as
+     software component that <quote>feeds</quote> the watchdog. If
+     configured as described in
+     <xref linkend="pro.ha.storage.protect.sbd.daemon"/>, the SBD daemon
+     will start automatically when the respective node is brought online
+     with <command>systemctl</command> <option>start pacemaker.service</option>.
+    </para>
+    <para>
+     Usually, the appropriate watchdog driver for your hardware is
+     automatically loaded during system boot. <literal>softdog</literal> is
+     the most generic driver, but it is recommended to use a driver with
+     actual hardware integration. For example:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       On HP hardware, this is the <systemitem>hpwdt</systemitem> driver.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       For systems with an Intel TCO, the <literal>iTCO_wdt</literal> driver
+       can be used.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para> For a list of choices, refer to
+              <filename>/usr/src/<replaceable>KERNEL_VERSION</replaceable>/drivers/watchdog</filename>.
+          Alternatively, list the drivers that have been installed with
+          your Kernel version with the following command: </para>
+<screen>&prompt.root;<command>rpm</command> -ql kernel-<replaceable>VERSION</replaceable> | <command>grep</command> watchdog</screen>
+    <para>
+     As most watchdog driver names contain strings like
+     <literal>wd</literal>, <literal>wdt</literal>, or
+     <literal>dog</literal>, use the following command to check
+     which driver is currently loaded:
+    </para>
+    <screen>&prompt.root;<command>lsmod</command> | <command>egrep</command> "(wd|dog)" </screen>
+    <para>To automatically load the watchdog driver, create the
+      file <filename>/etc/modules-load.d/watchdog.conf</filename> containing
+      a line with the driver name. For more information refer to the man page
+      <literal>modules-load.d</literal>.
+     </para>
+     <para>If you change the timeout for watchdog, the other two values 
+      (<literal>msgwait</literal> and <literal>stonith-timeout</literal>)
+      must be changed as well. The watchdog timeout depends mostly on your
+      storage latency. This value specifies that the majority of devices must
+      successfully finish their read operation within this time frame.
+      If not, the node will self-fence. 
+      </para>
+     <para>The following <quote>formula</quote> expresses roughly this 
+       relationship between these three values:
+    </para>
+     
+     <example id="ex.ha.storage.protect.sbd-timings">
+       <title>Cluster Timings with SBD as &stonith; Device</title>
+       <screen>Timeout (msgwait) = (Timeout (watchdog) * 2)
+stonith-timeout = Timeout (msgwait) + 20%</screen>
+     </example>
+     
+     <para>For example, if you set the timeout watchdog to 120, you need to
+       set the <literal>msgwait</literal> to 240 and the 
+       <literal>stonith-timeout</literal> to 288. You can check the 
+       output with <command>cs_make_sbd_devices</command>:
+     </para>
+     <remark>toms 2014-08-13: Shouldn't we use "sbd -d /dev/SBD dump" here?</remark>
+     <screen>&prompt.root;<command>cs_make_sbd_devices</command> --dump
+==Dumping header on disk /dev/sdb
+Header version     : 2.1
+UUID               : 619127f4-0e06-434c-84a0-ea82036e144c
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 20
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 40
+==Header on disk /dev/sdb is dumped</screen>
+     <para>If you set up a new cluster, the <command>ha-cluster-init</command>
+     command takes the above considerations into account.</para>
+   </sect3>
+   <sect3 id="pro.ha.storage.protect.sbd.daemon">
+    <title>Starting the SBD Daemon</title>
+    <para>
+     The SBD daemon is a critical piece of the cluster stack. It needs to be
+     running when the cluster stack is running, or even when part of it has
+     crashed, so that it
+     <remark>taroth 2010-03-19: unclear reference: what is
+     "it" referring to here? clarify for next revision!</remark>
+     can be fenced.
+    </para>
+<!--taroth 2011-04-28: remark by ulrich windl [linux-ha list]: If you
+     follow the procedure, there will be an error in step2 saying: "SBD failed
+     to stop" (because it was never started before). So as Step zero: stop
+     OpenAIS - taroth 2011-05-02: fixed by inserting step below-->
+    <procedure>
+     <step>
+      <para>Enable the SBD daemon to start at boot time with:
+      </para>
+<screen>&prompt.root;<command>systemctl</command> enable sbd.service</screen>
+     </step>
+     <step>
+       <para>Run <command>ha-cluster-init</command>. This script ensures that
+              SBD is correctly configured and the configuration file
+                <filename>/etc/sysconfig/sbd</filename> is added to the list
+              of files that needs to be synchronized with &csync;. </para>
+       <para>If you want to configure SBD manually, perform the following 
+         step:</para>
+            <para> To make the &corosync; init script start and stop SBD,
+              edit the file <filename>/etc/sysconfig/sbd</filename> and
+              search for the following line, replacing 
+              <replaceable>SBD</replaceable> with your SBD device: </para>
+            <screen>SBD_DEVICE="/dev/<replaceable>SBD</replaceable>"</screen>
+            <para>
+       If you need to specify multiple devices in the first line, separate
+       them by a semicolon (the order of the devices does not matter):
+      </para>
+<screen>SBD_DEVICE="/dev/<replaceable>SBD1</replaceable>; /dev/<replaceable>SBD2</replaceable>; /dev/<replaceable>SBD3</replaceable>"</screen>
+      <para>
+       If the SBD device is not accessible, the daemon will fail to start
+       and inhibit &corosync; start-up.
+      </para>
+      <note><title>Starting Services at Boot Time</title>
+       <para>
+        If the SBD device becomes inaccessible from a node, this could cause
+        the node to enter an infinite reboot cycle. This is technically
+        correct behavior, but depending on your administrative policies,
+        most likely a nuisance. In such cases, better do not automatically
+        start up &corosync; and &pace; on boot.
+       </para>
+      </note>
+     </step>     
+     <step>
+      <para>
+       Before proceeding, ensure that SBD has started on all nodes by
+       executing <command>systemctl</command> <literal>restart pacemaker.service</literal>.
+      </para>
+     </step>
+    </procedure>
+   </sect3>
+   <sect3 id="pro.ha.storage.protect.sbd.test">
+    <title>Testing SBD</title>
+    <para></para>
+    <procedure>
+     <step>
+      <para>
+       The following command will dump the node slots and their current
+       messages from the SBD device:
+      </para>
+<screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> list</screen>
+      <para>
+       Now you should see all cluster nodes that have ever been started with
+       SBD listed here, the message slot should show
+       <literal>clear</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Try sending a test message to one of the nodes:
+      </para>
+      <remark>taroth 2011-04-28: comment by ulrich windl [linux-ha list]:
+      the command hung after a test message was sent. I had to stop it with ^C</remark>
+<screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> message nodea test</screen>
+     </step>
+     <step>
+      <para>
+       The node will acknowledge the receipt of the message in the system
+       log files:
+      </para>
+<screen>Aug 29 14:10:00 nodea sbd: [13412]: info: Received command test from nodeb</screen>
+      <para>
+       This confirms that SBD is indeed up and running on the node and that
+       it is ready to receive messages.
+      </para>
+     </step>
+    </procedure>
+   </sect3>
+   <sect3 id="pro.ha.storage.protect.fencing">
+    <title>Configuring the Fencing Resource</title>
+    <procedure>
+     <step>
+      <para>
+       To complete the SBD setup, activate SBD as a &stonith;/fencing
+       mechanism in the CIB as follows:
+      </para>
+      <remark>taroth 2011-04-28: comment by ulrich windl [linux-ha list]:
+       Shouldn't here be a resource per node? Following the procedure, the
+       resource just starts on an arbitrary node. If one primitive per node,
+       you'll need a locational constraint to avoid multiple primitives running
+       on the same node, right? - taroth 2011-05-03: sent mail to [ha-devel],
+       asking about this - taroth 2011-05-19: nope, correct as is (according to
+       lmb on [linux-ha]) - taroth 2011-05-20: follow-up remark by ulrich on
+       [linux-ha]: So the sbd resource distributes the fencing requests. Now
+       what if the node where sbd runs is the minority (non-quorum)? How can the
+       rest of the cluster tell the minority to fence (in case of a networking
+       failure). AFAIK, as long as the storage is reachable, the sbd daemons
+       will just be happy. Maybe it's confusing that an sbd daemon runs on every
+       node, but the sbd resource only runs on one node. Some more
+       words might help here.</remark>
+<!--taroth 2010-06-29: fixed bnc#617920-->
+<screen>&prompt.root;<command>crm</command> configure
+&prompt.crm.conf;<command>property</command> stonith-enabled="true"
+&prompt.crm.conf;<command>property</command> stonith-timeout="40s"
+&prompt.crm.conf;<command>primitive</command> stonith_sbd stonith:external/sbd \
+   op start interval="0" timeout="15" start-delay="10"
+&prompt.crm.conf;<command>commit</command>
+&prompt.crm.conf;<command>quit</command></screen> 
+      <para>
+       The resource does not need to be cloned, as it would shut down the
+       respective node anyway if there was a problem.
+      </para>
+      <para><!-- bnc#891346 -->
+       Which value to set for <literal>stonith-timeout</literal> depends on
+       the <literal>msgwait</literal> timeout.  
+       The <literal>msgwait</literal> timeout should be longer than the 
+       maximum allowed timeout for the underlying IO system. For example,
+       this is 30 seconds for plain SCSI disks. Provided you set the 
+       <literal>msgwait</literal> timeout value to 30 seconds, setting
+        <literal>stonith-timeout</literal> to 40 seconds is appropriate.
+      </para>
+        <!--Use the following formula to set the minimum value of
+        <literal>stonith-timeout</literal>:</para>
+       <screen>stonith-timeout >= 1.2 * msgwait</screen>-->
+      <para>
+       Since node slots are allocated automatically, no manual host list
+       needs to be defined.
+      </para>
+     </step>
+     <step>
+      <para>
+       Disable any other fencing devices you might have configured before,
+       since the SBD mechanism is used for this function now.
+      </para>
+     </step>
+    </procedure>
+    <para>
+     After the resource has started, your cluster is successfully configured
+     for shared-storage fencing and will use this method in case a node
+     needs to be fenced.
+    </para>
+   </sect3>
+   
+   <sect3 id="sec.ha..storageprotection.sgpersist">
+     <title>Configuring an sg_persist Resource</title>
+     <para></para>
+     <remark>toms 2014-09-10: FATE#312345</remark>
+     <procedure>
+       <step>
+         <para>Log in as &rootuser; and start a shell.</para>
+       </step>
+       <step>
+         <para>Create the configuration file <filename>/etc/sg_persist.conf</filename>:</para>
+         <screen>sg_persist_resource_MDRAID1() {
+      devs="/dev/sdd /dev/sde"
+      required_devs_nof=2
+}</screen>
+       </step>
+       <step>
+         <para>Run the following commands to create the primitive resources 
+         <literal>sg_persist</literal>:</para>
+         <screen>&prompt.root;<command>crm</command> configure
+&prompt.crm.conf;<command>primitive</command> sg ocf:heartbeat:sg_persist \
+    params config_file=/etc/sg_persist.conf \
+           sg_persist_resource=MDRAID1 \
+           reservation_type=1 \
+    op monitor interval=60 timeout=60</screen>
+       </step>
+       <step>
+         <para>Add the <literal>sg_persist</literal> primitive to a 
+           master-slave group:</para>
+         <screen>&prompt.crm.conf;<command>ms</command> ms-sg sg \
+    meta master-max=1 notify=true</screen>
+       </step>
+       <step>
+         <para>Set the master on the &node1; server and the slave on
+         the &node2; node:</para>
+         <screen>&prompt.crm.conf;<command>location</command> ms-sg-&node1;-loc ms-sg inf: &node1;
+&prompt.crm.conf;<command>location</command> ms-sg-&node2;-loc ms-sg 100: &node2;</screen>
+       </step>
+       <step>
+         <para>Do some tests. When the resource is in master/slave status, 
+           on the master server, you can mount and write on <filename>/dev/sdc1</filename>, while 
+           on the slave server you cannot write.</para>
+       </step>
+     </procedure>
+     
+     <para>Usually you may want to use the above resource with the
+     <literal>Filesystem</literal> resource, for example, &ocfs;. In this
+     case, you need to perform the following steps:</para>
+     
+     <procedure>
+       <step>
+         <para>Add an &ocfs; primitive:</para>
+         <screen>&prompt.crm.conf;<command>primitive</command> ocfs2 ocf:heartbeat:Filesystem \
+    params device="/dev/sdc1" directory="/mnt/ocfs2" fstype=ocfs2</screen>
+       </step>
+       <step>
+         <para>Create a clone from a basegroup:</para>
+         <screen>&prompt.crm.conf;<command>clone</command> cl-group basegroup</screen>
+       </step>
+       <step>
+         <para>Add relationship between <literal>ms-sg</literal> and 
+           <literal>cl-group</literal>:</para>
+         <screen>&prompt.crm.conf;<command>colocation</command> ocfs2-group-on-ms-sg inf: cl-group ms-sg:Master
+&prompt.crm.conf;<command>order</command> ms-sg-before-ocfs2-group inf: ms-sg:promote cl-group</screen>
+       </step>
+       <step>
+         <para>Check all your changes with the <command>edit</command> 
+           command.</para>
+       </step>
+       <step>
+         <para>Commit your changes.</para>
+       </step>
+     </procedure>
+   </sect3>
+    
+   <sect3 id="sec.ha..storageprotection.more">
+    <title>For More Information</title>
+    <para>
+     <ulink url="http://www.linux-ha.org/wiki/SBD_Fencing"></ulink>
+    </para>
+   </sect3>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.storageprotection.exstoract">
+  <title>Ensuring Exclusive Storage Activation</title>
+
+  <para>
+   This section introduces <literal>sfex</literal>, an additional low-level
+   mechanism to lock access to shared storage exclusively to one node. Note
+   that sfex does not replace &stonith;. Since sfex requires shared storage,
+   it is recommended that the <literal>external/sbd</literal> fencing
+   mechanism described above is used on another partition of the storage.
+  </para>
+
+  <para>
+   By design, sfex cannot be used with workloads that require
+   concurrency (such as OCFS2), but serves as a layer of protection for
+   classic failover style workloads. This is similar to a SCSI-2
+   reservation in effect, but more general.
+  </para>
+
+  <sect2 id="sec.ha.storageprotection.exstoract.description">
+   <title>Overview</title>
+   <para>
+    In a shared storage environment, a small partition of the storage is set
+    aside for storing one or more locks.
+   </para>
+   <para>
+    Before acquiring protected resources, the node must first acquire the
+    protecting lock. The ordering is enforced by Pacemaker, and the sfex
+    component ensures that even if Pacemaker were subject to a split brain
+    situation, the lock will never be granted more than once.
+   </para>
+   <para>
+    These locks must also be refreshed periodically, so that a node's death
+    does not permanently block the lock and other nodes can proceed.
+   </para>
+  </sect2>
+
+  <sect2 id="sec.ha.storageprotection.exstoract.requirements">
+   <title>Setup</title>
+   <para>
+    In the following, learn how to create a shared partition for use with
+    sfex and how to configure a resource for the sfex lock in the CIB. A
+    single sfex partition can hold any number of locks, it
+    <remark>taroth 2010-03-19: again, unclear reference - what is "it"referring
+     to here? clarify for next revision!</remark>
+    defaults to one, and needs 1 KB of storage space allocated per lock.
+   </para>
+   <important>
+    <title>Requirements</title>
+    <itemizedlist>
+     <listitem>
+      <para>
+       The shared partition for sfex should be on the same logical unit as
+       the data you want to protect.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       The shared sfex partition must not use host-based RAID, nor
+       DRBD.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Using a cLVM2 logical volume is possible.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </important>
+   <procedure>
+    <title>Creating an sfex Partition</title>
+    <step>
+     <para>
+      Create a shared partition for use with sfex. Note the name of this
+      partition and use it as a substitute for
+      <filename>/dev/sfex</filename> below.
+     </para>
+    </step>
+    <step>
+     <para>
+      Create the sfex meta data with the following command:
+     </para>
+<screen>&prompt.root;<command>sfex_init</command> -n 1 /dev/sfex</screen>
+    </step>
+    <step>
+     <para>
+      Verify that the meta data has been created correctly:
+     </para>
+<screen>&prompt.root;<command>sfex_stat</command> -i 1 /dev/sfex ; echo $?</screen>
+     <para>
+      This should return <literal>2</literal>, since the lock is not
+      currently held.
+     </para>
+    </step>
+   </procedure>
+   <procedure>
+    <title>Configuring a Resource for the sfex Lock</title>
+    <step>
+     <para>
+      The sfex lock is represented via a resource in the CIB, configured as
+      follows:
+     </para>
+<screen>&prompt.crm.conf;<command>primitive</command> sfex_1 ocf:heartbeat:sfex \
+#	params device="/dev/sfex" index="1" collision_timeout="1" \
+      lock_timeout="70" monitor_interval="10" \
+#	op monitor interval="10s" timeout="30s" on_fail="fence"</screen>
+    </step>
+    <step>
+     <para>
+      To protect resources via an sfex lock, create mandatory ordering and
+      placement constraints between the protectees and the sfex resource. If
+      the resource to be protected has the id
+      <literal>filesystem1</literal>:
+     </para>
+<screen>&prompt.crm.conf;<command>order</command> order-sfex-1 inf: sfex_1 filesystem1
+&prompt.crm.conf;<command>colocation</command> colo-sfex-1 inf: filesystem1 sfex_1</screen>
+    </step>
+    <step>
+     <para>
+      If using group syntax, add the sfex resource as the first resource to
+      the group:
+     </para>
+<screen>&prompt.crm.conf;<command>group</command> LAMP sfex_1 filesystem1 apache ipaddr</screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+ <sect1 id="sec.ha.storage.moreinfo">
+  <title>For More Information</title>
+
+  <para>
+   See <ulink url="http://www.linux-ha.org/wiki/SBD_Fencing"/> and
+   <command>man sbd</command>.
+  </para>
+ </sect1>
+</chapter>
