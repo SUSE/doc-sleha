@@ -6,22 +6,26 @@
 ]>
 <!-- Converted by suse-upgrade version 1.1 -->
 <!--https://fate.suse.com/314907: hb_reports without ssh root access  -->
-<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="app.crm_report.nonroot">
+<appendix xml:id="app.crm_report.nonroot"
+ xmlns="http://docbook.org/ns/docbook" 
+ xmlns:xi="http://www.w3.org/2001/XInclude" 
+ xmlns:xlink="http://www.w3.org/1999/xlink" 
+ version="5.0" >
  <title>Running Cluster Reports Without &rootuser; Access</title>
  <info/>
  <para>
   All cluster nodes must be able to access each other via SSH. Tools like
   <command>hb_report</command> or <command>crm_report</command> (for
-  troubleshooting) and &hawk;'s <guimenu>History Explorer</guimenu>
-  require passwordless SSH access between the nodes, otherwise they can only
-  collect data from the current node.
+  troubleshooting) and &hawk;'s <guimenu>History Explorer</guimenu> require
+  passwordless SSH access between the nodes, otherwise they can only collect
+  data from the current node.
  </para>
  <para>
   If passwordless SSH &rootuser; access does not comply with regulatory
   requirements, you can use a work-around for running cluster reports. It
   consists of the following basic steps:
  </para>
- <orderedlist spacing="normal">
+ <orderedlist>
   <listitem>
    <para>
     Creating a dedicated local user account (for running
@@ -60,7 +64,7 @@
   <command>crm_report</command> or <command>hb_report</command> script on
   all nodes in the &ha; cluster.
  </para>
- <sect1>
+ <sect1 xml:id="sec.crm_report.nonroot.user">
   <title>Creating a Local User Account</title>
 
   <para>
@@ -102,7 +106,7 @@
    </para>
   </important>
  </sect1>
- <sect1>
+ <sect1 xml:id="sec.crm_report.nonroot.ssh">
   <title>Configuring a Passwordless SSH Account</title>
 
   <para>
@@ -272,7 +276,7 @@
    </para>
   </note>
  </sect1>
- <sect1>
+ <sect1 xml:id="sec.crm_report.nonroot.sudo">
   <title>Configuring <command>sudo</command></title>
 
   <para>
@@ -292,8 +296,8 @@
    <title>Do Not Use vi</title>
    <para>
     For sudo configuration from command line, you must edit the sudoers file
-    as &rootuser; with <command>visudo</command>. Using any other editor
-    may result in syntax or file permission errors that prevent sudo from
+    as &rootuser; with <command>visudo</command>. Using any other editor may
+    result in syntax or file permission errors that prevent sudo from
     running.
    </para>
   </warning>
@@ -311,17 +315,20 @@
     </para>
    </step>
    <step>
+    <para> Look for the following categories: <literal>Host alias
+      specification</literal>,<literal>User alias specification</literal>,
+      <literal>Cmnd alias specification</literal>, and <literal>Runas alias
+      specification</literal>. </para>
+   </step>
+   <step>
     <para>
-     Look for the following categories: <literal>Host alias
-     specification</literal>,<literal>User alias specification</literal>,
-     <literal>Cmnd alias specification</literal>, and FIXME
+     Add the following entries to the respective categories in
+     <filename>/etc/sudoers</filename>:
     </para>
-<!--<para>add the following entries to <filename>/etc/sudoers</filename>:</para>-->
 <screen>Host_Alias	CLUSTER = &node1;,&node2;,&node3; <co xml:id="ha.sudoers.host.alias"/>
-          User_Alias HA = hareport <co xml:id="ha.sudoers.user.alias"/>
-          Cmnd_Alias HA_ALLOWED = /bin/su ,/usr/sbin/hb_report ,/usr/sbin/crm_report <co xml:id="ha.sudoers.cmd.alias"/>
-          Runas_Alias R = root <co xml:id="ha.sudoers.runas.alias"/>
-          HA	CLUSTER = (R) NOPASSWD:HA_ALLOWED  <co xml:id="ha.sudoers.rule"/></screen>
+User_Alias HA = hareport <co xml:id="ha.sudoers.user.alias"/>
+Cmnd_Alias HA_ALLOWED = /bin/su ,/usr/sbin/hb_report,/usr/sbin/crm_report <co xml:id="ha.sudoers.cmd.alias"/>
+Runas_Alias R = root <co xml:id="ha.sudoers.runas.alias"/></screen>
     <calloutlist>
      <callout arearefs="ha.sudoers.host.alias">
       <para>
@@ -346,9 +353,11 @@
        The command alias defines which commands can be executed by the user.
        This is useful if you want to limit what the non-root user can access
        when using <command>sudo</command>. In this case the
-       <systemitem class="username">hareport</systemitem> user account will
-       need access to the commands <command>hb_report</command> (or
-       <command>crm_report</command>) and <command>su</command>.
+       <systemitem class="username"
+                >hareport</systemitem>
+       user account will need access to the commands
+       <command>hb_report</command> (or <command>crm_report</command>) and
+       <command>su</command>.
       </para>
      </callout>
      <callout arearefs="ha.sudoers.runas.alias">
@@ -357,40 +366,52 @@
        as. In this case &rootuser;.
       </para>
      </callout>
-     <callout arearefs="ha.sudoers.rule">
-      <para>
-       This is what the resulting rule looks like. Add the NOPASSWORD option
-       to ensure that the user
-       <systemitem class="username">hareport</systemitem> can execute the
-       cluster report without providing a password.
-      </para>
-     </callout>
     </calloutlist>
+   </step>
+   <step>
+    <para>Search for the following two lines:</para>
+    <screen>Defaults targetpw
+ALL     ALL=(ALL) ALL
+    </screen>
+    <para>As they would conflict with the setup we want to create, disable them:</para>
+    <screen>#Defaults targetpw
+#ALL     ALL=(ALL) ALL</screen>
+   </step>
+   <step>
+    <para>Look for the <literal>User privilege category</literal>.</para>
+   </step>
+   <step>
+    <para>After having defined the aliases above, you can now add the following
+     rule there:</para>
+    <screen>HA	CLUSTER = (R) NOPASSWD:HA_ALLOWED</screen>
+    <para>The <literal>NOPASSWORD</literal> option ensures that the user
+      <systemitem class="username">hareport</systemitem> can execute the cluster
+     report without providing a password.</para>
    </step>
   </procedure>
 
-<!--            
-      
-      In the sudoers file there are two lines that may interfere with the sudo rule you just setup. Locate the
-      following section by using visudo and remark out the two lines in bold below. This will ensure that
-      haereport does not get prompted for a password.
-      
-      # In the default (unconfigured) configuration, sudo asks for the root password.
-      # This allows use of an ordinary user account for administration of a freshly
-      # installed system. When configuring sudo, delete the two
-      # following lines:
-      Defaults      targetpw
-      ALL    ALL = (ALL) ALL
-      
-      No other changes are needed for sudo and no services need to be restarted.
-      
-      NOTE: This sudo configuration must be made on all nodes in the cluster-->
+  <important>
+   <title>Same sudo Configuration Is Required On Each Cluster Node</title>
+   <para>
+    This sudo configuration must be made on all nodes in the cluster. No
+    other changes are needed for sudo and no services need to be restarted.
+   </para>
+  </important>
  </sect1>
- <sect1>
+ <sect1 xml:id="sec.crm_report.nonroot.execute">
   <title>Running A Cluster Report</title>
-
-  <para>
-   work in progress
+  <para>To run cluster reports with the current setting, you need to be logged
+   in to on of the nodes as user <systemitem class="username"
+    >hareport</systemitem>. To start a cluster report, you can use either the
+   <command>hb_report</command> or the <command>crm_report</command> command.
+   For example: </para>
+  <screen>&prompt.root;<command>crm_report</command> -f 0:00 -n "&node1; &node2; &node3;"</screen>
+  <para>This command will extract all information since 0 am on the named nodes
+   and create a <literal>*.tar.bz2</literal> archive named
+     <filename>crm_report-<replaceable>DATE</replaceable>.tar.bz2</filename> in
+   the current directory. 
+   <remark>taroth 2015-07-13: @DEVs: current directory? or in the home directory
+   of the user "hareport"?</remark>
   </para>
  </sect1>
 </appendix>
