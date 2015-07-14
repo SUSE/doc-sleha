@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+
+<chapter 
+ xml:id="cha.ha.cluster-md"
+ xmlns="http://docbook.org/ns/docbook" 
+ xmlns:xi="http://www.w3.org/2001/XInclude" 
+ xmlns:xlink="http://www.w3.org/1999/xlink" 
+ version="5.0">
+ <title>Cluster Multi-device (Cluster MD)</title>
+ <info>
+  <abstract>
+   <para>The cluster multi-device (Cluster MD) is a software based RAID
+   (only suitable for RAID1 now) storage solution for a cluster,
+   which provides the redundancy of RAID1 mirroring to the cluster.
+   This chapter shows you how to use Cluster MD.
+   </para>
+   <para>
+    <remark>taroth 2015-07-14: todo: edit the cLVM chapter to include cluster md
+    as one of the options!</remark>
+   </para>
+  </abstract>
+ </info>
+ <sect1 xml:id="sec.ha.cluster-md.overview">
+  <title>Conceptual Overview</title>
+  <para>The Cluster MD provides the support for use RAID1 across cluster
+   environment. If one device of the Cluster MD fails, it can be
+   hot-replaced by another device and it is re-synced to provide
+   the same amount of redundancy. The Cluster MD requires Corosync
+   and Distributed Lock Manager (DLM) for co-ordination and messaging.
+  </para>
+
+ </sect1>
+ <sect1 xml:id="sec.ha.cluster-md.create">
+  <title>Creating a Clustered MD RAID Device</title>
+  <itemizedlist>
+   <title>Requirements</title>
+   <listitem>
+    <para>A running cluster with pacemaker.</para>
+   </listitem>
+   <listitem>
+    <para>A resource agent fom DLM (Note, see the ocfs2 section on how to
+     configure DLM).</para>
+   </listitem>
+   <listitem>
+    <para>At least two shared disk devices. You can use an additional device as
+    a spare which will failover automatically in case of device failure.</para>
+   </listitem>
+  </itemizedlist>
+  <para>Before creating a clustered md device, make sure the DLM resource is up
+   and running. To create a device, issue the following command:</para>
+   
+   <screen># mdadm --create md0 --bitmap=clustered --raid-devices=2 --level=mirror
+   /dev/sda /dev/sdb</screen>
+  <para>This will create a new clustered MD device and initiate a resync of the
+   two devices. A clustered bitmap is a device internal bitmap, with one bitmaps
+   for each node. You can monitor the progress of the resync in
+    <filename>/proc/mdstat</filename>. You can still use the device as the
+    resync is being performed.</para>
+  <para>You can specify the following options while creating the clustered MD
+   device:</para>
+  <variablelist>
+   <title>Other Options</title>
+   <varlistentry>
+    <term><option>--nodes</option></term>
+    <listitem>
+     <para>Takes an argument for the maximum number of cluster nodes which can
+      be used with the device. If not specified, the default value is 4. </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><option>--home-cluster</option></term>
+    <listitem>
+     <para>Takes an argument for the cluster name. Not specifying
+      this option will cause mdadm to probe the cluster for the cluster name,
+      and also need to ensure the argument is same as cluster name. </para>
+     <note>
+      <para>Creating a clustered device disables incremental activation of the
+       device so that they are not automatically started by the inird system and
+       are restricted to start with resource agents only.</para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><option>--spare-devices</option></term>
+    <listitem>
+     <para>In order to create a cluster-md device with a spare for automatic
+     failover, execute the following command: </para>
+     <screen># mdadm --create md0 --bitmap=clustered --raid-devices=2 --level=mirror
+      --spare-devices=1 /dev/sda /dev/sdb /dev/sdc</screen>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ 
+ <sect1 xml:id="sec.ha.cluster-md.ra">
+  <title>Configuring a Resource Agent</title>
+
+  <para>Before creating a resource agent, edit
+    <filename>/etc/mdadm.conf</filename> file to add the device name and devices
+   associated:</para>
+
+  <screen>DEVICE /dev/sda /dev/sdb
+ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
+  <para> It may be advisable to add /etc/mdadm.conf in the csync tools list of
+  files so it is uniform in all nodes.</para>
+  <procedure>
+   <para>Configure a CRM resource as follows:</para>
+   <step>
+    <screen>crm(live)configure# primitive raider Raid1 \
+  params raidconf="/etc/mdadm.conf" raiddev=md0
+  force_clones=true \
+  op monitor timeout=20s interval=10 \
+  op start timeout=20s interval=0 \
+  op stop timeout=20s interval=0 </screen>
+   </step>
+   <step>
+    <para>Ensure that the raider resource agent is activated cluster-wide by
+     adding it to the base-group which is cloned automatically:</para>
+    <screen>crm(live)configure# group base-group dlm raider</screen>
+   </step>
+   <step>
+    <para>Review your changes with 
+     <command>show</command>.</para>
+   </step>
+   <step><para>If everything seems correct, submit your changes with 
+     <command>commit</command>.</para></step>
+  </procedure>
+  <note>
+   <para>Change the device names as <filename>/dev/disk/by-id/..</filename> for
+    the sake of uniqueness. It should be a SAN based name as opposed to a
+    virtual machine name.]</para>
+  </note>
+ </sect1>
+ 
+ <sect1 xml:id="sec.ha.cluster-md.dev.add">
+  <title>Adding A Device</title>
+  <para>To add a device to an existing md-device, use the following command:</para>
+  <screen># mdadm --manage md127 --add /dev/sdc</screen>
+  <para>Ensure that the device is "visible" on each node, and the md device is
+   active, or else the command will fail. Behavior of the new device added
+   depends on the state of the MD cluster device. If only one of the mirrored
+   device is active, the new device becomes the second device of the
+   mirrored devices and a resync is initiated. If both devices of the
+   md-cluster are active, the new device added becomes a spare.</para>
+   <para>Architectural notes: This invokes a special message to all nodes to add
+   the new device. Each active node of the MD cluster device checks if the
+   device exists, and issues the following command:</para>
+  <screen>mdadm --manage /dev/md127 --cluster-confirm <replaceable>SLOT_NUMBER</replaceable>:<replaceable>DEVICE_NAME</replaceable></screen>
+  <para>This is performed automatically using a udev script.</para>
+ </sect1>
+ 
+ <sect1 xml:id="sec.ha.cluster-md.dev.readd">
+  <title>Re-adding a Temporarily Failed Device</title>
+  <para>Quite often the failures are transient and limited to a single node. If
+   any of the node encounters a failure during an I/O operation, the device will
+   be marked as failed for the entire cluster. This could happen due to a cable
+   failure on one of the nodes. After correcting the problem, you can re-add the
+   device and only the portions of the device which are out of sync will be
+   synced (as opposed to syncing the entire device by adding a new one). In
+   order to re-add the device, issue:</para>
+
+  <screen># mdadm --manage /dev/md127 --re-add /dev/sdb</screen>
+ </sect1>
+ 
+ 
+ <sect1 xml:id="sec.ha.cluster-md.dev.remove">
+  <title>Removing a Device</title>
+  <para>Before hot-removing a device for replacement, make sure the device is
+   failed. This can be seen in /proc/mdstat with a (F) with the device. If you
+   wish to explicitly fail a device (say because the device is too old or slow),
+   you can perform it by issuing the following command:</para>
+  <screen># mdadm --manage /dev/md127 --fail /dev/sda</screen>
+  <para>You can remove the failed device using the command:</para>
+  <screen># mdadm --manage /dev/md127 --remove /dev/sda</screen>
+ </sect1>
+</chapter>
