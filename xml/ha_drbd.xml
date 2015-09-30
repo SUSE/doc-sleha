@@ -60,15 +60,6 @@ NAME       SIZELIMIT OFFSET AUTOCLEAR RO BACK-FILE
    nodes as primary devices.-->
   </para>
 
-  <important>
-   <title>Unencrypted Data</title>
-   <para>
-    The data traffic between mirrors is not encrypted. For secure data
-    exchange, you should deploy a Virtual Private Network (VPN) solution for
-    the connection.
-   </para>
-  </important>
-
   <para>
    DRBD is a Linux Kernel module and sits between the I/O scheduler at the
    lower end and the file system at the upper end, see
@@ -82,13 +73,23 @@ NAME       SIZELIMIT OFFSET AUTOCLEAR RO BACK-FILE
    <title>Position of DRBD within Linux</title>
    <mediaobject>
     <imageobject role="fo">
-     <imagedata fileref="ha_drbd.svg" width="90%"/>
+     <imagedata fileref="ha_drbd.svg" width="80%"/>
     </imageobject>
     <imageobject role="html">
-     <imagedata fileref="ha_drbd.png" width="90%"/>
+     <imagedata fileref="ha_drbd.png" width="80%"/>
     </imageobject>
    </mediaobject>
   </figure>
+
+  <important>
+   <title>Unencrypted Data</title>
+   <para>
+    The data traffic between mirrors is not encrypted. For secure data
+    exchange, you should deploy a Virtual Private Network (VPN) solution for
+    the connection.
+   </para>
+  </important>
+
 
   <para>
    DRBD allows you to use any block device supported by Linux, usually:
@@ -178,7 +179,7 @@ NAME       SIZELIMIT OFFSET AUTOCLEAR RO BACK-FILE
   </para>
  </sect1>
  <sect1 xml:id="sec.ha.drbd.configure">
-  <title>Configuring the DRBD Service</title>
+  <title>Setting Up DRBD Service</title>
   <note>
    <title>Adjustments Needed</title>
    <para>
@@ -194,12 +195,77 @@ NAME       SIZELIMIT OFFSET AUTOCLEAR RO BACK-FILE
     use an LV instead;band eg. "nfs" instead of "r0".</remark>
 
   <para>
-   Before you start configuring DRBD (either manually or with &yast;), make
-   sure the block devices in your Linux nodes are ready and partitioned
-   (if needed). The following sections assumes you have two nodes, &node1;
+   The following sections assumes you have two nodes, &node1;
    and &node2;, and that they should use the TCP port <literal>7788</literal>.
    Make sure this port is open in your firewall.
   </para>
+
+  <procedure>
+    <step>
+      <para>Prepare your system:</para>
+      <substeps>
+        <step>
+          <para>Make sure the block devices in your Linux nodes are ready
+            and partitioned (if needed).</para>
+        </step>
+        <step>
+          <para>
+            If your disk already contains a file system that you do not need
+            anymore, destroy the file system structure with the following
+            command and repeat this step:
+          </para>
+          <screen>&prompt.root;<command>dd</command> if=/dev/zero of=/dev/sda1 count=16 bs=1M</screen>
+        </step>
+          <step>
+            <para> Put your cluster in maintenance mode, if the cluster
+              is already using DRBD: </para>
+            <screen>&prompt.root;<command>crm</command> configure property maintenance-mode=true</screen>
+            <para> If you skip this step when your cluster uses already
+              DRBD, a syntax error in the live configuration will lead
+              to a service shutdown. </para>
+            <para>As an alternative, you can also use
+                <command>drbdadm</command>
+              <option>-c <replaceable>FILE</replaceable></option> to
+              test a configuration file.</para>
+          </step>
+      </substeps>
+    </step>
+    <step>
+      <para>Configure DRBD by choosing your method:</para>
+      <itemizedlist>
+        <listitem>
+          <para><xref linkend="sec.ha.drbd.configure.manually"/></para>
+        </listitem>
+        <listitem>
+          <para><xref linkend="sec.ha.drbd.configure.yast"/></para>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+      <para>
+        If you have configured &csync; (which should be the default), the
+        DRBD configuration files are already included in the list of files
+        which need to be synchronized. To synchronize them, use:
+      </para>
+      <screen>&prompt.root;<command>csync2</command> -xv /etc/drbd.d/</screen>
+      <para>
+        If you do not have &csync; (or do not want to use it), copy the DRBD
+        configuration files manually to the other node:
+      </para>
+      <screen>&prompt.root;<command>scp</command> /etc/drbd.conf &node2;:/etc/
+&prompt.root;<command>scp</command> /etc/drbd.d/*  &node2;:/etc/drbd.d/</screen>
+    </step>
+    <step>
+      <para>Perform the initial synchronization (see <xref
+        linkend="sec.ha.drbd.configure.init"/>).</para>
+    </step>
+    <step>
+      <para>
+        Reset the cluster's maintenance mode flag:
+      </para>
+      <screen>&prompt.root;<command>crm</command> configure property maintenance-mode=false</screen>
+    </step>
+  </procedure>
 
   <sect2 xml:id="sec.ha.drbd.configure.manually">
     <title>Configuring DRBD Manually</title>
@@ -207,32 +273,10 @@ NAME       SIZELIMIT OFFSET AUTOCLEAR RO BACK-FILE
 
   <procedure xml:id="step.drbd.configure">
    <title>Manually Configuring DRBD</title>
-   <step>
-    <para>
-     Log in as user &rootuser;.
-    </para>
-   </step>
-   <step>
-    <para>
-     Put your cluster in maintenance mode, if the cluster is already using
-     DRBD:
-    </para>
-<screen>&prompt.root;<command>crm</command> configure property maintenance-mode=true</screen>
-    <para>
-     If you skip this step when your cluster uses already DRBD, a syntax
-     error in the live configuration will lead to a service shutdown.
-    </para>
-    <para>As an alternative, you can also use <command>drbdadm</command> <option>-c
-      <replaceable>FILE</replaceable></option> to test a configuration file.</para>
-   </step>
-   <step>
-    <para>Change, check, and syncronize DRBD's configuration files.</para>
     <para>Beginning with DRBD version 8.3, the former configuration file is
       split into separate files, located under the directory
-      <filename>/etc/drbd.d/</filename>:
-    </para>
-    <substeps>
-     <step>
+      <filename>/etc/drbd.d/</filename>.</para>
+   <step>
       <para>
        Open the file <filename>/etc/drbd.d/global_common.conf</filename>. It
        contains already some global, pre-defined values. Go to the
@@ -342,105 +386,14 @@ NAME       SIZELIMIT OFFSET AUTOCLEAR RO BACK-FILE
       </para>
       <screen>&prompt.root;<command>drbdadm</command> dump all</screen>
      </step>
-     <step>
-        <para>
-          If you have configured &csync; (which should be the default), the
-          DRBD configuration files are already included in the list of files
-          which need to be synchronized. To synchronize them, use:
-        </para>
-        <screen>&prompt.root;<command>csync2</command> -xv /etc/drbd.d/</screen>
-        <para>
-          If you do not have &csync; (or do not want to use it), copy the DRBD
-          configuration files manually to the other node:
-        </para>
-        <screen>&prompt.root;<command>scp</command> /etc/drbd.conf &node2;:/etc/
-&prompt.root;<command>scp</command> /etc/drbd.d/*  &node2;:/etc/drbd.d/</screen>
-     </step>
-    </substeps>
-   </step>
-   <step>
-     <para>Initialize and check your DRBD resource:</para>
-    <substeps>
-      <step>
-        <para>
-          Initialize the meta data on <emphasis>both</emphasis> systems by
-          entering the following commands on each node:
-        </para>
-        <screen>&prompt.root;<command>drbdadm</command> create-md r0
-&prompt.root;<command>systemctl</command> start drbd.service</screen>
-        <para>
-          If your disk already contains a file system that you do not need
-          anymore, destroy the file system structure with the following command
-          and repeat this step:
-        </para>
-        <screen>&prompt.root;<command>dd</command> if=/dev/zero of=/dev/sda1 count=16 bs=1M</screen>
-      </step>
-      <step>
-        <para>
-          Watch the DRBD status by entering the following on each node:
-        </para>
-        <screen>&prompt.root;<command>systemctl</command> status drbd.service</screen>
-        <para>
-          You should get something like this:
-        </para>
-        <screen>[... version string omitted ...]
-m:res  cs         ro                   ds                         p  mounted  fstype
-0:r0   Connected  Secondary/Secondary  Inconsistent/Inconsistent  C</screen>
-        <!-- Add short explanation? -->
-      </step>
-      <step>
-        <para>
-          Start the resync process on your intended primary node (&node1; in
-          this case):
-        </para>
-        <screen>&prompt.root;<command>drbdadm</command> -- --overwrite-data-of-peer primary r0</screen>
-      </step>
-      <step>
-        <para>
-          Check the status again with <command>systemctl</command> <option>status
-            drbd.service</option> and after resynchronization, you get:
-        </para>
-        <screen>m:res  cs         ro                 ds                 p  mounted  fstype
-0:r0   Connected  Primary/Secondary  UpToDate/UpToDate  C</screen>
-        <para>
-          The status in the <literal>ds</literal> row (disk status) must be
-          UpToDate on both nodes.
-        </para>
-      </step>
-    </substeps>
-   </step>
-   <step>
-    <para>
-     Create your file system on top of your DRBD device, for example:
-    </para>
-<screen>&prompt.root;<command>mkfs.ext3</command> /dev/drbd/by-res/r0/0</screen>
-   </step>
-   <step>
-    <para>
-     Mount the file system and use it:
-    </para>
-<screen>&prompt.root;<command>mount</command> /dev/drbd /mnt/</screen>
-   </step>
-   <step>
-    <para>
-     Reset the cluster's maintenance mode flag:
-    </para>
-<screen>&prompt.root;<command>crm</command> configure property maintenance-mode=false</screen>
-   </step>
+    <step>
+      <para>Continue with <xref linkend="sec.ha.drbd.configure.init"/>.</para>
+    </step>
   </procedure>
-
-<!-- toms 2010-02-05: The YaST DRBD module does not save the
-       configuration. It seems the include statement (introduced
-       in drbd v8.3) is not known or it is broken.
-       See bnc#473143
-  -->
   </sect2>
   <sect2 xml:id="sec.ha.drbd.configure.yast">
     <title>Configuring DRBD with &yast;</title>
-    <para>
-      Alternatively, to use &yast; to configure DRBD, proceed as follows:
-    </para>
-
+    <para>To set up DRBD with &yast;, proceed as follows:</para>
   <procedure xml:id="pro.drbd.configure.yast">
    <title>Using &yast; to Configure DRBD</title>
    <step>
@@ -451,6 +404,8 @@ m:res  cs         ro                   ds                         p  mounted  fs
      warns you. &yast; will change your configuration and will save your
      old DRBD configuration files as <filename>*.YaSTsave</filename>.
     </para>
+   </step>
+   <step>
     <para>
      Leave the booting flag in <menuchoice><guimenu>Start-up
      Configuration</guimenu><guimenu>Booting</guimenu></menuchoice> as it is
@@ -464,10 +419,9 @@ m:res  cs         ro                   ds                         p  mounted  fs
       Firewall</guimenu>.</para>
    </step>
    <step>
-    <para>
-     The actual configuration of the resource is done in <guimenu>Resource
-     Configuration</guimenu> (see
-     <xref linkend="fig.ha.drbd.yast.resconfig"/>).
+    <para>Go to the <guimenu>Resource Configuration</guimenu> entry.
+      Press <guimenu>Add</guimenu> to create a new resource (see
+      <xref linkend="fig.ha.drbd.yast.resconfig"/>).
     </para>
     <figure xml:id="fig.ha.drbd.yast.resconfig">
      <title>Resource Configuration</title>
@@ -481,9 +435,75 @@ m:res  cs         ro                   ds                         p  mounted  fs
      </mediaobject>
     </figure>
     <para>
-     Press <guimenu>Add</guimenu> to create a new resource. The following
-     parameters need to be set twice:
+      The following parameters need to be set twice:
     </para>
+
+    <variablelist>
+      <varlistentry>
+        <term><guimenu>Resource Name</guimenu></term>
+        <listitem>
+          <para>The name of the DRBD resource (mandatory)</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>Name</guimenu></term>
+        <listitem>
+          <para>The host name of the relevant node</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>Address:Port</guimenu></term>
+        <listitem>
+          <para>
+          The IP address and port number (default 7788) for the respective
+          node
+         </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>Device</guimenu></term>
+        <listitem>
+          <para>
+          The block device path that is used to access the replicated data.
+          If the device contains a minor number, the associated block device
+          is usually named <filename>/dev/drbdX</filename>, where
+          <replaceable>X</replaceable> is the device minor number. If the
+          device does not contain a minor number, make sure to add
+          <literal>minor 0</literal> after the device name.
+         </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>Disk</guimenu></term>
+        <listitem>
+          <para>
+          The raw device that is replicated between both nodes. If you use
+          LVM, insert your LVM device name.
+         </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>Meta-disk</guimenu></term>
+        <listitem>
+          <para>
+          The <guimenu>Meta-disk</guimenu> is either set to the value
+          <literal>internal</literal> or specifies an explicit device
+          extended by an index to hold the meta data needed by DRBD.
+         </para>
+         <para>
+          A real device may also be used for multiple drbd resources. For
+          example, if your <guimenu>Meta-Disk</guimenu> is
+          <filename>/dev/sda6[0]</filename> for the first resource, you may
+          use <filename>/dev/sda6[1]</filename> for the second resource.
+          However, there must be at least 128 MB space for each resource
+          available on this disk. The fixed metadata size limits the maximum
+          data size that you can replicate.
+         </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+
+    <!--
     <informaltable>
      <tgroup cols="2">
       <colspec colwidth="1*"/>
@@ -497,7 +517,7 @@ m:res  cs         ro                   ds                         p  mounted  fs
         </entry>
         <entry>
          <para>
-          The name of the resource (mandatory)
+          The name of the DRBD resource (mandatory)
          </para>
         </entry>
        </row>
@@ -551,7 +571,8 @@ m:res  cs         ro                   ds                         p  mounted  fs
         </entry>
         <entry>
          <para>
-          The device that is replicated between both nodes.
+          The raw device that is replicated between both nodes. If you use
+          LVM, insert your LVM device name.
          </para>
         </entry>
        </row>
@@ -581,6 +602,7 @@ m:res  cs         ro                   ds                         p  mounted  fs
       </tbody>
      </tgroup>
     </informaltable>
+     -->
     <para>
      All of these options are explained in the examples in the
      <filename>/usr/share/doc/packages/drbd/drbd.conf</filename> file and in
@@ -588,60 +610,93 @@ m:res  cs         ro                   ds                         p  mounted  fs
     </para>
    </step>
    <step>
-    <para>
-     If you have configured &csync; (which should be the default), the
-     DRBD configuration files are already included in the list of files
-     which need to be synchronized. To synchronize them, use:
-    </para>
-<screen>&prompt.root;<command>csync2</command> -xv /etc/drbd.d/</screen>
-    <para>
-     If you do not have &csync; (or do not want to use it), copy the DRBD
-     configuration files manually to the other node (here, another node with
-     the name &node2;):
-    </para>
-<screen>&prompt.root;<command>scp</command> /etc/drbd.conf &node2;:/etc/
-scp /etc/drbd.d/*  &node2;:/etc/drbd.d/</screen>
+     <para>Close the resource configuration with <guimenu>Ok</guimenu>.</para>
    </step>
    <step>
-    <para>
-     Initialize and start the DRBD service on both systems by entering the
-     following on each node:
-    </para>
-<!-- TODO: do we need drbdadm create-md r0 ? -->
-<!-- it does not work without the create-md for me -->
-<screen>&prompt.root;<command>drbdadm</command> create-md r0
-&prompt.root;<command>systemctl</command> start drbd.service</screen>
+     <remark>toms 2015-09-30: FATE#317957</remark>
+     <para>If you use LVM with DRBD, it is necessary to change some options
+       in the LVM configuration file (see the <guimenu>LVM
+       Configuration</guimenu> entry). This change can be performed
+       automatically by &yast;.
+     </para>
+     <para>
+       The LVM cache is enabled by default. For network storage like NFS,
+       disable the check box.
+     </para>
    </step>
    <step>
-    <para>
-     Configure <filename>&node1;</filename> as the primary node by
-     entering the following on <filename>&node1;</filename>:
-    </para>
-<screen>&prompt.root;<command>drbdsetup</command> /dev/drbd0 primary --overwrite-data-of-peer</screen>
+     <para>Save your changes with <guimenu>Finish</guimenu>.</para>
    </step>
-   <step>
-    <para>
-     Check the DRBD service status by entering the following on each node:
-    </para>
-<screen>&prompt.root;<command>systemctl</command> status drbd.service</screen>
-    <para>
-     Before proceeding, wait until the block devices on both nodes are fully
-     synchronized. Repeat the <command>systemctl</command> <option>status
-     drbd.service</option> command to follow the synchronization progress.
-    </para>
-   </step>
-   <step>
-    <para>
-     After the block devices on both nodes are fully synchronized, format
-     the DRBD device on the primary with your preferred file system. Any
-     Linux file system can be used. It is recommended to use the
-     <filename>/dev/drbd/by-res/<replaceable>RESOURCE</replaceable></filename>
-     name.
-    </para>
-   </step>
+    <step>
+      <para>Continue with <xref linkend="sec.ha.drbd.configure.init"/>.</para>
+    </step>
   </procedure>
   </sect2>
+  <sect2 xml:id="sec.ha.drbd.configure.init">
+    <title>Initializing DRBD Resource</title>
+    <para></para>
+    <procedure>
+      <step>
+        <para>Initialize and check your DRBD resource:</para>
+        <substeps>
+          <step>
+            <para>
+              Initialize the meta data on <emphasis>both</emphasis> systems by
+              entering the following commands on each node:
+            </para>
+            <screen>&prompt.root;<command>drbdadm</command> create-md r0
+&prompt.root;<command>systemctl</command> start drbd.service</screen>
+          </step>
+          <step>
+            <para>
+              Watch the DRBD status by entering the following on each node:
+            </para>
+            <screen>&prompt.root;<command>systemctl</command> status drbd.service</screen>
+            <para>
+              You should get something like this:
+            </para>
+            <screen>[... version string omitted ...]
+m:res  cs         ro                   ds                         p  mounted  fstype
+0:r0   Connected  Secondary/Secondary  Inconsistent/Inconsistent  C</screen>
+            <!-- Add short explanation? -->
+          </step>
+          <step>
+            <para>
+              Start the resync process on your intended primary node (&node1; in
+              this case):
+            </para>
+            <screen>&prompt.root;<command>drbdadm</command> -- --overwrite-data-of-peer primary r0</screen>
+          </step>
+          <step>
+            <para>
+              Check the status again with <command>systemctl</command> <option>status
+                drbd.service</option> and after resynchronization, you get:
+            </para>
+            <screen>m:res  cs         ro                 ds                 p  mounted  fstype
+0:r0   Connected  Primary/Secondary  UpToDate/UpToDate  C</screen>
+            <para>
+              The status in the <literal>ds</literal> row (disk status) must be
+              UpToDate on both nodes.
+            </para>
+          </step>
+        </substeps>
+      </step>
+      <step>
+        <para>
+          Create your file system on top of your DRBD device, for example:
+        </para>
+        <screen>&prompt.root;<command>mkfs.ext3</command> /dev/drbd/by-res/r0/0</screen>
+      </step>
+      <step>
+        <para>
+          Mount the file system and use it:
+        </para>
+        <screen>&prompt.root;<command>mount</command> /dev/drbd /mnt/</screen>
+      </step>
+    </procedure>
+  </sect2>
  </sect1>
+
  <sect1 xml:id="sec.ha.drbd.test">
   <title>Testing the DRBD Service</title>
 
