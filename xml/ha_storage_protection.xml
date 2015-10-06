@@ -132,6 +132,40 @@
    </para>
   </sect2>
 
+  <sect2 xml:id="sec.ha.storage.protect.req">
+    <title>Requirements</title>
+    <para>SBD requires a <emphasis>shared</emphasis> storage device.
+    The following requirements needs to be taken into account:</para>
+      <itemizedlist>
+        <listitem>
+          <para>The environment must have shared storage reachable by
+            all nodes. </para>
+        </listitem>
+        <listitem>
+          <para>SBD can use one, two, or three devices (see also
+            <xref linkend="sec.ha.storage.protect.fencing.number"/>).</para>
+        </listitem>
+        <listitem>
+          <para>The shared storage can be connected via Fibre Channel (FC),
+            Fibre Channel over Ethernet (FCoE), or even iSCSI. </para>
+        </listitem>
+        <listitem>
+          <para> The shared storage segment <emphasis>must not</emphasis>
+            use host-based RAID, cLVM2, nor DRBD*. DRBD can be splitted which is
+            problematic for SBD as there cannot be two states in SBD.
+          </para>
+        </listitem>
+        <listitem>
+          <para> However, using storage-based RAID and multipathing is
+            recommended for increased reliability. </para>
+        </listitem>
+        <listitem>
+          <para>A SBD device can be shared between different clusters, as
+            long as no more than 255 nodes share the device. </para>
+        </listitem>
+      </itemizedlist>
+  </sect2>
+
 <!--fate#309375-->
 
   <sect2 xml:id="sec.ha.storage.protect.fencing.number">
@@ -221,43 +255,19 @@
     All of the following procedures must be executed as &rootuser;.
     Before you start, make sure the following requirements are met:
    </para>
-   <important>
-    <title>Requirements</title>
-    <itemizedlist>
-     <listitem>
-      <para>
-       The environment must have shared storage reachable by all nodes.
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       The shared storage segment must not use host-based RAID, cLVM2, nor
-       DRBD*. DRBD can be splitted which is problematic for SBD as there
-       cannot be two states in SBD.
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       However, using storage-based RAID and multipathing is recommended for
-       increased reliability.
-      </para>
-     </listitem>
-    </itemizedlist>
-   </important>
 
     <sect3 xml:id="pro.ha.storage.protect.watchdog">
       <title>Setting Up the Watchdog</title>
-      <para>
-        In &productname;, watchdog support in the Kernel is enabled by
-        default: It ships with several different Kernel modules that provide
-        hardware-specific watchdog drivers. The &hasi; uses the SBD daemon
-        as software component that <quote>feeds</quote> the watchdog. If
-        configured as described in
-        <xref linkend="pro.ha.storage.protect.sbd.daemon"/>, the SBD daemon
-        will start automatically when the respective node is brought online
-        with <command>systemctl</command> <option>start
-          pacemaker.service</option>.
-      </para>
+      <para> In &productname;, watchdog support in the kernel is enabled
+          by default: It ships with several different kernel modules
+          that provide hardware-specific watchdog drivers. The &hasi;
+          uses the SBD daemon as software component that
+            <quote>feeds</quote> the watchdog. If configured as
+          described in <xref linkend="pro.ha.storage.protect.sbd.daemon"
+          />, the SBD daemon will start automatically when the
+          respective node is brought online with
+            <command>systemctl</command>
+          <option>start pacemaker.service</option>. </para>
       <important>
         <title>Accessing the Watchdog Timer</title>
         <para>
@@ -267,146 +277,184 @@
           watchdog is used by SBD.
         </para>
       </important>
-      <remark>toms 2015-10-05: https://www.suse.com/support/kb/doc.php?id=7016880</remark>
-      <para>
-        Unfortunately, automatic probing of the right watchdog kernel driver
-        fails sometimes. As such, manual configuration of the correct module
-        is crucial. As such, it is recommended to use a <quote>real</quote>
-        watchdog driver with actual hardware integration. For example:
+
+      <para>Finding out the right kernel module for a given system is not
+        exactly trivial. This causes automatic probing to fail very often. As
+        a result, lots of modules are already loaded before the right one gets
+        a chance. The following procedure is a proven solution to load the
+        proper watchdog driver:
       </para>
 
-      <table xml:id="tab.ha.storage.protect.watchdog.drivers">
-        <title>Abriged List of Watchdog Drivers</title>
-        <tgroup cols="2">
-          <thead>
-            <row>
-              <entry>Hardware</entry>
-              <entry>Driver</entry>
-            </row>
-          </thead>
-          <tbody>
-            <row>
-              <entry>HP</entry>
-              <entry><systemitem class="resource">hpwdt</systemitem></entry>
-            </row>
-            <row>
-              <entry>Dell, Fujitsu, Lenovo (Intel TCO)</entry>
-              <entry><systemitem class="resource">iTCO_wdt</systemitem></entry>
-            </row>
-            <row>
-              <entry>VM on z/VM on IBM mainframe</entry>
-              <entry><systemitem class="resource">vmwatchdog</systemitem></entry>
-            </row>
-            <row>
-              <entry>Xen VM (DomU)</entry>
-              <entry><systemitem class="resource">xen_xdt</systemitem></entry>
-            </row>
-            <row>
-              <entry>Generic</entry>
-              <entry><systemitem class="resource">softdog</systemitem></entry>
-            </row>
-          </tbody>
-        </tgroup>
-      </table>
-
-      <para>
-        For a list of choices, refer to
-        <filename>/usr/src/<replaceable>KERNEL_VERSION</replaceable>/drivers/watchdog</filename>.
-        Alternatively, list the drivers that have been installed with your
-        Kernel version with the following command:
-      </para>
-      <screen>&prompt.root;<command>rpm</command> -ql kernel-<replaceable>VERSION</replaceable> | <command>grep</command> watchdog</screen>
-      <para>
-        As most watchdog driver names contain strings like
-        <literal>wd</literal>, <literal>wdt</literal>, or
-        <literal>dog</literal>, use the following command to check which driver
-        is currently loaded:
-      </para>
-      <screen>&prompt.root;<command>lsmod</command> | <command>egrep</command> "(wd|dog)" </screen>
-      <para>
-        To automatically load the watchdog driver, create the file
-        <filename>/etc/modules-load.d/watchdog.conf</filename> containing a
-        line with the driver name. For more information refer to the man page
-        <literal>modules-load.d</literal>.
-      </para>
-      <para>
-        The minimum allowed value for the emulated watchdog is
-        <literal>15</literal> seconds.
-        If you change the timeout for watchdog, the other two values
-        (<literal>msgwait</literal> and <literal>stonith-timeout</literal>)
-        must be changed as well. The watchdog timeout depends mostly on your
-        storage latency. This value specifies that the majority of devices must
-        successfully finish their read operation within this time frame. If
-        not, the node will self-fence.
-      </para>
-      <para>
-        The following <quote>formula</quote> expresses roughly this
-        relationship between these three values:
-      </para>
-      <example xml:id="ex.ha.storage.protect.sbd-timings">
-        <title>Cluster Timings with SBD as &stonith; Device</title>
-        <screen>Timeout (msgwait) = (Timeout (watchdog) * 2)
-stonith-timeout = Timeout (msgwait) + 20%</screen>
-      </example>
-      <para>
-        For example, if you set the timeout watchdog to 120, you need to set
-        the <literal>msgwait</literal> to 240 and the
-        <literal>stonith-timeout</literal> to 288. You can check the output
-        with <command>sbd</command>:
-      </para>
-      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> dump
-==Dumping header on disk /dev/sdb
-Header version     : 2.1
-UUID               : 619127f4-0e06-434c-84a0-ea82036e144c
-Number of slots    : 255
-Sector size        : 512
-Timeout (watchdog) : 20
-Timeout (allocate) : 2
-Timeout (loop)     : 1
-Timeout (msgwait)  : 40
-==Header on disk /dev/sdb is dumped</screen>
-      <para>
-        If you set up a new cluster, the <command>ha-cluster-init</command>
-        command takes the above considerations into account.
-      </para>
-    </sect3>
+      <remark>toms 2015-10-05: Mostly inspired, taken, and adapted from
+        https://www.suse.com/support/kb/doc.php?id=7016880</remark>
+      <procedure>
+        <step>
+          <para>Determine the right watchdog module:</para>
+          <substeps>
+            <step>
+              <para>Get the driver name from the following table:</para>
+              <table xml:id="tab.ha.storage.protect.watchdog.drivers">
+                <title>Abriged List of Commonly Used Watchdog Drivers</title>
+                <tgroup cols="2">
+                  <thead>
+                    <row>
+                      <entry>Hardware</entry>
+                      <entry>Driver</entry>
+                    </row>
+                  </thead>
+                  <tbody>
+                    <row>
+                      <entry>HP</entry>
+                      <entry><systemitem class="resource">hpwdt</systemitem></entry>
+                    </row>
+                    <row>
+                      <entry>Dell, Fujitsu, Lenovo (Intel TCO)</entry>
+                      <entry><systemitem class="resource">iTCO_wdt</systemitem></entry>
+                    </row>
+                    <row>
+                      <entry>VM on z/VM on IBM mainframe</entry>
+                      <entry><systemitem class="resource">vmwatchdog</systemitem></entry>
+                    </row>
+                    <row>
+                      <entry>Xen VM (DomU)</entry>
+                      <entry><systemitem class="resource">xen_xdt</systemitem></entry>
+                    </row>
+                    <row>
+                      <entry>Generic</entry>
+                      <entry><systemitem class="resource">softdog</systemitem></entry>
+                    </row>
+                  </tbody>
+                </tgroup>
+              </table>
+            </step>
+            <step>
+              <para>If your hardware is not listed in <xref
+                linkend="tab.ha.storage.protect.watchdog.drivers"/>, look
+                into the directory
+                <filename>/lib/modules/<replaceable>KERNEL_VERSION</replaceable>/kernel/drivers/watchdog</filename>
+                for a list of choices or ask your hardware vendor for the
+                right name.
+              </para>
+              <para>
+                Alternatively, list the drivers that have been installed with your
+                kernel version with the following command:
+              </para>
+              <screen>&prompt.root;<command>rpm</command> -ql kernel-<replaceable>VERSION</replaceable> | <command>grep</command> watchdog</screen>
+            </step>
+            <step xml:id="st.ha.storage.listwatchdog.modules">
+              <para>List any loaded watchdog modules and unload them:</para>
+              <screen>&prompt.root;<command>lsmod</command> | <command>egrep</command> "(wd|dog)"</screen>
+              <para>If you get a result, unload the wrong module:</para>
+              <screen>&prompt.root;<command>rmmod</command> <replaceable>WRONG_MODULE</replaceable></screen>
+            </step>
+          </substeps>
+        </step>
+        <step>
+          <para>Load the right watchdog module:</para>
+          <screen>&prompt.root;<command>modprobe</command> <replaceable>WATCHDOG_MODULE</replaceable></screen>
+        </step>
+        <step>
+          <para>Make watchdog module permanent with Dracut: </para>
+          <substeps>
+            <step>
+              <para>Create a file <filename>/etc/dracut.conf.d/watchdog.conf</filename>.
+                The <filename class="extension">.conf</filename> extension
+                is required, but you can freely choose the base name.
+              </para>
+            </step>
+            <step>
+              <para>Insert your watchdog driver without any <filename
+                class="extension">.ko</filename> extension and save the file.
+                For example:</para>
+              <screen># Dracut configuration for Watchdog
+#
+add_drivers+="<replaceable>YOUR_WATCHDOG_DRIVER</replaceable>"</screen>
+            </step>
+            <step>
+              <para>Build the initrd:</para>
+              <screen>&prompt.root;<command>mkinitrd</command></screen>
+            </step>
+            <step>
+              <para>Reboot.</para>
+            </step>
+          </substeps>
+        </step>
+        <step>
+          <para>Test the watchdog:</para>
+          <substeps>
+            <step>
+              <para>Check, if the module was added to initrd:</para>
+              <screen>&prompt.root;<command>xzcat</command> /boot/initrd | <command>cpio</command> -it 2>/dev/null | <command>egrep</command> "(wd|dog)"</screen>
+            </step>
+            <step>
+              <para>Check, if the watchdog module has been loaded:</para>
+              <screen>&prompt.root;<command>lsmod</command> | <command>egrep</command> "(wd|dog)"</screen>
+            </step>
+            <step>
+              <para>Check, if the watchdog driver has created a device file
+              for its conmunications:</para>
+              <screen>&prompt.root;<command>ls</command> -l /dev/watchdog</screen>
+            </step>
+            <step>
+              <para>Check, if the watchdog is already in use. Only one process
+                may use the wachdog:
+              </para>
+              <screen>&prompt.root;<command>lsof</command> /dev/watchdog</screen>
+            </step>
+            <step>
+              <para>If you testing it on a separate machine
+                (<emphasis>not</emphasis> production!), force a hard reboot
+                of the system. Usually it will take up to 60 seconds until
+                the system gets a hard reboot. After this hard reboot, the
+                file systems will get unclean.
+              </para>
+            </step>
+          </substeps>
+        </step>
+      </procedure>
+  </sect3>
     
-   <sect3 xml:id="pro.ha.storage.protect.sbd.create">
+  <sect3 xml:id="pro.ha.storage.protect.sbd.create">
     <title>Creating the SBD Partition</title>
     <para>
      It is recommended to create a 1MB partition at the start of the device.
      If your SBD device resides on a multipath group, you need to adjust the
-     timeouts SBD uses, as MPIO's path down detection can cause some
-     latency. After the <literal>msgwait</literal> timeout, the message is
+     timeout settings SBD uses, as multipath I/O's (MPIO) path down detection
+     can cause some latency.</para>
+     <para>After the <literal>msgwait</literal> timeout, the message is
      assumed to have been delivered to the node. For multipath, this should
      be the time required for MPIO to detect a path failure and switch to
-     the next path. You may need to test this in your environment. The node
+     the next path. You may need to test this in your environment.</para>
+     <para>The node
      will terminate itself if the SBD daemon running on it has not updated
      the watchdog timer fast enough. Test your chosen timeouts in your
      specific environment. In case you use a multipath storage with just one
      SBD device, pay special attention to the failover delays incurred.
     </para>
-    <note>
-     <title>Device Name for SBD Partition</title>
-     <para>
-      In the following, this SBD partition is referred to by
-      <filename>/dev//disk/by-id/<replaceable>UUID</replaceable></filename>. Replace it
-      with your actual path name, for example:
-      <filename>/dev/disk/by-id/scsi-ST2000DM001-0123456_Wabcdefg</filename>.
-     </para>
-    </note>
     <important>
      <title>Overwriting Existing Data</title>
      <para>
-      Make sure the device you want to use for SBD does not hold any data.
+      Make sure the device you want to use for SBD does not hold any important
+      data.
       The <command>sbd</command> command will overwrite the device without
       further requests for confirmation.
      </para>
     </important>
     <procedure>
      <step>
+       <para>Decide, which block device serve will serve as the SBD device.
+         This SBD device can be a logical unit, a partition, or a logical
+         volume. Regardless of its block device, the SBD device must be
+         accessible from all nodes.
+       </para>
+     </step>
+     <step>
       <para>
-       Initialize the SBD device with the following command:
+       Initialize the SBD device with the following command (replace
+        <filename>/dev/<replaceable>SBD</replaceable></filename> with your
+        actual path name, for example:
+      <filename>/dev/disk/by-id/scsi-ST2000DM001-0123456_Wabcdefg</filename>
+        )
       </para>
 <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> create</screen>
       <para>
@@ -467,9 +515,53 @@ Timeout (msgwait)  : 10</screen>
     </para>
    </sect3>
 
+  <sect3 xml:id="sec.ha.storage.protect.watchdog.timings">
+    <title>Setting Watchdog Timings</title>
+      <para>
+        The minimum allowed value for the emulated watchdog is
+        <literal>15</literal> seconds.
+        If you change the timeout for watchdog, the other two values
+        (<literal>msgwait</literal> and <literal>stonith-timeout</literal>)
+        must be changed as well. The watchdog timeout depends mostly on your
+        storage latency. This value specifies that the majority of devices must
+        successfully finish their read operation within this time frame. If
+        not, the node will self-fence.
+      </para>
+      <para>
+        The following <quote>formula</quote> expresses roughly this
+        relationship between these three values:
+      </para>
+      <example xml:id="ex.ha.storage.protect.sbd-timings">
+        <title>Cluster Timings with SBD as &stonith; Device</title>
+        <screen>Timeout (msgwait) = (Timeout (watchdog) * 2)
+stonith-timeout = Timeout (msgwait) + 20%</screen>
+      </example>
+      <para>
+        For example, if you set the timeout watchdog to 120, you need to set
+        the <literal>msgwait</literal> to 240 and the
+        <literal>stonith-timeout</literal> to 288. You can check the output
+        with <command>sbd</command>:
+      </para>
+      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> dump
+==Dumping header on disk /dev/sdb
+Header version     : 2.1
+UUID               : 619127f4-0e06-434c-84a0-ea82036e144c
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 20
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 40
+==Header on disk /dev/sdb is dumped</screen>
+      <para>
+        If you set up a new cluster, the <command>ha-cluster-init</command>
+        command takes the above considerations into account.
+      </para>
+    </sect3>
+
    <sect3 xml:id="pro.ha.storage.protect.sw-watchdog">
-     <title>Setting up the </title>
-     <para>It is highly recommended to use a (hardware) watchdog which best
+     <title>Setting up the Softdog Watchdog</title>
+     <para>It is highly recommended to use a hardware watchdog which best
        fit your hardware. If no watchdog matches your hardware, use the software
        watchdog driver (<systemitem class="resource">softdog</systemitem>).</para>
      <para>To enable the software watchdog, use the following steps:</para>
