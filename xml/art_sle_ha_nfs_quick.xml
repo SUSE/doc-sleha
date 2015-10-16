@@ -236,11 +236,20 @@
    </para>
    <sect3>
     <title>Using &yast;</title>
+    <para>&yast; can be used to start with an initial setup of DRBD.
+        After you have created your DRBD setup, you can fine-tune the
+        generated files manually.
+    </para>
     <para>
-     Open the &yast; DRBD module and select <guimenu>Resource
-     configuration</guimenu>. If you have a firewall running, enable
-      <guimenu>Open Port in Firewall</guimenu>.
-      Insert the following values:
+        However, as soon as you have changed the configuration files,
+        do not use the &yast; DRBD module anymore. The DRBD module supports
+        only a limited set of basic configuration. If you use it again,
+        it is very likely that the module will not show your changes.
+    </para>
+    <para>
+     Open the &yast; DRBD module. If you have a firewall running, enable
+      <guimenu>Open Port in Firewall</guimenu>. Select <guimenu>Resource
+     configuration</guimenu> and insert the following values:
     </para>
     <table>
      <title>Parameters for DRBD resource <option>nfs</option></title>
@@ -429,6 +438,10 @@ include /etc/drbd.d;</screen>
      After you have prepared your DRBD resource (either with &yast; or
      manually), proceed as follows:
     </para>
+
+    <!--
+    Take some steps from https://github.com/SUSE/doc-sleha/commit/5bb10f7fc6
+    -->
     <procedure>
      <step>
       <para> If you use a firewall in your cluster, open port
@@ -440,29 +453,47 @@ include /etc/drbd.d;</screen>
        our example, &node1; and &node2;):
       </para>
 <screen>&prompt.root;<command>drbdadm</command> create-md nfs
-&prompt.root;<command>systemctl</command> start drbd</screen>
+&prompt.root;<command>systemctl</command> up</screen>
       <para>
        This initializes the meta data storage and has to be done only once.
       </para>
      </step>
      <step>
+       <para>Create a new UUID on &node1; to shorten the initial resyncronisation of
+          DRBD resource:</para>
+       <screen>&prompt.root;<command>drbdadm</command> new-current-uuid --zeroout-devices nfs</screen>
+     </step>
+     <step>
+       <para>Switch to &node1; and make this side primary:</para>
+       <screen>&prompt.root;<command>drbdadm</command> primary nfs</screen>
+     </step>
+      <step>
+       <para>Watch the DRBD status by entering the following on each node:</para>
+       <screen>&prompt.root;<command>systemctl</command> status drbd.service</screen>
+       <para> You should get something like this: </para>
+          <screen>[... version string omitted ...]
+ m:res  cs         ro                   ds                         p  mounted  fstype
+ 0:r0   Connected  Secondary/Secondary  Inconsistent/Inconsistent  C</screen>
+     </step>
+     <step>
       <para>
-       Execute the following command on your primary node only (in our
-       example, &node1;):
+        Start the resync process on your intended primary node (&node1; in this case):
       </para>
 <screen>&prompt.root;<command>drbdadm</command> -- --overwrite-data-of-peer primary nfs</screen>
      </step>
      <step>
-      <para>
-       Check the synchronization status of your DRBD resource:
-      </para>
-<screen>&prompt.root;<command>cat</command> /proc/drbd
-version: 8.4.4 (api:1/proto:86-101)
-GIT-hash: 3c1f46cb19993f98b22fdf7e18958c21ad75176d build by SuSE Build Service
- 0: cs:SyncTarget ro:Secondary/Primary ds:Inconsistent/UpToDate C r-----
-    ns:0 nr:98220 dw:95140 dr:0 al:0 bm:0 lo:24 pe:0 ua:24 ap:0 ep:1 wo:f oos:429096
-        [==&gt;.................] sync'ed: 18.8% (429096/524236)K
-        finish: 0:01:25 speed: 5,004 (5,004) want: 5,800 K/sec</screen>
+       <para>The status in the <literal>ds</literal> row (disk
+            status) must be <literal>UpToDate</literal> on both nodes.
+       </para>
+     </step>
+     <step>
+       <para>Create your file system on top of your DRBD device, for
+          example: </para>
+       <screen>&prompt.root;<command>mkfs.ext3</command> /dev/drbd/by-res/nfs/0</screen>
+     </step>
+     <step>
+       <para>Mount the file system and use it: </para>
+       <screen>&prompt.root;<command>mount</command> /dev/drbd0 /mnt/</screen>
      </step>
     </procedure>
    </sect3>
