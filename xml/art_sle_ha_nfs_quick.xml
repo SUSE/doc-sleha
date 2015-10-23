@@ -76,7 +76,79 @@
     </para>
    </listitem>
   </itemizedlist>
+
+   <para>
+     A highly available NFS service consists of the following cluster
+     resources:
+   </para>
+
+   <variablelist>
+     <varlistentry>
+       <term><xref linkend="sec_ha_quick_nfs_resources_drbd" xrefstyle="select:title"/>
+       </term>
+       <listitem>
+         <para>
+           These resources are used to replicate data. The master/slave resource
+           is switched from and to the Primary and Secondary roles as deemed
+           necessary by the cluster resource manager.
+         </para>
+       </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term><xref linkend="sec_ha_quick_nfs_resources_nfsserver" xrefstyle="select:title"/>
+       </term>
+       <listitem>
+         <para>
+           With this resource, Pacemaker ensures that the NFS server daemons are
+           always available.
+         </para>
+       </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term><xref linkend="sec_ha_quick_nfs_resources_lvm" xrefstyle="select:title"/>
+       </term>
+       <listitem>
+         <para>
+           The LVM Volume Group is made available on whichever node currently
+           holds the DRBD resource in the Primary role. Apart from that, you need
+           resources for one or more file systems residing on any of the Logical
+           Volumes in the Volume Group. They are mounted by the cluster manager
+           wherever the Volume Group is active.
+         </para>
+       </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term><xref linkend="sec_ha_quick_nfs_resources_nfsexport_nfsv4root" xrefstyle="select:title"/>
+       </term>
+       <listitem>
+         <para>
+           A virtual NFS root export. (Only needed for NFSv4 clients).
+         </para>
+       </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term><xref linkend="sec_ha_quick_nfs_resources_nfsexport_nonroot" xrefstyle="select:title"/>
+       </term>
+       <listitem>
+         <para>
+           One or more NFS exports, typically corresponding to the file system
+           mounted from LVM Logical Volumes.
+         </para>
+       </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term><xref linkend="sec_ha_quick_nfs_resources_ipaddr" xrefstyle="select:title"/>
+       </term>
+       <listitem>
+         <para>
+           A virtual, floating cluster IP address, allowing NFS clients to
+           connect to the service no matter which physical node it is running on.
+         </para>
+       </listitem>
+     </varlistentry>
+   </variablelist>
  </sect1>
+
  <sect1 xml:id="sec_ha_quick_nfs_prereq">
   <title>Prerequisites and Installation</title>
 
@@ -255,7 +327,7 @@
     <para>
      Open the &yast; DRBD module. If you have a firewall running, enable
       <guimenu>Open Port in Firewall</guimenu>. Select <guimenu>Resource
-     configuration</guimenu> and insert the following values:
+     configuration</guimenu> and replace the following values with your own:
     </para>
     <table>
      <title>Parameters for DRBD resource <option>nfs</option></title>
@@ -272,12 +344,12 @@
         </entry>
         <entry>
          <para>
-          Node 1
+          Node 1 (primary)
          </para>
         </entry>
         <entry>
          <para>
-          Node 2
+          Node 2 (secondary)
          </para>
         </entry>
        </row>
@@ -303,12 +375,12 @@
         </entry>
         <entry>
          <para>
-          &node1; (primary)
+          &node1;
          </para>
         </entry>
         <entry>
          <para>
-          &node2; (secondary)
+          &node2;
          </para>
         </entry>
        </row>
@@ -320,12 +392,12 @@
         </entry>
         <entry>
          <para>
-          <systemitem>10.0.42.1:&drbd.port;</systemitem>
+          <systemitem class="ipaddress">10.0.42.1:&drbd.port;</systemitem>
          </para>
         </entry>
         <entry>
          <para>
-          <systemitem>10.0.42.2:&drbd.port;</systemitem>
+          <systemitem class="ipaddress">10.0.42.2:&drbd.port;</systemitem>
          </para>
         </entry>
        </row>
@@ -368,15 +440,13 @@
       </tbody>
      </tgroup>
     </table>
-    <para>
-     Click <guimenu>Ok</guimenu>, then <guimenu>Finish</guimenu>.
-    </para>
    </sect3>
    <sect3>
     <title>Using Command Line</title>
     <para>
      It is highly recommended that you put your resource configuration in a
-     file whose name is identical to that of the resource. As the file must
+     file, with a <filename class="extension">.res</filename> extension, whose
+      name is identical to that of the resource. As the file must
      reside in the <filename>/etc/drbd.d/</filename> directory, this example
      uses the <filename>/etc/drbd.d/nfs.res</filename> file. Proceed as
      follows:
@@ -385,35 +455,24 @@
      <step>
       <para>
        Create the file <filename>/etc/drbd.d/nfs.res</filename> with the
-       following contents:
+        following contents and replace <filename>/dev/sda1</filename> with the correct
+        partition.
       </para>
 <screen>resource nfs {
     device /dev/drbd0;
     disk /dev/sda1;
     meta-disk internal;
     on &node1; {
-    address 10.0.42.1:7790;
+      address 10.0.42.1:&drbd.port;;
     }
     on &node2; {
-    address 10.0.42.2:7790;
+      address 10.0.42.2:&drbd.port;;
     }
 }</screen>
-      <para>
-       You need to replace <filename>/dev/sda1</filename> with the correct
-       partition.
-      </para>
-     </step>
-     <step>
-      <para>
-       Copy the file
-       <filename>/usr/share/doc/packages/drbd/drbd.conf</filename>:
-      </para>
-<screen>&prompt.root;<command>cp</command> /usr/share/doc/packages/drbd/drbd.conf /etc/drbd.conf</screen>
-      <para>
-       The content of this file contains statements to include all
-       <filename>*.res</filename> files from
-       <filename>/etc/drbd.d/</filename>.
-      </para>
+       <para>If you have different partitions on each node, remove the line
+         with the <literal>disk</literal> keyword and insert them on both nodes
+         after the <literal>address</literal> line.
+       </para>
      </step>
      <step>
       <para>
@@ -475,7 +534,7 @@ include /etc/drbd.d;</screen>
      </step>
       <step>
        <para>Watch the DRBD status by entering the following on each node:</para>
-       <screen>&prompt.root;<command>systemctl</command> status drbd.service</screen>
+       <screen>&prompt.root;<command>systemctl</command> status drbd</screen>
        <para> You should get something like this: </para>
           <screen>[... version string omitted ...]
  m:res  cs         ro                   ds                         p  mounted  fstype
@@ -722,78 +781,6 @@ include /etc/drbd.d;</screen>
  </sect1>
  <sect1 xml:id="sec_ha_quick_nfs_resources">
   <title>Cluster Resources for an HA NFS Server</title>
-
-  <para>
-   A highly available NFS service consists of the following cluster
-   resources:
-  </para>
-
-  <variablelist>
-   <varlistentry>
-    <term><xref linkend="sec_ha_quick_nfs_resources_drbd" xrefstyle="select:title"/>
-    </term>
-    <listitem>
-     <para>
-      These resources are used to replicate data. The master/slave resource
-      is switched from and to the Primary and Secondary roles as deemed
-      necessary by the cluster resource manager.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><xref linkend="sec_ha_quick_nfs_resources_nfsserver" xrefstyle="select:title"/>
-    </term>
-    <listitem>
-     <para>
-      With this resource, Pacemaker ensures that the NFS server daemons are
-      always available.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><xref linkend="sec_ha_quick_nfs_resources_lvm" xrefstyle="select:title"/>
-    </term>
-    <listitem>
-     <para>
-      The LVM Volume Group is made available on whichever node currently
-      holds the DRBD resource in the Primary role. Apart from that, you need
-      resources for one or more file systems residing on any of the Logical
-      Volumes in the Volume Group. They are mounted by the cluster manager
-      wherever the Volume Group is active.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><xref linkend="sec_ha_quick_nfs_resources_nfsexport_nfsv4root" xrefstyle="select:title"/>
-    </term>
-    <listitem>
-     <para>
-      A virtual NFS root export. (Only needed for NFSv4 clients).
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><xref linkend="sec_ha_quick_nfs_resources_nfsexport_nonroot" xrefstyle="select:title"/>
-    </term>
-    <listitem>
-     <para>
-      One or more NFS exports, typically corresponding to the file system
-      mounted from LVM Logical Volumes.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><xref linkend="sec_ha_quick_nfs_resources_ipaddr" xrefstyle="select:title"/>
-    </term>
-    <listitem>
-     <para>
-      A virtual, floating cluster IP address, allowing NFS clients to
-      connect to the service no matter which physical node it is running on.
-     </para>
-    </listitem>
-   </varlistentry>
-  </variablelist>
-
   <para>
    How to configure these resources (using the <command>crm</command> shell)
    is covered in detail in the following sections.
