@@ -6,9 +6,102 @@
 ]>
 
 
-<sect1 version="5.0" xml:id="sec_ha_quick_nfs_clusterscript"
+<sect1 version="5.0" xml:id="sec.haqs.nfs.clusterscript"
   xmlns="http://docbook.org/ns/docbook"
   xmlns:xlink="http://www.w3.org/1999/xlink">
   <title>Setting Up NFS Server with Cluster Scripts</title>
-  <para></para>
+  <para>This section describes the initial configuration of a highly
+    available NFS export in the context of the &pace; cluster manager
+    with cluster scripts. </para>
+
+  <!-- MiniTOC ? -->
+  <!-- Prerequisites:
+  * Initial Cluster Setup (id=sec_ha_quick_nfs_initial_setup)
+  * Creating a Basic Pacemaker Configuration (id=sec_ha_quick_nfs_initial_pacemaker)
+  -->
+
+  <sect2 xml:id="sec.haqs.nfs.prep.stonith">
+    <title>Setting Up a &stonith; Device</title>
+    <para>This setup uses the most simple SBD implementation. It is
+      appropriate for clusters where all of your data is on the same
+      shared storage. The shared storage segment <emphasis>must
+        not</emphasis> use host-based RAID, cLVM2, nor DRBD*. See <xref
+        linkend="cha.ha.storage.protect"/> and <xref
+        linkend="cha.ha.fencing"/> for further details. Proceed as
+      follows: </para>
+
+    <procedure>
+      <step>
+        <para>Determine a dedicated device or partition as &stonith;
+          device.</para>
+      </step>
+      <step>
+        <para>Get the identifier of your node where this &stonith;
+          device should be run:</para>
+        <screen>&prompt.root;<command>crm</command> configure show type:node
+node <emphasis role="strong">178325803</emphasis>: &node1;
+node 178326059: &node2;</screen>
+        <para>In this case, our primary node is &node1;, so the
+          identifier is <literal>178325803</literal>.</para>
+      </step>
+      <step>
+        <para>Verify if everything is ok (use the values from the last
+          steps):</para>
+        <screen>&prompt.root;<command>crm</command> script verify id=sdb.&node1;
+  node=178325803 sbd_device=/dev/sdb</screen>
+      </step>
+      <step>
+        <para>Run the <command>sbd</command> cluster script:</para>
+        <screen>&prompt.root;<command>crm</command> script run id=sdb.&node1;
+  node=178325803 sbd_device=/dev/sdb</screen>
+      </step>
+    </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.haqs.nfs.prep.drbd">
+    <title>Preparing the DRBD Configuration</title>
+    <para>First, it is necessary to configure a DRBD resource to hold
+      your data. This resource will act as the physical volume of an LVM
+      volume group to be created later. This section assums that the LVM
+      volume group is to be called <literal>nfs</literal>. Hence, the
+      DRBD resource uses that same name.</para>
+    <procedure xml:id="pro.haqs.nfs.prep.drbd">
+      <step>
+        <para> Create the file <filename>/etc/drbd.d/nfs.res</filename>
+          with the following contents and replace
+            <filename>/dev/sda1</filename> with the correct partition. </para>
+        <screen>resource nfs {
+    device /dev/drbd0;
+    disk /dev/sda1;
+    meta-disk internal;
+    on &node1; {
+      address 10.0.42.1:&drbd.port;;
+    }
+    on &node2; {
+      address 10.0.42.2:&drbd.port;;
+    }
+}</screen>
+        <para>If you have different partitions on each node, remove the
+          line with the <literal>disk</literal> keyword, insert them on
+          both nodes after the <literal>address</literal> line, and
+          replace it with your correct partitions.</para>
+      </step>
+      <step>
+        <para> Open <filename>/etc/csync2/csync2.cfg</filename> and
+          check, if the following two lines exist: </para>
+        <screen>include /etc/drbd.conf;
+include /etc/drbd.d;</screen>
+        <para> If not, add them to the file. </para>
+      </step>
+      <step>
+        <para> Copy the file to the other nodes: </para>
+        <screen>&prompt.root;<command>csync2</command> -xv</screen>
+        <para> For information about &csync;, refer to <xref
+            linkend="sec.ha.installation.setup.csync2"/>. </para>
+      </step>
+    </procedure>
+  </sect2>
+      </step>
+    </procedure>
+  </sect2>
 </sect1>
