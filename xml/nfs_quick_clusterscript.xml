@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE sect1
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+
+
+<sect1 version="5.0" xml:id="sec.haqs.nfs.clusterscript"
+  xmlns="http://docbook.org/ns/docbook"
+  xmlns:xlink="http://www.w3.org/1999/xlink">
+  <title>Setting Up NFS Server with Cluster Scripts</title>
+  <para>This section describes the initial configuration of a highly
+    available NFS export in the context of the &pace; cluster manager
+    with &crmshell; cluster scripts. </para>
+
+  <!-- MiniTOC ? -->
+  <!-- Prerequisites:
+  * Initial Cluster Setup (id=sec_ha_quick_nfs_initial_setup)
+  * Creating a Basic Pacemaker Configuration (id=sec_ha_quick_nfs_initial_pacemaker)
+  -->
+
+  <sect2 xml:id="sec.haqs.nfs.prep.stonith">
+    <title>Setting Up a &stonith; Device</title>
+    <para>This setup uses the most simple SBD (<emphasis>STONITH Based
+        Death</emphasis>) implementation. It is appropriate for clusters
+      where all of your data is on the same shared storage. The shared
+      storage segment <emphasis>must not</emphasis> use host-based RAID,
+      cLVM2, nor DRBD*. See <xref linkend="cha.ha.storage.protect"/> and
+        <xref linkend="cha.ha.fencing"/> for further details. Proceed as
+      follows: </para>
+
+    <procedure>
+      <step>
+        <para>Determine a dedicated device or partition as SBD device.</para>
+      </step>
+      <step>
+        <para>Get the identifier of your node where this SBD device should
+          be run:</para>
+        <screen>&prompt.root;<command>crm</command> configure show type:node
+node <emphasis role="strong">178325803</emphasis>: &node1;
+node 178326059: &node2;</screen>
+        <para>In this case, our primary node is &node1;, so the
+          identifier is <literal>178325803</literal>.</para>
+      </step>
+      <step>
+        <para>Verify if everything is ok (use the values from the last
+          steps):</para>
+        <screen>&prompt.root;<command>crm</command> script verify sbd id=sdb.&node1;
+  node=178325803 sbd_device=/dev/sdb</screen>
+      </step>
+      <step>
+        <para>Run the <command>sbd</command> cluster script:</para>
+        <screen>&prompt.root;<command>crm</command> script run sbd id=sdb.&node1;
+  node=178325803 sbd_device=/dev/sdb</screen>
+      </step>
+    </procedure>
+    <para>After you have finished this steps, <command>crm status</command>
+      gives you this result:</para>
+    <screen>sdb.&node1;   (stonith:external/sbd): Started &node1;</screen>
+  </sect2>
+
+  <sect2 xml:id="sec.haqs.nfs.prep.drbd">
+    <title>Preparing the DRBD Configuration</title>
+    <para>First, it is necessary to configure a DRBD resource to hold
+      your data. This resource will act as the physical volume of an LVM
+      volume group to be created later. This section assums that the LVM
+      volume group is to be called <literal>nfs</literal>. Hence, the
+      DRBD resource uses that same name.</para>
+    <procedure xml:id="pro.haqs.nfs.prep.drbd">
+      <step>
+        <para> Create the file <filename>/etc/drbd.d/nfs.res</filename>
+          with the following contents and replace
+            <filename>/dev/sda1</filename> with the correct partition. </para>
+        <screen>resource nfs {
+    device /dev/drbd0;
+    disk /dev/sda1;
+    meta-disk internal;
+    on &node1; {
+      address 10.0.42.1:&drbd.port;;
+    }
+    on &node2; {
+      address 10.0.42.2:&drbd.port;;
+    }
+}</screen>
+        <para>If you have different partitions on each node, remove the
+          line with the <literal>disk</literal> keyword, insert them on
+          both nodes after the <literal>address</literal> line, and
+          replace it with your correct partitions.</para>
+      </step>
+      <step>
+        <para> Open <filename>/etc/csync2/csync2.cfg</filename> and
+          check, if the following two lines exist: </para>
+        <screen>include /etc/drbd.conf;
+include /etc/drbd.d;</screen>
+        <para> If not, add them to the file. </para>
+      </step>
+      <step>
+        <para> Copy the file to the other nodes: </para>
+        <screen>&prompt.root;<command>csync2</command> -xv</screen>
+        <para> For information about &csync;, refer to <xref
+            linkend="sec.ha.installation.setup.csync2"/>. </para>
+      </step>
+    </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.haqs.nfs.prep.finish.drbd">
+    <title>Finalizing the DRBD Setup</title>
+    <para>After you have prepared your DRBD setup from <xref
+      linkend="sec.haqs.nfs.prep.drbd"/>, proceed as follows:</para>
+    <procedure>
+     <step>
+      <para>If you use a firewall in your cluster, open port
+            &drbd.port; in your firewall configuration. </para>
+     </step>
+     <step>
+      <para>
+       Execute the following commands on <emphasis>both</emphasis> nodes (in
+       our example, &node1; and &node2;):
+      </para>
+<screen>&prompt.root;<command>drbdadm</command> create-md nfs
+&prompt.root;<command>drbdadm</command> up nfs</screen>
+      <para>
+       This initializes the meta data storage and has to be done only once.
+      </para>
+     </step>
+     <step>
+       <para>Create a new UUID on &node1; to shorten the initial resyncronisation of
+          DRBD resource:</para>
+       <screen>&prompt.root;<command>drbdadm</command> new-current-uuid --zeroout-devices nfs</screen>
+     </step>
+     <step>
+       <para>Switch to &node1; and make this side primary:</para>
+       <screen>&prompt.root;<command>drbdadm</command> primary nfs</screen>
+     </step>
+      <step>
+       <para>Watch the DRBD status by entering the following on each node:</para>
+       <screen>&prompt.root;<command>cat</command> /proc/drbd</screen>
+       <para> You should get something like this: </para>
+          <screen>[... version string omitted ...]
+ m:res  cs         ro                   ds                         p  mounted  fstype
+ 0:r0   Connected  Secondary/Secondary  Inconsistent/Inconsistent  C
+[... further lines omitted ...]</screen>
+     </step>
+     <step>
+      <para>
+        Start the resync process on your intended primary node (&node1; in this case):
+      </para>
+<screen>&prompt.root;<command>drbdadm</command> -- --overwrite-data-of-peer primary nfs</screen>
+     </step>
+     <step>
+       <para>The status in the <literal>ds</literal> row (disk
+            status) must be <literal>UpToDate</literal> on both nodes.
+       </para>
+     </step>
+     <!-- toms: This is nonsense, as we create a file system on top of LVM.
+       <step>
+       <para>Create your file system on top of your DRBD device, for
+          example: </para>
+       <screen>&prompt.root;<command>mkfs.ext3</command> /dev/drbd/by-res/nfs/0</screen>
+     </step>
+     <step>
+       <para>Mount the file system and use it: </para>
+       <screen>&prompt.root;<command>mount</command> /dev/drbd0 /mnt/</screen>
+     </step>-->
+    </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.haqs.nfs.prep.drbdsetup">
+    <title>Setting Up DRBD</title>
+    <para></para>
+    <procedure>
+      <step>
+        <para>Load the DRBD module to make the proc file <filename>/proc/drbd</filename>
+        available:</para>
+        <screen>&prompt.root;<command>modprobe</command> drbd</screen>
+      </step>
+      <step>
+        <para>If you want to have the kernel module for DRBD permanent,
+          follow these steps: </para>
+        <substeps>
+          <step>
+            <para>Create a file
+                <filename>/etc/dracut.conf.d/drbd.conf</filename>. The
+                <filename class="extension">.conf</filename> extension
+              is required, but you can freely choose the base name.
+            </para>
+          </step>
+          <step>
+            <para>Insert your DRBD driver without the <filename
+                class="extension">.ko</filename> extension and save the
+              file: </para>
+            <screen># DRBD configuration
+add_drivers+=drbd</screen>
+          </step>
+          <step>
+            <para>Build the initrd:</para>
+            <screen>&prompt.root;<command>mkinitrd</command></screen>
+          </step>
+          <step>
+            <para>Reboot.</para>
+          </step>
+        </substeps>
+      </step>
+      <step>
+        <para>Create a DRBD resource:</para>
+        <screen>&prompt.root;<command>crm</command> script run drbd id=drbd drbd_resource=nfs drbdconf=/etc/drbd.d/nfs.res</screen>
+      </step>
+    </procedure>
+
+    <para>After you have finished this steps, <command>crm status</command>
+      gives you this result:</para>
+    <screen>Master/Slave Set: ms-drbd [drbd]
+     Masters: [ &node1; ]
+     Slaves: [ &node2; ]</screen>
+  </sect2>
+
+  <sect2 xml:id="sec.haqs.nfs.lvm.fs">
+    <title>LVM and File System Resources</title>
+    <para></para>
+    <procedure>
+      <step>
+        <para>Create an LVM resource:</para>
+        <screen>&prompt.root;<command>crm</command> script run lvm id=lvm volgrpname=nfs</screen>
+      </step>
+      <step>
+        <para>Create the <quote>sales</quote> file system resource:</para>
+        <screen>&prompt.root;<command>crm</command> run filesystem id=fs-sales device=/dev/nfs/sales directory=/srv/nfs/sales fstype=ext3</screen>
+      </step>
+      <step>
+        <para>Create the <quote>devel</quote> file system resource:</para>
+        <screen>&prompt.root;<command>crm</command> run filesystem id=fs-devel device=/dev/nfs/devel directory=/srv/nfs/devel fstype=ext3</screen>
+      </step>
+      <step>
+        <para>Group the LVM, sales, and devel resources:</para>
+        <screen>&prompt.root;<command>crm</command> configure group g-nfs lvm fs-sales fs-devel</screen>
+      </step>
+    </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.haqs.nfs.exportfs">
+    <title>NFS Export Resources</title>
+    <para> Once your DRBD, LVM, and file system resources are working properly,
+    continue with the resources managing your NFS exports. To create highly
+    available NFS export resources, use the <literal>exportfs</literal>
+    resource type.</para>
+    <procedure>
+      <step>
+        <para>If clients exclusively use NFSv3 to connect to the server, you do not
+     need this resource. In this case, continue with <xref
+       linkend="st.haqs.nfs.exportfs.non-root"/>, otherwise proceed:</para>
+        <substeps>
+          <step>
+            <para>Create the root of the virtual NFSv4 file system:</para>
+            <remark>toms 2015-10-26: How do you derive clientspec?</remark>
+            <screen>&prompt.root;<command>crm</command> script run exportfs id=exportfs-root directory=/srv/nfs options="rw,crossmnt" clientspec="10.161.60.0/255.255.255.0" fsid=0</screen>
+          </step>
+          <step>
+            <para>Clone the resource:</para>
+            <screen>&prompt.root;<command>crm</command> configure clone cl-exportfs-root exportfs-root</screen>
+            <para>This resource does not hold any actual NFS-exported data, merely the
+              empty directory (<filename>/srv/nfs</filename>) that the other NFS
+              exports are mounted into. Since there is no shared data involved
+              here, we can safely <emphasis>clone</emphasis> this resource.</para>
+          </step>
+          <step>
+            <para> Since any data should be exported only on nodes where
+              this clone has been properly started, add the following
+              constraints to the configuration:</para>
+            <screen>&prompt.root;<command>crm</command> order o-root_before_nfs inf: cl-exportfs-root g-nfs:start
+&prompt.root;<command>crm</command> colocation c-nfs_on_root inf: g-nfs cl-exportfs-root</screen>
+          </step>
+          <step>
+            <para>Check the output of the <command>exportfs -v</command>
+              command to verify this.</para>
+          </step>
+        </substeps>
+      </step>
+      <step xml:id="st.haqs.nfs.exportfs.non-root">
+        <para>Create NFS exports for <quote>sales</quote> and <quote>develop</quote>:</para>
+        <screen>&prompt.root;<command>crm</command> script run exportfs id=export-sales directory=/srv/nfs/sales/ \
+    options="rw,mountpoint" clientspec="10.161.60.0/255.255.255.0" fsid=1
+&prompt.root;<command>crm</command> script run exportfs id=export-devel directory=/srv/nfs/devel/ \
+    options="rw,mountpoint" clientspec="10.161.60.0/255.255.255.0" fsid=2</screen>
+      </step>
+      <step>
+        <para>
+       After you have created these resources, add them to the existing
+       <literal>g-nfs</literal> resource group:
+      </para>
+<screen>&prompt.crm.conf;<command>crm</command> configure edit g-nfs</screen>
+        <para>It should look like this:</para>
+        <screen>group g-nfs lvm fs-sales fs-devel exportfs-sales exportfs-devel</screen>
+      </step>
+    </procedure>
+    <para>After you have finished this steps, <command>exportfs</command> <option>-v</option>
+      gives you this result:</para>
+    <screen>/srv/nfs/devel  10.161.60.0/255.255.255.0(rw,wdelay,root_squash,no_subtree_check,fsid=2,mountpoint,sec=sys,rw,root_squash,no_all_squash)
+/srv/nfs        10.161.60.0/255.255.255.0(rw,wdelay,crossmnt,root_squash,no_subtree_check,fsid=0,sec=sys,rw,root_squash,no_all_squash)
+/srv/nfs/sales  10.161.60.0/255.255.255.0(rw,wdelay,root_squash,no_subtree_check,fsid=1,mountpoint,sec=sys,rw,root_squash,no_all_squash)</screen>
+  </sect2>
+
+  <sect2 xml:id="ex.haqs.nfs.virtualip">
+    <title>Resource for Floating IP Address</title>
+    <para>To enable smooth and seamless failover, your NFS clients will
+      be connecting to the NFS service via a floating cluster IP
+      address, rather than via any of the hosts' physical IP
+      addresses.</para>
+    <procedure>
+      <step>
+        <para></para>
+        <screen>&prompt.root;<command>crm</command> script run virtual-ip id=vip-nfs ip=10.9.9.180 cidr_netmask=24</screen>
+      </step>
+      <step>
+        <para> Add the IP address to the resource group (like you did
+          with the <literal>exportfs</literal> resources): </para>
+<screen>&prompt.crm.conf;<command>crm</command> configure edit g-nfs</screen>
+     <para>
+      This is the final setup of the resource group:
+     </para>
+<screen>group g-nfs \
+  lvm fs-devel fs-sales \
+  exportfs-devel exportfs-sales \
+  vip-nfs</screen>
+      </step>
+    </procedure>
+    <para>
+      Confirm that the cluster IP is running correctly:
+     </para>
+<screen>&prompt.root;<command>ip</command> address show</screen>
+     <para>
+      The cluster IP should be added as a <literal>secondary</literal>
+      address to whatever interface is connected to the
+      <literal>10.9.9.0/24</literal> subnet.
+     </para>
+  </sect2>
+</sect1>
