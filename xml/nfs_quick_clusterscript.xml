@@ -226,16 +226,111 @@ add_drivers+=drbd</screen>
       </step>
       <step>
         <para>Create the <quote>sales</quote> file system resource:</para>
-        <screen>&prompt.root;<command>crm</command> run filesystem id=fs.sales device=/dev/nfs/sales directory=/srv/nfs/sales fstype=ext3</screen>
+        <screen>&prompt.root;<command>crm</command> run filesystem id=fs-sales device=/dev/nfs/sales directory=/srv/nfs/sales fstype=ext3</screen>
       </step>
       <step>
         <para>Create the <quote>devel</quote> file system resource:</para>
-        <screen>&prompt.root;<command>crm</command> run filesystem id=fs.devel device=/dev/nfs/devel directory=/srv/nfs/devel fstype=ext3</screen>
+        <screen>&prompt.root;<command>crm</command> run filesystem id=fs-devel device=/dev/nfs/devel directory=/srv/nfs/devel fstype=ext3</screen>
       </step>
       <step>
         <para>Group the LVM, sales, and devel resources:</para>
-        <screen>&prompt.root;<command>crm</command> configure group g.nfs lvm fs.sales fs.devel</screen>
+        <screen>&prompt.root;<command>crm</command> configure group g-nfs lvm fs-sales fs-devel</screen>
       </step>
     </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.haqs.nfs.exportfs">
+    <title>NFS Export Resources</title>
+    <para> Once your DRBD, LVM, and file system resources are working properly,
+    continue with the resources managing your NFS exports. To create highly
+    available NFS export resources, use the <literal>exportfs</literal>
+    resource type.</para>
+    <procedure>
+      <step>
+        <para>If clients exclusively use NFSv3 to connect to the server, you do not
+     need this resource. In this case, continue with <xref
+       linkend="st.haqs.nfs.exportfs.non-root"/>.</para>
+        <substeps>
+          <step>
+            <para>Create the root of the virtual NFSv4 file system:</para>
+            <remark>toms 2015-10-26: How do you derive clientspec?</remark>
+            <screen>&prompt.root;<command>crm</command> script run exportfs id=exportfs-root directory=/srv/nfs options="rw,crossmnt" clientspec="10.161.60.0/255.255.255.0" fsid=0</screen>
+          </step>
+          <step>
+            <para>Clone the resource:</para>
+            <screen>&prompt.root;<command>crm</command> configure clone cl-exportfs-root exportfs-root</screen>
+            <para>This resource does not hold any actual NFS-exported data, merely the
+              empty directory (<filename>/srv/nfs</filename>) that the other NFS
+              exports are mounted into. Since there is no shared data involved
+              here, we can safely <emphasis>clone</emphasis> this resource.</para>
+          </step>
+          <step>
+            <para> Since any data should be exported only on nodes where
+              this clone has been properly started, add the following
+              constraints to the configuration:</para>
+            <screen>&prompt.root;<command>crm</command> order o-root_before_nfs inf: cl-exportfs-root g-nfs:start
+<command>crm</command> colocation c-nfs_on_root inf: g-nfs cl-exportfs-root</screen>
+          </step>
+          <step>
+            <para>Check the output of the <command>exportfs -v</command>
+              command to verify this.</para>
+          </step>
+        </substeps>
+      </step>
+      <step xml:id="st.haqs.nfs.exportfs.non-root">
+        <para>Create NFS exports for <quote>sales</quote> and <quote>develop</quote>:</para>
+        <screen>&prompt.root;<command>crm</command> script run exportfs id=export-sales directory=/srv/nfs/sales/ options="rw,mountpoint" clientspec="10.161.60.0/255.255.255.0" fsid=1
+&prompt.root;<command>crm</command> script run exportfs id=export-devel directory=/srv/nfs/devel/ options="rw,mountpoint" clientspec="10.161.60.0/255.255.255.0" fsid=2</screen>
+      </step>
+      <step>
+        <para>
+       After you have created these resources, add them to the existing
+       <literal>g-nfs</literal> resource group:
+      </para>
+<screen>&prompt.crm.conf;<command>crm</command> configure edit g-nfs</screen>
+        <para>It should look like this:</para>
+        <screen>group g-nfs lvm fs-sales fs-devel exportfs-sales exportfs-devel</screen>
+      </step>
+    </procedure>
+    <para>After you have finished this steps, <command>exportfs</command> <option>-v</option>
+      gives you this result:</para>
+    <screen>/srv/nfs/devel  10.161.60.0/255.255.255.0(rw,wdelay,root_squash,no_subtree_check,fsid=2,mountpoint,sec=sys,rw,root_squash,no_all_squash)
+/srv/nfs        10.161.60.0/255.255.255.0(rw,wdelay,crossmnt,root_squash,no_subtree_check,fsid=0,sec=sys,rw,root_squash,no_all_squash)
+/srv/nfs/sales  10.161.60.0/255.255.255.0(rw,wdelay,root_squash,no_subtree_check,fsid=1,mountpoint,sec=sys,rw,root_squash,no_all_squash)</screen>
+  </sect2>
+
+  <sect2 xml:id="ex.haqs.nfs.virtualip">
+    <title>Resource for Floating IP Address</title>
+    <para>To enable smooth and seamless failover, your NFS clients will
+      be connecting to the NFS service via a floating cluster IP
+      address, rather than via any of the hosts' physical IP
+      addresses.</para>
+    <procedure>
+      <step>
+        <para></para>
+        <screen>&prompt.root;<command>crm</command> script run virtual-ip id=vip-nfs ip=10.9.9.180 cidr_netmask=24</screen>
+      </step>
+      <step>
+        <para> Add the IP address to the resource group (like you did
+          with the <literal>exportfs</literal> resources): </para>
+<screen>&prompt.crm.conf;<command>crm</command> configure edit g-nfs</screen>
+     <para>
+      This is the final setup of the resource group:
+     </para>
+<screen>group g-nfs \
+  lvm fs-devel fs-sales \
+  exportfs-devel exportfs-sales \
+  vip-nfs</screen>
+      </step>
+    </procedure>
+    <para>
+      Confirm that the cluster IP is running correctly:
+     </para>
+<screen>&prompt.root;<command>ip</command> address show</screen>
+     <para>
+      The cluster IP should be added as a <literal>secondary</literal>
+      address to whatever interface is connected to the
+      <literal>10.9.9.0/24</literal> subnet.
+     </para>
   </sect2>
 </sect1>
