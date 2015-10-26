@@ -370,12 +370,6 @@
 
   <sect2 xml:id="sec_ha_quick_nfs_initial_drbd_resource">
    <title>Configuring a DRBD Resource</title>
-    <remark>toms 2015-10-15: It would be probably a good idea (and easier!)
-      if we describe "crm script" and use the "40-drbd" wizard. See
-      "crm script show 40-drbd" for details. Or even better to use the
-      cluster script "nfsserver".
-      But not for now. This is an issue for the next SP2.
-    </remark>
    <para>
     First, it is necessary to configure a DRBD resource to hold your data.
     This resource will act as the Physical Volume of an LVM Volume Group to
@@ -725,11 +719,6 @@ include /etc/drbd.d;</screen>
     <para>
      Enable your DRBD volume and start the initial synchronization:
     </para>
-    <remark>pmarek 2013-11-28:
-          missing activating DRBD volumes, initial sync</remark>
-    <remark>toms 2014-09-04: Like this? Not sure as it is already 
-          described in 
-        </remark>
 <screen>&prompt.root;<command>drbdadm</command> primary --force nfs
 &prompt.root;<command>drbdadm</command> down nfs
 &prompt.root;<command>drbdadm</command> up nfs</screen>
@@ -771,10 +760,10 @@ include /etc/drbd.d;</screen>
       <para>
        Create Logical Volumes in the Volume Group. This example assumes two
        Logical Volumes of 20 GB each, named <literal>sales</literal> and
-       <literal>engineering</literal>:
+       <literal>devel</literal>:
       </para>
 <screen>&prompt.root;<command>lvcreate</command> -n sales -L 20G nfs
-&prompt.root;<command>lvcreate</command> -n engineering -L 20G nfs</screen>
+&prompt.root;<command>lvcreate</command> -n devel -L 20G nfs</screen>
      </step>
      <step>
       <para>
@@ -784,7 +773,7 @@ include /etc/drbd.d;</screen>
       </para>
 <screen>&prompt.root;<command>vgchange</command> -ay nfs
 &prompt.root;<command>mkfs.ext3</command> /dev/nfs/sales
-&prompt.root;<command>mkfs.ext3</command> /dev/nfs/engineering</screen>
+&prompt.root;<command>mkfs.ext3</command> /dev/nfs/devel</screen>
      </step>
     </procedure>
    </sect3>
@@ -809,12 +798,12 @@ include /etc/drbd.d;</screen>
     The service is to host an NFSv4 virtual file system root hosted from
     <literal>/srv/nfs</literal>, with exports data served from
     <literal>/srv/nfs/sales</literal> and
-    <literal>/srv/nfs/engineering</literal>.
+    <literal>/srv/nfs/devel</literal>.
    </para>
    <para>
     Into these export directories, the cluster will mount
     <literal>ext3</literal> file systems from Logical Volumes named
-    <literal>sales</literal> and <literal>engineering</literal>,
+    <literal>sales</literal> and <literal>devel</literal>,
     respectively. Both of these Logical Volumes will be part of a highly
     available Volume Group, named <literal>nfs</literal>, which is hosted on
     a DRBD device.
@@ -893,10 +882,10 @@ include /etc/drbd.d;</screen>
   ocf:heartbeat:LVM \
     params volgrpname="nfs" \
   op monitor interval="30s"
-&prompt.crm.conf;<command>primitive</command> fs_engineering \
+&prompt.crm.conf;<command>primitive</command> fs_devel \
   ocf:heartbeat:Filesystem \
-  params device=/dev/nfs/engineering \
-    directory=/srv/nfs/engineering \
+  params device=/dev/nfs/devel \
+    directory=/srv/nfs/devel \
     fstype=ext3 \
   op monitor interval="10s"
 &prompt.crm.conf;<command>primitive</command> fs_sales \
@@ -912,7 +901,7 @@ include /etc/drbd.d;</screen>
       <emphasis>group</emphasis>:
      </para>
 <screen>&prompt.crm.conf;<command>group</command> g_nfs \
-  lvm_nfs fs_engineering fs_sales</screen>
+  lvm_nfs fs_devel fs_sales</screen>
     </listitem>
     <listitem>
      <para>
@@ -948,7 +937,7 @@ include /etc/drbd.d;</screen>
      <para>
       It mounts the two Logical Volumes to
       <filename>/srv/nfs/sales</filename> and
-      <filename>/srv/nfs/engineering</filename> on the same node. Confirm
+      <filename>/srv/nfs/devel</filename> on the same node. Confirm
       this with <command>mount</command> (or by looking at
       <filename>/proc/mounts</filename>).
      </para>
@@ -1036,10 +1025,10 @@ include /etc/drbd.d;</screen>
       clientspec="10.9.9.0/255.255.255.0" \
       wait_for_leasetime_on_stop=true \
   op monitor interval="30s"
-&prompt.crm.conf;<command>primitive</command> exportfs_engineering \
+&prompt.crm.conf;<command>primitive</command> exportfs_devel \
   ocf:heartbeat:exportfs \
     params fsid=2 \
-      directory="/srv/nfs/engineering" \
+      directory="/srv/nfs/devel" \
       options="rw,mountpoint" \
       clientspec="10.9.9.0/255.255.255.0" \
       wait_for_leasetime_on_stop=true \
@@ -1057,8 +1046,8 @@ include /etc/drbd.d;</screen>
        Edit the group configuration so it looks like this:
       </para>
 <screen>group g_nfs \
-  lvm_nfs fs_engineering fs_sales \
-  exportfs_engineering exportfs_sales</screen>
+  lvm_nfs fs_devel fs_sales \
+  exportfs_devel exportfs_sales</screen>
      </listitem>
      <listitem>
       <para>
@@ -1108,8 +1097,8 @@ include /etc/drbd.d;</screen>
       This is the final setup of the resource group:
      </para>
 <screen>group g_nfs \
-  lvm_nfs fs_engineering fs_sales \
-  exportfs_engineering exportfs_sales \
+  lvm_nfs fs_devel fs_sales \
+  exportfs_devel exportfs_sales \
   ip_nfs</screen>
     </listitem>
     <listitem>
@@ -1197,7 +1186,7 @@ include /etc/drbd.d;</screen>
    looks like this:
   </para>
 
-<screen>&prompt.root;<command>mount</command> -t nfs 10.9.9.180:/srv/nfs/engineering /home/engineering</screen>
+<screen>&prompt.root;<command>mount</command> -t nfs 10.9.9.180:/srv/nfs/devel /home/devel</screen>
 
   <para>
    For selecting a specific transport protocol (<option>proto</option>) and
@@ -1206,7 +1195,7 @@ include /etc/drbd.d;</screen>
   </para>
 
 <screen>&prompt.root;<command>mount</command> -t nfs -o proto=udp,rsize=32768,wsize=32768 \
-    10.9.9.180:/srv/nfs/engineering /home/engineering</screen>
+    10.9.9.180:/srv/nfs/devel /home/devel</screen>
 
   <para>
    To connect to a highly available NFS service, NFSv4 clients must use the
@@ -1214,12 +1203,12 @@ include /etc/drbd.d;</screen>
    physical cluster nodes' addresses. NFS version 4 requires that you
    specify the NFS export path <emphasis>relative</emphasis> to the root of
    the virtual file system. Thus, to connect to the
-   <literal>engineering</literal> export, you would use the following
+   <literal>devel</literal> export, you would use the following
    <literal>mount</literal> command (note the <literal>nfs4</literal> file
    system type):
   </para>
 
-<screen>&prompt.root;<command>mount</command> -t nfs4 10.9.9.180:/engineering /home/engineering</screen>
+<screen>&prompt.root;<command>mount</command> -t nfs4 10.9.9.180:/devel /home/devel</screen>
 
   <para>
    For further NFSv3 and NFSv4 mount options, consult the
