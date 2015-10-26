@@ -13,6 +13,12 @@
   <para>This section describes the initial configuration of a highly
     available NFS export in the context of the &pace; cluster manager
     with &crmshell; cluster scripts. </para>
+  <para>This section assumes that you create DRBD on empty disks (or
+    partitions). Make sure you have not used these with DRBD before.
+    If you really want to destroy all DRBD metadata, use the
+    <command>dd</command> command:
+  </para>
+  <screen>&prompt.root;<command>dd</command> if=/dev/zero of=<replaceable>DEVICE</replaceable> bs=1M count=128</screen>
 
   <!-- MiniTOC ? -->
   <!-- Prerequisites:
@@ -20,8 +26,8 @@
   * Creating a Basic Pacemaker Configuration (id=sec_ha_quick_nfs_initial_pacemaker)
   -->
 
-  <sect2 xml:id="sec.haqs.nfs.prep.stonith">
-    <title>Setting Up a &stonith; Device</title>
+  <sect2 xml:id="sec.haqs.nfs.sbd">
+    <title>SBD Device</title>
     <para>This setup uses the most simple SBD (<emphasis>STONITH Based
         Death</emphasis>) implementation. It is appropriate for clusters
       where all of your data is on the same shared storage. The shared
@@ -60,13 +66,10 @@ node 178326059: &node2;</screen>
     <screen>sdb.&node1;   (stonith:external/sbd): Started &node1;</screen>
   </sect2>
 
-  <sect2 xml:id="sec.haqs.nfs.prep.drbd">
-    <title>Preparing the DRBD Configuration</title>
-    <para>First, it is necessary to configure a DRBD resource to hold
-      your data. This resource will act as the physical volume of an LVM
-      volume group to be created later. This section assums that the LVM
-      volume group is to be called <literal>nfs</literal>. Hence, the
-      DRBD resource uses that same name.</para>
+  <sect2 xml:id="sec.haqs.nfs.drbd.config">
+    <title>DRBD Configuration</title>
+    <para>This section explains, how to create the DRBD configuration file
+      and to synchronizes it to all nodes:</para>
     <procedure xml:id="pro.haqs.nfs.prep.drbd">
       <step>
         <para> Create the file <filename>/etc/drbd.d/nfs.res</filename>
@@ -104,10 +107,61 @@ include /etc/drbd.d;</screen>
     </procedure>
   </sect2>
 
-  <sect2 xml:id="sec.haqs.nfs.prep.finish.drbd">
-    <title>Finalizing the DRBD Setup</title>
-    <para>After you have prepared your DRBD setup from <xref
-      linkend="sec.haqs.nfs.prep.drbd"/>, proceed as follows:</para>
+  <sect2 xml:id="sec.haqs.nfs.lvm.config">
+    <title>LVM Configuration</title>
+    <para>To use LVM with DRBD, it is necessary to change some options
+      in the LVM configuration file
+        (<filename>/etc/lvm/lvm.conf</filename>) and to remove stale
+      cache entries on the nodes. This can be done manually (see the
+      following procedure) or use &yast;'s DRBD module. In the &yast;
+      DRBD module, to make the automatically change inactive, disable
+      the checkbox <guimenu>Modify LVM Device filter
+        Automatically</guimenu> and change filter manually. In the
+        <guimenu>LVM Configuration</guimenu> entry you can enable or
+      disable the LVM cache. </para>
+    <para>To remove the cache manually, do the following:</para>
+    <procedure>
+      <step>
+        <para> Open <filename>/etc/lvm/lvm.conf</filename> on your
+          primary node in a text editor. </para>
+      </step>
+      <step>
+        <para>Search for the line starting with
+            <literal>filter</literal> and edit it as follows: </para>
+        <screen>filter = [ "r|/dev/sda.*|" ]</screen>
+        <para> This masks the underlying block device from the list of
+          devices LVM scans for Physical Volume signatures. This way,
+          LVM is instructed to read Physical Volume signatures from DRBD
+          devices, rather than from the underlying backing block
+          devices. </para>
+        <para> However, if you are using LVM
+            <emphasis>exclusively</emphasis> on your DRBD devices, then
+          you may also specify the LVM filter as such: </para>
+        <screen>filter = [ "a|/dev/drbd.*|", "r|.*|" ]</screen>
+      </step>
+      <step>
+        <para> In addition, disable the LVM cache by setting: </para>
+        <screen>write_cache_state = 0</screen>
+      </step>
+      <step>
+        <para> Save your changes to the file. </para>
+      </step>
+      <step>
+        <para> Delete <filename>/etc/lvm/cache/.cache</filename> to
+          remove any stale cache entries. </para>
+      </step>
+      <step>
+        <para> Use &csync; to replicate these changes to peer node.
+        </para>
+      </step>
+    </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.haqs.nfs.drbd.setup">
+    <title>DRBD Setup</title>
+    <para>This section assumes that you have created the DRBD configuration file
+      from <xref linkend="sec.haqs.nfs.drbd.config"/>. It explains how you
+      finalize the DRBD setup by keeping the DRBD nodes in sync:</para>
     <procedure>
      <step>
       <para>If you use a firewall in your cluster, open port
@@ -166,13 +220,17 @@ include /etc/drbd.d;</screen>
     </procedure>
   </sect2>
 
-  <sect2 xml:id="sec.haqs.nfs.prep.drbdsetup">
-    <title>Setting Up DRBD</title>
-    <para></para>
+  <sect2 xml:id="sec.haqs.nfs.drbd.res">
+    <title>DRBD Resource</title>
+    <para>It is necessary to configure a DRBD resource to hold
+      your data. This resource will act as the physical volume of an LVM
+      volume group to be created later. This section assums that the LVM
+      volume group is to be called <literal>nfs</literal>. Hence, the
+      DRBD resource uses that same name.</para>
     <procedure>
       <step>
-        <para>Load the DRBD module to make the proc file <filename>/proc/drbd</filename>
-        available:</para>
+        <para>Load the DRBD kernel module to make the proc file
+          <filename>/proc/drbd</filename> available:</para>
         <screen>&prompt.root;<command>modprobe</command> drbd</screen>
       </step>
       <step>
@@ -215,14 +273,68 @@ add_drivers+=drbd</screen>
      Slaves: [ &node2; ]</screen>
   </sect2>
 
-  <sect2 xml:id="sec.haqs.nfs.lvm.fs">
-    <title>LVM and File System Resources</title>
-    <para></para>
+  <sect2 xml:id="sec.haqs.nfs.lvm">
+    <title>LVM</title>
+    <para>After you have successfully setup DRBD and LVM configuration
+      files and the DRBD resource, now you can prepare the physical
+      volume, create an LVM volume group with logical volumes and create
+      file systems on the logical volumes:</para>
+    <important>
+      <title>Automatic Synchronization</title>
+      <para>
+        Execute all of the following steps only on the node where your
+        resource is currently in the primary role. It is
+        <emphasis>not</emphasis> necessary to repeat the commands on the DRBD
+        peer node as the changes are automatically synchronized.
+      </para>
+    </important>
     <procedure>
       <step>
-        <para>Create an LVM resource:</para>
+        <para> Initialize the DRBD resource as an LVM physical
+          volume:</para>
+        <screen>&prompt.root;<command>pvcreate</command> /dev/drbd/by-res/nfs/0</screen>
+      </step>
+      <step>
+        <para> Create an LVM volume group that includes this physical
+          volume: </para>
+        <screen>&prompt.root;<command>vgcreate</command> nfs /dev/drbd/by-res/nfs/0</screen>
+      </step>
+      <step>
+        <para> Create logical volumes in the volume group. This example
+          assumes two logical volumes of 20 GB each, named
+            <literal>sales</literal> and <literal>devel</literal>: </para>
+        <screen>&prompt.root;<command>lvcreate</command> -n sales -L 20G nfs
+&prompt.root;<command>lvcreate</command> -n devel -L 20G nfs</screen>
+      </step>
+      <step>
+        <para> Activate the volume group:</para>
+        <screen>&prompt.root;<command>vgchange</command> -ay nfs</screen>
+      </step>
+      <step>
+        <para>Create file systems on the new logical volumes. This
+          example assumes <literal>ext3</literal> as the file system
+          type: </para>
+        <screen>&prompt.root;<command>mkfs.ext3</command> /dev/nfs/sales
+&prompt.root;<command>mkfs.ext3</command> /dev/nfs/devel</screen>
+      </step>
+      <step>
+        <para>Finally, create an LVM resource:</para>
         <screen>&prompt.root;<command>crm</command> script run lvm id=lvm volgrpname=nfs</screen>
       </step>
+    </procedure>
+    <para>After you have finished this steps, check if the physical
+      volumes, volume groups, and logical volumes with:</para>
+    <screen>&prompt.root;<command>pvdisplay</command>
+&prompt.root;<command>vgdisplay</command>
+&prompt.root;<command>lvdisplay</command></screen>
+  </sect2>
+
+  <sect2 xml:id="sec.haqs.nfs.fs">
+    <title>File System Resources</title>
+    <para>This section creates the respective file systems for
+        <literal>sales</literal> and <literal>devel</literal>  and
+      groups them:</para>
+    <procedure>
       <step>
         <para>Create the <quote>sales</quote> file system resource:</para>
         <screen>&prompt.root;<command>crm</command> run filesystem id=fs-sales device=/dev/nfs/sales directory=/srv/nfs/sales fstype=ext3</screen>
@@ -237,10 +349,9 @@ add_drivers+=drbd</screen>
       </step>
     </procedure>
   </sect2>
-
   <sect2 xml:id="sec.haqs.nfs.exportfs">
     <title>NFS Export Resources</title>
-    <para> Once your DRBD, LVM, and file system resources are working properly,
+    <para> After your DRBD, LVM, and file system resources are working properly,
     continue with the resources managing your NFS exports. To create highly
     available NFS export resources, use the <literal>exportfs</literal>
     resource type.</para>
