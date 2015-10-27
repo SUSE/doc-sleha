@@ -20,15 +20,58 @@
   <title>Setting Up NFS Server with Cluster Scripts</title>
   <para>This section describes the initial configuration of a highly
     available NFS export in the context of the &pace; cluster manager
-    with &crmshell; cluster scripts. </para>
-  <para>This section assumes that you create DRBD on empty disks (or
-    partitions). Make sure you have not used these with DRBD before.
-    If you really want to destroy all DRBD metadata, use the
-    <command>dd</command> command:
+    with &crmshell; cluster scripts. Furthermore, it is assumed that
+    you create DRBD on empty disks (or partitions).
   </para>
-  <screen>&prompt.root;<command>dd</command> if=/dev/zero of=<replaceable>DEVICE</replaceable> bs=1M count=128</screen>
+  <para>Cluster scripts provide an integrated way to perform common
+    tasks across the cluster. This section uses cluster scripts extensively by
+    performing the <command>crm script run</command> command. Use the
+    <command>verify</command> subcommand to check your arguments before you
+    execute it. For example, to verify the <literal>sbd</literal> primitive
+    and its parameters, run:
+  </para>
+  <screen>&prompt.root;<command>crm</command> script verify sbd id=sdb.&node1; node=178325803 sbd_device=/dev/sdb</screen>
 
-  <!-- MiniTOC ? -->
+  <para>For more information refer to <xref linkend="sec.ha.manual_config.clusterscripts"/>.</para>
+
+  <table xml:id="tab.haqs.params">
+    <title>Overview of Parameters for Cluster Scripts</title>
+    <tgroup cols="2">
+      <thead>
+        <row>
+          <entry>Parameter</entry>
+          <entry>Value</entry>
+        </row>
+      </thead>
+      <tbody>
+        <row>
+          <entry>Cluster node names</entry>
+          <entry>&node1;, &node2;</entry>
+        </row>
+        <row>
+          <entry>DRBD</entry>
+          <entry></entry>
+        </row>
+        <row>
+          <entry>LVM</entry>
+          <entry></entry>
+        </row>
+        <row>
+          <entry>File System Resources</entry>
+          <entry></entry>
+        </row>
+        <row>
+          <entry>NFS export resources</entry>
+          <entry></entry>
+        </row>
+        <row>
+          <entry>Floating IP address</entry>
+          <entry></entry>
+        </row>
+      </tbody>
+    </tgroup>
+  </table>
+
   <!-- Prerequisites:
   * Initial Cluster Setup (id=sec_ha_quick_nfs_initial_setup)
   * Creating a Basic Pacemaker Configuration (id=sec_ha_quick_nfs_initial_pacemaker)
@@ -58,15 +101,8 @@ node 178326059: &node2;</screen>
           identifier is <literal>178325803</literal>.</para>
       </step>
       <step>
-        <para>Verify if everything is ok (use the values from the last
-          steps):</para>
-        <screen>&prompt.root;<command>crm</command> script verify sbd id=sdb.&node1;
-  node=178325803 sbd_device=/dev/sdb</screen>
-      </step>
-      <step>
         <para>Run the <command>sbd</command> cluster script:</para>
-        <screen>&prompt.root;<command>crm</command> script run sbd id=sdb.&node1;
-  node=178325803 sbd_device=/dev/sdb</screen>
+        <screen>&prompt.root;<command>crm</command> script run sbd id=sdb.&node1; node=178325803 sbd_device=/dev/sdb</screen>
       </step>
     </procedure>
     <para>After you have finished this steps, <command>crm status</command>
@@ -169,7 +205,16 @@ include /etc/drbd.d;</screen>
     <title>DRBD Setup</title>
     <para>This section assumes that you have created the DRBD configuration file
       from <xref linkend="sec.haqs.nfs.drbd.config"/>. It explains how you
-      finalize the DRBD setup by keeping the DRBD nodes in sync:</para>
+      finalize the DRBD setup by keeping the DRBD nodes in sync.</para>
+    <!-- toms 2015-10-27: Not sure which one is the best solution -->
+    <!--
+      <para>In case you have used a disk with DRBD before and want to erase its
+      metainformation, use this command:
+    </para>
+    <screen>&prompt.root;<command>dd</command> if=/dev/zero of=<replaceable>DEVICE</replaceable> bs=1M count=128
+&prompt.root;<command>drbdmeta</command> /dev/drbd0 v08 /dev/sda internal wipe-md</screen>
+    -->
+
     <procedure>
      <step>
       <para>If you use a firewall in your cluster, open port
@@ -184,6 +229,9 @@ include /etc/drbd.d;</screen>
 &prompt.root;<command>drbdadm</command> up nfs</screen>
       <para>
        This initializes the meta data storage and has to be done only once.
+       The disk state from <filename>/proc/drbd</filename> is
+        <literal>Inconsistent/Inconsistent</literal> and is expected at this
+        point.
       </para>
      </step>
      <step>
@@ -194,6 +242,9 @@ include /etc/drbd.d;</screen>
      <step>
        <para>Switch to &node1; and make this side primary:</para>
        <screen>&prompt.root;<command>drbdadm</command> primary nfs</screen>
+       <para>To enforce synchronization, use the <option>--force</option>
+         option after <command>primary</command>.
+       </para>
      </step>
       <step>
        <para>Watch the DRBD status by entering the following on each node:</para>
@@ -210,22 +261,15 @@ include /etc/drbd.d;</screen>
       </para>
 <screen>&prompt.root;<command>drbdadm</command> -- --overwrite-data-of-peer primary nfs</screen>
      </step>
-     <step>
-       <para>The status in the <literal>ds</literal> row (disk
-            status) must be <literal>UpToDate</literal> on both nodes.
-       </para>
-     </step>
-     <!-- toms: This is nonsense, as we create a file system on top of LVM.
-       <step>
-       <para>Create your file system on top of your DRBD device, for
-          example: </para>
-       <screen>&prompt.root;<command>mkfs.ext3</command> /dev/drbd/by-res/nfs/0</screen>
-     </step>
-     <step>
-       <para>Mount the file system and use it: </para>
-       <screen>&prompt.root;<command>mount</command> /dev/drbd0 /mnt/</screen>
-     </step>-->
     </procedure>
+    <para>After you have finished this procedure, the status in the
+      <literal>ds</literal> row (<quote>disk status</quote>) must be
+      <literal>UpToDate</literal> on both nodes:
+      <filename>/proc/drbd</filename>
+    </para>
+    <screen>&prompt.root;<command>cat</command> /proc/drbd
+ 0: cs:Connected ro:Primary/Secondary ds:UpToDate/UpToDate C r-----
+    ns:524236 nr:0 dw:0 dr:525148 al:0 bm:0 lo:0 pe:0 ua:0 ap:0 ep:1 wo:f oos:0</screen>
   </sect2>
 
   <sect2 xml:id="sec.haqs.nfs.drbd.res">
@@ -300,19 +344,23 @@ add_drivers+=drbd</screen>
       <step>
         <para> Initialize the DRBD resource as an LVM physical
           volume:</para>
-        <screen>&prompt.root;<command>pvcreate</command> /dev/drbd/by-res/nfs/0</screen>
+        <screen>&prompt.root;<command>pvcreate</command> /dev/drbd/by-res/nfs/0
+  Physical volume "/dev/drbd/by-res/nfs/0" successfully created</screen>
       </step>
       <step>
         <para> Create an LVM volume group that includes this physical
           volume: </para>
-        <screen>&prompt.root;<command>vgcreate</command> nfs /dev/drbd/by-res/nfs/0</screen>
+        <screen>&prompt.root;<command>vgcreate</command> nfs /dev/drbd/by-res/nfs/0
+  Volume group "nfs" successfully created</screen>
       </step>
       <step>
         <para> Create logical volumes in the volume group. This example
           assumes two logical volumes of 20 GB each, named
             <literal>sales</literal> and <literal>devel</literal>: </para>
         <screen>&prompt.root;<command>lvcreate</command> -n sales -L 20G nfs
-&prompt.root;<command>lvcreate</command> -n devel -L 20G nfs</screen>
+  Logical volume "sales" created.
+&prompt.root;<command>lvcreate</command> -n devel -L 20G nfs
+  Logical volume "devel" created.</screen>
       </step>
       <step>
         <para> Activate the volume group:</para>
@@ -345,17 +393,23 @@ add_drivers+=drbd</screen>
     <procedure>
       <step>
         <para>Create the <quote>sales</quote> file system resource:</para>
-        <screen>&prompt.root;<command>crm</command> run filesystem id=fs-sales device=/dev/nfs/sales directory=/srv/nfs/sales fstype=ext3</screen>
+        <screen>&prompt.root;<command>crm</command> script run filesystem id=fs-sales device=/dev/nfs/sales directory=/srv/nfs/sales fstype=ext3</screen>
       </step>
       <step>
         <para>Create the <quote>devel</quote> file system resource:</para>
-        <screen>&prompt.root;<command>crm</command> run filesystem id=fs-devel device=/dev/nfs/devel directory=/srv/nfs/devel fstype=ext3</screen>
+        <screen>&prompt.root;<command>crm</command> script run filesystem id=fs-devel device=/dev/nfs/devel directory=/srv/nfs/devel fstype=ext3</screen>
       </step>
       <step>
         <para>Group the LVM, sales, and devel resources:</para>
         <screen>&prompt.root;<command>crm</command> configure group g-nfs lvm fs-sales fs-devel</screen>
       </step>
     </procedure>
+    <para>After you have finished this procedure, you should see a resource
+      group when running <command>crm status</command>:</para>
+    <screen>Resource Group: g-nfs
+     lvm        (ocf::heartbeat:LVM):   Started &node1;
+     fs-sales   (ocf::heartbeat:Filesystem):    Started &node1;
+     fs-devel   (ocf::heartbeat:Filesystem):    Started &node1;</screen>
   </sect2>
   <sect2 xml:id="sec.haqs.nfs.exportfs">
     <title>NFS Export Resources</title>
@@ -407,7 +461,7 @@ add_drivers+=drbd</screen>
        After you have created these resources, add them to the existing
        <literal>g-nfs</literal> resource group:
       </para>
-<screen>&prompt.crm.conf;<command>crm</command> configure edit g-nfs</screen>
+<screen>&prompt.root;<command>crm</command> configure edit g-nfs</screen>
         <para>It should look like this:</para>
         <screen>group g-nfs lvm fs-sales fs-devel exportfs-sales exportfs-devel</screen>
       </step>
@@ -452,5 +506,8 @@ add_drivers+=drbd</screen>
       address to whatever interface is connected to the
       <literal>10.9.9.0/24</literal> subnet.
      </para>
+
+    <remark>toms 2015-10-27: Add full example of the "crm configure show"
+      output.</remark>
   </sect2>
 </sect1>
