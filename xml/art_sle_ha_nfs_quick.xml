@@ -610,15 +610,6 @@ include /etc/drbd.d;</screen>
             status) must be <literal>UpToDate</literal> on both nodes.
        </para>
      </step>
-     <step>
-       <para>Create your file system on top of your DRBD device, for
-          example: </para>
-       <screen>&prompt.root;<command>mkfs.ext3</command> /dev/drbd/by-res/nfs/0</screen>
-     </step>
-     <step>
-       <para>Mount the file system and use it: </para>
-       <screen>&prompt.root;<command>mount</command> /dev/drbd0 /mnt/</screen>
-     </step>
     </procedure>
    </sect2>
   </sect1>
@@ -706,17 +697,8 @@ include /etc/drbd.d;</screen>
       </para>
      </step>
     </procedure>
-   </sect2>
-   <sect2 xml:id="sec_ha_quick_nfs_initial_lvm_config_drbd">
-    <title>Starting DRBD</title>
     <para>
-     Enable your DRBD volume and start the initial synchronization:
-    </para>
-<screen>&prompt.root;<command>drbdadm</command> primary --force nfs
-&prompt.root;<command>drbdadm</command> down nfs
-&prompt.root;<command>drbdadm</command> up nfs</screen>
-    <para>
-     Find more information about DRBD in <xref linkend="cha.ha.drbd"/>.
+       Find more information about DRBD in <xref linkend="cha.ha.drbd"/>.
     </para>
    </sect2>
    <sect2 xml:id="sec_ha_quick_nfs_initial_lvm_config_volume">
@@ -826,7 +808,7 @@ include /etc/drbd.d;</screen>
     them.
    </para>
    <para>
-    Check this with the <command>crm_mon</command> command, or by looking at
+    Check this with the <command>crm status</command> command, or by looking at
     the contents of <filename>/proc/drbd</filename>.
    </para>
   </sect2>
@@ -840,26 +822,13 @@ include /etc/drbd.d;</screen>
     <remark>toms 2014-08-29: Why? Any profound reasons?</remark>
    </para>
 <screen>&prompt.crm.conf;<command>primitive</command> nfsserver \
-  ocf:heartbeat:nfsserver \
+  systemd:nfs-server \
   op monitor interval="30s"
-&prompt.crm.conf;<command>clone</command> cl_ocf_heartbeat_nfsserver nfsserver 
+&prompt.crm.conf;<command>clone</command> cl-nfsserver nfsserver
 &prompt.crm.conf;<command>commit</command></screen>
-   <note>
-    <title>Resource Type Name and NFS Server init Script</title>
-    <para>
-     <remark>taroth 2014-08-22: FIXME - systemd, no more init scripts</remark>
-     The name of the <literal>ocf</literal> resource type must be identical
-     to the file name of the NFS server init script, installed under
-     <filename>/etc/init.d</filename>. &sls; ships the init script as
-     <filename>/etc/init.d/nfsserver</filename> (package
-     <systemitem class="resource">nfs-kernel-server</systemitem>). Hence the
-     resource must be of type <literal>ocf:heartbeat:nfsserver</literal>.
-    </para>
-   </note>
    <para>
     After you have committed this configuration, Pacemaker should start the
     NFS Kernel server processes on both nodes.
-    <remark>toms 2014-08-29: Why shall they started on both?</remark>
    </para>
   </sect2>
 
@@ -893,7 +862,7 @@ include /etc/drbd.d;</screen>
       Combine these resources into a Pacemaker resource
       <emphasis>group</emphasis>:
      </para>
-<screen>&prompt.crm.conf;<command>group</command> g_nfs \
+<screen>&prompt.crm.conf;<command>group</command> g-nfs \
   lvm_nfs fs_devel fs_sales</screen>
     </listitem>
     <listitem>
@@ -902,10 +871,10 @@ include /etc/drbd.d;</screen>
       on the same node where the DRBD Master/Slave resource is in the Master
       role:
      </para>
-<screen>&prompt.crm.conf;<command>order</command> o_drbd_before_nfs inf: \
-  ms_drbd_nfs:promote g_nfs:start
-&prompt.crm.conf;<command>colocation</command> c_nfs_on_drbd inf: \
-  g_nfs ms_drbd_nfs:Master</screen>
+<screen>&prompt.crm.conf;<command>order</command> o-drbd_before_nfs inf: \
+  ms_drbd_nfs:promote g-nfs:start
+&prompt.crm.conf;<command>colocation</command> c-nfs_on_drbd inf: \
+  g-nfs ms_drbd_nfs:Master</screen>
     </listitem>
     <listitem>
      <para>
@@ -965,7 +934,7 @@ include /etc/drbd.d;</screen>
     options="rw,crossmnt" \
     clientspec="10.9.9.0/255.255.255.0" \
   op monitor interval="30s"
-&prompt.crm.conf;<command>clone</command> cl_exportfs_root exportfs_root</screen>
+&prompt.crm.conf;<command>clone</command> cl-exportfs_root exportfs_root</screen>
       <para>
        This resource does not hold any actual NFS-exported data, merely the
        empty directory (<filename>/srv/nfs</filename>) that the other NFS
@@ -979,10 +948,10 @@ include /etc/drbd.d;</screen>
        been properly started, add the following constraints to the
        configuration:
       </para>
-<screen>&prompt.crm.conf;<command>order</command> o_root_before_nfs inf: \
-  cl_exportfs_root g_nfs:start
+<screen>&prompt.crm.conf;<command>order</command> o_root_before_nfs Mandatory: \
+  cl-exportfs_root g-nfs:start
 &prompt.crm.conf;<command>colocation</command> c_nfs_on_root inf: \
-  g_nfs cl_exportfs_root
+  g-nfs cl-exportfs_root
 &prompt.crm.conf;<command>commit</command></screen>
       <para>
        After this, Pacemaker should start the NFSv4 virtual file system root
@@ -1030,15 +999,15 @@ include /etc/drbd.d;</screen>
      <listitem>
       <para>
        After you have created these resources, add them to the existing
-       <literal>g_nfs</literal> resource group:
+       <literal>g-nfs</literal> resource group:
       </para>
-<screen>&prompt.crm.conf;edit g_nfs</screen>
+<screen>&prompt.crm.conf;edit g-nfs</screen>
      </listitem>
      <listitem>
       <para>
        Edit the group configuration so it looks like this:
       </para>
-<screen>group g_nfs \
+<screen>group g-nfs \
   lvm_nfs fs_devel fs_sales \
   exportfs_devel exportfs_sales</screen>
      </listitem>
@@ -1085,11 +1054,11 @@ include /etc/drbd.d;</screen>
       Add the IP address to the resource group (like you did with the
       <literal>exportfs</literal> resources):
      </para>
-<screen>&prompt.crm.conf;<command>edit</command> g_nfs</screen>
+<screen>&prompt.crm.conf;<command>edit</command> g-nfs</screen>
      <para>
       This is the final setup of the resource group:
      </para>
-<screen>group g_nfs \
+<screen>group g-nfs \
   lvm_nfs fs_devel fs_sales \
   exportfs_devel exportfs_sales \
   ip_nfs</screen>
@@ -1147,9 +1116,6 @@ include /etc/drbd.d;</screen>
 
  <sect1 xml:id="sec_ha_quick_nfs_use">
   <title>Using the NFS Service</title>
-
-  <remark>toms 2014-09-01: Not sure which information can stay and which 
-  should be removed. Devs, any comments?</remark>
 
   <para>
    This section outlines how to use the highly available NFS service from an
