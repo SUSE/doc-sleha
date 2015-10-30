@@ -359,10 +359,6 @@
 
  <sect1 xml:id="sec_ha_quick_nfs_initial_drbd_resource">
    <title>DRBD Configuration</title>
-   <para>This section describes the initial configuration of a highly available
-   NFS export in the context of the Pacemaker cluster manager. Note that the
-   configuration described here will work for NFS clients using NFS versions
-   3 or 4.</para>
    <para>
     First, it is necessary to configure a DRBD resource to hold your data.
     This resource will act as the Physical Volume of an LVM Volume Group to
@@ -563,7 +559,7 @@ include /etc/drbd.d;</screen>
     </para>
 
     <!--
-    Take some steps from https://github.com/SUSE/doc-sleha/commit/5bb10f7fc6
+    Taken some steps from https://github.com/SUSE/doc-sleha/commit/5bb10f7fc6
     -->
     <procedure>
      <step>
@@ -577,22 +573,21 @@ include /etc/drbd.d;</screen>
       </para>
 <screen>&prompt.root;<command>drbdadm</command> create-md nfs
 &prompt.root;<command>drbdadm</command> up nfs</screen>
-      <para>
-       This initializes the meta data storage and has to be done only once.
-      </para>
+      <para> This initializes the meta data storage and creates the
+              <filename>/dev/drbd</filename> device and has to be done
+            only once. </para>
      </step>
      <step>
-       <para>Switch to &node1; and create a new UUID on &node1; to
-              shorten the initial resyncronisation of DRBD
-              resource:</para>
-       <screen>&prompt.root;<command>drbdadm</command> new-current-uuid --zeroout-devices nfs</screen>
+       <para>Switch to &node1; and create a new UUID to shorten the
+            initial resyncronisation of DRBD resource:</para>
+       <screen>&prompt.root;<command>drbdadm</command> new-current-uuid --zeroout-devices nfs/0</screen>
      </step>
      <step>
        <para>Make &node1; primary:</para>
        <screen>&prompt.root;<command>drbdadm</command> primary nfs</screen>
      </step>
       <step>
-       <para>Watch the DRBD status by entering the following on each node:</para>
+       <para>Watch the DRBD status:</para>
        <screen>&prompt.root;<command>cat</command> /proc/drbd</screen>
        <para> You should get something like this: </para>
           <screen>[... version string omitted ...]
@@ -605,37 +600,23 @@ include /etc/drbd.d;</screen>
       </para>
 <screen>&prompt.root;<command>drbdadm</command> -- --overwrite-data-of-peer primary nfs</screen>
      </step>
-     <step>
-       <para>The status in the <literal>ds</literal> row (disk
-            status) must be <literal>UpToDate</literal> on both nodes.
-       </para>
-     </step>
     </procedure>
+     <para>After the syncronization is finished, the status in the
+       <literal>ds</literal> row (disk status) must be
+       <literal>UpToDate</literal> on both nodes.</para>
+     <para>
+       Find more information about DRBD in <xref linkend="cha.ha.drbd"/>.
+     </para>
    </sect2>
   </sect1>
 
   <sect1 xml:id="sec_ha_quick_nfs_initial_lvm_config">
    <title>LVM on Top of DRBD</title>
-   <para>
-    If you want or need to use LVM on top of DRBD, use the following steps.
-   </para>
-   <orderedlist>
-    <listitem>
-     <para>
-      <xref linkend="sec_ha_quick_nfs_initial_lvm_config_lvm"/>
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      <xref linkend="sec_ha_quick_nfs_initial_lvm_config_drbd"/>
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      <xref linkend="sec_ha_quick_nfs_initial_lvm_config_volume"/>
-     </para>
-    </listitem>
-   </orderedlist>
+    <para>LVM (<emphasis>Logical Volume Manager</emphasis>) enables
+      flexible distribution of hard disk space over several file
+      systems. It was developed because sometimes the need to change the
+      segmenting of hard disk space arises just after the initial
+      partitioning has been done. </para>
    <sect2 xml:id="sec_ha_quick_nfs_initial_lvm_config_lvm">
     <title>Configuring LVM</title>
     <para>
@@ -648,7 +629,7 @@ include /etc/drbd.d;</screen>
       and change filter manually. In the <guimenu>LVM Configuration</guimenu>
       entry you can enable or disable the LVM cache.
     </para>
-    <para>To remove the cache manually, do the following:</para>
+    <para>Do the following:</para>
     <procedure>
      <step>
       <para>
@@ -664,8 +645,8 @@ include /etc/drbd.d;</screen>
 <screen>filter = [ "r|/dev/sda.*|" ]</screen>
       <para>
        This masks the underlying block device from the list of devices LVM
-       scans for Physical Volume signatures. This way, LVM is instructed to
-       read Physical Volume signatures from DRBD devices, rather than from
+       scans for physical volume signatures. This way, LVM is instructed to
+       read physical volume signatures from DRBD devices, rather than from
        the underlying backing block devices.
       </para>
       <para>
@@ -697,16 +678,13 @@ include /etc/drbd.d;</screen>
       </para>
      </step>
     </procedure>
-    <para>
-       Find more information about DRBD in <xref linkend="cha.ha.drbd"/>.
-    </para>
    </sect2>
+
    <sect2 xml:id="sec_ha_quick_nfs_initial_lvm_config_volume">
-    <title>Creating Volumes on the DRBD device</title>
-    <para>
-     Now you can prepare the Physical Volume, create an LVM Volume Group
-     with Logical Volumes and create file systems on the Logical Volumes.
-    </para>
+    <title>Creating Volumes on the DRBD Device</title>
+    <para> Now you can prepare the physical colume, create an LVM volume
+        froup with logical volumes and create file systems on the
+        logical volumes. </para>
     <important>
      <title>Automatic Synchronization</title>
      <para>
@@ -718,34 +696,26 @@ include /etc/drbd.d;</screen>
     </important>
     <procedure>
      <step>
-      <para>
-       To be able to create an LVM Volume Group, first initialize the DRBD
-       resource as an LVM Physical Volume. To do so, issue the following
-       command:
-      </para>
+      <para> Create a LVM volume group by first initializing the DRBD
+            resource as an LVM physical volume: </para>
 <screen>&prompt.root;<command>pvcreate</command> /dev/drbd/by-res/nfs/0</screen>
      </step>
      <step>
-      <para>
-       Create an LVM Volume Group that includes this Physical Volume:
-      </para>
+      <para> Create an LVM Volume Group <systemitem>nfs</systemitem>
+            that includes this physical volume: </para>
 <screen>&prompt.root;<command>vgcreate</command> nfs /dev/drbd/by-res/nfs/0</screen>
      </step>
      <step>
-      <para>
-       Create Logical Volumes in the Volume Group. This example assumes two
-       Logical Volumes of 20 GB each, named <literal>sales</literal> and
-       <literal>devel</literal>:
-      </para>
+      <para> Create logical volumes in the volume group. This example
+            assumes two logical volumes of 20 GB each, named
+              <literal>sales</literal> and <literal>devel</literal>: </para>
 <screen>&prompt.root;<command>lvcreate</command> -n sales -L 20G nfs
 &prompt.root;<command>lvcreate</command> -n devel -L 20G nfs</screen>
      </step>
      <step>
-      <para>
-       Activate the Volume Group and create file systems on the new Logical
-       Volumes. This example assumes <literal>ext3</literal> as the file
-       system type:
-      </para>
+      <para> Activate the volume group and create file systems on the
+            new logical volumes. This example assumes
+              <literal>ext3</literal> as the file system type: </para>
 <screen>&prompt.root;<command>vgchange</command> -ay nfs
 &prompt.root;<command>mkfs.ext3</command> /dev/nfs/sales
 &prompt.root;<command>mkfs.ext3</command> /dev/nfs/devel</screen>
@@ -761,32 +731,32 @@ include /etc/drbd.d;</screen>
    is covered in detail in the following sections.
   </para>
 
-  <example>
-   <title>NFS Scenario</title>
-   <para>
-    The following configuration examples assume that
-    <literal>10.9.9.180</literal> is the virtual IP address to use for an
-    NFS server which serves clients in the <literal>10.9.9.0/24</literal>
-    subnet.
-   </para>
-   <para>
-    The service is to host an NFSv4 virtual file system root hosted from
-    <literal>/srv/nfs</literal>, with exports data served from
-    <literal>/srv/nfs/sales</literal> and
-    <literal>/srv/nfs/devel</literal>.
-   </para>
-   <para>
-    Into these export directories, the cluster will mount
-    <literal>ext3</literal> file systems from Logical Volumes named
-    <literal>sales</literal> and <literal>devel</literal>,
-    respectively. Both of these Logical Volumes will be part of a highly
-    available Volume Group, named <literal>nfs</literal>, which is hosted on
-    a DRBD device.
-   </para>
-  </example>
+  <itemizedlist>
+    <title>Example NFS Scenario</title>
+    <listitem>
+        <para>The following configuration examples assume that
+            <literal>10.9.9.180</literal> is the virtual IP address to
+          use for an NFS server which serves clients in the
+            <literal>10.9.9.0/24</literal> subnet.</para>
+    </listitem>
+    <listitem>
+        <para>The service is to host an NFSv4 virtual file system root
+          hosted from <literal>/srv/nfs</literal>, with exports data
+          served from <literal>/srv/nfs/sales</literal> and
+            <literal>/srv/nfs/devel</literal>. </para>
+    </listitem>
+    <listitem>
+        <para>Into these export directories, the cluster will mount
+            <literal>ext3</literal> file systems from logical volumes
+          named <literal>sales</literal> and <literal>devel</literal>,
+          respectively. Both of these logical volumes will be part of a
+          highly available volume group, named <literal>nfs</literal>,
+          which is hosted on a DRBD device. </para>
+    </listitem>
+  </itemizedlist>
 
   <sect2 xml:id="sec_ha_quick_nfs_resources_drbd">
-   <title>DRBD Primitive, and Master/Slave Resources</title>
+   <title>DRBD Primitive and Master/Slave Resource</title>
    <para>
     To configure these resources, issue the following commands from the
     <command>crm</command> shell:
@@ -797,12 +767,12 @@ include /etc/drbd.d;</screen>
     params drbd_resource="nfs" \
   op monitor interval="15" role="Master" \
   op monitor interval="30" role="Slave"
-&prompt.crm.conf;<command>ms</command> ms_drbd_nfs drbd_nfs \
+&prompt.crm.conf;<command>ms</command> ms-drbd_nfs drbd_nfs \
   meta master-max="1" master-node-max="1" clone-max="2" \
   clone-node-max="1" notify="true"
 &prompt.crm.conf;<command>commit</command></screen>
    <para>
-    This will create a Pacemaker Master/Slave resource corresponding to the
+    This will create a Pacemaker master/slave resource corresponding to the
     DRBD resource <literal>nfs</literal>. Pacemaker should now activate your
     DRBD resource on both nodes, and promote it to the Master role on one of
     them.
@@ -868,13 +838,13 @@ include /etc/drbd.d;</screen>
     <listitem>
      <para>
       Add the following constraints to make sure that the group is started
-      on the same node where the DRBD Master/Slave resource is in the Master
+      on the same node where the DRBD master/slave resource is in the Master
       role:
      </para>
 <screen>&prompt.crm.conf;<command>order</command> o-drbd_before_nfs inf: \
-  ms_drbd_nfs:promote g-nfs:start
+  ms-drbd_nfs:promote g-nfs:start
 &prompt.crm.conf;<command>colocation</command> c-nfs_on_drbd inf: \
-  g-nfs ms_drbd_nfs:Master</screen>
+  g-nfs ms-drbd_nfs:Master</screen>
     </listitem>
     <listitem>
      <para>
@@ -890,7 +860,7 @@ include /etc/drbd.d;</screen>
     <listitem>
      <para>
       It activates all Logical Volumes of the <literal>nfs</literal> LVM
-      Volume Group on the same node where DRBD is in the Primary role.
+      Volume Group on the same node where DRBD is in the primary role.
       Confirm this with <command>vgdisplay</command> or
       <command>lvs</command>.
      </para>
@@ -932,7 +902,7 @@ include /etc/drbd.d;</screen>
   params fsid=0 \
     directory="/srv/nfs" \
     options="rw,crossmnt" \
-    clientspec="10.9.9.0/255.255.255.0" \
+    clientspec="10.9.9.0/24" \
   op monitor interval="30s"
 &prompt.crm.conf;<command>clone</command> cl-exportfs_root exportfs_root</screen>
       <para>
@@ -948,9 +918,9 @@ include /etc/drbd.d;</screen>
        been properly started, add the following constraints to the
        configuration:
       </para>
-<screen>&prompt.crm.conf;<command>order</command> o_root_before_nfs Mandatory: \
+<screen>&prompt.crm.conf;<command>order</command> o-root_before_nfs Mandatory: \
   cl-exportfs_root g-nfs:start
-&prompt.crm.conf;<command>colocation</command> c_nfs_on_root inf: \
+&prompt.crm.conf;<command>colocation</command> c-nfs_on_root inf: \
   g-nfs cl-exportfs_root
 &prompt.crm.conf;<command>commit</command></screen>
       <para>
@@ -984,7 +954,7 @@ include /etc/drbd.d;</screen>
     params fsid=1 \
       directory="/srv/nfs/sales" \
       options="rw,mountpoint" \
-      clientspec="10.9.9.0/255.255.255.0" \
+      clientspec="10.9.9.0/24" \
       wait_for_leasetime_on_stop=true \
   op monitor interval="30s"
 &prompt.crm.conf;<command>primitive</command> exportfs_devel \
@@ -992,7 +962,7 @@ include /etc/drbd.d;</screen>
     params fsid=2 \
       directory="/srv/nfs/devel" \
       options="rw,mountpoint" \
-      clientspec="10.9.9.0/255.255.255.0" \
+      clientspec="10.9.9.0/24" \
       wait_for_leasetime_on_stop=true \
   op monitor interval="30s"</screen>
      </listitem>
@@ -1001,7 +971,7 @@ include /etc/drbd.d;</screen>
        After you have created these resources, add them to the existing
        <literal>g-nfs</literal> resource group:
       </para>
-<screen>&prompt.crm.conf;edit g-nfs</screen>
+<screen>&prompt.crm.conf;<command>edit</command> g-nfs</screen>
      </listitem>
      <listitem>
       <para>
@@ -1032,7 +1002,7 @@ include /etc/drbd.d;</screen>
   </sect2>
 
   <sect2 xml:id="sec_ha_quick_nfs_resources_ipaddr">
-   <title>Resource for Floating IP Address</title>
+    <title>Floating IP Address Resource</title>
    <para>
     To enable smooth and seamless failover, your NFS clients will be
     connecting to the NFS service via a floating cluster IP address, rather
@@ -1104,6 +1074,94 @@ include /etc/drbd.d;</screen>
     <remark>toms 2014-08-29: How about using iptables to make the management
     address isn't used? Any recommendations?</remark>
    </note>
+  </sect2>
+  <sect2>
+    <title>Full Configuration</title>
+    <para></para>
+    <screen>node 178325803: &node1;
+node 178326059: &node2;
+
+primitive drbd.nfs ocf:linbit:drbd \
+	params drbd_resource=nfs \
+	op monitor interval=15 role=Master \
+	op monitor interval=30 role=Slave
+
+primitive exportfs_root exportfs \
+	params fsid=0 directory="/srv/nfs" \
+	options="rw,crossmnt" \
+	clientspec=10.9.9.180/24 \
+	op monitor interval=30s
+
+primitive exportfs_devel exportfs \
+	params fsid=2 directory="/srv/nfs/devel" \
+	options="rw,mountpoint" \
+	clientspec=10.9.9.180/24 \
+	wait_for_leasetime_on_stop=true \
+	op monitor interval=30s
+
+primitive exportfs_sales exportfs \
+	params fsid=1 directory="/srv/nfs/sales" \
+	options="rw,mountpoint" \
+	clientspec=10.9.9.180/24 \
+	wait_for_leasetime_on_stop=true \
+	op monitor interval=30s
+
+primitive fs.devel Filesystem \
+	params device="/dev/nfs/devel" \
+	directory="/srv/nfs/devel" \
+	fstype=ext3 \
+	op monitor interval=10s
+
+primitive fs.sales Filesystem \
+	params device="/dev/nfs/sales" \
+	directory="/srv/nfs/sales" \
+	fstype=ext3 \
+	op monitor interval=10s
+
+primitive ip_nfs IPaddr2 \
+	params ip=10.9.9.180 \
+	cidr_netmask=24 \
+	op monitor interval=30s
+
+primitive lvm.nfs LVM \
+	params volgrpname=nfs \
+	op monitor interval=30s
+
+primitive nfsserver systemd:nfs-server \
+	op monitor interval=30s
+
+group g-nfs lvm.nfs fs.devel fs.sales exportfs_devel exportfs_sales ip_nfs
+
+ms ms-drbd.nfs drbd.nfs \
+	meta master-max=1 master-node-max=1 \
+	clone-max=2 clone-node-max=1 notify=true
+
+clone cl-exportfs_root exportfs_root
+clone cl-nfsserver nfsserver
+
+colocation c-nfs_on_drbd inf: g-nfs ms-drbd.nfs:Master
+colocation c-nfs_on_root inf: g-nfs cl-exportfs_root
+
+order o-drbd_before_nfs inf: ms-drbd.nfs:promote g-nfs:start
+order o-root_before_nfs Mandatory: cl-exportfs_root g-nfs
+
+property cib-bootstrap-options: \
+	have-watchdog=false \
+	dc-version=1.1.13-7.9-7906df9 \
+	cluster-infrastructure=corosync \
+	cluster-name=hacluster \
+	stonith-enabled=false \
+	no-quorum-policy=ignore \
+	last-lrm-refresh=1446198614
+
+rsc_defaults rsc-options: \
+	resource-stickiness=200 \
+	migration-threshold=3
+
+op_defaults op-options: \
+	timeout=600 \
+	record-pending=true
+</screen>
   </sect2>
  </sect1>
 
