@@ -111,7 +111,7 @@
     <para>
      Configure the (site-dependent) service IP for NFS as a basic primitive:
     </para>
-<screen>&prompt.crm.conf; <command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
+<screen>&prompt.crm.conf;<command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
   params iflabel="nfs" nic="eth1" cidr_netmask="24"
   params rule #cluster-name eq &cluster1; ip="192.168.201.151" \
   params rule #cluster-name eq &cluster2; ip="192.168.202.151" \
@@ -121,28 +121,30 @@
     <para>
      Configure a file system resource and a resource for the NFS server:
     </para>
-<screen><command>primitive</command> nfs_fs ocf:heartbeat:Filesystem \
+    <screen>&prompt.crm.conf;<command>primitive</command> nfs_fs ocf:heartbeat:Filesystem \
   params device="/dev/drbd/by-res/nfs/0" directory="/mnt/nfs" \
   fstype="ext4"
-<command>primitive</command> nfs_service lsb:nfs</screen>
+&prompt.crm.conf;<command>primitive</command> nfs_service lsb:nfs</screen>
    </step>
    <step>
     <para>
      Configure the following primitives and multi-state resources for DRBD:
     </para>
-<screen><?dbsuse-fo font-size="0.75em"?>&prompt.crm.conf;<command>primitive</command> drbd_nfs ocf:linbit:drbd \
+<screen>&prompt.crm.conf;<command>primitive</command> drbd_nfs ocf:linbit:drbd \
   params drbd_resource="nfs-upper" \
   op monitor interval="31" role="Slave" \
   op monitor interval="30" role="Master"
-<command>primitive</command> drbd_nfs_lower ocf:linbit:drbd \
-  params rule #cluster-name eq &cluster1; drbd_resource="nfs-lower-&cluster1;" \
-  params rule #cluster-name eq &cluster2; drbd_resource="nfs-lower-&cluster2;" \                                
+&prompt.crm.conf;<command>primitive</command> drbd_nfs_lower ocf:linbit:drbd \
+  params rule #cluster-name eq &cluster1; \
+  drbd_resource="nfs-lower-&cluster1;" \
+  params rule #cluster-name eq &cluster2; \
+  drbd_resource="nfs-lower-&cluster2;" \                                
   op monitor interval="31" role="Slave" \
   op monitor interval="30" role="Master"
-<command>ms</command> ms_drbd_nfs drbd_nfs \
+&prompt.crm.conf;<command>ms</command> ms_drbd_nfs drbd_nfs \
   meta master-max="1" master-node-max="1" \
   clone-max="1" clone-node-max="1" notify="true"
-<command>ms</command> ms_drbd_nfs_lower drbd_nfs_lower \
+&prompt.crm.conf;<command>ms</command> ms_drbd_nfs_lower drbd_nfs_lower \
   meta master-max="1" master-node-max="1" \
   clone-max="2" clone-node-max="1" notify="true"</screen>
    </step>
@@ -150,13 +152,19 @@
     <para>
      Add a group with the following colocation and ordering constraints:
     </para>
-<screen><?dbsuse-fo font-size="0.75em"?>&prompt.crm.conf;<command>group</command> g_nfs nfs_fs nfs_service
-<command>colocation</command> col_nfs_ip_with_lower  inf: ip_nfs:Started  ms_drbd_nfs_lower:Master
-<command>colocation</command> col_nfs_g_with_upper   inf: g_nfs:Started  ms_drbd_nfs:Master
-<command>colocation</command> col_nfs_upper_with_ip  inf: ms_drbd_nfs:Master  ip_nfs:Started
-<command>order</command> o_lower_drbd_before_ip_nfs  inf: ms_drbd_nfs_lower:promote  ip_nfs:start
-<command>order</command> o_ip_nfs_before_drbd        inf: ip_nfs:start  ms_drbd_nfs:promote
-<command>order</command> o_drbd_nfs_before_svc       inf: ms_drbd_nfs:promote  g_nfs:start</screen>
+<screen>&prompt.crm.conf;<command>group</command> g_nfs nfs_fs nfs_service
+&prompt.crm.conf;<command>colocation</command> col_nfs_ip_with_lower \
+   inf: ip_nfs:Started  ms_drbd_nfs_lower:Master
+&prompt.crm.conf;<command>colocation</command> col_nfs_g_with_upper \
+   inf: g_nfs:Started  ms_drbd_nfs:Master
+&prompt.crm.conf;<command>colocation</command> col_nfs_upper_with_ip \
+   inf: ms_drbd_nfs:Master  ip_nfs:Started
+&prompt.crm.conf;<command>order</command> o_lower_drbd_before_ip_nfs \
+   inf: ms_drbd_nfs_lower:promote  ip_nfs:start
+&prompt.crm.conf;<command>order</command> o_ip_nfs_before_drbd \
+   inf: ip_nfs:start  ms_drbd_nfs:promote
+&prompt.crm.conf;<command>order</command> o_drbd_nfs_before_svc \
+   inf: ms_drbd_nfs:promote  g_nfs:start</screen>
    </step>
    <step>
     <para>
@@ -236,8 +244,8 @@
      ticket. For example, we need the following constraint for the DRBD
      scenario outlined in <xref linkend="sec.ha.geo.drbd.scenario"/>:
     </para>
-<screen>&prompt.crm.conf;<command>rsc_ticket</command> nfs-req-ticket-nfs ticket-nfs: ms_drbd_nfs:Master \
-  loss-policy=demote</screen>
+<screen>&prompt.crm.conf;<command>rsc_ticket</command> nfs-req-ticket-nfs ticket-nfs: \ 
+   ms_drbd_nfs:Master loss-policy=demote</screen>
     <para>
      This command creates a constraint with the ID
      <literal>nfs-req-ticket-nfs</literal>. It defines that the multi-state
@@ -278,7 +286,8 @@
     Here is another example for a constraint that makes a primitive resource
     <literal>rsc1</literal> depend on <literal>&ticket1;</literal>:
    </para>
-<screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-&ticket1; &ticket1;: rsc1 loss-policy="fence"</screen>
+<screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-&ticket1; &ticket1;: \
+   rsc1 loss-policy="fence"</screen>
    <para>
     In case <literal>&ticket1;</literal> is revoked, the node running the
     resource should be fenced.
@@ -308,11 +317,10 @@
   params iflabel="ha" nic="eth1" cidr_netmask="24"
   params rule #cluster-name eq &cluster1; ip="192.168.201.151" \
   params rule #cluster-name eq &cluster2; ip="192.168.202.151" 
-<command>primitive</command> booth ocf:pacemaker:booth-site \
+&prompt.crm.conf;<command>primitive</command> booth ocf:pacemaker:booth-site \
   meta resource-stickiness="INFINITY" \
-  params config="nfs"
-  op monitor interval="10s"
-<command>group</command> g-booth ip-booth booth</screen>
+  params config="nfs" op monitor interval="10s"
+&prompt.crm.conf;<command>group</command> g-booth ip-booth booth</screen>
     <para>
      With this configuration, each booth daemon will be available at its
      individual IP address, independent of the node the daemon is running
@@ -464,7 +472,7 @@
     <para>
      Start the cluster with:
     </para>
-<screen>&prompt.root; <command>systemctl</command> start pacemaker</screen>
+<screen>&prompt.root;<command>systemctl</command> start pacemaker</screen>
    </step>
    <step>
     <para>
@@ -482,17 +490,19 @@
       <para>
        Review the current CIB configuration:
       </para>
-<screen>&prompt.crm.conf; show</screen>
+<screen>&prompt.crm.conf;show</screen>
      </step>
      <step>
       <para>
        Enter the following command to group the &geo; cluster-related
        resources with the tag <literal>geo_resources</literal>:
       </para>
-<screen><?dbsuse-fo font-size="0.75em"?>&prompt.crm.conf;<command>tag</command> geo_resources: \
-  ip_nfs nfs_fs nfs_service drbd_nfs drbd_nfs_lower ms_drbd_nfs ms_drbd_nfs_lower g_nfs <co xml:id="co.geo.rsc.drbd"/>\
+<screen>&prompt.crm.conf;<command>tag</command> geo_resources: \
+  ip_nfs nfs_fs nfs_service drbd_nfs drbd_nfs_lower ms_drbd_nfs \
+  ms_drbd_nfs_lower g_nfs <co xml:id="co.geo.rsc.drbd"/>\
   col_nfs_ip_with_lower  col_nfs_g_with_upper col_nfs_upper_with_ip <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
-  o_lower_drbd_before_ip_nfs o_ip_nfs_before_drbd o_drbd_nfs_before_svc <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
+  o_lower_drbd_before_ip_nfs o_ip_nfs_before_drbd \
+  o_drbd_nfs_before_svc <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
   nfs-req-ticket-nfs ip-booth booth g-booth o-booth-before-nfs <co xml:id="co.geo.rsc.booth"/>
   [...] <co xml:id="co.geo.rsc.any"/></screen>
       <para>
@@ -539,10 +549,10 @@
      Export the tagged resources and constraints to a file named
      <filename>exported.cib</filename>:
     </para>
-<screen><command>crm configure show</command> tag:geo_resources geo_resources &gt; exported.cib</screen>
+<screen>&prompt.root;<command>crm configure show</command> tag:geo_resources geo_resources &gt; exported.cib</screen>
     <para>
-     The command <command>crm configure show tag:</command>
-     <replaceable>TAGNAME</replaceable> shows all resources that belong to
+     The command <command>crm configure show tag:</command><replaceable>TAGNAME</replaceable> 
+     shows all resources that belong to
      the tag <replaceable>TAGNAME</replaceable>.
     </para>
    </step>
@@ -556,7 +566,7 @@
       <para>
        Start the cluster with:
       </para>
-<screen>&prompt.root; <command>systemctl</command> start pacemaker</screen>
+<screen>&prompt.root;<command>systemctl</command> start pacemaker</screen>
      </step>
      <step>
       <para>
@@ -573,7 +583,7 @@
        <filename>exported.cib</filename> into the CIB of cluster
        <literal>&cluster2;</literal>:
       </para>
-<screen><command>crm configure load</command> update <replaceable>PATH_TO_FILE/exported.cib</replaceable></screen>
+<screen>&prompt.root;<command>crm configure load</command> update <replaceable>PATH_TO_FILE/exported.cib</replaceable></screen>
       <para>
        When using the <option>update</option> parameter for the <command>crm
        configure load</command> command, &crmsh; tries to integrate the
@@ -585,7 +595,7 @@
       <para>
        View the updated CIB configuration with the following command:
       </para>
-<screen>crm configure show</screen>
+<screen>&prompt.root;<command>crm configure show</command></screen>
       <para>
        The imported resources and constraints will appear in the CIB.
       </para>
@@ -630,7 +640,7 @@
       that references the IP parameters of <literal>ip_nfs</literal> and
       uses them as the value of its <literal>state</literal> parameter:
      </para>
-<screen>&prompt.crm.conf; primitive dummy1 ocf:pacemaker:Dummy \
+<screen>&prompt.crm.conf;<command>primitive</command> dummy1 ocf:pacemaker:Dummy \
   params rule #cluster-name eq &cluster1; \
   @ip_nfs-instance_attributes-0-ip:state \
   params rule #cluster-name eq &cluster2; \
@@ -649,7 +659,7 @@
      <para>
       Tag the resource and the constraint:
      </para>
-<screen>&prompt.crm.conf;<command>tag</command> geo_resources_2: dummy1
+<screen>&prompt.crm.conf;<command>tag</command> geo_resources_2: dummy1 \
   dummy1-dep-ticket-nfs</screen>
     </listitem>
     <listitem>
