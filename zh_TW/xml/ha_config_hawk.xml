@@ -1,0 +1,637 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_hawk.xml" version="5.0" xml:id="cha.ha.config.hawk">
+ <title>設定和管理叢集資源 (Web 介面)</title>
+ <info>
+      <abstract>
+        <para>
+    若要設定和管理叢集資源，可使用 Web 使用者介面 HA Web Konsole (Hawk) 或 crm 外圍程序 (crmsh) 指令行公用程式。
+   </para>
+        <para>
+    利用 Hawk，您在非 Linux 機器上也可以監控和管理 Linux 叢集。此外，如果您的系統只提供了精簡的圖形使用者介面，那麼 Hawk 將是一個理想的解決方案。
+   </para>
+        <para>
+    本章對 Hawk 做了介紹，說明設定和管理叢集資源的基本任務：修改全域叢集選項，建立基本與進階類型的資源 (群組和複製品)，設定條件約束，指定容錯移轉節點與錯誤回復節點，設定資源監控，啟動、清理或移除資源，以及手動移轉資源。Hawk 會產生叢集報告 (<literal>hb_report</literal>)，以提供對叢集狀態的詳細分析。您可以檢視叢集歷程，或使用模擬器瞭解可能會發生的失敗情況。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.config.hawk.intro">
+  <title>Hawk — 綜覽</title>
+
+  <para>
+   使用 Hawk 的 Web 介面，在非 Linux 機器上也可以監控和管理 Linux 叢集。此外，如果您的系統只提供了精簡的圖形使用者介面，那麼 Hawk 將是一個理想的解決方案。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.hawk.intro.connect">
+   <title>啟動 Hawk 及登入</title>
+   <para>
+    該 Web 介面包含在 <systemitem class="resource">hawk</systemitem> 套件中。您要使用 Hawk 與之連接的所有叢集節點上都必須安裝該套件，而在要透過 Hawk 存取某個叢集節點的機器上，只需有一個啟用了 JavaScript 和 Cookie 的 (圖形) 網頁瀏覽器即可建立連接。
+   </para>
+   <para>
+    若要使用 Hawk，您要透過 Web 介面與之連接的節點上必須啟動相應的 Web 服務。
+   </para>
+   <para>
+    如果您已使用 <systemitem class="resource">ha-cluster-bootstrap</systemitem> 套件中的程序檔設定了叢集，則 Hawk 服務現已啟動。此時，請跳過<xref linkend="pro.ha.hawk.service"/>並繼續執行<xref linkend="pro.ha.hawk.login"/>。
+   </para>
+   <procedure xml:id="pro.ha.hawk.service">
+    <title>啟動 Hawk 服務</title>
+    <step>
+     <para>
+      在您要與之連接的節點上，開啟外圍程序並以 <systemitem class="username">root</systemitem> 身分登入。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入以下指令檢查服務的狀態
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> status hawk</screen>
+    </step>
+    <step>
+     <para>
+      如果服務沒有執行，則使用以下指令將其啟動
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start hawk</screen>
+     <para>
+      如果想讓 Hawk 在系統開機時自動啟動，請執行以下指令：
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> enable hawk</screen>
+    </step>
+   </procedure>
+   <note>
+    <title>使用者認證</title>
+    <para>
+     Hawk 使用者必須是 <systemitem class="groupname">haclient</systemitem> 群組的成員。安裝程序會建立名為 <systemitem class="username">hacluster</systemitem> 的 Linux 使用者，該使用者已新增至 <systemitem class="groupname">haclient</systemitem> 群組中。使用 <command>ha-cluster-init</command> 程序檔進行設定時，會為 <systemitem class="username">hacluster</systemitem> 使用者設定預設密碼。
+    </para>
+    <para>
+     在啟動 Hawk 之前，請設定或變更 <systemitem>hacluster</systemitem> 使用者的密碼。或者，建立一個屬於 <systemitem class="groupname">haclient</systemitem> 群組的新使用者。
+    </para>
+    <para>
+     請在您要使用 Hawk 與之連接的所有節點上執行此操作。
+    </para>
+   </note>
+   <procedure xml:id="pro.ha.hawk.login">
+    <title>登入 Hawk Web 介面</title>
+    <para>
+     Hawk Web 介面使用 HTTPS 通訊協定和連接埠 <literal>7630</literal>。
+    </para>
+    
+    <note>
+     <title>透過虛擬 IP 存取 Hawk</title>
+     <para>如果您希望即使平時連接的叢集節點已關閉，您也可以存取 Hawk，您可以為 Hawk 設定一個虛擬 IP 位址 (<literal>IPaddr</literal> 或 <literal>IPaddr2</literal>) 做為叢集資源。該位址無需任何特殊組態設定。</para>
+    </note>
+    <step>
+     <para>
+      在任一機器上，啟動網頁瀏覽器並確定已啟用 JavaScript 和 Cookie。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入任一執行 Hawk Web 服務之叢集節點的 IP 位址或主機名稱做為 URL。或者，輸入叢集操作人員可能已設定之任何 <literal>IPaddr(2)</literal> 資源的位址：
+     </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     <note>
+      <title>證書警告</title>
+      <para>
+       當您首次嘗試存取該 URL 時，如果系統顯示證書警告，則表示使用了自行簽署的證書。依預設，自行簽署的證書不被視為可信證書。
+      </para>
+      <para>
+       請咨詢您的叢集操作人員取得證書詳細資料，以驗證該證書。
+      </para>
+      <para>
+       若仍要繼續，您可以在瀏覽器中新增一個例外以略過此警告。
+      </para>
+      <para>
+       如需關於如何將自行簽署的證書取代為官方證書管理中心所簽署證書的資訊，請參閱<xref linkend="vle.ha.hawk.certificate"/>。
+      </para>
+     </note>
+    </step>
+    <step>
+     <para>
+      在 Hawk 登入螢幕中，輸入 <systemitem class="username">hacluster</systemitem> 使用者 (或任何屬於群組 <systemitem class="groupname">haclient</systemitem> 的其他使用者) 的<guimenu>使用者名稱</guimenu>和<guimenu>密碼</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      按一下<guimenu>登入</guimenu>。
+     </para>
+     <para>
+      <guimenu>叢集狀態</guimenu>螢幕即會出現，顯示叢集節點和資源的狀態。顯示的資訊類似於 crm 外圍程序中 <command>crm status</command> 的輸出。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.hawk.intro.main">
+   <title>主螢幕︰叢集狀態</title>
+   <remark>taroth 2014-07-31: todo: this sections needs a serious overhaul and restructuring as a
+    lot of new functions and views have been added to Hawk during the last releases - however, it
+    makes more sense to postpone this until the next general UI overhaul for Hawk, so
+    let's live with the current state for one more release... ;(</remark>
+   <para>
+    登入後，Hawk 會顯示<guimenu>叢集狀態</guimenu>螢幕。該螢幕會顯示最重要的全域叢集參數及叢集節點與資源之狀態的摘要。以下色碼用於顯示節點和資源的狀態：
+   </para>
+   <itemizedlist xml:id="il.ha.config.hawk.colors">
+    <title>Hawk 色碼</title>
+    <listitem>
+     <para>
+      綠色：正常。例如，資源正在執行或節點正在線上。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      紅色：錯誤，異常。例如，資源已失敗或節點未正常關閉。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      黃色：轉換中。例如，節點目前正在關閉，或某個資源目前正在啟動或停止。如果您按一下某個暫停資源以檢視其詳細資料，Hawk 還會顯示該資源目前所處的狀態 (<literal>正在啟動</literal>、<literal>正在停止</literal>、<literal>正在移動</literal>、<literal>正在升級</literal>或<literal>正在降級</literal>)。
+     </para>
+
+     <note>
+      <title>顯示資源的過渡狀態</title>
+      <para>
+       僅當操作內容  <varname>record-pending</varname>  設定為 <literal>true</literal> 時，資源的過渡狀態才會顯示。如果您使用 <command>ha-cluster-init</command> 程序檔設定了叢集，依預設，此內容會在全域範圍啟用。若要手動啟用，請使用 Hawk 的<guimenu>叢集組態</guimenu>螢幕在<guimenu>操作預設值</guimenu>下新增並啟用該內容，或者使用以下指令：
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure op_defaults record-pending=true</screen>
+     </note>
+    </listitem>
+    <listitem>
+     <para>
+      灰色：尚未執行，但叢集需要其執行。例如，管理員已停止或轉為<literal>待命</literal>模式的節點。另外，離線的節點也會顯示為灰色 (如果這些節點是正常關閉)。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    除了色碼以外，Hawk 還會在<guimenu>叢集狀態</guimenu>螢幕的所有檢視窗中顯示節點、資源、票證狀態的相應圖示以及錯誤訊息的圖示。
+   </para>
+   <para>
+    如果資源發生了故障，螢幕頂部會以紅色顯示一則包含詳細資料的錯誤訊息。若要分析故障原因，請按一下錯誤訊息。如此會自動開啟 Hawk 的<guimenu>歷程總管</guimenu>，並觸發時間跨度為 20 分鐘 (發生故障前 10 分鐘至發生故障後 10 分鐘) 的資料收集。如需詳細資訊，請參閱<xref linkend="pro.ha.config.hawk.history.explorer"/>。
+   </para>
+   <figure pgwide="0">
+    <title>Hawk — 叢集狀態 (摘要檢視)</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk-cluster-status-main.png" width="90%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk-cluster-status-main.png" width="80%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <para>
+    <guimenu>叢集狀態</guimenu>螢幕自身會以近即時頻率重新整理。您可以透過右上角的三個圖示在下列檢視窗之間切換：
+   </para>
+
+   <variablelist>
+    <title>Hawk 叢集狀態檢視窗</title>
+    <varlistentry>
+     <term>摘要檢視</term>
+     <listitem>
+      <para>
+       同時顯示最重要的全域叢集參數及叢集節點與資源的狀態。如果您的設定包括地理叢集 (多站點叢集)，則摘要檢視窗還會顯示票證。若要檢視屬於特定類別 (票證、節點或資源) 的所有元素的詳細資料，請按一下類別標題 (標示為連結)。否則，請按一下個別元素以檢視詳細資料。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>樹狀檢視</term>
+     <listitem>
+      <para>
+       顯示最重要的全域叢集參數及叢集節點和資源之狀態的可展開檢視。如果您的設定包括地理叢集 (多站點叢集)，則樹狀檢視窗還會顯示票證。按一下箭頭可展開或折疊相應類別下的元素。與<guimenu>摘要檢視</guimenu>不同的是，此檢視不僅顯示資源的 ID 與狀態，還會顯示類型 (例如，基本資源、複製品或群組)。
+      </para>
+
+      <para>
+       對於群組，您還可以切換至可統一顯示 (群組中) 同一類型資源的檢視窗。在資源類別中按 <literal>ab</literal> 圖示，可在正常檢視窗 (分別顯示每個資源) 與按類型合併顯示資源的檢視窗之間切換。例如，如果一個群組中有三個類型為 <literal>ocf:pacemaker:Dummy</literal> 的資源，並且只有其中一個資源在執行，則按類型檢視的檢視窗將在灰色背景上顯示 <literal>1/3 ocf:pacemaker:Dummy <replaceable>節點名稱</replaceable></literal>。這表示 3 個資源中只有一個資源啟動。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>表格檢視</term>
+     <listitem>
+      <para>
+       此檢視對較大型叢集尤為有用，因為它會簡明地顯示哪個節點上目前正在執行哪些資源。此外，還會顯示非使用中的節點或資源。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    主螢幕的頂層列會顯示您登入系統所用的使用者名稱。您還可以使用它<guimenu>登出</guimenu> Web 介面，以及透過使用者名稱旁邊的扳手圖示存取下列<guimenu>工具</guimenu>：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <guimenu>模擬器</guimenu>。如需詳細資訊，請參閱<xref linkend="sec.ha.config.hawk.simulator"/>。
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      <guimenu>叢集圖表</guimenu>。選取此項將以圖形顯示 CIB 中設定的節點及資源。該圖表還會顯示各資源與節點指定之間的順序及並存關係 (分數)。
+     </para>
+     <figure xml:id="fig.ha.cluster.diagram" pgwide="0">
+      <title>Hawk — 叢集圖表</title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="hawk-cluster-diagram.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="hawk-cluster-diagram.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>叢集報告</guimenu> (<command>hb_report</command>)。如需詳細資訊，請參閱<xref linkend="sec.ha.config.hawk.crmreport"/>。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    若要對節點和資源執行基本的操作人員任務 (例如啟動或停止資源、使節點上線或檢視詳細資料)，請按一下相應節點或資源旁邊的扳手圖示。一個內容功能表即會顯示。針對任何狀態螢幕上的任何複製品、群組或多狀態子資源，從內容功能表中選取<guimenu>父代</guimenu>功能表項目。按一下此項可讓您執行啟動、停止等動作。基本資源所隸屬的頂層複製品或群組。
+   </para>
+   <para>
+    若要執行更複雜的任務，例如設定資源、條件約束或全域叢集選項，請使用左側的導覽列。您可以從該導覽列中存取以下螢幕：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <guimenu>叢集狀態</guimenu>：如需詳細資料，請參閱<xref linkend="sec.ha.config.hawk.intro.main"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>歷程總管</guimenu>：如需詳細資料，請參閱<xref linkend="pro.ha.config.hawk.history.explorer"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>設定精靈</guimenu>：如需詳細資料，請參閱<xref linkend="sec.ha.config.hawk.wizard"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>叢集組態</guimenu>：如需詳細資料，請參閱<xref linkend="sec.ha.config.hawk.global"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>存取控制清單</guimenu>：如需詳細資料，請參閱<xref linkend="cha.ha.acl"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>資源</guimenu>：如需詳細資料，請參閱<xref linkend="sec.ha.config.hawk.rsc"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>條件約束</guimenu>：如需詳細資料，請參閱<xref linkend="sec.ha.config.hawk.rsc"/>。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <note>
+    <title>Hawk 的可用功能</title>
+    <para>
+     依預設，以 <systemitem class="username">root</systemitem> 或 <systemitem class="username">hacluster</systemitem> 身分登入的使用者對於所有叢集組態任務都擁有完整的讀-寫存取權限。不過，您可以使用<xref linkend="cha.ha.acl" xrefstyle="select:title"/> 來定義精細的存取權限。
+    </para>
+    <para>
+     如果 CRM 中啟用了 ACL，則 Hawk 的可用功能取決於指定給您的使用者角色和存取權限。此外，Hawk 的下列功能只能由使用者 <systemitem class="username">hacluster</systemitem> 執行：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       產生 <literal>hb_report</literal>。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       使用<guimenu>歷程總管</guimenu>。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       檢視節點或資源的最近事件。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </note>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.hawk.global">
+  <title>設定全域叢集選項</title>
+
+  <para>
+   全域叢集選項控制叢集在遇到特定情況時的運作方式。這些選項分為不同的組，您可以使用 Hawk 與 <command>crm</command> 外圍程序等叢集管理工具來檢視和修改它們。一般情況下，可以保留預先定義的值。但是，為了讓叢集的關鍵功能正常運作，還需要在執行基本叢集設定後調整以下參數：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.config.basics.global.quorum" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.config.basics.global.stonith" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.config.hawk.global">
+   <title>修改全域叢集選項</title>
+   <step>
+    <para>
+     啟動網頁瀏覽器並依<xref linkend="sec.ha.config.hawk.intro.connect"/> 所述登入叢集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中，選取<guimenu>叢集內容</guimenu>以檢視全域叢集選項及目前值。Hawk 會顯示與 <guimenu>CRM 組態</guimenu>、<guimenu>資源預設值</guimenu>和<guimenu>操作預設值</guimenu>相關的最重要的參數。
+
+    </para>
+    <figure pgwide="0">
+     <title>Hawk — 叢集組態</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-cluster-props.png" width="80%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-cluster-props.png" width="80%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     根據您的叢集要求，調整<guimenu>CRM 組態</guimenu>。
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       將 <guimenu>no-quorum-policy</guimenu> 設為適當的值。
+      </para>
+     </step>
+     <step>
+      <para>
+       如果您出於某些原因需要停用圍籬區隔，請取消選取<guimenu>stonith-enabled</guimenu>。
+      </para>
+      <important>
+       <title>沒有 STONITH 則不提供支援</title>
+       <para>
+        系統不支援沒有 STONITH 的叢集。
+       </para>
+      </important>
+     </step>
+     <step>
+      <para>
+       若要從 CRM 組態中移除某個內容，請按一下該內容旁邊的減號圖示。如果某個內容被刪除，叢集會將該內容視為具有預設值。如需預設值的詳細資料，請參閱 <xref linkend="sec.ha.config.basics.meta.attr"/>。
+      </para>
+     </step>
+     <step>
+      <para>
+       若要為 CRM 組態新增新的內容，請從下拉式方塊中選擇一個內容，然後按一下加號圖示。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     如果您需要變更<guimenu>資源預設值</guimenu>或<guimenu>操作預設值</guimenu>，請執行下列步驟：
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       若要變更已經顯示的預設值，請在相應的輸入欄位中編輯值。
+      </para>
+     </step>
+     <step>
+      <para>
+       若要新增新的資源預設值或操作預設值，請從空白下拉式清單中選擇一個項目，然後按一下加號圖示並輸入值。如果已定義預設值，Hawk 會自動提供這些預設值。
+      </para>
+     </step>
+     <step>
+      <para>
+       若要移除資源預設值或操作預設值，請按一下參數旁邊的減號圖示。如果沒有為<guimenu>資源預設值</guimenu>和<guimenu>操作預設值</guimenu>指定值，叢集會使用<xref linkend="sec.ha.config.basics.meta.attr"/> 及<xref linkend="sec.ha.config.basics.operations"/> 中所述的預設值。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     確認您的變更。
+    </para>
+   </step>
+  </procedure>
+
+
+ </sect1>
+ <xi:include href="ha_hawk_rsc_config_i.xml"/>
+ <xi:include href="ha_hawk_rsc_manage_i.xml"/>
+ <sect1 xml:id="sec.ha.config.hawk.dashboard">
+
+
+  <title>監控多個叢集</title>
+
+  <para>
+   Hawk 可以用做監控多個叢集的單一管理點。Hawk 的<guimenu>叢集儀表板</guimenu>可讓您檢視多個叢集的摘要，其中每個摘要會列出節點、資源、票證 (如果使用地理叢集) 的數量及其狀態。摘要還會顯示相應叢集中是否發生過故障。
+  </para>
+
+  <para>
+   <guimenu>叢集儀表板</guimenu>中所顯示的叢集資訊儲存在永久的 cookie 中。這表示您需要決定要在<guimenu>叢集儀表板</guimenu>上檢視的 Hawk 例項，之後就必須永遠使用該例項。要實現此目的，執行 Hawk 的機器甚至不需要屬於任何叢集，它可以是獨立的、不相關的系統。
+  </para>
+
+  <procedure xml:id="pro.ha.config.hawk.dashboard">
+   <title>使用 Hawk 監控多個叢集</title>
+   <itemizedlist>
+    <title>必要條件</title>
+    <listitem>
+     <para>
+      要從 Hawk 的<guimenu>叢集儀表板</guimenu>監控的所有叢集都必須執行 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP1</phrase></phrase>。Hawk 無法監控執行 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 較低版本的叢集。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果您沒有在每個叢集節點上以您自己的證書 (或官方證書管理中心簽署的證書) 取代 Hawk 的自行簽署證書，請在<emphasis>每個</emphasis>叢集中的<emphasis>每個</emphasis>節點上至少登入 Hawk 一次。驗證證書 (並在瀏覽器中新增一個例外以使警告不再顯示)。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果您使用的是 Mozilla Firefox，則必須將其優先設定變更為<guimenu>接受協力廠商 Cookie</guimenu>，否則 Hawk 中將不會設定來自受監控叢集的 cookie，從而阻止您登入您試圖監控的叢集。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <step>
+    <para>
+     在要用於監控多個叢集的機器上啟動 Hawk Web 服務。
+    </para>
+   </step>
+   <step>
+    <para>
+     啟動網頁瀏覽器，並輸入執行 Hawk 之機器的 IP 位址或主機名稱做為 URL：
+    </para>
+<screen>https://<replaceable>IPaddress</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     在 Hawk 登入螢幕中，按一下右上角的<guimenu>儀表板</guimenu>連結。
+    </para>
+    <para>
+     <guimenu>新增叢集</guimenu>對話方塊即會出現。
+    </para>
+    <informalfigure>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-dashboard-add-cluster.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-dashboard-add-cluster.png" width="80%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </informalfigure>
+   </step>
+   <step>
+    <para>
+     輸入<guimenu>叢集名稱</guimenu>，用於在<guimenu>叢集儀表板</guimenu>中識別叢集。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入其中一個叢集節點的<guimenu>主機名稱</guimenu>，然後確認變更。
+    </para>
+    <para>
+     <guimenu>叢集儀表板</guimenu>隨即開啟，並顯示您所新增之叢集的摘要。
+    </para>
+   </step>
+   <step>
+    <para>
+     若要將更多叢集新增至該儀表板，請按一下加號圖示，然後輸入下一個叢集的詳細資料。
+    </para>
+    <figure>
+     <title>Hawk — 叢集儀表板</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-dashboard-multiple-clusters.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-dashboard-multiple-clusters.png" width="80%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     若要從儀表板中移除某個叢集，請按一下該叢集摘要旁邊的 <literal>x</literal> 圖示。
+    </para>
+   </step>
+   <step>
+    <para>
+     若要檢視關於叢集的更多詳細資料，請按一下儀表板上叢集方塊中的某個位置。
+    </para>
+    <para>
+     這會開啟一個新的瀏覽器視窗或新的瀏覽器索引標籤。如果您目前未登入叢集，此操作會顯示 Hawk 登入螢幕。登入後，Hawk 會在摘要檢視窗中顯示該叢集的<guimenu>叢集狀態</guimenu>。從此處，您可以如常使用 Hawk 來管理叢集。
+    </para>
+   </step>
+   <step>
+    <para>
+     因為<guimenu>叢集儀表板</guimenu>始終是在獨立的瀏覽器視窗或索引標籤中開啟，在 Hawk 中，您可以輕鬆地在儀表板與各叢集管理任務之間切換。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   節點或資源的任何狀態變更幾乎都會即時反映在<guimenu>叢集儀表板</guimenu>中。
+  </para>
+
+
+ </sect1>
+ <sect1 xml:id="sec.ha.config.hawk.geo">
+  <title>適用於地理叢集的 Hawk</title>
+
+  <para>
+   如需與地理位置分散叢集 (地理叢集) 相關之 Hawk 功能的詳細資料，請參閱《<citetitle>Quick Start Geo Clustering for <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></citetitle>》(Geo Clustering for SUSE Linux Enterprise High Availability Extension 快速入門)。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.hawk.trouble">
+  <title>疑難排解</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>Hawk 記錄檔案</term>
+    <listitem>
+     <para>
+      Hawk 記錄檔案位於 <filename>/srv/www/hawk/log</filename> 中。如果您無法存取 Hawk，請查看這些檔案。
+     </para>
+     <para>
+      如果您在使用 Hawk 啟動或停止資源時遇到問題，請查看 Pacemaker 記錄訊息。Pacemaker 記錄訊息的位置在 <filename>/etc/corosync/corosync.conf</filename> 的 <literal>logging</literal> 區段中指定。
+
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>驗證失敗</term>
+    <listitem>
+     <para>
+      如果您無法以屬於群組 <systemitem class="groupname">haclient</systemitem> 的新使用者身分登入 Hawk (或者在 Hawk 接受您以此使用者身分登入前發生延遲)，請停止 <systemitem class="daemon">nscd</systemitem> 精靈：
+     </para>
+<screen><command>systemctl</command> stop nscd</screen>
+     <para>
+      請再試一次。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.hawk.certificate">
+    <term>取代自行簽署的證書</term>
+    <listitem>
+     <para>
+      若要在首次啟動 Hawk 時避免出現關於自行簽署的證書的警告，請以您自己的證書或官方證書管理中心 (CA) 簽署的證書取代自動建立的證書。
+     </para>
+     <para>
+      該證書儲存在 <filename>/etc/lighttpd/certs/hawk-combined.pem</filename> 中，其中包含金鑰和證書。
+     </para>
+     <para>
+      變更許可權以使檔案只可由 <systemitem class="username">root</systemitem> 存取：
+     </para>
+<screen>chown root.root /etc/lighttpd/certs/hawk-combined.pem
+      chmod 600 /etc/lighttpd/certs/hawk-combined.pem</screen>
+     <para>
+      在建立或收到新的金鑰和證書之後，執行以下指令將它們進行組合：
+     </para>
+<screen>cat <replaceable>keyfile</replaceable> <replaceable>certificatefile</replaceable> &gt; /etc/lighttpd/certs/hawk-combined.pem</screen>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>使用歷程總管/hb_report 後登入 Hawk 失敗</term>
+    <listitem>
+     <para>
+
+      根據您在<guimenu>歷程總管</guimenu>或 <guimenu>hb_report</guimenu> 中定義的時段，以及在此期間叢集中發生的事件，Hawk 可能會收集大量資訊。這些資訊儲存在 <filename>/tmp</filename> 目錄下的記錄檔案中。這可能會用盡節點上剩餘的可用磁碟空間。如果使用<guimenu>歷程總管</guimenu>或<guimenu>hb_report</guimenu>後 Hawk 無回應，請檢查叢集節點的硬碟，並移除相應的記錄檔案。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>叢集儀表板</guimenu>：無法連接至主機</term>
+    <listitem>
+     <para>
+      如果將叢集新增至 Hawk 的儀表板時失敗，請檢查<xref linkend="pro.ha.config.hawk.dashboard"/> 中列出的必要條件。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>叢集儀表板</guimenu>：節點不可存取</term>
+    <listitem>
+     <para>
+      <guimenu>叢集儀表板</guimenu>僅輪詢每個叢集中的一個節點的狀態。如果輪詢的節點已關閉，儀表板將會按順序輪詢另一個節點。在這種情況下，Hawk 會顯示一則簡短的警告訊息，說明該節點無法存取。在 Hawk 找到另一個可存取的節點後，該訊息便會消失。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>
