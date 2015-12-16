@@ -1,0 +1,757 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_drbd.xml" version="5.0" xml:id="cha.ha.drbd">
+ <title>DRBD</title>
+ <info>
+      <abstract>
+        <para>
+    <emphasis>分散複製ブロックデバイス</emphasis>(DRBD*)を使用すると、IPネットワーク内の2つの異なるサイトに位置する2つのブロックデバイスのミラーを作成できます。Corosyncと共に使用すると、DRBDは分散高可用性Linuxクラスタをサポートします。この章では、DRBDのインストールとセットアップの方法を示します。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.drbd.overview">
+  <title>概念の概要</title>
+
+  <para>
+   DRBDは、プライマリデバイス上のデータをセカンダリデバイスに、データの両方のコピーが同一に保たれるような方法で複製します。これは、ネットワーク型のRAID 1と考えてください。DRBDは、データをリアルタイムでミラーリングするので、そのレプリケーションは連続的に起こります。アプリケーションは、実際そのデータがさまざまなディスクに保存されるということを知る必要はありません。
+
+  </para>
+
+  <para>
+   DRBDは、Linuxカーネルモジュールであり、下端のI/Oスケジューラと上端のファイルシステムの間に存在しています(<xref linkend="fig.ha.drbd.concept"/>参照)。DRBDと通信するには、高レベルのコマンド<command>drbdadm</command>を使用します。柔軟性を最大にするため、DRBDには、低レベルのツール<command>drbdsetup</command>が付いてきます。
+  </para>
+
+  <figure xml:id="fig.ha.drbd.concept">
+   <title>Linux内でのDRBDの位置</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_drbd.svg" width="80%"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_drbd.png" width="80%"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <important>
+   <title>暗号化されないデータ</title>
+   <para>
+    ミラー間のデータトラフィックは暗号化されません。データ交換を安全にするには、接続に仮想プライベートネットワーク(VPN)ソリューションを導入する必要があります。
+   </para>
+  </important>
+
+
+  <para>
+   DRBDでは、Linuxでサポートされる任意のブロックデバイスを使用できます。通常は次のデバイスです。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     パーティションまたは完全なハードディスク
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ソフトウェアRAID
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LVM (Logical Volume Manager)
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     EVMS (Enterprise Volume Management System)
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   DRBDは、デフォルトでは、DRBDノード間の通信にTCPポート<literal>7788</literal>以上を使用します。使用しているポートの通信がファイアウォールで許可されていることを確認してください。
+  </para>
+
+  <para>
+   まず、DRBDデバイスを設定してから、その上にファイルシステムを作成する必要があります。ユーザデータに関することはすべて、rawデバイスではなく、<filename>/dev/drbd_<replaceable>N</replaceable></filename>デバイスを介してのみ実行される必要があります。これは、DRBDが、メタデータ用にrawデバイスの最後の部分を使用するからです。rawデバイスを使用すると、データが矛盾する原因となります。
+  </para>
+
+  <para>
+   udevの統合により、<filename>/dev/drbd/by-res/<replaceable>RESOURCES</replaceable></filename>の形式でシンボリックリンクも取得されます。このリンクは、より簡単に使用でき、デバイスのマイナー番号を誤って記憶しないように安全対策が講じられています。
+  </para>
+
+  <para>
+   たとえば、rawデバイスのサイズが1024MBの場合、DRBDデバイスは、1023MBしかデータ用に使用できません。70KBは隠され、メタデータ用に予約されています。rawディスクを介した既存のキロバイトへのアクセスは、それがユーザデータ用でないので、すべて失敗します。
+   
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.install">
+  <title>DRBDサービスのインストール</title>
+  <para>
+   <xref linkend="part.install"/>で説明されているように、High Availability Extensionをネットワーククラスタの両方のSUSE Linux Enterprise Serverマシンにインストールします。High Availability Extensionをインストールすると、DRBDプログラムファイルもインストールされます。
+  </para>
+
+  <para>
+   クラスタスタック全体を必要とせず、のみを使用したい場合、パッケージ <package>drbd-kmp-<replaceable>VERSION</replaceable></package>、
+    <package>drbd-utils</package>、および <package>yast2-drbd</package>をインストールしてください。
+  </para>
+
+  <para>
+   <command>drbdadm</command>の操作を簡素化するには、Bash補完サポートを使用します。現在のシェルセッションでこのサポートを有効にするには、次のコマンドを挿入します。
+  </para>
+
+<screen><prompt role="root">root # </prompt><command>source</command> /etc/bash_completion.d/drbdadm.sh</screen>
+
+  <para>
+   <systemitem class="username">root</systemitem>用に永続的に使用するには、ファイル<filename>/root/.bashrc</filename>を拡張し、前の行を挿入します。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.configure">
+  <title>DRBDサービスの設定</title>
+  <note>
+   <title>必要な調整</title>
+   <para>
+    次の手順では、サーバ名としてaliceとbobを使用し、クラスタリソース名として<literal>r0</literal>を使用します。aliceをプライマリノードとして設定し、<filename>/dev/sda1</filename>をストレージとして設定します。必ず、手順を変更して、ご使用のノード名とファイルの名前を使用してください。
+   </para>
+  </note>
+
+  <remark>toms 2014-02-13: phil: perhaps the example should be changed to
+    use an LV instead;band eg. "nfs" instead of "r0".</remark>
+
+  <para>
+   次の項では、aliceとbobという2つのノードがあり、それぞれがTCPポート<literal>7788</literal>を使用するものと想定しています。ファイアウォールでこのポートが開いているようにしてください。
+  </para>
+
+  <procedure>
+    <step>
+      <para>システムを準備します。</para>
+      <substeps>
+        <step>
+          <para>Linuxノード内のブロックデバイスを準備し、(必要な場合は)パーティション分割しておいてください。</para>
+        </step>
+        <step>
+          <para>
+            ディスクに、必要のなくなったファイルシステムがすでに含まれている場合は、次のコマンドでファイルシステムの構造を破壊し、このステップを繰り返します。
+          </para>
+          <screen><prompt role="root">root # </prompt><command>dd</command> if=/dev/zero of=<replaceable>YOUR_DEVICE</replaceable> count=16 bs=1M</screen>
+        </step>
+          <step>
+            <para>クラスタがすでにDRBDを使用している場合は、クラスタを保守モードにします。 </para>
+            <screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=true</screen>
+            <para> クラスタがすでにDRBDを使用している場合に、この手順をスキップすると、ライブ設定の構文エラーによってサービスがシャットダウンされます。 </para>
+            <para>別の方法として、<command>drbdadm</command> <option>-c <replaceable>FILE</replaceable></option>を使用して設定ファイルをテストすることもできます。</para>
+          </step>
+      </substeps>
+    </step>
+    <step>
+      <para>次のいずれかの方法を選択してDRBDを設定します。</para>
+      <itemizedlist>
+        <listitem>
+          <para><xref linkend="sec.ha.drbd.configure.manually"/></para>
+        </listitem>
+        <listitem>
+          <para><xref linkend="sec.ha.drbd.configure.yast"/></para>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+      <para>
+        Csync2 (デフォルト)を設定している場合、DRBD設定ファイルは、同期に必要なファイルのリストにすでに含まれています。同期するには、次のコマンドを使用します。
+      </para>
+      <screen><prompt role="root">root # </prompt><command>csync2</command> -xv /etc/drbd.d/</screen>
+      <para>
+        Csync2を設定していない場合(または使用しない場合)には、DRBD設定ファイルを手動で他のノードにコピーしてください。
+      </para>
+      <screen><prompt role="root">root # </prompt><command>scp</command> /etc/drbd.conf bob:/etc/
+<prompt role="root">root # </prompt><command>scp</command> /etc/drbd.d/*  bob:/etc/drbd.d/</screen>
+    </step>
+    <step>
+      <para>初期同期を実行します(<xref linkend="sec.ha.drbd.configure.init"/>を参照してください)。</para>
+    </step>
+    <step>
+      <para>
+        クラスタの保守モードフラグをリセットします。
+      </para>
+      <screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=false</screen>
+    </step>
+  </procedure>
+
+  <sect2 xml:id="sec.ha.drbd.configure.manually">
+    <title>手動によるDRBDの設定</title>
+    <para> DRBDを手動で設定するには、次の手順に従います。 </para>
+
+  <procedure xml:id="step.drbd.configure">
+   <title>DRBDの手動設定</title>
+    <para>DRBDバージョン8.3以降、設定ファイルは、複数のファイルに分割され、<filename>/etc/drbd.d/</filename>ディレクトリに保存されています。</para>
+   <step>
+      <para>
+       <filename>/etc/drbd.d/global_common.conf</filename>ファイルを開きます。このファイルには、すでにいくつかのグローバルな事前定義値が含まれています。<literal>startup</literal>セクションに移動し、次の3行を挿入します。
+      </para>
+<screen>startup {
+    # wfc-timeout degr-wfc-timeout outdated-wfc-timeout
+    # wait-after-sb;
+    wfc-timeout 100;
+    degr-wfc-timeout 120;
+}</screen>
+      <para>
+       これらのオプションは、ブート時のタイムアウトを減らすために使用します。詳細については、<link xlink:href="http://www.drbd.org/users-guide-emb/re-drbdconf.html"/>を参照してください。
+      </para>
+     </step>
+     <step>
+      <para>
+       ファイル<filename>/etc/drbd.d/r0.res</filename>を作成し、状況に合わせて行を変更し、ファイルを保存します。
+      </para>
+<screen>resource r0 { <co xml:id="co.drbd.config.r0"/>
+  device /dev/drbd0; <co xml:id="co.drbd.config.device"/>
+  disk /dev/sda1; <co xml:id="co.drbd.config.disk"/>
+  meta-disk internal; <co xml:id="co.drbd.config.meta-disk"/>
+  on alice { <co xml:id="co.drbd.config.resname"/>
+    address  192.168.1.10:7788; <co xml:id="co.drbd.config.address"/>
+  }
+  on bob { <xref linkend="co.drbd.config.resname" xrefstyle="selec:nopage"/>
+    address 192.168.1.11:7788; <xref linkend="co.drbd.config.address" xrefstyle="selec:nopage"/>
+  }
+  syncer {
+    rate  7M; <co xml:id="co.drbd.config.syncer-rate"/>
+  }
+}</screen>
+      <calloutlist>
+       <callout arearefs="co.drbd.config.r0">
+        <para>
+         必要なサービスへのいくつかの関連付けを許可するDRBDリソースの名前。たとえば、<systemitem>nfs</systemitem>、<systemitem>http</systemitem>、<systemitem>mysql_0</systemitem>、<systemitem>postgres_wal</systemitem>など。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.device">
+        
+        <para>
+         DRBD用デバイス名とそのマイナー番号。
+        </para>
+        <para>
+         先に示した例では、マイナー番号0がDRBDに対して使用されています。udev統合スクリプトは、シンボリックリンク(<filename>/dev/drbd/by-res/nfs/0</filename>)を提供します。または、設定のデバイスノード名を省略し、代わりに次のラインを使用します。
+        </para>
+        <para>
+         <literal>drbd0 minor 0</literal> (<literal>/dev/</literal>は必要に応じて指定します)または<literal>/dev/drbd0</literal>
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.disk">
+        <para>
+         ノード間で複製されるrawデバイス。ただし、この例では、デバイスは両方のノードで「同じ」です。<emphasis/>異なるデバイスが必要な場合は、<literal>disk</literal>パラメータを<literal>on</literal>ホストに移動します。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.meta-disk">
+        <para>
+         meta-diskパラメータには、通常、値<literal>internal</literal>が含まれますが、メタデータを保持する明示的なデバイスを指定することもできです。詳細については、<link xlink:href="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/>を参照してください。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.resname">
+        <para>
+         <literal>on</literal>セクションでは、この設定文が適用されるホストを記述します。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.address">
+        <para>
+         それぞれのノードのIPアドレスとポート番号。リソースごとに、通常、<literal>7788</literal>から始まる別個のポートが必要です。1つのDRBDリソースに対して両方のポートが同じである必要があります。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.syncer-rate">
+        <para>
+         同期レート。このレートは、ディスク帯域幅およびネットワーク帯域幅の3分の1に設定します。これは、再同期を制限するだけで、レプリケーションは制限しません。
+        </para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step>
+      <para>
+      環境設定ファイルの構文をチェックします。次のコマンドがエラーを返す場合は、ファイルを検証します。
+      </para>
+      <screen><prompt role="root">root # </prompt><command>drbdadm</command> dump all</screen>
+     </step>
+    <step>
+      <para><xref linkend="sec.ha.drbd.configure.init"/>に進みます。</para>
+    </step>
+  </procedure>
+  </sect2>
+  <sect2 xml:id="sec.ha.drbd.configure.yast">
+    <title>YaSTによるDRBDの設定</title>
+    <para>YaSTを使用して、DRBDの初期セットアップを開始できます。DRBDセットアップの作成後、生成されたファイルを手動で調整できます。
+    </para>
+    <para>
+        ただし、設定ファイルを変更した後にYaST DRBDモジュールを使用しないでください。DRBDモジュールでサポートされているのは、限られた一連の基本設定のみです。再度DRBDモジュールを使用すると、変更内容がモジュールに表示されない可能性があります。
+    </para>
+    <para>
+      YaSTを使ってDRBDを設定するには、次の手順に従います。</para>
+  <procedure xml:id="pro.drbd.configure.yast">
+   <title>YaSTを使用してDRBDを設定</title>
+   <step>
+    <para>
+     YaSTを起動して、設定モジュール<menuchoice><guimenu>高可用性</guimenu><guimenu>DRBD</guimenu></menuchoice>を選択します。すでにDRBDを設定していた場合、YaSTはそのことを警告します。YaSTは設定を変更し、古いDRBD設定ファイルを<filename>*.YaSTsave</filename>として保存します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <menuchoice><guimenu>起動設定</guimenu><guimenu>ブート</guimenu></menuchoice>のブートフラグは、そのままにしてください(デフォルトでは<literal>off</literal>)。Pacemakerがこのサービスを管理するので変更しないでください。
+    </para>
+   </step>
+   <step>
+     <remark>toms 2015-09-29: FATE#318391</remark>
+     <para>ファイアウォールが実行中の場合は、<guimenu>ファイアウォールでポートを開く</guimenu>を有効にします。</para>
+   </step>
+   <step>
+    <para><guimenu>Resource Configuration (リソース設定)</guimenu>エントリに移動します。<guimenu>追加</guimenu>をクリックして、新しいリソースを作成します(see <xref linkend="fig.ha.drbd.yast.resconfig"/>を参照してください)。
+    </para>
+    <figure xml:id="fig.ha.drbd.yast.resconfig">
+     <title>リソースの環境設定</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="yast2_drbd-resconfig.png" width="90%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="yast2_drbd-resconfig.png" width="90%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+    <para>
+      次のパラメータは2度設定する必要があります。
+    </para>
+
+    <variablelist>
+      <varlistentry>
+        <term><guimenu>リソース名</guimenu></term>
+        <listitem>
+          <para>DRBDリソースの名前(必須)。</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>Name (名前)</guimenu></term>
+        <listitem>
+          <para>関連するノードのホスト名。</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>アドレス:ポート</guimenu></term>
+        <listitem>
+          <para>
+          それぞれのノードのIPアドレスとポート番号(デフォルトは7788)。
+         </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>デバイス</guimenu></term>
+        <listitem>
+          <para>
+          複製されたデータにアクセスするためのブロックデバイスパス。デバイスにマイナー番号が使用されている場合は、関連付けられたブロックデバイスの名前は<filename>/dev/drbdX</filename>になることが普通です。<replaceable>X</replaceable>はデバイスのマイナー番号です。デバイスにマイナー番号が使用されていない場合は、必ずデバイス名の後に<literal>minor 0</literal>を追記します。
+         </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>ディスク</guimenu></term>
+        <listitem>
+          <para>
+          両方のノード間で複製されるrawデバイス。LVMを使用する場合、LVMデバイス名を挿入します。
+         </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>メタディスク</guimenu></term>
+        <listitem>
+          <para>
+          <guimenu>メタディスク</guimenu>は、値<literal>internal</literal>に設定されるか、またはインデックスで拡張された、drbdで必要なメタデータを保持する明示的なデバイスを指定します。
+         </para>
+         <para>
+          複数のdrbdリソースに実際のデバイスを使用することもできます。たとえば、最初のリソースに対して<guimenu>メタディスク</guimenu>が<filename>/dev/sda6[0]</filename>の場合、<filename>/dev/sda6[1]</filename>を2番目のリソースに使用できます。ただし、このディスク上で各リソースについて少なくとも128MBのスペースが必要です。メタデータの固定サイズによって、複製できる最大データサイズが制限されます。
+         </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+
+    
+    <para>
+     これらのオプションはすべて、<filename>/usr/share/doc/packages/drbd/drbd.conf</filename>ファイルの例と<command>drbd.conf(5)</command>のマニュアルページで説明されています。
+    </para>
+   </step>
+   <step>
+     <para><guimenu>OK</guimenu>をクリックして、［Resource Configuration (リソース設定)］を閉じます。</para>
+   </step>
+   <step>
+     <remark>toms 2015-09-30: FATE#317957</remark>
+     <para>DRBDでLVMを使用する場合、LVM設定ファイルでオプションをいくつか変更する必要があります(<guimenu>LVM Configuration (LVMの設定)</guimenu>エントリを参照してください)。この変更は、YaST DRBDモジュールを使用して自動的に実行できます。
+     </para>
+     <para>
+       DRBDリソースのローカルホストのディスク名およびデフォルトのフィルタはLVMフィルタで拒否されます。LVMデバイスをスキャンできるのは<filename>/dev/drbd</filename>のみです。</para>
+     <para>
+       たとえば、<filename>/dev/sda1</filename>をDRBDディスクとして使用している場合、そのデバイス名がLVMフィルタの最初のエントリとして挿入されます。フィルタを手動で変更するには、<guimenu>Modify LVM Device Filter Automatically (LVMデバイスフィルタを自動的に変更)</guimenu>チェックボックスをクリックします。
+     </para>
+   </step>
+   <step>
+     <para><guimenu>完了</guimenu>をクリックして、変更を保存します。</para>
+   </step>
+    <step>
+      <para><xref linkend="sec.ha.drbd.configure.init"/>に進みます。</para>
+    </step>
+  </procedure>
+  </sect2>
+  <sect2 xml:id="sec.ha.drbd.configure.init">
+    <title>DRBDリソースの初期化とフォーマット</title>
+    <para>システムを準備してDRBDを設定したら、ディスクの初回の初期化を行います。
+    </para>
+    <procedure>
+      <step>
+        <para>DRBDリソースを初期化して確認します。</para>
+      </step>
+        <step>
+          <para>両方のノードで「両方」のシステムにあるメタデータストレージを初期化します。<emphasis/> </para>
+          <screen><prompt role="root">root # </prompt><command>drbdadm</command> create-md r0
+<prompt role="root">root # </prompt><command>drbdadm</command> up r0</screen>
+        </step>
+        <step>
+          <para>DRBDリソースの初回再同期を短縮するため、aliceに新しいUUIDを作成します。</para>
+          <screen><prompt role="root">root # </prompt><command>drbdadm</command> new-current-uuid --zeroout-devices r0</screen>
+        </step>
+        <step>
+          <para>aliceに切り替えて、こちら側をプライマリにします。</para>
+          <screen><prompt role="root">root # </prompt><command>drbdadm</command> primary r0</screen>
+        </step>
+        <step>
+          <para> 次のコマンドを各ノードで入力して、DRBDステータスを表示します。 </para>
+          <screen><prompt role="root">root # </prompt><command>systemctl</command> status drbd</screen>
+          <para> 次のような出力が表示されます。 </para>
+          <screen>[... version string omitted ...]
+m:res  cs         ro                   ds                         p  mounted  fstype
+0:r0   Connected  Secondary/Secondary  Inconsistent/Inconsistent  C</screen>
+          
+        </step>
+        <step>
+          <para> プライマリにするノード(この場合はalice)で再同期プロセスを開始します。 </para>
+          <screen><prompt role="root">root # </prompt><command>drbdadm</command> -- --overwrite-data-of-peer primary r0</screen>
+        </step>
+        <step>
+          <para> <command>systemctl</command> <option>status drbd</option>を使用してステータスを再度チェックすると、再同期後に、次のような結果が得られます。 </para>
+          <screen>m:res  cs         ro                 ds                 p  mounted  fstype
+0:r0   Connected  Primary/Secondary  UpToDate/UpToDate  C</screen>
+          <para> <literal>ds</literal>行のステータス(ディスクステータス)は、両方のノードでUpToDateである必要があります。<literal/>
+          </para>
+        </step>
+        <step>
+          <para> DRBDデバイスの上にファイルシステムを作成します。たとえば、次のように指定します。 </para>
+          <screen><prompt role="root">root # </prompt><command>mkfs.ext3</command> /dev/drbd/by-res/r0/0</screen>
+        </step>
+        <step>
+          <para> ファイルシステムをマウントして使用します。 </para>
+          <screen><prompt role="root">root # </prompt><command>mount</command> /dev/drbd /mnt/</screen>
+        </step>
+    </procedure>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.drbd.test">
+  <title>DRBDサービスのテスト</title>
+
+  <para>
+   インストールと設定のプロシージャが予期どおりの結果となった場合は、DRBD機能の基本的なテストを実行できます。このテストは、DRDBソフトウェアの機能を理解する上でも役立ちます。
+  </para>
+
+  <procedure xml:id="pro.drbd.test">
+   <step>
+    <para>
+     alice上でDRBDサービスをテストします。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       端末コンソールを開き、<systemitem>root</systemitem>としてログインします。
+      </para>
+     </step>
+     <step>
+      <para>
+       aliceにマウントポイント(<filename>/srv/r0</filename>など)を作成します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>mkdir</command> -p /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       <command>drbd</command>デバイスをマウントします。
+      </para>
+<screen><prompt role="root">root # </prompt><command>mount</command> -o rw /dev/drbd0 /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       プライマリノードからファイルを作成します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>touch</command> /srv/r0/from_alice</screen>
+     </step>
+     <step>
+      <para>
+       aliceでディスクをマウント解除します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>umount</command> /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       aliceで次のコマンドを入力して、aliceのDRBDサービスを降格します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> secondary</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     bob上でDRBDサービスをテストします。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       端末コンソールを開き、bobで<systemitem>root</systemitem>としてログインします。
+      </para>
+     </step>
+     <step>
+      <para>
+       bobで、DRBDサービスをプライマリに昇格します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> primary</screen>
+     </step>
+     <step>
+      <para>
+       bobで、bobがプライマリかどうかチェックします。
+      </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> status drbd</screen>
+     </step>
+     <step>
+      <para>
+       bobで、<filename>/srv/r0mount</filename>などのマウントポイントを作成します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>mkdir</command> /srv/r0mount</screen>
+     </step>
+     <step>
+      <para>
+       bobで、DRBDデバイスをマウントします。
+      </para>
+<screen><prompt role="root">root # </prompt><command>mount</command> -o rw /dev/drbd0 /srv/r0mount</screen>
+     </step>
+     <step>
+      <para>
+       aliceで作成したファイルが存在していることを確認します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>ls</command> /srv/r0</screen>
+      <para>
+       <filename>/srv/r0mount/from_alice</filename>ファイルが一覧に表示されている必要があります。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     サービスが両方のノードで稼動していれば、DRBDの設定は完了です。
+    </para>
+   </step>
+   <step>
+    <para>
+     再度、aliceをプライマリとして設定します。
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       bobで次のコマンドを入力して、bobのディスクをマウント解除します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>umount</command> /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       bobで次のコマンドを入力して、bobのDRBDサービスを降格します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> secondary</screen>
+     </step>
+     <step>
+      <para>
+       aliceで、DRBDサービスをプライマリに昇格します。
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> primary</screen>
+     </step>
+     <step>
+      <para>
+       aliceで、aliceがプライマリかどうかチェックします。
+      </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> status drbd</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     サービスを自動的に起動させ、サーバに問題が発生した場合はフェールオーバーさせるためには、Pacemaker/CorosyncでDRBDを高可用性サービスとして設定できます。SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">12 SP1</phrase></phrase>のインストールと設定については、<xref linkend="part.config"/>を参照してください。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.tuning">
+  <title>DRBDのチューニング</title>
+
+  <para>
+   DRBDをチューニングするには、いくつかの方法があります。
+  </para>
+
+  <orderedlist>
+   <listitem>
+    <para>
+     メタデータ用には外部ディスクを使用します。これは便利ですが、保守作業は煩雑になります。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>sysctl</command>を介して受信および送信バッファ設定を変更することで、ネットワーク接続を調整します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     DRBD設定で<systemitem>max-buffers</systemitem>、<systemitem>max-epoch-size</systemitem>、またはその両方を変更します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     IOパターンに応じて、<systemitem>al-extents</systemitem>の値を増やします。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ハードウェアRAIDコントローラとBBU (<emphasis/>「バッテリバックアップユニット」)を併用する場合、<systemitem>no-disk-flushes</systemitem>、<systemitem>no-disk-barrier</systemitem>、および<systemitem>no-md-flushes</systemitem>の設定が有効な場合があります。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ワークロードに従って読み込みバランスを有効にします。詳細については、<link xlink:href="http://blogs.linbit.com/p/256/read-balancing/"/>を参照してください。
+    </para>
+   </listitem>
+  </orderedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.trouble">
+  <title>DRBDのトラブルシュート</title>
+
+  <para>
+   DRBDセットアップには、多数の異なるコンポーネントが使用され、別のソースから問題が発生することがあります。以降のセクションでは、一般的なシナリオをいくつか示し、さまざまなソリューションを推奨します。
+  </para>
+
+  <sect2 xml:id="sec.ha.drbd.trouble.config">
+   <title>環境設定</title>
+   <para>
+    初期のDRBDセットアップが予期どおりに機能しない場合は、おそらく、環境設定に問題があります。
+   </para>
+   <para>
+    環境設定の情報を取得するには:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      端末コンソールを開き、<systemitem class="username">root</systemitem>としてログインします。
+     </para>
+    </step>
+    <step>
+     <para>
+      <command>drbdadm</command>に<command>-d</command>オプションを指定して、環境設定ファイルをテストします。入力次のコマンドを入力します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> -d adjust r0</screen>
+     <para>
+      <command>adjust</command>オプションのドライ実行では、<command>drbdadm</command>は、DRBDリソースの実際の設定を使用中のDRBD環境設定ファイルと比較しますが、コールは実行しません。出力をレビューして、エラーのソースおよび原因を確認してください。
+     </para>
+    </step>
+    <step>
+     <para>
+      <filename>/etc/drbd.d/*</filename>ファイルと<filename>drbd.conf</filename>ファイルにエラーがある場合は、そのエラーを修正してから続行してください。
+     </para>
+    </step>
+    <step>
+     <para>
+      パーティションと設定が正しい場合は、<command>drbdadm</command>を<command>-d</command>オプションなしで、再度実行します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> adjust r0</screen>
+     <para>
+      このコマンドは、環境設定ファイルをDRBDリソースに適用します。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.drbd.hostnames">
+   <title>ホスト名</title>
+   <para>
+    DRBDの場合、ホスト名の大文字と小文字が区別され(<systemitem>Node0</systemitem>は<systemitem>node0</systemitem>とは異なるホストであるとみなされる)、カーネルに格納されているホスト名と比較されます(<command>uname -n</command>出力を参照)。
+   </para>
+   <para>
+    複数のネットワークデバイスがあり、専用ネットワークデバイスを使用したい場合、おそらく、ホスト名は使用されたIPアドレスに解決されません。この場合は、パラメータ<literal>disable-ip-verification</literal>を使用します。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.drbd.port">
+   <title>TCPポート7788</title>
+   <para>
+    システムがピアに接続できない場合は、ローカルファイアウォールに問題のある可能性があります。DRBDは、デフォルトでは、TCPポート<literal>7788</literal>を使用して、もう一方のノード にアクセスします。このポートを両方のノード からアクセスできるかどうか確認してください。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.drbd.trouble.broken">
+   <title>DRBDデバイスが再起動後に破損した</title>
+   <para>
+    DRBDサブシステムが実際のどのデバイスが最新データを保持しているか認識していない場合、スプリットブレイン受験に変更されます。この場合、それぞれのDRBDサブシステムがセカンダリとして機動され、互いに接続しません。この場合、ログ記録データに、次のメッセージが出力されることがあります。
+   </para>
+<screen>Split-Brain detected, dropping connection!</screen>
+   <para>
+    この状況を解決するには、廃棄するデータを持つノードで、次のコマンドを入力します。
+   </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> secondary r0 
+<prompt role="root">root # </prompt><command>drbdadm</command> -- --discard-my-data connect r0</screen>
+   <para>
+    最新のデータを持つノードで、次のコマンドを入力します。
+   </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> connect r0</screen>
+   <para>
+    このコマンドは、あるノードのデータをピアのデータで上書きすることによって問題を解決するため、両方のノードで一貫したビューが得られます。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.more">
+  <title>詳細情報</title>
+
+  <para>
+   DRBDについては、次のオープンソースリソースを利用できます。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     プロジェクトホームページ<link xlink:href="http://www.drbd.org"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     詳細については、<xref linkend="art_ha_quick_nfs"/>を参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <link xlink:href="http://clusterlabs.org/wiki/DRBD_HowTo_1.0"/>(Linux Pacemaker Cluster Stack Projectによる)。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     このディストリビューションで利用できるDRBDのマニュアルページは、<command>drbd(8)</command>、<command>drbddisk(8)</command>、<command>drbdsetup(8)</command>、<command>drbdadm(8)</command>、<command>drbd.conf(5)</command>です。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     コメント付きのDRBD設定例が、<filename>/usr/share/doc/packages/drbd/drbd.conf</filename>にあります。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     さらに、クラスタ間のストレージ管理を容易にするために、<citetitle/>「DRBD-Manager」(<link xlink:href="http://blogs.linbit.com/p/666/drbd-manager"/>)に関する最新の通知を参照してください。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>
