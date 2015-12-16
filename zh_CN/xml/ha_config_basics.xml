@@ -1,0 +1,2146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_basics.xml" version="5.0" xml:id="cha.ha.config.basics">
+
+ <title>配置和管理基础</title>
+ <info>
+      <abstract>
+        <para>
+    HA 群集的主要目的是管理用户服务。Apache Web 服务器或数据库便是一种典型的用户服务。从用户角度来看，服务就是在客户的要求下执行某些操作。但对群集来说，服务只是可以启动或停止的资源，其本质与群集无关。
+   </para>
+        <para>
+    在本章中，我们将介绍一些配置资源和管理群集时需要了解的基本概念。以下章节介绍如何使用 High Availability Extension 提供的每种管理工具执行主配置和管理任务。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.config.basics.global">
+  <title>全局群集选项</title>
+
+  <para>
+   全局群集选项控制群集在遇到特定情况时的行为方式。它们被分组成若干集合，可以使用 Hawk 和 <command>crm</command> 外壳之类的群集管理工具进行查看和修改。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.global.all">
+   <title>概述</title>
+   <para>
+    有关所有全局群集选项及其默认值的概述，请参见 <link xlink:href="http://www.clusterlabs.org/doc/"/> 上的<citetitle>“Pacemaker Explained”</citetitle>（Pacemaker 配置说明）。请参见<citetitle>“Available Cluster Options”</citetitle>（可用的群集选项）一节。
+   </para>
+   <para>
+    通常可保留预定义值。但为了使群集的关键功能正常工作，需要在进行基本群集设置后调整以下参数：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <xref linkend="sec.ha.config.basics.global.quorum" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="sec.ha.config.basics.global.stonith" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    了解如何使用选择的群集管理工具调整这些参数：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk：<xref linkend="pro.ha.config.hawk.global"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh：<xref linkend="sec.ha.config.crm.global"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.global.quorum">
+   <title>选项 <literal>no-quorum-policy</literal></title>
+   <para>
+    此全局选项定义在群集分区不具有法定票数（分区不具有多数节点投票）时应执行的操作。
+   </para>
+   <para>
+    允许的值有：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>ignore</literal>
+     </term>
+     <listitem>
+      <para>
+       法定票数状态不会对群集行为产生影响；将继续进行资源管理。
+      </para>
+      <para>
+       此设置在以下情况中非常有用：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         双节点群集：由于单个节点故障总是会导致大多数节点丢失通讯，而您通常希望群集能够继续运行。使用屏蔽可确保资源完整性，还可防止出现节点分裂的情况。
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         资源驱动型群集：对于具有冗余通讯通道的本地群集，节点分裂的情况只存在一定的可能性。因此，节点的通讯丢失很可能表示此节点已崩溃，剩余节点应恢复并重新为资源服务。
+        </para>
+        <para>
+         如果 <literal>no-quorum-policy</literal> 设置为 <literal>ignore</literal>，则对于 4 节点群集而言，即使有三个节点同时发生故障，服务仍可保持运作。但如果使用其他设置，则在两个节点同时发生故障时便不具有法定票数。
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>freeze</literal>
+     </term>
+     <listitem>
+      <para>
+       如果失去法定票数，群集分区将会冻结。继续进行资源管理：正在运行的资源不会停止（但可能重启动以响应监视事件），但不会启动受影响分区中的任何其他资源。
+      </para>
+      <para>
+       如果群集中的某些资源依赖于与其他节点的通讯（例如，OCFS2 装入），建议对此类群集使用此设置。在这种情况下，默认设置 <literal>no-quorum-policy=stop</literal> 没有任何作用，因为它将导致以下情况：在对等节点不可到达时将无法停止这些资源。反之，尝试停止这些资源最终将超时并导致 <literal>stop failure</literal>，进而触发升级恢复和屏蔽。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>stop</literal>（默认值）</term>
+     <listitem>
+      <para>
+       如果失去法定票数，受影响群集分区中的所有资源都将以一种有序的方式停止。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>suicide</literal>
+     </term>
+     <listitem>
+      <para>
+       如果失去法定票数，受影响群集分区中的所有节点都将被屏蔽。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.global.stonith">
+   <title>选项 <literal>stonith-enabled</literal></title>
+   <para>
+    此全局选项定义是否要应用屏蔽，以允许 STONITH 设备关闭故障节点以及无法停止其资源的节点。默认情况下，此全局选项设置为 <literal>true</literal>，因为对于常规的群集操作，有必要使用 STONITH 设备。根据默认值，如果未定义 STONITH 资源，则群集将拒绝启动任何资源。
+   </para>
+   <para>
+    如果出于任何原因而需要禁用屏蔽，请将 <literal>stonith-enabled</literal> 设置为 <literal>false</literal>，但请注意，这会影响产品的支持状态。此外，在 <literal>stonith-enabled="false"</literal> 的情况下，分布式锁管理器 (DLM) 等资源以及依赖于 DLM 的所有服务（例如 cLVM2、GFS2 和 OCFS2）都将无法启动。
+
+   </para>
+   <important>
+    <title>无 STONITH 资源不受支持</title>
+    <para>
+     不支持无 STONITH 资源的群集。
+    </para>
+   </important>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.resources">
+  <title>群集资源</title>
+
+  <para>
+   作为群集管理员，您需要在群集中为服务器上运行的每个资源或应用程序创建群集资源。群集资源可以包括网站、电子邮件服务器、数据库、文件系统、虚拟机和任何其他基于服务器的应用程序或在任意时间对用户都可用的服务。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.management">
+   <title>资源管理</title>
+
+   <para>
+    必须先设置群集中的资源，然后才能使用它。例如，如果要使用 Apache 服务器作为群集资源，请先设置 Apache 服务器并完成 Apache 配置，然后才能启动群集中的相应资源。
+   </para>
+   <para>
+    如果资源有特定环境要求，请确保这些要求已得到满足并且在所有群集节点上均相同。这种配置不由 High Availability Extension 管理。您必须自行管理。
+   </para>
+   <note>
+    <title>不要处理由群集管理的服务</title>
+    <para>
+     使用 High Availability Extension 管理资源时，不得以其他方式（在群集外，例如手动或在引导时或重引导时）启动或停止同一资源。High Availability Extension 软件负责所有服务的启动或停止操作。
+    </para>
+    <para>
+     如果当服务已在群集控制下运行后您需要执行测试或维护任务，请确保先将资源、节点或整个群集置于维护模式，然后再进行手动处理。有关细节，请参见<xref linkend="sec.ha.config.basics.maint.mode"/>。
+    </para>
+   </note>
+   <para>
+    配置群集中的资源后，请使用群集管理工具手动启动、停止、清理、删除或迁移资源。有关如何使用首选群集管理工具执行此操作的细节：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk：<xref linkend="cha.ha.config.hawk"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh：<xref linkend="cha.ha.manual_config"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.raclasses">
+   <title>支持的资源代理类</title>
+   <para>
+    对于添加的每个群集资源，需要定义资源代理需遵守的标准。资源代理提取它们提供的服务并显示群集的确切状态，以使群集对其管理的资源不作确答。群集依赖于资源代理在收到启动、停止或监视命令时作出相应反应。
+   </para>
+   <para>
+    通常，资源代理的形式为外壳脚本。High Availability Extension 支持以下类别的资源代理：
+   </para>
+
+   <variablelist>
+    <varlistentry xml:id="vle.ha.resources.ocf.ra">
+     <term>Open Cluster Framework (OCF) 资源代理</term>
+     <listitem>
+      <para>
+       OCF RA 代理最适合用于高可用性，特别是当您需要多状态资源或特殊监视功能时。这些代理通常位于 <filename>/usr/lib/ocf/resource.d/<replaceable>provider</replaceable>/</filename> 中。其功能与 LSB 脚本的功能相似。但是，始终使用环境变量进行配置，这样可轻松接受和处理参数。OCF 规范（由于它与资源代理相关）可在 <link xlink:href="http://www.opencf.org/cgi-bin/viewcvs.cgi/specs/ra/resource-agent-api.txt?rev=HEAD&amp;content-type=text/vnd.viewcvs-markup"/> 中找到。OCF 规范有严格的定义，其中包括操作必须返回退出码，请参见<xref linkend="sec.ha.errorcodes"/>。群集严格遵循这些规范。
+      </para>
+      <para>
+       要求所有 OCF 资源代理至少包含操作 <literal>start</literal>、<literal>stop</literal>、<literal>status</literal>、<literal>monitor</literal> 和 <literal>meta-data</literal>。<literal>meta-data</literal> 操作可检索有关如何配置代理的信息。例如，如果要了解提供程序 <literal>heartbeat</literal> 的 <literal>IPaddr</literal> 代理的更多信息，请使用以下命令：
+      </para>
+<screen>OCF_ROOT=/usr/lib/ocf /usr/lib/ocf/resource.d/heartbeat/IPaddr meta-data</screen>
+      <para>
+       输出是 XML 格式的信息，包括多个部分（代理的常规描述、可用参数和可用操作）。
+      </para>
+      <para>
+       或者，也可以使用 crmsh 来查看有关 OCF 资源代理的信息。有关细节，请参见<xref linkend="sec.ha.manual_config.ocf"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Linux Standards Base (LSB) 脚本</term>
+     <listitem>
+      <para>
+       LSB 资源代理一般由操作系统/分发包提供，并可在 <filename>/etc/init.d</filename> 中找到。要用于群集，它们必须遵守 LSB init 脚本规范。例如，它们必须实施了多个操作，至少包括 <literal>start</literal>、<literal>stop</literal>、<literal>restart</literal>、<literal>reload</literal>、<literal>force-reload</literal> 和 <literal>status</literal>。有关详细信息，请参见 <link xlink:href="http://refspecs.linuxbase.org/LSB_4.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html"/>。
+      </para>
+      <para>
+       这些服务的配置没有标准化。如果要将 LSB 脚本用于 High Availability，请确保您了解如何配置相关脚本。通常，您可以在 <filename>/usr/share/doc/packages/<replaceable>PACKAGENAME</replaceable></filename> 中的相关包文档中找到配置此类脚本的信息。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Systemd</term>
+     <listitem>
+      <para>
+       从 SUSE Linux Enterprise 12 起，systemd 取代了常用的 System V init 守护程序。Pacemaker 可以管理 systemd 服务（如果有）。systemd 不使用 init 脚本，而是使用单元文件。通常，服务（或单元文件）由操作系统提供。如果您要转换现有的 init 脚本，可访问 <link xlink:href="http://0pointer.de/blog/projects/systemd-for-admins-3.html"/> 找到更多信息。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>服务</term>
+     <listitem>
+      <para>
+       当前同时存在许多<quote>通用</quote>类型的系统服务：<literal>LSB</literal>（属于 System V init）、<literal>systemd</literal> 和（在某些分发版中提供的）<literal>upstart</literal>。因此，Pacemaker 支持使用特殊别名，这样可智能识别要将哪个服务应用到给定的群集节点。当群集中混合使用 systemd、upstart 和 LSB 服务时，此功能尤其有用。Pacemaker 将尝试按以下顺序查找指定服务：LSB (SYS-V) init 脚本、Systemd 单元文件或 Upstart 作业。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Nagios</term>
+     <listitem>
+      <para>
+       使用监视插件（以前称为 Nagios 插件）可以监视远程主机上的服务。Pacemaker 可以使用监视插件（如果有）来执行远程监视。有关详细信息，请参见<xref linkend="sec.ha.config.basics.remote.nagios"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>STONITH（屏蔽）资源代理</term>
+     <listitem>
+      <para>
+       此类仅用于与屏蔽相关的资源。有关详细信息，参见<xref linkend="cha.ha.fencing"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    随 High Availability Extension 提供的代理已写入 OCF 规范。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.types">
+   <title>资源类型</title>
+   <para>
+    可创建以下类型的资源：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>原始资源</term>
+     <listitem>
+      <para>
+       基元资源是最基本的资源类型。
+      </para>
+      <para>
+       了解如何使用首选群集管理工具创建原始资源：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         Hawk：<xref linkend="pro.ha.config.hawk.primitives"/>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         crmsh：<xref linkend="sec.ha.manual_config.create"/>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>组</term>
+     <listitem>
+      <para>
+       组包含一组需要放在一起、按顺序启动和按相反顺序停止的资源。有关更多信息，请参见<xref linkend="sec.ha.config.basics.resources.advanced.groups"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>克隆资源</term>
+     <listitem>
+      <para>
+       克隆是可以在多个主机上处于活动状态的资源。如果各个资源代理支持，则任何资源均可克隆。有关更多信息，请参见<xref linkend="sec.ha.config.basics.resources.advanced.clones"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>多状态资源（以前称为主/从资源）</term>
+     <listitem>
+      <para>
+       多状态资源是一种特殊类型的克隆资源，它们可具有多个模式。有关更多信息，请参见<xref linkend="sec.ha.config.basics.resources.advanced.masters"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.templates">
+   <title>资源模板</title>
+   <para>
+    如果希望创建具有类似配置的多个资源，则定义资源模板是最简单的方式。定义后，就可以在基元资源或特定类型的约束中引用该模板，请参见<xref linkend="sec.ha.config.basics.constraints.templates"/>。
+   </para>
+   <para>
+    如果在原始资源中引用了模板，则该原始资源将继承在模板中定义的所有操作、实例属性（参数）、元属性和利用率属性。此外，还可以为原始资源定义特定的操作或属性。如果在模板和原始资源中都定义了以上内容，则原始资源中定义的值将优先于模板中定义的值。
+   </para>
+   <para>
+    了解如何使用首选群集配置工具定义资源模板：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk：<xref linkend="sec.ha.config.hawk.templates"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh：<xref linkend="sec.ha.manual_config.rsc_template"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.advanced">
+   <title>高级资源类型</title>
+   <para>
+    基元资源是最简单的一种资源，易于配置，不过对于群集配置，您可能还需要更多高级资源类型，如组、克隆资源或多状态资源。
+   </para>
+   <sect3 xml:id="sec.ha.config.basics.resources.advanced.groups">
+    <title>组</title>
+    <para>
+     某些群集资源依赖于其他组件或资源，它们要求每个组件或资源都按特定顺序启动并在同一服务器上与它所依赖的资源一起运行。要简化此配置，可以使用群集资源组。
+    </para>
+    <example xml:id="ex.ha.config.resource.group">
+     <title>Web 服务器的资源组</title>
+     <para>
+      资源组示例可以是需要 IP 地址和文件系统的 Web 服务器。在本例中，每个组件都是组成群集资源组的一个单独资源。资源组将在一台或多台服务器上运行。在发生软件或硬件故障时，资源组会将故障转移到群集中的另一台服务器，这一点与单个群集资源类似。
+     </para>
+    </example>
+    <figure pgwide="0">
+     <title>组资源</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="webserver_groupresource_a.svg" width="70%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="webserver_groupresource_a.png" width="63%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+
+
+    <para>
+     组具有以下属性：
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>启动和停止</term>
+      <listitem>
+       <para>
+        资源按其显示顺序启动并按相反顺序停止。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>相关性</term>
+      <listitem>
+       <para>
+        如果组中某个资源在某处无法运行，则该组中位于其之后的任何资源都不允许运行。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>内容</term>
+      <listitem>
+       <para>
+        组可能仅包含一些原始群集资源。组必须包含至少一个资源，否则配置无效。要引用组资源的子级，请使用子级 ID 而不是组 ID。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>限制</term>
+      <listitem>
+       <para>
+        尽管在约束中可以引用组的子代，但通常倾向于使用组的名称。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>黏性</term>
+      <listitem>
+       <para>
+        黏性在组中可以累加。每个<emphasis>活动</emphasis>的组成员可以将其黏性值累加到组的总分中。因此，如果 <literal>resource-stickiness</literal> 的默认值是 <literal>100</literal>，且组中有 7 个成员（其中 5 个成员处于活动状态），那么整个组首选其当前位置（分数为 <literal>500</literal>）。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>资源监视</term>
+      <listitem>
+       <para>
+        要为组启用资源监视，必须为组中每个要监视的资源分别配置监视。
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     了解如何使用首选群集管理工具创建组：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Hawk：<xref linkend="pro.ha.config.hawk.group"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       crmsh：<xref linkend="sec.ha.manual_config.group"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+   <sect3 xml:id="sec.ha.config.basics.resources.advanced.clones">
+    <title>克隆资源</title>
+    <para>
+     您可能希望某些资源在群集的多个节点上同时运行。为此，必须将资源配置为克隆资源。可以配置为克隆的资源示例包括群集文件系统（如 OCFS2）。可以克隆提供的任何资源。资源的资源代理支持此操作。克隆资源的配置甚至也有不同，具体取决于资源驻留的节点。
+    </para>
+    <para>
+     资源克隆有三种类型：
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>匿名克隆</term>
+      <listitem>
+       <para>
+        这是最简单的克隆类型。这种克隆类型在所有位置上的运行方式都相同。因此，每台计算机上只能有一个匿名克隆实例是活动的。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>全局唯一克隆</term>
+      <listitem>
+       <para>
+        这些资源各不相同。一个节点上运行的克隆实例与另一个节点上运行的实例不同，同一个节点上运行的任何两个实例也不同。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>状态克隆（多状态资源）</term>
+      <listitem>
+       <para>
+        这些资源的活动实例分为两种状态：主动和被动。有时也称为主要和辅助，或主和从。状态克隆可以是匿名克隆也可以是全局唯一克隆。另请参见<xref linkend="sec.ha.config.basics.resources.advanced.masters"/>。
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     克隆资源必须正好包含一组或一个常规资源。
+    </para>
+    <para>
+     配置资源监视或约束时，克隆资源与简单资源具有不同的要求。有关细节，请参见 <link xlink:href="http://www.clusterlabs.org/doc/"/> 上的<citetitle>“Pacemaker Explained”</citetitle>（Pacemaker 配置说明）。请参见<citetitle>“Clones - Resources That Get Active on Multiple Hosts”</citetitle>（克隆资源 - 在多个主机上处于活动状态的资源）一节。
+    </para>
+    <para>
+     了解如何使用首选群集管理工具创建克隆资源：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Hawk：<xref linkend="pro.ha.config.hawk.clone"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       crmsh：<xref linkend="sec.ha.manual_config.clone"/>。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+   <sect3 xml:id="sec.ha.config.basics.resources.advanced.masters">
+    <title>多状态资源</title>
+    <para>
+     多状态资源是克隆的特殊形式。它们允许实例处于两种操作模式中的一种（即 <literal>master</literal> 或 <literal>slave</literal>，不过您也可以按照自己的想法来命名这些模式）。多状态资源只能包含一个组或一个常规资源。
+    </para>
+    <para>
+     配置资源监视或约束时，多状态资源与简单资源具有不同的要求。有关细节，请参见 <link xlink:href="http://www.clusterlabs.org/doc/"/> 上的<citetitle>“Pacemaker Explained”</citetitle>（Pacemaker 配置说明）。请参见<citetitle>“Multi-state - Resources That Have Multiple Modes”</citetitle>（多状态 - 具有多个节点的资源）一节。
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.meta.attr">
+   <title>资源选项（元属性）</title>
+   <para>
+    您可以为添加的每个资源定义选项。群集使用这些选项来决定资源的行为方式，它们会告知 CRM 如何对待特定的资源。可以使用 <command>crm_resource --meta</command> 命令或者按<xref linkend="pro.ha.config.hawk.primitives"/>中所述使用 Hawk 来设置资源选项。
+   </para>
+   <table xml:id="tab.ha.basics.meta">
+    <title>原始资源选项</title>
+    <tgroup cols="3">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         选项
+        </para>
+       </entry>
+       <entry>
+        <para>
+         描述
+        </para>
+       </entry>
+       <entry>
+        <para>
+         默认值
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         <literal>priority</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         如果不允许所有的资源都处于活动状态，群集会停止优先级较低的资源以便让优先级较高的资源处于活动状态。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>0</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>target-role</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         群集应在哪种状态下尝试保留此资源？允许的值有：<literal>stopped</literal>、<literal>started</literal>、<literal>master</literal>。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>started</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>is-managed</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         是否允许群集启动和停止资源？允许的值：<literal>true</literal>、<literal>false</literal>。如果该值设置为 <literal>false</literal>，则资源状态仍为受监视，并且所有错误都会予以报告（这与将资源设置为 <literal>maintenance="true"</literal> 有所不同）。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>true</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>maintenance</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         是否可以手动处理资源？允许的值：<literal>true</literal>、<literal>false</literal>。如果设置为 <literal>true</literal>，则所有资源将变为不受管理：群集将停止监视这些资源，因此不知道这些资源的状态。您可以根据需要停止或重启动群集资源，而无需等待群集尝试重启动它们。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>false</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>resource-stickiness</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         资源留在所处位置的自愿程度如何？
+
+        </para>
+       </entry>
+       <entry>
+        <para>
+         calculated
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>migration-threshold</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         节点上的此资源应发生多少故障后才能确定该节点没有资格主管此资源？
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>INFINITY</literal>（已禁用）
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>multiple-active</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         如果群集发现资源在多个节点上处于活动状态，应执行什么操作？允许的值：<literal>block</literal>（将资源标记为未受管）、<literal>stop_only</literal> 和 <literal>stop_start</literal>。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>stop_start</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>failure-timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         在恢复为如同未发生故障一样正常工作（并允许资源返回它发生故障的节点）之前，需要等待几秒钟？
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>0</literal>（已禁用）
+        </para>
+       </entry>
+      </row>
+
+      <row>
+       <entry>
+        <para>
+         <literal>allow-migrate</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         允许对支持 <literal>migrate_to</literal>/<literal>migrate_from</literal> 操作的资源进行资源迁移。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>false</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-node</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         此资源定义的远程节点的名称。这会将资源作为远程节点启用，同时定义唯一的名称用于标识该远程节点。如果未设置其他参数，则此值还会被假定为要在
+         <varname>remote-port</varname>端口上连接到的主机名。
+        </para>
+        <warning>
+         <title>使用唯一 ID</title>
+         <para>
+          此值不得与任何现有资源 ID 或节点 ID 重复。
+         </para>
+        </warning>
+       </entry>
+       <entry>
+        <para>
+         none（已禁用）
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-port</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         guest 与 pacemaker_remote 建立连接时使用的自定义端口。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>3121</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-addr</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         当远程节点的名称不是 guest 的主机名时要连接到的 IP 地址或主机名。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>remote-node</literal>（用作主机名的值）
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-connect-timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         待发 guest 连接在超时之前的等待时间。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>60s</literal>
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.inst.attr">
+   <title>实例属性（参数）</title>
+
+
+   <para>
+    可为所有资源类的脚本指定参数，这些参数可确定脚本的行为方式和所控制的服务实例。如果资源代理支持参数，则可使用 <command>crm_resource</command> 命令或按<xref linkend="pro.ha.config.hawk.primitives"/>中所述使用 Hawk 来添加这些参数。在 <command>crm</command> 命令行实用程序和 Hawk 中，实例属性分别称为 <literal>params</literal> 或 <literal>Parameter</literal>。通过以 <systemitem class="username">root</systemitem> 身份执行以下命令，可找到 OCF 脚本支持的实例属性列表：
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info <replaceable>[class:[provider:]]resource_agent</replaceable></screen>
+   <para>
+    或（无可选部分）：
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info <replaceable>resource_agent</replaceable></screen>
+   <para>
+    输出列出了所有支持的属性及其用途和默认值。
+   </para>
+   <para>
+    例如，命令
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info IPaddr</screen>
+   <para>
+    返回以下输出：
+   </para>
+<screen>Manages virtual IPv4 addresses (portable version) (ocf:heartbeat:IPaddr)
+    
+This script manages IP alias IP addresses
+It can add an IP alias, or remove one.   
+    
+Parameters (* denotes required, [] the default):
+    
+ip* (string): IPv4 address
+The IPv4 address to be configured in dotted quad notation, for example
+"192.168.1.1".                                                        
+    
+nic (string, [eth0]): Network interface
+The base network interface on which the IP address will be brought
+online.                                                           
+    
+If left empty, the script will try and determine this from the    
+routing table.                                                    
+    
+Do NOT specify an alias interface in the form eth0:1 or anything here;
+rather, specify the base interface only.                              
+    
+cidr_netmask (string): Netmask
+The netmask for the interface in CIDR format. (ie, 24), or in
+dotted quad notation  255.255.255.0).                        
+    
+If unspecified, the script will also try to determine this from the
+routing table.                                                     
+    
+broadcast (string): Broadcast address
+Broadcast address associated with the IP. If left empty, the script will
+determine this from the netmask.                                        
+    
+iflabel (string): Interface label
+You can specify an additional label for your IP address here.
+    
+lvs_support (boolean, [false]): Enable support for LVS DR
+Enable support for LVS Direct Routing configurations. In case a IP
+address is stopped, only move it to the loopback device to allow the
+local node to continue to service requests, but no longer advertise it
+on the network.                                                       
+    
+local_stop_script (string): 
+Script called when the IP is released
+    
+local_start_script (string): 
+Script called when the IP is added
+    
+ARP_INTERVAL_MS (integer, [500]): milliseconds between gratuitous ARPs
+milliseconds between ARPs                                         
+    
+ARP_REPEAT (integer, [10]): repeat count
+How many gratuitous ARPs to send out when bringing up a new address
+    
+ARP_BACKGROUND (boolean, [yes]): run in background
+run in background (no longer any reason to do this)
+    
+ARP_NETMASK (string, [ffffffffffff]): netmask for ARP
+netmask for ARP - in nonstandard hexadecimal format.
+    
+Operations' defaults (advisory minimum):
+    
+start         timeout=90
+stop          timeout=100
+monitor_0     interval=5s timeout=20s</screen>
+   <note>
+    <title>组、克隆或多状态资源的实例属性</title>
+    <para>
+     请注意，组、克隆和多状态资源没有实例属性。但是，任何实例属性集都将由组、克隆或多状态资源的子级继承。
+    </para>
+   </note>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.operations">
+   <title>资源操作</title>
+   <para>
+    默认情况下，群集将不会确保您的资源一直正常。要指示群集执行此操作，需要将监视操作添加到资源定义中。可为所有类或资源代理添加监视操作。有关更多信息，请参见<xref linkend="sec.ha.config.basics.monitoring"/>。
+   </para>
+   <table>
+    <title>资源操作属性</title>
+    <tgroup cols="2">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         操作
+        </para>
+       </entry>
+       <entry>
+        <para>
+         描述
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         <literal>ID</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         您的操作名称。必须是唯一的。（不会显示 ID）。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>name</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         要执行的操作。常见值：<literal>monitor</literal>、<literal>start</literal> 和 <literal>stop</literal>。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>interval</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         执行操作的频率。单位：秒
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         需要等待多久才能声明操作失败。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>requires</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         需要满足哪些条件才会发生此操作。允许的值：<literal>nothing</literal>、<literal>quorum</literal> 和 <literal>fencing</literal>。默认值取决于是否启用屏蔽和资源的类是否为 <literal>stonith</literal>。对于 STONITH 资源，默认值为 <literal>nothing</literal>。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>on-fail</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         此操作失败时执行的操作。允许的值：
+        </para>
+        <itemizedlist>
+         <listitem>
+          <para>
+           <literal>ignore</literal>：假装资源没有失败。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>block</literal>：不对资源执行任何进一步操作。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>stop</literal>：停止资源并且不在其他位置启动该资源。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>restart</literal>：停止资源并（可能在不同的节点上）重启动。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>fence</literal>：关闭资源故障的节点 (STONITH)。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>standby</literal>：将<emphasis>所有</emphasis>资源从资源失败的节点上移走。
+          </para>
+         </listitem>
+        </itemizedlist>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>enabled</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         如果值为 <literal>false</literal>，将操作视为不存在。允许的值：<literal>true</literal>、<literal>false</literal>。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>role</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         仅当资源具有此角色时才运行操作。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>record-pending</literal>
+        </para>
+       </entry>
+       <entry>
+
+        <para>
+         可全局设置或为单独资源设置。使 CIB 反映资源上<quote>正在进行中的</quote>操作的状态。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>description</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         操作描述。
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.timeouts">
+   <title>超时值</title>
+   <para>
+    资源的超时值会受以下参数的影响：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <varname>op_defaults</varname> （操作的全局超时），
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      在资源模板中定义的特定超时值，
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      为资源定义的特定超时值。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <note>
+    <title>值的优先级</title>
+    <para>
+     如果为资源定义了<emphasis>特定</emphasis>值，则该值优先于全局默认值。资源的特定值也优先于在资源模板中定义的值。
+    </para>
+   </note>
+
+
+   <para>
+    获取超时值权限非常重要。将它们设置得太小会导致大量（不必要的）屏蔽操作，原因如下：
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      如果资源运行超时，它将失败，群集将尝试停止它。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果停止资源也失败（例如，由于停止超时值设置得太小），群集将屏蔽该节点。发生此状况时所在的节点将被视为已失去控制。
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    您可以使用 crmsh 和 Hawk 调整操作的全局默认值并设置任何特定的超时值。确定和设置超时值的最佳实践如下所示：
+   </para>
+   <procedure>
+    <title>确定超时值</title>
+    <step>
+     <para>
+      检查资源启动和停止（在负载状况下）所需的时间。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果需要，请添加 <varname>op_defaults</varname> 参数并相应地设置（默认）超时值：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        例如，将 <literal>default-action-timeout</literal> 设置为 <literal>60</literal> 秒：
+       </para>
+<screen><prompt role="custom">crm(live)configure# </prompt> op_defaults timeout=60</screen>
+      </step>
+      <step>
+       <para>
+        对于需要更长时间期限的资源，则定义单独的超时值。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      为资源配置操作时，添加单独的 <literal>start</literal> 和 <literal>stop</literal> 操作。使用 Hawk 配置操作时，它会针对这些操作提供有用的超时建议。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.monitoring">
+  <title>资源监视</title>
+
+  <para>
+   如果要确保资源正在运行，必须为其配置资源监视。
+  </para>
+
+  <para>
+   如果资源监视程序检测到故障，将发生以下情况：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     根据 <filename>/etc/corosync/corosync.conf</filename> 中 <literal>logging</literal> 部分指定的配置生成日志文件消息。
+
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     故障将在群集管理工具（Hawk 和 <command>crm status</command>）中和 CIB 状态部分中反映。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     群集将启动重要的恢复操作，可包括停止资源以修复故障状态以及在本地或在其他节点上重启动资源。资源也可能不会重启动，具体取决于配置和群集状态。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+
+
+  <para>
+   如果不配置资源监视，则不会告知成功启动的资源故障，且群集始终显示资源状况正常。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>监视已停止的资源</term>
+    <listitem>
+     <para>
+      通常，只要资源在运行，就仅受群集监视。但是，为了检测并发违例，还需为停止的资源配置监视。例如：
+     </para>
+<screen>primitive dummy1 ocf:heartbeat:Dummy \
+    op monitor interval="300s" role="Stopped" timeout="10s" \
+    op monitor interval="30s" timeout="10s"</screen>
+     <para>
+      资源 <literal>dummy1</literal> 一旦处于 <literal>role="Stopped"</literal> 状态，此配置就会每 <literal>300</literal> 秒触发一次对该资源的监视操作。在运行时，针对它的监视间隔为 <literal>30</literal> 秒。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>检测</term>
+
+    <listitem>
+     <para>
+      CRM 会对每个节点上的各个资源执行初始监视，也称为<literal>探测</literal>。清理资源之后也会执行探测。如果为资源定义了多项监视操作，则 CRM 将选择间隔时间最小的一项操作，并会使用其超时值作为探测的默认超时值。如果未配置任何监视操作，则将应用整个群集的默认值。默认值为 <literal>20</literal> 秒（如果未通过配置 <varname>op_defaults</varname>
+      参数来指定其他默认值）。如果您不想依赖自动计算或 <systemitem>op_defaults</systemitem> 值，请为此资源的<emphasis>探测</emphasis>定义具体的监视操作。为此，可以添加一个监视操作并将 <literal>interval</literal> 设置为 <literal>0</literal>，例如：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> rsc1 ocf:pacemaker:Dummy \
+    op monitor interval="0" timeout="60"</screen>
+     <para>
+      <systemitem>rsc1</systemitem> 的探测将在 <literal>60 秒</literal>后超时，而不管
+      <varname>op_defaults</varname>中定义的全局超时或者配置的任何其他操作超时如何。如果未设置 <literal>interval="0"</literal> 以指定相应资源的探测，CRM 将自动检查是否为该资源定义了任何其他监视操作，并按如上所述计算探测的超时值。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   了解如何使用首选群集管理工具添加对资源的监视操作：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Hawk：<xref linkend="pro.ha.config.hawk.operations"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     crmsh：<xref linkend="sec.ha.manual_config.monitor"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.constraints">
+  <title>资源约束</title>
+
+  <para>
+   配置好所有资源只是完成了该任务的一部分。即便群集熟悉所有必需资源，它可能还无法进行正确处理。资源约束允许您指定在哪些群集节点上运行资源、以何种顺序装载资源，以及特定资源依赖于哪些其他资源。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.constraints.types">
+   <title>约束类型</title>
+   <para>
+    提供三种不同的约束：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>资源位置
+    </term>
+     <listitem>
+      <para>
+       位置约束定义资源可以、不可以或首选在哪些节点上运行。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>资源共置</term>
+     <listitem>
+      <para>
+       共置约束告知群集哪些资源可以或不可以在一个节点上一起运行。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>资源顺序</term>
+     <listitem>
+      <para>
+       顺序约束定义操作的顺序。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   
+   <important>
+    <title>约束与特定资源类型的限制</title>
+    <itemizedlist>
+     <listitem>
+      <para>不要为资源组的<emphasis>成员</emphasis>创建共置约束，而是应该创建指向整个资源组的共置约束。其他所有类型的约束可安全地用于资源组的成员。</para>
+     </listitem>
+     <listitem>
+      <para>不要对包含克隆资源或者应用了多状态资源的资源使用任何约束。约束必须应用于克隆资源或多状态资源，不能应用于子资源。</para>
+     </listitem>
+    </itemizedlist>
+   </important>
+   
+   
+   <sect3 xml:id="sec.ha.config.basics.constraints.rscset">
+    <title>资源集</title>
+
+    <para/>
+    <sect4 xml:id="sec.ha.config.basics.constraints.rscset.constraints">
+     <title>使用资源集定义约束</title>
+     <para>
+      可以使用<literal>资源集</literal>作为定义位置、共置或顺序约束的备用格式，在资源集中，基元资源已被全部分组到一个集合中。以前，为了实现此目的，用户可以定义一个资源组（不一定总能准确表达设计意图），也可以将每种关系定义为单个约束。随着资源和组合数目的增加，后面这种做法会导致约束过度膨胀。通过资源集进行配置并不一定会减少复杂程度，但更易于理解和维护，如以下示例中所示。
+     </para>
+     <example xml:id="ex.config.basic.resourceset.loc">
+      <title>用于位置约束的资源集</title>
+      <para>
+       例如，可以在 crmsh 中使用资源集 (<varname>loc-alice</varname>) 的以下配置，将两个虚拟 IP（<varname>vip1</varname> 和 <varname>vip2</varname>）置于同一个节点  <varname>alice</varname>：
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=192.168.1.5
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=192.168.1.6
+<prompt role="custom">crm(live)configure# </prompt><command>location</command> loc-alice { vip1 vip2 } inf: alice </screen>
+     </example>
+     <para>
+      如果想要使用资源集来替换共置约束的配置，请考虑以下两个示例：
+     </para>
+     <example>
+      <title>共置资源链</title>
+<screen>&lt;constraints&gt;
+     &lt;rsc_colocation id="coloc-1" rsc="B" with-rsc="A" score="INFINITY"/&gt;
+     &lt;rsc_colocation id="coloc-2" rsc="C" with-rsc="B" score="INFINITY"/&gt;
+     &lt;rsc_colocation id="coloc-3" rsc="D" with-rsc="C" score="INFINITY"/&gt;
+&lt;/constraints&gt;</screen>
+     </example>
+     <para>
+      由资源集表示的相同配置：
+     </para>
+<screen>&lt;constraints&gt;
+    &lt;rsc_colocation id="coloc-1" score="INFINITY" &gt;
+     &lt;resource_set id="colocated-set-example" sequential="true"&gt;
+      &lt;resource_ref id="A"/&gt;
+      &lt;resource_ref id="B"/&gt;
+      &lt;resource_ref id="C"/&gt;
+      &lt;resource_ref id="D"/&gt;
+     &lt;/resource_set&gt;
+    &lt;/rsc_colocation&gt;
+&lt;/constraints&gt;</screen>
+     <para>
+      如果想使用资源集来替换顺序约束的配置，请考虑以下两个示例：
+     </para>
+     <example>
+      <title>有序资源链</title>
+<screen>&lt;constraints&gt;
+     &lt;rsc_order id="order-1" first="A" then="B" /&gt;
+     &lt;rsc_order id="order-2" first="B" then="C" /&gt;
+     &lt;rsc_order id="order-3" first="C" then="D" /&gt;
+&lt;/constraints&gt;</screen>
+     </example>
+     <para>
+      可以使用包含有序资源的资源集来实现相同的目的：
+     </para>
+     <example>
+      <title>以资源集表示的有序资源链</title>
+<screen>&lt;constraints&gt;
+     &lt;rsc_order id="order-1"&gt;
+     &lt;resource_set id="ordered-set-example" sequential="true"&gt;
+     &lt;resource_ref id="A"/&gt;
+     &lt;resource_ref id="B"/&gt;
+     &lt;resource_ref id="C"/&gt;
+     &lt;resource_ref id="D"/&gt;
+     &lt;/resource_set&gt;
+     &lt;/rsc_order&gt;
+&lt;/constraints&gt;</screen>
+     </example>
+     <para>
+      资源集可以是有序的 (<literal>sequential=true</literal>)，也可以是无序的 (<literal>sequential=false</literal>)。此外，可以使用 <literal>require-all</literal> 属性在 <literal>AND</literal> 与 <literal>OR</literal> 逻辑之间切换。
+     </para>
+    </sect4>
+    <sect4 xml:id="sec.ha.config.basics.constraints.rscset.constraints.dep">
+     <title>不带依赖性的共置约束的资源集</title>
+
+     <para>
+      有时，将一组资源放置在同一个节点上（定义共置约束）会很有用，但前提是这些资源之间不存在硬依赖性。例如，您想要在同一个节点上放置两个资源，但<emphasis>不</emphasis>希望群集在其中一个资源发生故障时重启动另一个资源。可以在 crm 外壳中使用 <command>weak bond</command> 命令实现此目的。
+     </para>
+     <para>
+      了解如何使用首选群集管理工具设置这些<quote>弱绑定</quote>：
+     </para>
+     <itemizedlist>
+
+
+      <listitem>
+       <para>
+        crmsh：<xref linkend="sec.ha.manual_config.constraints.weak-bond"/>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </sect4>
+   </sect3>
+   <sect3 xml:id="sec.ha.config.basics.constraints.more">
+    <title>更多信息</title>
+    <para>
+     了解如何使用首选群集管理工具添加各种约束：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Hawk：<xref linkend="sec.ha.config.hawk.constraints"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       crmsh：<xref linkend="sec.ha.manual_config.constraints"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     有关配置约束的更多信息以及顺序和共置基本概念的详细背景信息，请参见以下文档。可以从 <link xlink:href="http://www.clusterlabs.org/doc/"/> 访问这些文档：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+        <citetitle>Pacemaker Explained</citetitle>（Pacemaker 配置说明），<citetitle>Resource Constraints</citetitle>（资源约束）一章
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <citetitle>共置说明</citetitle>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <citetitle>顺序说明</citetitle>
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.constraints.scores">
+   <title>分数和无限值</title>
+   <para>
+    定义约束时，还需要指定分数。各种分数是群集工作方式的重要组成部分。其实，从迁移资源到决定在已降级群集中停止哪些资源的整个过程是通过以某种方式操纵分数来实现的。分数按每个资源来计算，资源分数为负的任何节点都无法运行该资源。计算资源的分数后，群集会选择分数最高的节点。
+   </para>
+   <para>
+    <literal>INFINITY</literal>（无穷大）目前定义为 <literal>1,000,000</literal>。提高或降低分数需遵循以下三个基本规则：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      任何值 + 无穷大 = 无穷大
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      任何值 - 无穷大 = -无穷大
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      无穷大 - 无穷大 = -无穷大
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    定义资源约束时，需为每个约束指定一个分数。分数表示您指派给此资源约束的值。分数较高的约束先应用，分数较低的约束后应用。通过使用不同的分数为既定资源创建更多位置约束，可以指定资源要故障转移至的目标节点的顺序。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.constraints.templates">
+   <title>资源模板和约束</title>
+   <para>
+    如果定义了资源模板（请参见<xref linkend="sec.ha.config.basics.resources.templates"/>），则可在以下类型的约束中引用该模板：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      顺序约束
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      共置约束
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      rsc_ticket 约束（用于地域群集）。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    但是，共置约束不得包含多个对模板的引用。资源集不得包含对模板的引用。
+   </para>
+
+   <para>
+    在约束中引用的资源模板代表派生自该模板的所有原始资源。这意味着，约束将应用于引用资源模板的所有原始资源。在约束中引用资源模板是资源集的备用方式，它可以显著简化群集配置。有关资源集的细节，请参见<xref linkend="pro.ha.config.hawk.constraints.sets"/>。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.failover">
+   <title>故障转移节点</title>
+   <para>
+    资源在出现故障时会自动重启动。如果在当前节点上无法实现此操作，或者此操作在当前节点上失败了 <literal>N</literal> 次，它将尝试故障转移到其他节点。每次资源失败时，其失败计数都会增加。您可以多次定义资源的故障次数（<literal>migration-threshold</literal>），在该值之后资源会迁移到新节点。如果群集中存在两个以上的节点，则特定资源故障转移的节点由 High Availability 软件选择。
+   </para>
+   <para>
+    但可以通过为资源配置一个或多个位置约束和一个 <literal>migration-threshold</literal> 来指定此资源将故障转移到的节点。
+   </para>
+   <para>
+    了解如何使用首选群集管理工具指定故障转移节点：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk：<xref linkend="sec.ha.config.hawk.failover"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh：<xref linkend="sec.ha.manual_config.failover"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <example xml:id="ex.ha.config.basics.failover">
+    <title>迁移阈值 - 流程</title>
+    <para>
+     例如，假设您已经为 <literal>rsc1</literal> 资源配制了一个首选在 <literal>alice</literal> 节点上运行的位置约束。如果那里失败了，系统会检查 <literal>migration-threshold</literal> 并与故障计数进行比较。如果故障计数 &gt;= migration-threshold，会将资源迁移到下一个自选节点。
+    </para>
+    <para>
+     一旦达到阈值，节点将不再能运行失败资源，直到重设置资源的 failcount 为止。这可以由群集管理员手动执行或通过设置资源的 <literal>failure-timeout</literal> 选项执行。
+    </para>
+    <para>
+     例如，设置 <literal>migration-threshold=2</literal> 和 <literal>failure-timeout=60s</literal> 会导致资源在发生两次故障后迁移到新节点。允许该资源在一分钟后移回（具体取决于粘性和约束分数）。
+    </para>
+   </example>
+   <para>
+    迁移阈值概念有两个异常，发生在资源启动失败或停止失败时：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      启动失败将失败计数设置为 <literal>INFINITY</literal>，因此总是会导致立即迁移。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      停止故障会导致屏蔽（<literal>stonith-enabled</literal> 设置为 <literal>true</literal> 时，这是默认设置）。
+     </para>
+     <para>
+      如果不定义 STONITH 资源（或 <literal>stonith-enabled</literal> 设置为 <literal>false</literal>），则该资源不会迁移。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    有关配合首选群集管理工具使用迁移阈值和重置故障计数的详细信息，请参见：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk：<xref linkend="sec.ha.config.hawk.failover"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh：<xref linkend="sec.ha.manual_config.failover"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.failback">
+   <title>故障回复节点</title>
+   <para>
+    当原始节点恢复联机并位于群集中时，资源可能会故障回复到该节点。如果要防止资源故障回复到之前运行的节点，或者想为该资源指定故障回复到的其他节点，请更改其 <literal>resource stickiness</literal> 值。可以在创建资源时指定资源粘性或稍后指定。
+   </para>
+   <para>
+    指定资源粘性值时请考虑以下含义：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>值为 <literal>0</literal>：</term>
+     <listitem>
+      <para>
+       这是默认选项。资源放置在系统中的最适合位置。这意味着当负载能力<quote>较好</quote>或较差的节点变得可用时才转移资源。此选项的作用几乎等同于自动故障回复，只是资源可能会转移到非之前活动的节点上。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值大于 <literal>0</literal>：</term>
+     <listitem>
+      <para>
+       资源更愿意留在当前位置，但是如果有更合适的节点可用时会移动。值越高表示资源越愿意留在当前位置。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值小于 <literal>0</literal>：</term>
+     <listitem>
+      <para>
+       资源更愿意移离当前位置。绝对值越高表示资源越愿意离开当前位置。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值为 <literal>INFINITY</literal>：</term>
+     <listitem>
+      <para>
+       如果不是因节点不适合运行资源（节点关机、节点待机、达到 <literal>migration-threshold</literal> 或配置更改）而强制资源转移，资源总是留在当前位置。此选项的作用几乎等同于完全禁用自动故障回复。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值为 <literal>-INFINITY</literal>：</term>
+     <listitem>
+      <para>
+       资源总是移离当前位置。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.utilization">
+   <title>根据资源负载影响放置资源</title>
+   <para>
+    并非所有资源都相等。某些资源（如 Xen guest）需要托管它们的节点满足其容量要求。如果所放置资源的总需求超过了提供的容量，则资源性能将降低（或甚至失败）。
+   </para>
+   <para>
+    要考虑此情况，可使用 High Availability Extension 指定以下参数：
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      特定节点<emphasis>提供</emphasis>的容量。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      特定资源<emphasis>需要</emphasis>的容量。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      资源放置整体策略。
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    了解如何使用首选群集管理工具配置这些设置：
+   </para>
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      crmsh：<xref linkend="sec.ha.manual_config.utilization"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    如果节点有充足的可用容量来满足资源要求，则此节点将被视为此资源的有效节点。容量的性质对 High Availability Extension 而言完全无关紧要；它只是确保在将资源移到节点上之前满足资源的所有容量要求。
+   </para>
+   <para>
+    要手动配置资源要求和节点提供的容量，请使用利用率属性。可根据个人喜好命名利用率属性，并根据配置需要定义多个名称/值对。但是，属性值必须是整数。
+   </para>
+
+   <para>
+    如果将具有利用率属性的多个资源组合或设置共置约束，则 High Availability Extension 会考虑此情况。如有可能，资源将被放置到可以满足<emphasis>所有</emphasis>容量要求的节点上。
+   </para>
+   <note>
+    <title>组的利用率属性</title>
+    <para>
+     无法直接为资源组设置利用率属性。但是，为了简化组的配置，可以使用组中所有资源所需的总容量添加利用率属性。
+    </para>
+   </note>
+   <para>
+    High Availability Extension 还提供了方法来自动检测和配置节点容量和资源要求：
+   </para>
+
+   <para>
+    <systemitem>NodeUtilization</systemitem> 资源代理检查节点的容量（与 CPU 和 RAM 有关）。要配置自动检测，请创建类、提供程序和类型如下的克隆资源：<literal>ocf:pacemaker:NodeUtilization</literal>。每个节点上应都有一个克隆实例在运行。实例启动后，利用率部分将添加到节点的 CIB 配置中。
+   </para>
+
+   <para>
+    为了自动检测资源的最低要求（与 RAM 和 CPU 有关），<systemitem>Xen</systemitem> 资源代理已得到改善。启动 <systemitem>Xen</systemitem> 资源后，它将反映 RAM 和 CPU 的使用情况。利用率属性将自动添加到资源配置中。
+   </para>
+
+   <para>
+    除了检测最低要求外，High Availability Extension 还允许通过 <systemitem>VirtualDomain</systemitem> 资源代理监视当前的利用率。它检测虚拟机的 CPU 和 RAM 使用情况。要使用此功能，请配置类、提供程序和类型如下的资源：<literal>ocf:heartbeat:VirtualDomain</literal>。可以使用以下实例属性： <varname>autoset_utilization_cpu</varname> 和
+    <varname>autoset_utilization_hv_memory</varname>。两者都默认为 <literal>true</literal>。这将在每个监视周期中更新 CIB 中的利用率值。
+   </para>
+   <para>
+    与手动或自动配置容量和要求无关，放置策略必须使用 <literal>placement-strategy</literal> 属性（在全局群集选项中）指定。可用值如下：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>default</literal>（默认值）</term>
+     <listitem>
+      <para>
+       不考虑利用率值。根据位置得分分配资源。如果分数相等，资源将均匀分布在节点中。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>utilization</literal>
+     </term>
+     <listitem>
+      <para>
+       在确定节点是否有足够的可用容量来满足资源要求时考虑利用率值。但仍会根据分配给节点的资源数执行负载平衡。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>minimal</literal>
+     </term>
+     <listitem>
+      <para>
+       在确定节点是否有足够的可用容量来满足资源要求时考虑利用率值。尝试将资源集中到尽可能少的节点上（以节省其余节点上的能耗）。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>balanced</literal>
+     </term>
+     <listitem>
+      <para>
+       在确定节点是否有足够的可用容量来满足资源要求时考虑利用率值。尝试均匀分布资源，从而优化资源性能。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <note>
+    <title>配置资源优先级</title>
+    <para>
+     可用的放置策略是最佳方法 - 它们不使用复杂的启发式解析程序即可始终实现最佳分配结果。确保正确设置资源优先级，以便首选调度最重要的资源。
+    </para>
+   </note>
+   <example xml:id="ex.ha.config.basics.utilization">
+    <title>负载平衡放置配置示例</title>
+    <para>
+     以下示例演示了配有四台虚拟机、节点数相等的三节点群集。
+    </para>
+<screen>node alice utilization memory="4000"
+node bob utilization memory="4000"
+node  charly utilization memory="4000"
+primitive xenA ocf:heartbeat:Xen utilization hv_memory="3500" \
+     params xmfile="/etc/xen/shared-vm/vm1"
+     meta priority="10" 
+primitive xenB ocf:heartbeat:Xen utilization hv_memory="2000" \
+     params xmfile="/etc/xen/shared-vm/vm2"
+     meta priority="1"
+primitive xenC ocf:heartbeat:Xen utilization hv_memory="2000" \
+     params xmfile="/etc/xen/shared-vm/vm3"
+     meta priority="1"
+primitive xenD ocf:heartbeat:Xen utilization hv_memory="1000" \
+     params xmfile="/etc/xen/shared-vm/vm4"
+     meta priority="5"
+property placement-strategy="minimal"</screen>
+    <para>
+     如果三个节点都处于正常状态，那么资源 <literal>xenA</literal> 将首先放置到一个节点上，然后是 <literal>xenD</literal>。<literal>xenB</literal> 和 <literal>xenC</literal> 将分配在一起或者其中一个与 <literal>xenD</literal> 分配在一起。
+    </para>
+    <para>
+     如果一个节点出现故障，可用的总内存将不足以托管所有资源。将确保分配 <literal>xenA</literal>，<literal>xenD</literal> 同样如此。但是，只能再放置剩余资源 <literal>xenB</literal> 和 <literal>xenC</literal> 中的一个。由于它们的优先级相同，结果未定。要解决这种不确定性，需要为其中一个资源设置更高的优先级。
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.tags">
+   <title>使用标记分组资源</title>
+
+   <para>
+    标记是 Pacemaker 中最近新增的功能。使用标记可以一次性引用多个资源，而无需在这些资源之间创建任何共置或顺序关系。此功能十分适用于对概念上相关的资源进行分组。例如，如果有多个资源与某个数据库相关，您可以创建一个名为 <literal>databases</literal> 的标记，并将与该数据库相关的所有资源都添加到此标记。这样，只需使用一条命令就能停止或启动所有这些资源。
+   </para>
+   <para>
+    标记也可以用于约束。例如，<literal>loc-db-prefer</literal> 位置约束将应用到标记了 <literal>databases</literal> 的一组资源：
+   </para>
+<screen>location loc-db-prefer databases 100: alice</screen>
+   <para>
+    了解如何使用首选群集管理工具创建标记：
+   </para>
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      crmsh：<xref linkend="sec.ha.manual_config.tag"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.remote">
+  <title>管理远程主机上的服务</title>
+
+
+
+  <para>
+   在最近几年中，是否能够监视和管理远程主机上的服务已变得越来越重要。<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 11 SP3 可让用户通过监视插件来密切监视远程主机上的服务。最近添加的 <literal>pacemaker_remote</literal> 服务现在允许 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP1</phrase></phrase> 全面管理和监视远程主机上的资源，就如同这些资源是真实的群集节点一样，并且无需用户在远程计算机上安装群集堆栈。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.remote.nagios">
+   <title>使用监视插件监视远程主机上的服务</title>
+   <para>
+    虚拟机的监视可以通过 VM 代理来完成（只有在超级管理程序中出现 guest 时才可选择 VM 代理），或者通过从 VirtualDomain 或 Xen 代理调用外部脚本来完成。直到现在为止，仍只有通过在虚拟机中对高可用性堆栈进行完全设置才能实现更细化的监视。
+   </para>
+   <para>
+    通过提供对监视插件（以前称为 Nagios 插件）的支持，High Availability Extension 现在还可让您监视远程主机上的服务。您可以收集 guest 上的外部状态，而无需修改 guest 映像。例如，VM guest 可能会运行需要能够访问的 Web 服务或简单的网络资源。现在，有了 Nagios 资源代理，您就可以监视 guest 上的 Web 服务或网络资源。如果这些服务再也无法访问，High Availability Extension 将触发相应 guest 的重启或迁移操作。
+   </para>
+   <para>
+    如果您的 guest 依赖于某项服务（例如，guest 要使用 NFS 服务器），则这项服务可以是由群集管理的普通资源，也可以是使用 Nagios 资源进行监视的外部服务。
+   </para>
+   <para>
+    要配置 Nagios 资源，必须在主机上安装以下包：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <systemitem class="resource">monitoring-plugins</systemitem>
+
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <systemitem class="resource">monitoring-plugins-metadata</systemitem>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    必要时，YaST 或 Zypper 将解决对后续包的任何依赖性问题。
+   </para>
+   <para>
+    将监视插件配置为属于资源容器（通常是 VM）的资源便是其中一个典型用例。如果容器中有任何资源发生故障，则将重启该容器。有关配置示例，请参见<xref linkend="ex.ha.nagios.config"/>。或者，如果想使用 Nagios 资源代理通过网络监视主机或服务，还可将这些代理配置为普通资源。
+   </para>
+   <example xml:id="ex.ha.nagios.config">
+    <title>为监视插件配置资源</title>
+<screen>primitive vm1 ocf:heartbeat:VirtualDomain \
+    params hypervisor="qemu:///system" config="/etc/libvirt/qemu/vm1.xml" \
+    op start interval="0" timeout="90" \
+    op stop interval="0" timeout="90" \
+    op monitor interval="10" timeout="30"
+primitive vm1-sshd nagios:check_tcp \
+    params hostname="vm1" port="22" \ <co xml:id="co.nagios.hostname"/>
+    op start interval="0" timeout="120" \ <co xml:id="co.nagios.startinterval"/>
+    op monitor interval="10"
+group g-vm1-and-services vm1 vm1-sshd \
+    meta container="vm1" <co xml:id="co.nagios.container"/></screen>
+    <calloutlist>
+     <callout arearefs="co.nagios.hostname">
+      <para>
+       支持的参数与监视插件的长选项相同。监视插件通过参数 <literal>hostname</literal> 与服务连接。因此属性的值必须是可解析的主机名或 IP 地址。
+      </para>
+     </callout>
+     <callout arearefs="co.nagios.startinterval">
+      <para>
+       因为启动 guest 操作系统并让其服务运行需要一段时间，所以必须设置足够长的监视资源启动超时。
+      </para>
+     </callout>
+     <callout arearefs="co.nagios.container">
+      <para>
+       <literal>ocf:heartbeat:Xen</literal>、<literal>ocf:heartbeat:VirtualDomain</literal> 或 <literal>ocf:heartbeat:lxc</literal> 类型的群集资源容器。可以是 VM 或 Linux 容器。
+      </para>
+     </callout>
+    </calloutlist>
+    <para>
+     以上示例仅包含适用于 <literal>check_tcp</literal> 插件的一个 资源，但也可以针对不同的插件类型配置多个 资源（例如 <literal>check_http</literal> 或 <literal>check_udp</literal>）。
+    </para>
+    <para>
+     如果服务的主机名相同，还可以为组指定 <literal>hostname</literal> 参数，而无需为各个基元资源一一添加该参数。例如：
+    </para>
+<screen>group g-vm1-and-services vm1 vm1-sshd vm1-httpd \ 
+     meta container="vm1" \ 
+     params hostname="vm1" </screen>
+    <para>
+     如果监视插件监视的任何服务在 VM 中发生故障，则群集会检测到该情况并重启容器资源 (VM)。可以通过指定服务监视操作的 <literal>on-fail</literal> 属性来配置在这种情况下要执行的操作。默认值为 <literal>restart-container</literal>。
+    </para>
+    <para>
+     在考虑 VM 的 migration-threshold 时，会将服务的故障计数考虑在内。
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.remote.pace.remote">
+   <title>使用 <literal>pacemaker_remote</literal> 管理远程节点上的服务</title>
+   <para>
+    使用 <literal>pacemaker_remote</literal> 服务可将高可用性群集扩展到虚拟节点或远程裸机计算机。这些虚拟节点或远程裸机无需运行群集堆栈就能成为群集的成员。
+   </para>
+   <para>
+    High Availability Extension 现在可以起动虚拟环境（KVM 和 LXC）以及驻留在这些虚拟环境中的资源，而无需虚拟环境运行 Pacemaker 或 Corosync。
+   </para>
+   <para>
+    对于同时要管理用作群集资源的虚拟机以及 VM 中驻留的资源的用例，您现在可以使用以下设置：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <quote>常规</quote>（裸机）群集节点运行 High Availability Extension。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      虚拟机运行 <literal>pacemaker_remote</literal> 服务（几乎不需要在 VM 端进行任何配置）。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <quote>常规</quote>群集节点上的群集堆栈会起动 VM 并连接到 VM 上运行的 <literal>pacemaker_remote</literal> 服务，以将 VM 作为远程节点集成到群集中。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    由于远程节点上未安装群集堆栈，因此这意味着：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      远程节点不参与仲裁。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      远程节点无法成为 DC。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      远程节点不受可伸缩性限制（Corosync 将成员数限制为 16 个节点）的约束。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    您可以在 <link xlink:href="http://www.clusterlabs.org/doc/"/> 上的《<citetitle>Pacemaker Remote—Extending High Availability into Virtual Nodes</citetitle>》（Pacemaker 远程 - 将高可用性扩展到虚拟节点）中找到有关 <literal>remote_pacemaker</literal> 服务的更多信息，包括多个用例和详细的设置说明。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.monitor.health">
+  <title>监视系统运行状况</title>
+
+
+
+  <para>
+   为避免节点耗尽磁盘空间而使得系统无法管理已分配给该节点的任何资源，High Availability Extension 提供了一个资源代理 <systemitem>ocf:pacemaker:SysInfo</systemitem>。使用此代理可监视节点在磁盘分区的状况。SysInfo RA 会创建一个名为 <literal>#health_disk</literal> 的节点属性，如果任何受监视磁盘的可用空间低于指定限制，就会将其设置为 <literal>red</literal>。
+  </para>
+
+
+
+  <para>
+   要定义 CRM 在节点状况到达临界状态时应如何反应，请使用全局群集选项 <systemitem>node-health-strategy</systemitem>。
+
+  </para>
+
+
+
+  <procedure xml:id="pro.ha.health.monitor">
+   <title>配置系统运行状况监视</title>
+   <para>
+    要在某个节点耗尽磁盘空间时从该节点自动移除资源，请执行以下操作：
+   </para>
+   <step>
+    <para>
+     配置 <systemitem>ocf:pacemaker:SysInfo</systemitem> 资源：
+    </para>
+<screen><?dbsuse-fo font-size="0.71em"?>
+
+primitive sysinfo ocf:pacemaker:SysInfo \ 
+     params disks="/tmp /var"<co xml:id="co.disks"/> min_disk_free="100M"<co xml:id="co.min_disk_free"/> disk_unit="M"<co xml:id="co.disk_unit"/> \ 
+     op monitor interval="15s"</screen>
+    <calloutlist>
+     <callout arearefs="co.disks">
+      <para>
+       要监视的磁盘分区。例如，<filename>/tmp</filename>、<filename>/usr</filename>、<filename>/var</filename> 和 <filename>/dev</filename>。要指定多个分区作为属性值，请以空格进行分隔。
+      </para>
+      <note>
+       <title>始终监视 <filename>/</filename> 文件系统</title>
+       <para>
+        您无需在 <literal>disks</literal> 中指定根分区 (<filename>/</filename>)。此分区默认将始终受到监视。
+       </para>
+      </note>
+     </callout>
+     <callout arearefs="co.min_disk_free">
+      <para>
+       这些分区所需的最小可用磁盘空间。您也可以指定度量单位（在上例中，<literal>M</literal> 表示兆字节）。如果未指定，<systemitem>min_disk_free</systemitem> 默认将使用 <systemitem>disk_unit</systemitem> 参数中定义的单位。
+      </para>
+     </callout>
+     <callout arearefs="co.disk_unit">
+      <para>
+       报告磁盘空间所使用的单位。
+      </para>
+     </callout>
+
+    </calloutlist>
+   </step>
+   <step>
+    <para>
+     要完成资源配置，请创建 <systemitem>ocf:pacemaker:SysInfo</systemitem> 的克隆并在每个群集节点上启动此克隆。
+    </para>
+   </step>
+   <step>
+    <para>
+     将 <systemitem>node-health-strategy</systemitem> 设置为 <literal>migrate-on-red</literal>：
+    </para>
+<screen>property node-health-strategy="migrate-on-red"</screen>
+
+    <para>
+     如果 <systemitem>#health_disk</systemitem> 属性设置为 <literal>red</literal>，则策略引擎会将 <literal>-INF</literal> 添加到该节点的资源分数中。此时将从此节点移除所有资源。STONITH 资源将是最后一个被停止的资源，但即使 STONITH 资源不再运行，仍可屏蔽该节点。屏蔽对 CIB 有直接访问权且将继续起作用。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   当节点状况变成 <literal>red</literal> 状态后，解决会导致问题的状况。然后清除 <literal>red</literal> 状态，使节点能够再次运行资源。登录到群集节点并使用下列其中一种方法：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     执行以下命令：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> node status-attr <replaceable>NODE</replaceable> delete #health_disk</screen>
+   </listitem>
+   <listitem>
+    <para>
+     在该节点上重启动 Pacemaker 和 Corosync。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     重引导该节点。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   该节点将恢复服务并可再次运行资源。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.maint.mode">
+  <title>维护模式</title>
+
+
+  
+   <para>
+   您可能不时地需要对单个群集组件或整个群集执行测试或维护任务 - 更改群集配置、更新单个节点的软件包，或者将群集升级到更高的产品版本。
+  </para>
+  
+   <para>
+   为此，High Availability Extension 提供了数种级别的 <literal>maintenance</literal> 选项：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     针对资源
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     针对节点
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     针对整个群集
+    </para>
+   </listitem>
+  </itemizedlist>
+  
+  <warning>
+   <title>数据丢失风险</title>
+   <para>当服务在群集控制下运行时，如果您需要执行任何测试或维护任务，请确保遵照以下说明操作：</para>
+   <orderedlist>
+    <listitem>
+     <para>在开始之前，请将单个资源、节点或整个群集设置到维护模式。这有助于避免一些不利的负面影响，例如，资源未按顺序启动、群集节点之间出现 CIB 不同步的风险，或者丢失数据。 </para>
+    </listitem>
+    <listitem>
+     <para>执行维护任务或测试。</para>
+    </listitem>
+    <listitem>
+     <para>完成后，请解除维护模式以开始正常的群集操作。</para>
+    </listitem>
+   </orderedlist>
+  </warning>
+  
+  <para>
+   在维护模式下，您可以根据需要停止或重启动群集资源 - High Availability Extension 不会尝试重启动群集资源。所有资源将自动变为不受管理：High Availability Extension 将停止监视它们，因此不知道它们的状态。您甚至可以停止节点上的所有 Pacemaker 服务，最初作为 Pacemaker 管理的群集资源启动的所有守护程序和进程将继续运行。如果在群集处于维护模式的情况下尝试启动节点上的 Pacemaker 服务，Pacemaker 将针对每个资源启动一次性的监视操作（<quote>探测</quote>），以评估哪些资源当前正在该节点上运行。但是，它只会确定资源的状态，而不执行其他操作。
+  </para>
+
+  <para>
+   有关使用首选群集管理工具设置或取消设置维护模式的细节，请参见：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Hawk：<xref linkend="sec.ha.config.hawk.maint.mode"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     crmsh：<xref linkend="sec.ha.manual_config.cli.maint.mode"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.config.basics.more">
+  <title>更多信息</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/"/>
+    </term>
+    <listitem>
+     <para>
+      用于高可用性群集管理的高级命令行界面 crm 外壳 (crmsh) 的主页。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/documentation"/>
+    </term>
+    <listitem>
+     <para>
+      提供有关 crm 外壳的多份文档，包括使用 crmsh 完成基本群集设置的<citetitle>入门</citetitle>教程，以及 crm 外壳的综合性<citetitle>手册</citetitle>。后者可在 <link xlink:href="http://crmsh.github.io/man-2.0/"/> 上访问。<link xlink:href="http://crmsh.github.io/start-guide/"/> 上提供了相关教程。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://clusterlabs.org/"/>
+    </term>
+    <listitem>
+     <para>
+      Pacemaker 主页，随 High Availability Extension 提供的群集资源管理器。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://www.clusterlabs.org/doc/"/> 
+    </term>
+    <listitem>
+     <para>
+      提供数个综合性手册，以及一些解释一般概念的简短文档。例如：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+         <citetitle>Pacemaker Explained</citetitle>（Pacemaker 说明）：包含全面、详尽的参考信息。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Configuring Fencing with crmsh</citetitle>（使用 crmsh 配置屏蔽）：如何配置和使用 STONITH 设备。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>共置说明</citetitle>
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>顺序说明</citetitle>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://linux-ha.org"/>
+    </term>
+    <listitem>
+     <para>
+      高可用性 Linux 项目的主页。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>

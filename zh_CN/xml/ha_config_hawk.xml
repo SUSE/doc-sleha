@@ -1,0 +1,637 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_hawk.xml" version="5.0" xml:id="cha.ha.config.hawk">
+ <title>配置和管理群集资源（Web 界面）</title>
+ <info>
+      <abstract>
+        <para>
+    要配置和管理群集资源，可使用基于 Web 的用户界面 HA Web Konsole (Hawk) 或 crm 外壳 (crmsh) 命令行实用程序。
+   </para>
+        <para>
+    Hawk 还可用于从非 Linux 计算机监视和管理 Linux 群集。另外，如果系统仅提供很小的图形用户界面，它也会是个理想的解决方案。
+   </para>
+        <para>
+    本章介绍了 Hawk，并包含配置和管理群集资源的基本任务：修改全局群集选项、创建基本和高级类型的资源（组和克隆）、配置约束、指定故障转移节点和故障回复节点、配置资源监视以及手动启动、清理、删除和迁移资源。为了对群集状态进行详细分析，Hawk 会生成一个群集报告 (<literal>hb_report</literal>)。可以查看群集历史记录或使用模拟器浏览可能的失败方案。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.config.hawk.intro">
+  <title>Hawk - 概述</title>
+
+  <para>
+   Hawk 的 Web 界面还可让您从非 Linux 计算机监视和管理 Linux 群集。另外，如果系统仅提供很小的图形用户界面，它也会是个理想的解决方案。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.hawk.intro.connect">
+   <title>启动 Hawk 并登录</title>
+   <para>
+    此 Web 界面包含在 <systemitem class="resource">hawk</systemitem> 包中。它必须安装在要使用 Hawk 连接到的所有群集节点上。在要使用 Hawk 访问群集节点的计算机上，只需启用了 JavaScript 和 Cookie 的（图形）Web 浏览器即可建立连接。
+   </para>
+   <para>
+    要使用 Hawk，必须在要通过 Web 界面连接到的节点上启动相应的 Web 服务。
+   </para>
+   <para>
+    如果您是使用 <systemitem class="resource">ha-cluster-bootstrap</systemitem> 包中的脚本来设置群集，则此时 Hawk 服务已启动。在这种情况下，请跳过<xref linkend="pro.ha.hawk.service"/>并继续执行<xref linkend="pro.ha.hawk.login"/>。
+   </para>
+   <procedure xml:id="pro.ha.hawk.service">
+    <title>启动 Hawk 服务</title>
+    <step>
+     <para>
+      在要连接到的节点上，打开外壳并以 <systemitem class="username">root</systemitem> 用户身份登录。
+     </para>
+    </step>
+    <step>
+     <para>
+      通过输入以下命令，检查服务的状态
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> status hawk</screen>
+    </step>
+    <step>
+     <para>
+      如果服务未在运行，请使用以下命令启动服务
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start hawk</screen>
+     <para>
+      如果希望 Hawk 在引导时自动启动，请执行以下命令：
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> enable hawk</screen>
+    </step>
+   </procedure>
+   <note>
+    <title>用户身份验证</title>
+    <para>
+     Hawk 用户必须是 <systemitem class="groupname">haclient</systemitem> 组的成员。安装程序将创建名为 <systemitem class="username">hacluster</systemitem> 的 Linux 用户，该用户将添加到 <systemitem class="groupname">haclient</systemitem> 组中。使用 <command>ha-cluster-init</command> 脚本进行设置时，将为 <systemitem class="username">hacluster</systemitem> 用户设置默认口令。
+    </para>
+    <para>
+     在启动 Hawk 之前，请设置或更改 <systemitem>hacluster</systemitem> 用户的口令。或者，创建属于 <systemitem class="groupname">haclient</systemitem> 组的新用户。
+    </para>
+    <para>
+     在要使用 Hawk 连接到的所有节点上执行此操作。
+    </para>
+   </note>
+   <procedure xml:id="pro.ha.hawk.login">
+    <title>登录到 Hawk Web 界面</title>
+    <para>
+     Hawk Web 界面使用 HTTPS 协议和端口 <literal>7630</literal>。
+    </para>
+    
+    <note>
+     <title>通过虚拟 IP 访问 Hawk</title>
+     <para>如果您希望即使平时连接的群集节点已关闭，您也能够访问 Hawk，可为 Hawk 配置一个虚拟 IP 地址（<literal>IPaddr</literal> 或 <literal>IPaddr2</literal>）作为群集资源。该地址无需任何特殊配置。</para>
+    </note>
+    <step>
+     <para>
+      在任何计算机上，启动 Web 浏览器并确保 JavaScript 和 cookie 已启用。
+     </para>
+    </step>
+    <step>
+     <para>
+      输入运行 Hawk Web 服务的任何群集节点的 IP 地址或主机名作为 URL。或者，输入群集操作员可能已配置的任何 <literal>IPaddr(2)</literal> 资源的地址：
+     </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     <note>
+      <title>证书警告</title>
+      <para>
+       当您首次尝试访问 URL 时如果显示证书警告，则表示使用了自我签名证书。默认情况下，自我签名证书不被视为可信证书。
+      </para>
+      <para>
+       请向您的群集操作员询问证书细节，以校验该证书。
+      </para>
+      <para>
+       要继续，可在浏览器中添加例外，以绕过警告。
+      </para>
+      <para>
+       有关如何将自我签名证书替换为官方证书颁发机构签名的证书的信息，请参见<xref linkend="vle.ha.hawk.certificate"/>。
+      </para>
+     </note>
+    </step>
+    <step>
+     <para>
+      在 Hawk 登录屏幕上，输入 <systemitem class="username">hacluster</systemitem> 用户（或属于 <systemitem class="groupname">haclient</systemitem> 组的任何其他用户）的<guimenu>用户名</guimenu>和<guimenu>口令</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      单击<guimenu>登录</guimenu>。
+     </para>
+     <para>
+      随即会出现<guimenu>群集状态</guimenu>屏幕，显示群集节点和资源的状态。显示的信息类似于 crm 外壳中 <command>crm status</command> 命令的输出。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.hawk.intro.main">
+   <title>主屏幕：群集状态</title>
+   <remark>taroth 2014-07-31: todo: this sections needs a serious overhaul and restructuring as a
+    lot of new functions and views have been added to Hawk during the last releases - however, it
+    makes more sense to postpone this until the next general UI overhaul for Hawk, so
+    let's live with the current state for one more release... ;(</remark>
+   <para>
+    登录后，Hawk 会显示<guimenu>群集状态</guimenu>屏幕。该屏幕显示最重要的全局群集参数以及您的群集节点和资源的状态的摘要信息。以下颜色代码用于显示节点和资源的状态：
+   </para>
+   <itemizedlist xml:id="il.ha.config.hawk.colors">
+    <title>Hawk 颜色代码</title>
+    <listitem>
+     <para>
+      绿色：正常。例如，资源正在运行或节点处于联机状态。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      红色：故障，不正常。例如，资源失败或节点未正常关闭。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      黄色：正在转换。例如，节点当前正在关闭，或者当前正在启动或停止某个资源。如果您单击暂挂的资源以查看其细节，Hawk 还会显示该资源当前正在更改到的目标状态（<literal>正在启动</literal>、<literal>正在停止</literal>、<literal>正在移动</literal>、<literal>正在升级</literal>或<literal>正在降级</literal>）。
+     </para>
+
+     <note>
+      <title>显示资源的转换状态</title>
+      <para>
+       仅当操作属性 <varname>record-pending</varname> 设置为 <literal>true</literal> 时，才会显示资源的转换状态。如果您是使用 <command>ha-cluster-init</command> 脚本设置的群集，则默认已全局开启了此属性。要手动启用它，请使用 Hawk 的<guimenu>群集配置</guimenu>屏幕在<guimenu>默认操作</guimenu>下添加并启用该属性，或使用以下命令：
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure op_defaults record-pending=true</screen>
+     </note>
+    </listitem>
+    <listitem>
+     <para>
+      灰色：未运行，但群集认为它在运行。例如，由管理员停止或进入 <literal>standby</literal> 模式的节点。处于脱机状态的节点也显示为灰色（如果已正常关闭）。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    除了颜色代码之外，Hawk 还会在<guimenu>群集状态</guimenu>屏幕的所有视图中针对节点、资源、票据的状态和错误讯息显示图标。
+   </para>
+   <para>
+    如果资源失败，屏幕顶部将出现一条以红色显示的错误消息，其中包含错误细节。要分析失败原因，请单击错误消息。这会自动打开 Hawk 的<guimenu>历史记录浏览器</guimenu>并触发系统收集 20 分钟（失败发生前后各 10 分钟）内的数据。有关详细信息，请参见<xref linkend="pro.ha.config.hawk.history.explorer"/>。
+   </para>
+   <figure pgwide="0">
+    <title>Hawk - 群集状态（摘要视图）</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk-cluster-status-main.png" width="90%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk-cluster-status-main.png" width="80%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <para>
+    <guimenu>群集状态</guimenu>屏幕能几乎实时地自行刷新。您可以通过右上角中的三个图标访问以下视图，请选择其中一个视图：
+   </para>
+
+   <variablelist>
+    <title>Hawk 群集状态视图</title>
+    <varlistentry>
+     <term>摘要视图</term>
+     <listitem>
+      <para>
+       同时显示最重要的全局群集参数以及您的群集节点和资源的状态。如果您的设置包括地域群集（多站点群集），则摘要视图还会显示票据。要查看属于特定类别（票据、节点或资源）的所有元素的细节，请单击标记为链接的类别标题。否则，请单击个别元素以查看细节。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>树视图</term>
+     <listitem>
+      <para>
+       以可扩展视图显示最重要的全局群集参数以及您的群集节点和资源的状态。如果您的设置包括地域群集（多站点群集），则树视图还会显示票据。单击箭头可展开或折叠属于相应类别的元素。与<guimenu>摘要视图</guimenu>不同，此视图不仅显示资源的 ID 和状态，还显示类型（例如，原始、克隆或组）。
+      </para>
+
+      <para>
+       对于组，您还可以切换到会统一显示同一类型（一个组中）资源的视图。在资源类别中按 <literal>ab</literal> 图标可以在正常视图（分别显示每个资源）与按类型合并显示资源的视图之间切换。例如，如果一个组中有三个类型为 <literal>ocf:pacemaker:Dummy</literal> 的资源，并且其中只有一个资源正在运行，那么，按类型查看的视图将在灰色背景上显示 <literal>1/3 ocf:pacemaker:Dummy<replaceable> NODENAME</replaceable></literal>。这表示 3 个资源中只有 1 个资源启动。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>表视图</term>
+     <listitem>
+      <para>
+       此视图对较大的群集尤其有用，因为它以简明扼要的方式显示哪个节点上当前正在运行哪些资源。同时还显示不活动的节点或资源。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    主屏幕的顶行会显示您登录使用的用户名。它还可以让您<guimenu>注销</guimenu> Web 界面以及从用户名旁边的扳手图标访问下列<guimenu>工具</guimenu>：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <guimenu>模拟器</guimenu>。有关详细信息，请参见<xref linkend="sec.ha.config.hawk.simulator"/>。
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      <guimenu>群集图表</guimenu>。选择此条目以获取通过图形表示的 CIB 中所配置的节点和资源。此图表还会显示资源与节点指派（分数）之间的顺序和共置。
+     </para>
+     <figure xml:id="fig.ha.cluster.diagram" pgwide="0">
+      <title>Hawk - 群集图表</title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="hawk-cluster-diagram.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="hawk-cluster-diagram.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>群集报告</guimenu> (<command>hb_report</command>)。有关详细信息，请参见<xref linkend="sec.ha.config.hawk.crmreport"/>。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    要对节点和资源执行基本的操作员任务（比如启动或停止资源、使节点联机或者查看细节），请单击节点或资源旁边的扳手图标。这会显示一个上下文菜单。对于任何状态屏幕上的任何克隆、组或多状态子资源，从上下文菜单中选择<guimenu>父</guimenu>菜单项。单击此项可让您对该基元所述的顶级克隆或组执行启动、停止等操作。
+   </para>
+   <para>
+    有关更复杂的任务（例如配置资源、约束或全局群集选项），请使用左侧的导航栏。从该导航栏可以访问以下屏幕：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <guimenu>群集状态</guimenu>：有关细节，请参见<xref linkend="sec.ha.config.hawk.intro.main"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>历史记录浏览器</guimenu>：有关细节，请参见<xref linkend="pro.ha.config.hawk.history.explorer"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>设置向导</guimenu>：有关细节，请参见<xref linkend="sec.ha.config.hawk.wizard"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>群集配置</guimenu>：有关细节，请参见<xref linkend="sec.ha.config.hawk.global"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>访问控制列表</guimenu>：有关细节，请参见<xref linkend="cha.ha.acl"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>资源</guimenu>：有关细节，请参见<xref linkend="sec.ha.config.hawk.rsc"/>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>约束</guimenu>：有关细节，请参见<xref linkend="sec.ha.config.hawk.rsc"/>。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <note>
+    <title>Hawk 中的可用功能</title>
+    <para>
+     默认情况下，以 <systemitem class="username">root</systemitem> 或 <systemitem class="username">hacluster</systemitem> 身份登录的用户对所有群集配置任务具有完全读写访问权。但是，<xref linkend="cha.ha.acl" xrefstyle="select:title"/>可用于定义细化的访问权限。
+    </para>
+    <para>
+     如果在 CRM 中启用了 ACL，则 Hawk 中的可用功能取决于指派给您的用户角色和访问权限。此外，Hawk 中的以下功能只能由用户 <systemitem class="username">hacluster</systemitem> 执行：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       生成 <literal>hb_report</literal>。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       使用<guimenu>历史记录浏览器</guimenu>。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       查看节点或资源的最近事件。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </note>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.hawk.global">
+  <title>配置全局群集选项</title>
+
+  <para>
+   全局群集选项控制群集在遇到特定情况时的行为方式。它们被分组成若干集合，并可通过 Hawk 和 <command>crm</command> 外壳之类的群集管理工具进行查看和修改。通常可保留预定义值。但为了使群集的关键功能正常工作，需要在进行基本群集设置后调整以下参数：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.config.basics.global.quorum" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.config.basics.global.stonith" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.config.hawk.global">
+   <title>修改全局群集选项</title>
+   <step>
+    <para>
+     按<xref linkend="sec.ha.config.hawk.intro.connect"/>中所述，启动 Web 浏览器并登录到群集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中，选择<guimenu>群集属性</guimenu>可查看全局群集选项及其当前值。Hawk 会显示与 <guimenu>CRM 配置</guimenu>、<guimenu>默认资源</guimenu>和<guimenu>默认操作</guimenu>相关的最重要参数。
+
+    </para>
+    <figure pgwide="0">
+     <title>Hawk - 群集配置</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-cluster-props.png" width="80%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-cluster-props.png" width="80%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     根据群集要求，调整 <guimenu>CRM 配置</guimenu>：
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       将 <guimenu>no-quorum-policy</guimenu> 设置为合适的值。
+      </para>
+     </step>
+     <step>
+      <para>
+       如果由于某些原因需要禁用屏蔽，请取消选择 <guimenu>stonith 已启用</guimenu>。
+      </para>
+      <important>
+       <title>无 STONITH 资源不受支持</title>
+       <para>
+        不支持无 STONITH 资源的群集。
+       </para>
+      </important>
+     </step>
+     <step>
+      <para>
+       要从 CRM 配置中删除某项属性，请单击该属性旁边的减号图标。如果删除了某项属性，则群集的表现方式就像该属性采有默认值一样。有关默认值的细节，请参见<xref linkend="sec.ha.config.basics.meta.attr"/>。
+      </para>
+     </step>
+     <step>
+      <para>
+       要为 CRM 配置添加新属性，请从下拉框中选择一个属性，并单击加号。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     如果您需要更改<guimenu>默认资源</guimenu>或<guimenu>默认操作</guimenu>，请执行以下步骤：
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       要更改已显示的默认值，请编辑相应输入字段中的值。
+      </para>
+     </step>
+     <step>
+      <para>
+       要添加新的默认资源或默认操作，请从空下拉列表中选择一项，单击加号图标，然后输入值。如果已定义默认值，Hawk 会自动建议这些值。
+      </para>
+     </step>
+     <step>
+      <para>
+       要删除默认资源或默认操作，请单击参数旁边的减号图标。如果没有为<guimenu>默认资源</guimenu>和<guimenu>默认操作</guimenu>指定值，群集会使用默认值，如<xref linkend="sec.ha.config.basics.meta.attr"/>和<xref linkend="sec.ha.config.basics.operations"/>所述。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     确认更改。
+    </para>
+   </step>
+  </procedure>
+
+
+ </sect1>
+ <xi:include href="ha_hawk_rsc_config_i.xml"/>
+ <xi:include href="ha_hawk_rsc_manage_i.xml"/>
+ <sect1 xml:id="sec.ha.config.hawk.dashboard">
+
+
+  <title>监视多个群集</title>
+
+  <para>
+   Hawk 可用作监视多个群集的单一管理点。Hawk 的<guimenu>群集仪表板</guimenu>允许您查看多个群集的摘要，并且每个摘要将会列出节点、资源、票据（如果您使用的是地域群集）的数目及其状态。摘要还会显示在相应群集中是否发生过任何失败。
+  </para>
+
+  <para>
+   <guimenu>群集仪表板</guimenu>中显示的群集信息存储在一份永久性 Cookie 中。因此，您需要决定要在<guimenu>群集仪表板</guimenu>上查看哪个 Hawk 实例，并始终使用该实例。这样一来，运行 Hawk 的计算机甚至不需要属于任何群集 - 该计算机可以是不相关的独立系统。
+  </para>
+
+  <procedure xml:id="pro.ha.config.hawk.dashboard">
+   <title>使用 Hawk 监视多个群集</title>
+   <itemizedlist>
+    <title>先决条件</title>
+    <listitem>
+     <para>
+      要从 Hawk 的<guimenu>群集仪表板</guimenu>监视的所有群集都必须运行 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP1</phrase></phrase>。无法监视运行旧版 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 的群集。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果您没有在每个群集节点上用您自己的证书（或官方证书授权机构签名的证书）替换 Hawk 的自我签名证书，请在<emphasis>每个</emphasis>群集的<emphasis>每个</emphasis>节点上至少登录一次 Hawk。校验证书（并在浏览器中添加例外以绕过警告）。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果使用的是 Mozilla Firefox，则必须将其首选项更改为<guimenu>接受第三方 Cookie</guimenu>。否则，不会设置来自受监视群集的 cookie 并因此阻止您登录所要尝试监视的群集。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <step>
+    <para>
+     在要用于监视多个群集的计算机上启动 Hawk Web 服务。
+    </para>
+   </step>
+   <step>
+    <para>
+     启动 Web 浏览器并输入运行 Hawk 的计算机的 IP 地址或主机名作为 URL：
+    </para>
+<screen>https://<replaceable>IPaddress</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     在 Hawk 登录屏幕上，单击右上角中的<guimenu>仪表板</guimenu>链接。
+    </para>
+    <para>
+     <guimenu>添加群集</guimenu>对话框随即打开。
+    </para>
+    <informalfigure>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-dashboard-add-cluster.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-dashboard-add-cluster.png" width="80%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </informalfigure>
+   </step>
+   <step>
+    <para>
+     输入自定义的<guimenu>群集名称</guimenu>，用于在<guimenu>群集仪表板</guimenu>中标识该群集。
+    </para>
+   </step>
+   <step>
+    <para>
+     输入其中一个群集节点的<guimenu>主机名</guimenu>，然后确认更改。
+    </para>
+    <para>
+     <guimenu>群集仪表板</guimenu>随即会打开并显示您所添加的群集的摘要。
+    </para>
+   </step>
+   <step>
+    <para>
+     要将更多群集添加至仪表板，请单击加号图标，然后输入下一个群集的细节。
+    </para>
+    <figure>
+     <title>Hawk - 群集仪表板</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk-dashboard-multiple-clusters.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk-dashboard-multiple-clusters.png" width="80%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     要从仪表板中删除群集，请单击群集摘要旁边的 <literal>x</literal> 图标。
+    </para>
+   </step>
+   <step>
+    <para>
+     要查看关于群集的更多细节，请单击仪表板上群集框中的某处。
+    </para>
+    <para>
+     这会打开一个新的浏览器窗口或新的浏览器选项卡。如果您当前未登录群集，则这会打开 Hawk 登录屏幕。登录之后，Hawk 会在摘要视图中显示该群集的<guimenu>群集状态</guimenu>。从摘要视图中，可以按照常规方式使用 Hawk 来管理群集。
+    </para>
+   </step>
+   <step>
+    <para>
+     因为<guimenu>群集仪表板</guimenu>始终在独立的浏览器窗口或选项卡中打开，所以在 Hawk 中您可以轻松地在仪表板与单个群集管理之间切换。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   节点或资源的任何状态更改会都在在<guimenu>群集仪表板</guimenu>中立即反映出来。
+  </para>
+
+
+ </sect1>
+ <sect1 xml:id="sec.ha.config.hawk.geo">
+  <title>用于地域群集的 Hawk 功能</title>
+
+  <para>
+   有关与地理位置分散群集（地域群集）相关的 Hawk 功能的更多细节，请参见《<citetitle>Quick Start Geo Clustering for <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></citetitle>》（Geo Clustering for SUSE Linux Enterprise High Availability Extension 快速入门）。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.hawk.trouble">
+  <title>查错</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>Hawk 日志文件</term>
+    <listitem>
+     <para>
+      在 <filename>/srv/www/hawk/log</filename> 中找到 Hawk 日志文件。如果不能访问 Hawk，则检查这些文件。
+     </para>
+     <para>
+      如果使用 Hawk 时遇到了启动或停止资源的问题，请查看 Pacemaker 日志消息。Pacemaker 日志的位置在 <filename>/etc/corosync/corosync.conf</filename> 的 <literal>logging</literal> 部分中指定。
+
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>身份验证失败</term>
+    <listitem>
+     <para>
+      如果无法以属于 <systemitem class="groupname">haclient</systemitem> 组的新用户身份登录到 Hawk（或者如果在 Hawk 接受此用户的登录请求之前遇到延迟），请停止 <systemitem class="daemon">nscd</systemitem> 守护程序：
+     </para>
+<screen><command>systemctl</command> stop nscd</screen>
+     <para>
+      重试。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.hawk.certificate">
+    <term>替换自签名证书</term>
+    <listitem>
+     <para>
+      要避免在首次启动 Hawk 时收到有关自我签名证书的警告，请将自动创建的证书替换为您自己的证书或官方证书颁发机构 (CA) 签名的证书。
+     </para>
+     <para>
+      证书储存在 <filename>/etc/lighttpd/certs/hawk-combined.pem</filename> 中，并包含密钥和证书。
+     </para>
+     <para>
+      更改许可权限，让文件只能由 <systemitem class="username">root</systemitem> 用户访问：
+     </para>
+<screen>chown root.root /etc/lighttpd/certs/hawk-combined.pem
+      chmod 600 /etc/lighttpd/certs/hawk-combined.pem</screen>
+     <para>
+      创建或接收新密钥和证书后，请执行以下命令将它们合并：
+     </para>
+<screen>cat <replaceable>keyfile</replaceable> <replaceable>certificatefile</replaceable> &gt; /etc/lighttpd/certs/hawk-combined.pem</screen>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>使用历史记录浏览器/hb_report 后登录 Hawk 失败</term>
+    <listitem>
+     <para>
+
+      根据您在<guimenu>历史记录浏览器</guimenu>或 <guimenu>hb_report</guimenu> 中定义的时间段以及在此时间段内群集中发生的事件，Hawk 可能会收集大量信息。这些信息储存在 <filename>/tmp</filename> 目录下的日志文件中。这可能占用节点上剩余的可用磁盘空间。如果在使用<guimenu>历史记录浏览器</guimenu>或 <guimenu>hb_report</guimenu> 后 Hawk 不予响应，请检查群集节点的硬盘并删除相应的日志文件。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>群集仪表板</guimenu>：无法连接至主机</term>
+    <listitem>
+     <para>
+      如果未能将群集添加至 Hawk 的仪表板，请检查<xref linkend="pro.ha.config.hawk.dashboard"/>中列出的先决条件。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>群集仪表板</guimenu>：无法访问节点</term>
+    <listitem>
+     <para>
+      <guimenu>群集仪表板</guimenu>仅轮询每个群集中一个节点的状态。如果被轮询的节点已关闭，则仪表板会循环以轮询下一个节点。在这种情况下，Hawk 会简要显示关于不可访问的节点的警告消息。在 Hawk 找到另一个要连接的节点之后，该消息便会消失。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>

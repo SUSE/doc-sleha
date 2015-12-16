@@ -1,0 +1,790 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_loadbalancing.xml" version="5.0" xml:id="cha.ha.lb">
+
+ <title>负荷平衡</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    
+ <para>
+  在<emphasis>负载平衡</emphasis>的情况下，服务器群集对于外部客户端而言就如同是一台大型的快速服务器。这种看上去像是单台服务器的服务器被称为<emphasis>虚拟服务器</emphasis>。它包括一个或多个用于调度进来的请求的负载平衡器，以及若干台运行实际服务的真实服务器。完成 High Availability Extension 的负载平衡设置后，您就可以构建高度可缩放且高度可用的网络服务，例如 Web、超速缓存、邮件、FTP、媒体和 VoIP 服务。
+ </para>
+ <para>
+  High Availability Extension 支持两种负载平衡技术：Linux 虚拟服务器 (LVS) 和 HAProxy。两者的主要差别在于，Linux 虚拟服务器在 OSI 第 4 层（传输层）上运行，可配置内核的网络层，而 HAProxy 在第 7 层（应用层）上的用户空间中运行。因此，Linux 虚拟服务器所需的资源更少但处理的负载更多，而 HAProxy 可以检查流量，执行 SSL 终止，并根据流量内容做出调度决策。
+ </para>
+ <para>另一方面，Linux 虚拟服务器包含两个不同的软件：IPVS（IP 虚拟服务器）和 KTCPVS（内核 TCP 虚拟服务器）。IPVS 提供第 4 层负载平衡，而 KTCPVS 提供第 7 层负载平衡。
+ </para>
+
+ <para> 本章概述了负载平衡与高可用性结合使用的概念，然后简要介绍了 Linux 虚拟服务器和 HAProxy。最后，提供了其他阅读材料的链接。 </para>
+ <sect1 xml:id="sec.ha.lb.overview">
+  <title>概念概述</title>
+
+  <para>
+   真实的服务器和负载平衡器可通过高速 LAN 或地理位置分散的 WAN 互相连接。负载平衡器可将请求发送到不同的服务器。它们使群集的多个并行服务看似单个 IP 地址（虚拟 IP 地址，即 VIP）上的一个虚拟服务。发送请求时可使用 IP 负载平衡技术或应用程序级的负载平衡技术。系统的可伸缩性通过在群集中透明地添加或删除节点来实现。
+  </para>
+
+  <para>
+   高可用性通过检测节点或服务故障并相应地照常重配置整个虚拟服务器系统来实现。
+  </para>
+
+  <remark>Most of the following items are taken from FATE#316459. Not
+  sure if this is really correct. Needs technical proofreading by an
+  expert.</remark>
+
+  <para>
+   有多种负载平衡策略。下面介绍适用于 Linux 虚拟服务器的一些第 4 层策略：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>循环复用</title>
+     <para>
+      最简单的策略就是将每个连接轮流定向到不同的地址。例如，某个 DNS 服务器的多个条目可能与某个给定主机名对应。使用 DNS 循环复用时，该 DNS 服务器将轮流返回所有这些条目。因此，不同的客户端将看到不同的地址。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>选择<quote>最佳</quote>服务器</title>
+     <para>
+      可以使用<quote>第一台做出响应的服务器</quote>或<quote>负载最低的服务器</quote>方法实现平衡，不过此方案存在一些弱点。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>平衡每台服务器的连接数</title>
+     <para>
+      用户与服务器之间的负载平衡器可以在多台服务器之间划分用户数。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>地理位置</title>
+     <para>
+      可以将客户端定向到附近的服务器。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   下面介绍适用于 HAProxy 的一些第 7 层策略：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>URI</title>
+     <para>
+      检查 HTTP 内容并将流量发送到最适合此特定 URL 的服务器。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>URL 参数，RDP Cookie</title>
+     <para>
+      检查会话参数的 HTTP 内容（可能在 post 参数中，或者 RDP（远程桌面协议）会话 Cookie 中），并将流量发送到为此会话提供服务的服务器。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   尽管存在一些重叠的情况，但在 LVS/<command>ipvsadm</command> 不足以满足要求的情况下，可以使用 HAProxy，反之亦然：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>SSL 终止</title>
+     <para>
+      前端负载平衡器可以处理 SSL 层。因此，云节点不需要访问 SSL 密钥，而可以利用负载平衡器中的 SSL 加速器。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>应用级别</title>
+     <para>
+      HAProxy 在应用级别运行，因此，负载平衡决策受内容流的影响。这样，便可以基于 Cookie 和其他此类过滤器实现持久性。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   另一方面，HAProxy 不能完全取代 LVS/<command>ipvsadm</command>：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     LVS 支持<quote>直接路由</quote>，在此模式下，负载平衡器只作用于入站流，而出站流量将直接路由到客户端。在非对称环境中，这有可能会大幅提高吞吐量。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LVS 支持状态连接表复制（通过 <systemitem class="daemon">conntrackd</systemitem>）。因此，负载平衡器能够实现对客户端和服务器透明的故障转移。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.lb.lvs">
+  <title>使用 Linux 虚拟服务器配置负载平衡</title>
+
+  <para>
+   以下部分概述了 LVS 主要组件和概念。然后，将介绍如何在 High Availability Extension 上设置 Linux 虚拟服务器。
+  </para>
+
+  <sect2 xml:id="sec.ha.lvs.overview.director">
+   <title>定向器</title>
+   <para>
+    LVS 的主要组件是 ip_vs（也称 IPVS）内核代码。它在 Linux 内核（第 4 层交换）中实施传输层负载平衡。运行包含 IPVS 代码的 Linux 内核的节点称为<emphasis>定向器</emphasis>。控制器上运行的 IPVS 代码是 LVS 的基本功能。
+   </para>
+   <para>
+    当客户端连接到定向器时，进来的请求在所有群集节点间是负载平衡的：定向器使用一组能使 LVS 正常工作的修改过的路由规则，将包转发到真实服务器。例如，连接不会在定向器上发起或终止，它也不会发送确认。定向器相当于将包从最终用户转发到真实服务器（运行用于处理请求的应用程序的主机）的专用路由器。
+   </para>
+   <para>
+    默认情况下，内核不需要安装 IPVS 模块。IPVS 内核模块包含在 <systemitem class="resource">cluster-network-kmp-default</systemitem> 包中。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.lvs.overview.userspace">
+   <title>用户空间控制器和守护程序</title>
+   <para>
+    <systemitem class="daemon">ldirectord</systemitem> 守护程序是一个用户空间守护程序，用于管理 Linux 虚拟服务器并监视负载平衡虚拟服务器的 LVS 群集中的真实服务器。配置文件 <filename>/etc/ha.d/ldirectord.cf</filename> 指定虚拟服务及其关联的真实服务器，并告知 <systemitem class="daemon">ldirecord</systemitem> 如何将此服务器配置为 LVS 重定向器。守护程序初始化时，将为群集创建虚拟服务。
+   </para>
+   <para>
+    <systemitem class="daemon">ldirectord</systemitem> 守护程序通过定期请求已知的 URL 并检查响应来监视真实服务器的运行状况。如果真实服务器发生故障，将从负载平衡器的可用服务器列表中删除它。如果服务监视程序检测到发生故障的服务器已恢复并重新运行，则它会将此服务器重新添加到可用服务器列表中。如果出现所有真实服务器关闭的情况，则可以指定一台将 Web 服务重定向到的回退服务器。备用服务器通常是本地主机，它会显示一个应急页面，说明 Web 服务暂时不可用。
+   </para>
+   <para>
+    <systemitem class="daemon">ldirectord</systemitem> 使用 <systemitem>ipvsadm</systemitem> 工具（包 <systemitem class="resource">ipvsadm</systemitem>）来操作 Linux 内核的虚拟服务器表。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.lvs.overview.forwarding">
+   <title>包的转发</title>
+   <para>
+    定向器可采用三种不同方法将包从客户端发送到真实服务器：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>网络地址转换 (NAT)</term>
+     <listitem>
+      <para>
+       进来的请求到达虚拟 IP，然后通过将目标 IP 地址和端口更改为所选真实服务器的 IP 地址和端口将进来的请求转发到真实服务器。真实服务器向负载平衡器发送响应，负载平衡器再更改目标 IP 地址并将响应发回客户端。因此，最终用户就能从预期的源收到回复了。由于所有通讯都要流经负载平衡器，它通常会成为群集的瓶颈。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>IP 隧道通讯进程（IP-IP 封装）</term>
+     <listitem>
+      <para>
+       IP 隧道通讯进程允许将发送到某个 IP 地址的包重定向到可能处于其他网络上的另一个地址。LVS 通过 IP 隧道（重定向到其他 IP 地址）向真实服务器发送请求，然后真实服务器使用自己的路由选择表直接回复到客户端。群集成员可以处于不同的子网中。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>直接路由选择</term>
+     <listitem>
+      <para>
+       来自最终用户的包将直接转发到真实服务器。IP 包未经修改，因此必须配置真实服务器以接受虚拟服务器 IP 地址的通讯。来自真实服务器的响应会直接发送到客户端。真实服务器和负载平衡器需处于同一物理网络段中。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.lvs.overview.schedulers">
+   <title>调度算法</title>
+   <para>
+    确定将哪台真实服务器用于客户端请求的新连接，是使用不同算法来实现的。这些算法以模块的形式提供，可进行调整以适应特定需要。有关可用模块的概述，请参见 <command>ipvsadm(8)</command> 手册页。从客户端接收到连接请求时，控制器会根据<emphasis>日程表</emphasis>将一台真实的服务器指派给此客户端。调度程序是 IPVS 内核代码中的一部分，它决定哪台真实的服务器将获取下一个新连接。
+   </para>
+    <para>有关 Linux 虚拟服务器调度算法的更详细说明，请访问 <link xlink:href="http://kb.linuxvirtualserver.org/wiki/IPVS"/>。此外，还可以在 <command>ipvsadm</command> 手册页中搜索 <option>--scheduler</option>。
+    </para>
+    <para>可以在 <link xlink:href="http://www.haproxy.org/download/1.6/doc/configuration.txt"/> 上找到 HAProxy 的相关负载平衡策略。
+    </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.lvs.ldirectord">
+   <title>使用 YaST 设置 IP 负载平衡</title>
+   <para>
+    可使用 YaST IP 负载平衡模块配置基于内核的 IP 负载平衡。它是 <systemitem class="daemon">ldirectord</systemitem> 的前端。
+   </para>
+   <para>
+    要访问“IP 负载平衡”对话框，请以 <systemitem class="username">root</systemitem> 用户身份启动 YaST 并选择 <menuchoice> <guimenu>High Availability</guimenu> <guimenu>IP 负载平衡</guimenu></menuchoice>。或者，以 <systemitem class="username">root</systemitem> 用户身份使用 <command>yast2 iplb</command> 从命令行启动 YaST 群集模块。
+   </para>
+   <para>
+    YaST 模块会将其配置写入 <filename>/etc/ha.d/ldirectord.cf</filename>。YaST 模块中的可用选项卡对应于 <filename>/etc/ha.d/ldirectord.cf</filename> 配置文件的结构，此配置文件用于定义全局选项和虚拟服务的选项。
+   </para>
+   <para>
+    有关配置示例以及负载平衡器和真实服务器之间产生的进程，请参见<xref linkend="ex.ha.lvs.ldirectord"/>。
+   </para>
+   <note>
+    <title>全局参数和虚拟服务器参数</title>
+    <para>
+     如果在虚拟服务器部分和全局部分都指定了某个参数，那么在虚拟服务器部分中定义的值将覆盖在全局部分中定义的值。
+    </para>
+   </note>
+   <procedure xml:id="sec.ha.lvs.ldirectord.global">
+    <title>配置全局参数</title>
+    <para>
+     以下过程描述了如何配置最重要的全局参数。有关个别参数（以及此处未提及的参数）的更多细节，请单击<guimenu>帮助</guimenu>或参见 <systemitem class="daemon">ldirectord</systemitem> 手册页。
+    </para>
+    <step>
+     <para>
+      通过<guimenu>检查间隔</guimenu>定义 <systemitem class="daemon">ldirectord</systemitem> 连接到每台真实服务器以检查它们是否仍处于联机状态的间隔。
+     </para>
+    </step>
+    <step>
+     <para>
+      通过<guimenu>检查超时</guimenu>设置真实服务器应该在多长时间内响应上次检查。
+     </para>
+    </step>
+    <step>
+     <para>
+      通过<guimenu>失败计数</guimenu>定义在检查被视为失败前 <systemitem class="daemon">ldirectord</systemitem> 可尝试向真实服务器发送多少次请求。
+     </para>
+    </step>
+    <step>
+     <para>
+      通过<guimenu>协商超时</guimenu>定义协商检查经过多少秒后应视为超时。
+     </para>
+    </step>
+    <step>
+     <para>
+      在<guimenu>回退</guimenu>中，输入当所有真实服务器都停机时，要将 Web 服务重定向到的 Web 服务器的主机名或 IP 地址。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果希望系统在任何真实服务器的连接状态发生改变时均发送警报，请在<guimenu>电子邮件警报</guimenu>中输入有效的电子邮件地址。
+     </para>
+    </step>
+    <step>
+     <para>
+      通过<guimenu>电子邮件警报频率</guimenu>定义经过多少秒后，如果任何真实服务器仍无法访问，应重复发出电子邮件警报。
+     </para>
+    </step>
+    <step>
+     <para>
+      在<guimenu>电子邮件警报状态</guimenu>中指定应发送电子邮件警报的服务器状态。如果要定义多个状态，请使用逗号分隔的列表。
+     </para>
+    </step>
+    <step>
+     <para>
+      通过<guimenu>自动重新装载</guimenu>定义 <systemitem class="daemon">ldirectord</systemitem> 是否应连续监视配置文件有无修改。如果设置为 <literal>yes</literal>，则将在发生更改时自动重新装载配置。
+     </para>
+    </step>
+    <step>
+     <para>
+      通过 <guimenu>Quiescent</guimenu> 开关定义是否应从内核的 LVS 表中删除发生故障的真实服务器。如果设置为<guimenu>是</guimenu>，则不会删除发生故障的服务器。而是将其权重设置为 <literal>0</literal>，表示不接受新连接。已建立的连接将继续存在，直到超时为止。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果要使用备用路径进行日志记录，请在<guimenu>日志文件</guimenu>中指定日志文件的路径。默认情况下，<systemitem class="daemon">ldirectord</systemitem> 会将其日志文件写入 <filename>/var/log/ldirectord.log</filename>。
+     </para>
+    </step>
+   </procedure>
+   <figure xml:id="fig.ha.lvs.yast.global">
+    <title>YaST IP 负载平衡 - 全局参数</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_iplb_global.png" width="95%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_iplb_global.png" width="65%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <procedure xml:id="sec.ha.lvs.ldirectord.virtual">
+    <title>配置虚拟服务</title>
+    <para>
+     可通过为每种虚拟服务定义若干参数来配置一个或多个虚拟服务。以下过程描述了如何配置虚拟服务最重要的参数。有关个别参数（以及此处未提及的参数）的更多细节，请单击<guimenu>帮助</guimenu>或参见 <systemitem class="daemon">ldirectord</systemitem> 手册页。
+    </para>
+    <step>
+     <para>
+      在 YaST IP 负载平衡模块中，切换到<guimenu>虚拟服务器配置</guimenu>选项卡。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>添加</guimenu>新虚拟服务器或<guimenu>编辑</guimenu>现有虚拟服务器。一个新对话框将显示可用选项。
+     </para>
+    </step>
+    <step>
+     <para>
+      在<guimenu>虚拟服务器</guimenu>中，输入负载平衡器和真实服务器可作为 LVS 访问的共享虚拟 IP 地址（IPv4 或 IPv6）和端口。还可以指定主机名和服务来代替 IP 地址和端口号。或者，也可以使用防火墙标记。防火墙标记是一种将任意 <literal>VIP:port</literal> 服务的集合聚合到一个虚拟服务中的方法。
+     </para>
+    </step>
+    <step>
+     <para>
+      要指定<guimenu>真实服务器</guimenu>，需要输入服务器的 IP 地址（IPv4、IPv6 或主机名）、端口（或服务名称）以及转发方法。转发方法必须是 <literal>gate</literal>、<literal>ipip</literal> 或 <literal>masq</literal> 中的一种，请参见<xref linkend="sec.ha.lvs.overview.forwarding"/>。
+     </para>
+     <para>
+      单击<guimenu>添加</guimenu>按钮，为每台真实服务器输入需要的自变量。
+     </para>
+    </step>
+    <step>
+     <para>
+      在<guimenu>检查类型</guimenu>中选择用于测试真实服务器是否仍然活动的检查类型。例如，要发送请求并检查响应是否包含预期的字符串，请选择 <literal>Negotiate</literal>。
+     </para>
+    </step>
+    <step xml:id="step.ha.lvs.ldirectord.service">
+     <para>
+      如果已将<guimenu>检查类型</guimenu>设置为 <literal>Negotiate</literal>，则还需定义要监视的服务类型。从<guimenu>服务</guimenu>下拉框中进行选择。
+     </para>
+    </step>
+    <step>
+     <para>
+      在<guimenu>请求</guimenu>中输入检查间隔期间每台真实服务器上所请求对象的 URI。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果要检查来自真实服务器的响应是否包含特定字符串（如 <quote>I'm alive</quote> 消息），请定义需要匹配的正则表达式。将正则表达式输入到<guimenu>接收</guimenu>中。如果来自真实服务器的响应包含此表达式，则认为真实服务器处于活动状态。
+     </para>
+    </step>
+    <step>
+     <para>
+      根据您在<xref linkend="step.ha.lvs.ldirectord.service"/> 中选定的<guimenu>服务</guimenu>类型，您还必须为身份验证指定更多参数。切换到<guimenu>授权类型</guimenu>选项卡，输入<guimenu>登录</guimenu>、<guimenu>口令</guimenu>、<guimenu>数据库</guimenu>或<guimenu>机密</guimenu>等详细信息。有关更多信息，请参见 YaST 帮助文本或 <systemitem class="daemon">ldirectord</systemitem> 手册页。
+     </para>
+    </step>
+    <step>
+     <para>
+      切换至<guimenu>其他</guimenu>选项卡。
+     </para>
+    </step>
+    <step>
+     <para>
+      选择用于负载平衡的<guimenu>调度程序</guimenu>。有关可用调度程序的信息，请参见 <command>ipvsadm(8)</command> 手册页。
+     </para>
+    </step>
+    <step>
+     <para>
+      选择要使用的<guimenu>协议</guimenu>。如果将虚拟服务指定为 IP 地址和端口，则它必须是 <literal>tcp</literal> 或 <literal>udp</literal>。如果将虚拟服务指定为防火墙标记，则协议必须是 <literal>fwm</literal>。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果需要，可定义其他参数。单击<guimenu>确定</guimenu>确认配置。YaST 会将此配置写入 <filename>/etc/ha.d/ldirectord.cf</filename>。
+     </para>
+    </step>
+   </procedure>
+
+   <figure xml:id="fig.ha.lvs.yast.virtual">
+    <title>YaST IP 负载平衡 - 虚拟服务</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_iplb_virtual.png" width="95%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_iplb_virtual.png" width="65%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <example xml:id="ex.ha.lvs.ldirectord">
+    <title>简单的 ldirectord 配置</title>
+    <para>
+     <xref linkend="fig.ha.lvs.yast.global"/>和<xref linkend="fig.ha.lvs.yast.virtual"/>中所示的值将生成在 <filename>/etc/ha.d/ldirectord.cf</filename> 中定义的以下配置：
+    </para>
+<screen>autoreload = yes <co xml:id="co.ha.ldirectord.autoreload"/>
+    checkinterval = 5 <co xml:id="co.ha.ldirectord.checkintervall"/>
+    checktimeout = 3 <co xml:id="co.ha.ldirectord.checktimeout"/>
+    quiescent = yes <co xml:id="co.ha.ldirectord.quiescent"/>
+    virtual = 192.168.0.200:80 <co xml:id="co.ha.ldirectord.virtual"/>
+    checktype = negotiate <co xml:id="co.ha.ldirectord.checktype"/>
+    fallback = 127.0.0.1:80 <co xml:id="co.ha.ldirectord.fallback"/>
+    protocol = tcp <co xml:id="co.ha.ldirectord.protocol"/>
+    real = 192.168.0.110:80 gate <co xml:id="co.ha.ldirectord.real"/>
+    real = 192.168.0.120:80 gate <xref linkend="co.ha.ldirectord.real" xrefstyle="select:label nopage"/>
+    receive = "still alive" <co xml:id="co.ha.ldirectord.receive"/>
+    request = "test.html" <co xml:id="co.ha.ldirectord.request"/>
+    scheduler = wlc <co xml:id="co.ha.ldirectord.scheduler"/>
+    service = http <co xml:id="co.ha.ldirectord.service"/></screen>
+    <calloutlist>
+     <callout arearefs="co.ha.ldirectord.autoreload">
+      <para>
+       定义 <systemitem class="daemon">ldirectord</systemitem> 应连续检查配置文件有无修改。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.checkintervall">
+      <para>
+       <systemitem class="daemon">ldirectord</systemitem> 连接到每台真实服务器以检查它们是否仍处于联机状态的间隔。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.checktimeout">
+      <para>
+       真实服务器必须在上次检查后多长时间内作出响应。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.quiescent">
+      <para>
+       定义不要从内核的 LVS 表中删除发生故障的真实服务器，而是将其权重设置为 <literal>0</literal>。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.virtual">
+      <para>
+       LVS 的虚拟 IP 地址 (VIP)。可通过端口 <literal>80</literal> 访问 LVS。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.checktype">
+      <para>
+       用于测试真实服务器是否仍处于活动状态的检查类型。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.fallback">
+      <para>
+       此服务的所有真实服务器都宕机时，要将 Web 服务重定向到的服务器。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.protocol">
+      <para>
+       要使用的协议。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.real">
+      <para>
+       定义了两台真实服务器，均可通过端口 <literal>80</literal> 访问。包的转发方法是 <literal>gate</literal>，表示使用直接路由选择。
+      </para>
+     </callout>
+
+     <callout arearefs="co.ha.ldirectord.receive">
+      <para>
+       需要在真实服务器的响应字符串中匹配的正则表达式。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.request">
+      <para>
+       检查间隔期间每台真实服务器上所请求对象的 URI。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.scheduler">
+      <para>
+       用于负载平衡的所选调度程序。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.ldirectord.service">
+      <para>
+       要监视的服务类型。
+      </para>
+     </callout>
+    </calloutlist>
+    <para>
+     此配置将导致以下进程流：<systemitem class="daemon">ldirectord</systemitem> 每 5 秒连接一次每台真实服务器 (<xref linkend="co.ha.ldirectord.checkintervall" xrefstyle="select:label nopage"/>)，并按 <xref linkend="co.ha.ldirectord.real" xrefstyle="select:label nopage"/> 和 <xref linkend="co.ha.ldirectord.request" xrefstyle="select:label nopage"/> 中指定的方式请求 <literal>192.168.0.110:80/test.html</literal> 或 <literal>192.168.0.120:80/test.html</literal>。如果上次检查后 3 秒内 (<xref linkend="co.ha.ldirectord.checktimeout" xrefstyle="select:label nopage"/>) 未收到来自真实服务器的预期的 <literal>still alive</literal> 字符串 (<xref linkend="co.ha.ldirectord.receive" xrefstyle="select:label nopage"/>)，它会将此真实服务器从可用池中删除。但是，由于 <literal>quiescent=yes</literal> 设置 (<xref linkend="co.ha.ldirectord.quiescent" xrefstyle="select:label nopage"/>)，真实服务器不会从 LVS 表中去除。其权重将设置为 <literal>0</literal>，这样就不会接受到此真实服务器的新连接请求。已建立的连接将继续存在，直到超时为止。
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.lvs.further">
+   <title>其他设置</title>
+   <para>
+    除了使用 YaST 配置 <systemitem class="daemon">ldirectord</systemitem> 外，还需要确保满足以下条件，才能完成 LVS 设置：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      正确设置真实服务器以提供所需服务。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      负载平衡服务器（或服务器）必须能够使用 IP 转发将通讯路由到真实服务器。真实服务器的网络配置取决于选择的包转发方法。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      为避免负载平衡服务器（或服务器）成为整个系统的单个故障点，需要设置负载平衡器的一个或多个备份。在群集配置中配置 <systemitem class="daemon">ldirectord</systemitem> 的原始资源，以便在发生硬件故障时，<systemitem class="daemon">ldirectord</systemitem> 可以故障转移到其他服务器。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      由于负载平衡器的备份也需要 <systemitem class="daemon">ldirectord</systemitem> 配置文件才能完成其任务，因此请确保 <filename>/etc/ha.d/ldirectord.cf</filename> 在要用作负载平衡器备份的所有服务器上都可用。可以按<xref linkend="sec.ha.installation.setup.csync2"/>中所述使用 Csync2 同步配置文件。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.lb.haproxy">
+  <title>使用 HAProxy 配置负载平衡</title>
+
+  <remark>
+   This is a straightforward explanation how to set up a HA openSUSE
+   13.1 http load balancer, but not using SLE HA tools, but plain
+   vanilla openSUSE with vi.
+  
+  </remark>
+
+  <para>
+   以下章节概述了 HAProxy 以及如何针对高可用性进行设置。负载平衡器会将所有请求分发到其后端服务器。它采用主动/被动配置，也就是说，当主节点发生故障时，从节点就会变成主节点。在这种情况下，用户察觉不到任何服务中断的迹象。
+  </para>
+
+  <para>
+   在本节中，我们将使用以下设置：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     两个负载平衡器：alice 和 bob，其 IP 地址分别为 <systemitem class="ipaddress">192.168.1.100</systemitem> 和 <systemitem class="ipaddress">192.168.1.101</systemitem>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     一个虚拟浮动 IP 地址 <systemitem class="ipaddress">192.168.1.99</systemitem>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     我们的服务器（通常用于存储 Web 内容）<systemitem class="server">www1.example.com</systemitem>（IP：<systemitem class="ipaddress">192.168.1.200</systemitem>）和 <systemitem class="server">www2.example.com</systemitem>（IP：<systemitem class="ipaddress">192.168.1.201</systemitem>）
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   要配置 HAProxy，请使用以下过程：
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     安装 <systemitem class="resource">haproxy</systemitem> 包。
+    </para>
+   </step>
+   <step>
+    <para>
+     创建包含以下内容的 <filename>/etc/haproxy/haproxy.cfg</filename> 文件：
+    </para>
+
+    <remark>toms 2014-09-17: Not sure about all the options.</remark>
+<screen>global <co xml:id="co.ha.lb.global"/>
+  maxconn 256
+  daemon
+
+defaults <co xml:id="co.ha.lb.defaults"/>
+  log     global
+  mode    http
+  option  httplog
+  option  dontlognull
+  retries 3
+  option redispatch
+  maxconn 2000
+  timeout connect   5000  <co xml:id="co.ha.lb.timeout.connect"/>
+  timeout client    50s   <co xml:id="co.ha.lb.timeout.client"/>
+  timeout server    50000 <co xml:id="co.ha.lb.timeout.server"/>
+
+  bind 192.168.1.99:80 <co xml:id="co.ha.lb.listen"/>
+  mode http
+  stats enable
+  stats uri /haproxy?stats
+  stats auth someuser:somepassword
+  balance leastconn
+  cookie JSESSIONID prefix
+  option httpclose
+  option forwardfor
+  option httpchk GET /robots.txt HTTP/1.0
+  server webA 192.168.1.200:80 cookie A check
+  server webB 192.168.1.201:80 cookie B check</screen>
+    <calloutlist>
+     <callout arearefs="co.ha.lb.global">
+      <para>
+       该部分包含进程范围的选项和特定于操作系统的选项。
+      </para>
+      <variablelist>
+       <varlistentry>
+        <term><option>maxconn</option>
+        </term>
+        <listitem>
+         <para>
+          每个进程的最大并发连接数。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term><option>守护程序</option>
+        </term>
+        <listitem>
+         <para>
+          建议的模式，HAProxy 将在后台运行。
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+     </callout>
+     <callout arearefs="co.ha.lb.defaults">
+      <para>
+       该部分为其声明后的所有其他部分设置默认参数。一些重要的行：
+      </para>
+      <variablelist>
+       <varlistentry>
+        <term><option>redispatch</option>
+        </term>
+        <listitem>
+         <para>
+          启用或禁用在连接失败时重新分发会话。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term><option>log</option>
+        </term>
+        <listitem>
+         <para>
+          启用事件和流量日志记录。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term><literal>mode http</literal>
+        </term>
+        <listitem>
+         <para>
+          以 HTTP 模式运行（针对 HAProxy 建议采用的模式）。在此模式下，将会先分析请求，然后再执行与任何服务器的连接。不符合 RFC 要求的请求将被拒绝。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term><literal>option forwardfor</literal>
+        </term>
+        <listitem>
+         <para>
+          将 HTTP <option>X-Forwarded-For</option> 报头添加到请求中。如果您想要保留客户端的 IP 地址，则需要使用此选项。
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+     </callout>
+     <callout arearefs="co.ha.lb.timeout.connect">
+       <para>与服务器建立连接的尝试成功之前可等待的最长时间。
+       </para>
+     </callout>
+     <callout arearefs="co.ha.lb.timeout.client">
+       <para>客户端可保持非活动状态的最长时间。</para>
+     </callout>
+     <callout arearefs="co.ha.lb.timeout.server">
+       <para>服务器端可保持非活动状态的最长时间。</para>
+     </callout>
+     <callout arearefs="co.ha.lb.listen">
+      <para>
+       该部分将前端部分和后端部分合并在一起。
+      </para>
+      <variablelist>
+       <varlistentry>
+        <term><literal>balance leastconn</literal>
+        </term>
+        <listitem>
+         <para>
+          定义负载平衡算法，请参见 <link xlink:href="http://cbonte.github.io/haproxy-dconv/configuration-1.5.html#4-balance"/>。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term><literal>stats enable</literal>
+        </term>
+        <term><literal>stats auth</literal>
+        </term>
+        <listitem>
+         <para>
+          启用统计报告（通过 <literal>stats enable</literal>）。<option>auth</option> 选项记录针对特定帐户的身份验证的统计信息。
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>
+     测试配置文件：
+    </para>
+<screen><prompt role="root">root # </prompt><command>haproxy</command> -f /etc/haproxy/haproxy.cfg -c</screen>
+   </step>
+   <step>
+    <para>
+     将以下行添加到 Csync2 的配置文件 <filename>/etc/csync2/csync2.cfg</filename> 中，以确保包括 HAProxy 配置文件：
+    </para>
+<screen>include /etc/haproxy/haproxy.cfg</screen>
+   </step>
+   <step>
+    <para>
+     同步该文件：
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> -f /etc/haproxy/haproxy.cfg
+<prompt role="root">root # </prompt><command>csync2</command> -xv</screen>
+    <note>
+     <para>
+      Csync2 配置部分假设 HA 节点是使用 <command>ha-cluster-bootstrap</command> 配置的。有关细节，请参见<xref linkend="sec.ha.installation.setup.auto"/>。
+     </para>
+    </note>
+   </step>
+   <step>
+    <para>
+     确保在两个负载平衡器（<systemitem class="server">alice</systemitem> 和 <systemitem class="server">bob</systemitem>）上禁用 HAProxy，因为它由 Pacemaker 启动：
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> disable haproxy</screen>
+   </step>
+   <step>
+    <para>
+     配置新的 CIB：
+    </para>
+    <remark>toms 2014-09-16: According to Kristoffer: "This is the crmsh 
+       configuration (edited using crm configure). It is possible to do a 
+       similar configuration in hawk, but with the graphical interface.
+       I think it can be improved, I will get back to you with more details 
+       :)"</remark>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)# </prompt><command>cib</command> new haproxy-config
+<prompt role="custom">crm(haproxy-config)# </prompt><command>primitive</command> haproxy systemd:haproxy op monitor interval=10s
+<prompt role="custom">crm(haproxy-config)# </prompt><command>primitive</command> vip-www1 IPaddr2 params ip=192.168.1.100
+<prompt role="custom">crm(haproxy-config)# </prompt><command>primitive</command> vip-www2 IPaddr2 params ip=192.168.1.101
+<prompt role="custom">crm(haproxy-config)# </prompt><command>group</command> g-haproxy vip-www1 vip-www2 haproxy</screen>
+   </step>
+   <step>
+    <para>
+     校验新 CIB 并更正任何错误：
+    </para>
+<screen><prompt role="custom">crm(haproxy-config)# </prompt><command>verify</command></screen>
+   </step>
+   <step>
+    <para>
+     提交新的 CIB：
+    </para>
+<screen><prompt role="custom">crm(haproxy-config)# </prompt><command>cib</command> use live
+<prompt role="custom">crm(live)# </prompt><command>cib</command> commit haproxy-config</screen>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.lb.more">
+  <title>更多信息</title>
+
+  <itemizedlist>
+    <listitem>
+      <para><link xlink:href="http://www.haproxy.org"/></para>
+    </listitem>
+    <listitem>
+      <para>项目主页 <link xlink:href="http://www.linuxvirtualserver.org/"/>。
+  </para>
+    </listitem>
+    <listitem>
+      <para>有关 <systemitem class="daemon">ldirectord</systemitem> 的更多信息，请参见其综合性手册页。</para>
+    </listitem>
+    <listitem>
+      <para>LVS 知识库：<link xlink:href="http://kb.linuxvirtualserver.org/wiki/Main_Page"/></para>
+    </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>
