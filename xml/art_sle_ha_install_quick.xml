@@ -26,8 +26,8 @@
         This document shows you how to install &productname; and how to set up a
         very basic two-node cluster automatically, using the bootstrap scripts
         provided by the <systemitem class="resource">ha-cluster-bootstrap</systemitem>
-        package. The automatic setup includes using the SBD fencing mechanism
-        to protect your shared storage.
+        package and the &crmshell;. The automatic setup includes a virtual
+        IP address, but no shared storage or fencing mechanism.
        </para>
       </abstract>
       <dm:docmanager>
@@ -89,8 +89,8 @@
    <remark>toms 2016-07-15: Not sure if we should split this section into two:
    "Usage Scenario" and "Workflow".
    </remark>
-
    <para>
+    In this documentation, the configuration is done with the &crmshell;.
     To setup a basic HA cluster, the following steps are described in this
     document:
    </para>
@@ -127,9 +127,6 @@
      </para>
     </listitem>
    </orderedlist>
-   <para>
-    In this documentation, the configuration is done with the &crmshell;.
-   </para>
   </sect1>
 
   <sect1 xml:id="sec.ha.inst.quick.prereq">
@@ -354,27 +351,11 @@
         <para>
           Click <guimenu>Accept</guimenu> to start installing the packages.
         </para>
-        <note>
-          <title>Installing Software Packages on All Parties</title>
-          <remark>toms 2016-07-15: Is this tip really necessary? The next step
-          explictly gives the right instruction.</remark>
-          <para>
-            The software packages needed for &ha; clusters are
-            <emphasis>not</emphasis> automatically copied to the cluster nodes.
-          </para>
-        </note>
       </step>
       <step>
         <para>
           Install the &ha; pattern on <emphasis>all</emphasis> machines that
           will be part of your cluster.
-        </para>
-        <para>
-          If you do not want to install &sls; &productnumber; and
-          &productname; &productnumber; manually on all nodes that will be
-          part of your cluster, use &ay; to clone existing nodes. For more
-          information, refer to <remark>FIXME Install Quick</remark>
-          <!--<xref linkend="sec.ha.installation.autoyast"/>-->.
         </para>
       </step>
     </procedure>
@@ -432,7 +413,7 @@
 -->
 
  <sect1 xml:id="sec.ha.inst.quick.setup.1st-node">
-  <title>Setting Up the First Node</title>
+  <title>Setting Up the First Node (&node1;)</title>
   <para>
    All commands from <!--the <xref linkend="vl.ha.inst.quick.common.cmds"/> list-->
    the <package>ha-cluster-bootstrap</package> package execute bootstrap scripts
@@ -497,7 +478,7 @@
   </itemizedlist>-->
 
   <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-init">
-   <title>Automatically Setting Up the First Node</title>
+   <title>Automatically Setting Up the First Node (&node1;)</title>
    <para> The <command>ha-cluster-init</command> command checks for
     configuration of NTP and guides you through configuration of the cluster
     communication layer (&corosync;). <!--Optionally, it lets you configure the
@@ -588,15 +569,23 @@
       </para>
      </step>
     </substeps>
+    <para>
+     Finally, the script will start the &pace; service to bring the
+     one-node cluster online and enable the Web management interface
+     &hawk2;. The URL to use for &hawk2; is displayed on the screen.
+    </para>
    </step>
    <step>
-    <remark>toms 2016-07-15: I guess, this step should be rewritten and SBD
+    <para>
+     Skip the SBD configuration (not needed in this setup).
+    </para>
+    <!--<remark>toms 2016-07-15: I guess, this step should be rewritten and SBD
      removed as we don't use it for this scenario.</remark>
     <para>
      To configure SBD (optional), enter a persistent path to the partition
      of your block device that you want to use for SBD. The path must be
      consistent across all nodes in the cluster.
-    </para>
+    </para>-->
     <!--taroth 2015-07-24: NEW FEATURE: Configure Administration IP Address:
      Optionally configure an administration virtual IP
      address. The purpose of this IP address is to
@@ -604,11 +593,6 @@
      with the cluster, rather than using the IP address
      of any specific cluster node.
     -->
-    <para>
-     Finally, the script will start the &pace; service to bring the
-     one-node cluster online and enable the Web management interface
-     &hawk2;. The URL to use for &hawk2; is displayed on the screen.
-    </para>
    </step>
    <!-- taroth 2015-09-22: fate#318549: cluster-init: configure virtual IP for HAWK  -->
    <step>
@@ -624,6 +608,22 @@
      <filename>/var/log/ha-cluster-bootstrap.log</filename>.
     </para>
    </step>
+   <step>
+    <remark>toms 2016-07-18: from FATE#320823, c#3</remark>
+    <para>
+     Open the &corosync; configuration file, locate the <literal>quorum</literal>
+     section, and check if the following lines exist:
+    </para>
+    <screen>quorum {
+     provider: corosync_votequorum
+     expected_votes: 2
+     two_node: 1
+     wait_for_all: 1
+}</screen>
+    <para>
+     All these parameters are needed for a two-node cluster setup.
+    </para>
+   </step>
   </procedure>
 
   <para>
@@ -632,13 +632,13 @@
   </para>
 
 <screen>&prompt.root;<command>crm</command> status
-   Last updated: Thu Jul  3 11:04:10 2014
-   Last change: Thu Jul  3 10:58:43 2014
-   Current DC: &node1; (175704363) - partition with quorum
-   1 Nodes configured
-   0 Resources configured
+Last updated: Thu Jul  3 11:04:10 2014
+Last change: Thu Jul  3 10:58:43 2014
+Current DC: &node1; (175704363) - partition with quorum
+1 Nodes configured
+0 Resources configured
 
-   Online: [ alice ]</screen>
+Online: [ alice ]</screen>
 
   <important>
    <title>Secure Password</title>
@@ -653,7 +653,7 @@
  </sect1>
 
  <sect1 xml:id="sec.ha.inst.quick.setup.add-nodes">
-  <title>Adding the Second Node to the Existing Cluster</title>
+  <title>Adding the Second Node to the Existing Cluster (&node2;)</title>
   <para>
     If you have a cluster up and running (with one or more nodes), add more
     cluster nodes with the <command>ha-cluster-join</command> bootstrap
@@ -663,7 +663,7 @@
     <command>ha-cluster-join</command> man page.
   </para>
   <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-join">
-   <title>Adding the 2nd Node to the Existing Cluster</title>
+   <title>Adding the Second Node to the Existing Cluster (&node2;)</title>
    <!-- toms 2016-07-15: Disabled as we describe the crm shell interface only
    <para>
     If you have configured the existing cluster nodes with the &yast;
@@ -724,14 +724,10 @@
      After logging in to the specified node, the script will copy the
      &corosync; configuration, configure SSH and &csync;, and will
      bring the current machine online as new cluster node. Apart from that,
-     it will start the service needed for &hawk2;. If you have configured
-     shared storage with OCFS2, it will also automatically create the mount
-     point directory for the OCFS2 file system.
-    </para>
-   </step>
-   <step>
-    <para>
-     Repeat the steps above for all machines you want to add to the cluster.
+     it will start the service needed for &hawk2;. <!--
+     If you have configured shared storage with OCFS2, it will also
+     automatically create the mount point directory for the OCFS2 file system.
+     -->
     </para>
    </step>
    <step>
@@ -859,6 +855,11 @@ Online: [ &node1; &node2; ]</screen>
     <title>Setting Up a Virtual IP Address</title>
     <step>
      <para>
+      Log in as &rootuser; to &node1;.
+     </para>
+    </step>
+    <step>
+     <para>
       Add the following resource to the cluster configuration:
      </para>
      <screen>&prompt.crm.conf;<command>primitive</command> vip \
@@ -866,6 +867,21 @@ Online: [ &node1; &node2; ]</screen>
     params ip=&subnetII;.1 \
     cidr_netmask=24 \
     op monitor interval="30s"</screen>
+    </step>
+    <step>
+     <remark>toms 2016-07-18: Not sure if this is recommended.</remark>
+     <para>
+      If you want to run the virtual IP address on one of the two nodes
+      (prefereably on &node1;), define a location constraint with a positive
+      score (here <literal>10</literal>):
+     </para>
+     <screen>&prompt.crm.conf;<command>location</command> loc.vip { vip } 10: &node1;</screen>
+    </step>
+    <step>
+     <para>
+      If you want to review your setup, use <command>show</command>. To check
+      if everything is correct, use <command>verify</command>.
+     </para>
     </step>
     <step>
      <para>
@@ -881,9 +897,13 @@ Online: [ &node1; &node2; ]</screen>
      <para>
       Confirm that the cluster IP is running correctly:
      </para>
-<screen>&prompt.root;<command>ip</command> address show</screen>
+<screen>&prompt.root;<command>ip</command> address show
+[...]
+2: eth0: [...]
+    inet &subnetII;.1/24 brd &subnetII;.255 scope global secondary eth0
+</screen>
      <para>
-      The cluster IP should be added as a <literal>secondary</literal>
+      The cluster IP has been added as a <literal>secondary</literal>
       address to the interface that is connected to the
       <systemitem class="ipaddress">&subnetII;.0/24</systemitem> subnet.
      </para>
@@ -1012,7 +1032,7 @@ Operations' defaults (advisory minimum):
       something like this:
      </para>
      <screen>&prompt.root;<command>crm</command> status
-Stack: corosync
+<!--Stack: corosync
 Current DC: &node1; (version 1.1.15-17.1-e174ec8) - partition with quorum
 Last updated: Fri Jul 18 09:33:08 2016
 Last change: Fri Jul 18 09:33:03 2016 by hacluster via crm_attribute on &node1;
@@ -1022,6 +1042,7 @@ Last change: Fri Jul 18 09:33:03 2016 by hacluster via crm_attribute on &node1;
 
 Online: [ &node1; &node2; ]
 
+-->[...]
 Full list of resources:
 
  vip    (ocf::heartbeat:IPaddr2):       Started &node1;</screen>
@@ -1044,7 +1065,7 @@ Full list of resources:
     </step>
     <step>
      <para>
-      Rerun the <command>status</command> command. You should see the floating
+      Rerun the <command>crm status</command> command. You should see the floating
       virtual IP address moved to &node2;:
      </para>
      <screen>&prompt.root;<command>crm</command> status
