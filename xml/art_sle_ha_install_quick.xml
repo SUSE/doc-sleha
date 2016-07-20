@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
   type="text/xml" 
   title="Profiling step"?>
 <!DOCTYPE article
@@ -7,7 +7,7 @@
   <!ENTITY % entities SYSTEM "entity-decl.ent">
     %entities;
 ]>
-<!-- Converted by suse-upgrade version 1.1 -->
+
 <?provo dirname="install_quick/"?>
 <article version="5.0" xml:lang="en" xml:id="art.ha.install.quick"
   xmlns="http://docbook.org/ns/docbook"
@@ -17,28 +17,19 @@
 <?suse-quickstart columns="no" version="2"?>
   <!--https://fate.suse.com/320823: [DOC] HA quick start document-->
   <title>&instquick;</title>
- <subtitle></subtitle>
+ <subtitle>&productname; &productnumber;</subtitle>
  <info>
       <productnumber>&productnumber;</productnumber>
       <productname>&productname;</productname>
       <abstract>
        <para>
         This document shows you how to install &productname; and how to set up a
-        very basic cluster automatically, using the bootstrap scripts provided
-        by the <systemitem class="resource">ha-cluster-bootstrap</systemitem>
-        package. The automatic setup includes using the SBD fencing mechanism
-        to protect your shared storage.<remark>taroth
-        2016-07-08: FIXME: add more details about the setup later on</remark>
+        very basic two-node cluster automatically, using the bootstrap scripts
+        provided by the <systemitem class="resource">ha-cluster-bootstrap</systemitem>
+        package and the &crmshell;. The automatic setup described in this
+        document includes a virtual IP address, but no shared storage or
+        fencing mechanism.
        </para>
-       <para>Following the steps will lead to a minimal cluster setup. Use it
-        for testing or as a basic configuration that you can extended and adjust
-        later on, according to your requirements for using an &ha; cluster in a
-        production environment.</para>
-   <para>Find more documentation for this product at <link
-     xlink:href="http://www.suse.com/documentation/sle-ha-12"/>. The
-    documentation also includes a comprehensive &admin; for
-    &productname;. Refer to it for further configuration and administration
-    tasks.</para>
       </abstract>
       <dm:docmanager>
         <dm:bugtracker>
@@ -49,10 +40,227 @@
         <dm:translation>yes</dm:translation>
       </dm:docmanager>
     </info>
-    <?suse-quickstart columns="no" version="2"?>
-  <sect1 xml:id="sec.ha.inst.quick.installation">
-    <title>Installation as Extension</title>
 
+  <sect1 xml:id="sec.ha.inst.quick.intro">
+   <title>Introduction</title>
+   <remark>taroth 2016-07-08: FIXME: add more details about the setup later on</remark>
+   <remark>toms 2016-07-13: What about target group(s)?</remark>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.usage-scenario">
+   <title>Usage Scenario and Workflow</title>
+   <para>
+    Following the steps will lead to a minimal setup of a two node cluster.
+    Use it for testing or as a basic configuration that you can extended later
+    on, by modifying it according to your requirements for a cluster in a
+    production environment.
+   </para>
+   <para>
+    This guide assumes that you want to create a &ha; cluster with the
+    following properties:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Two nodes, &node1; (IP: &subnetI;.1) and &node2; (IP: &subnetI;.2), connected to each other
+      via network.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Failover of resources from one node to the other if the active host breaks down (also
+      named an <emphasis>active/passive</emphasis> setup).
+     </para>
+    </listitem>
+    <listitem>
+     <remark>toms 2016-07-20: Is an additional virtual IP address really needed?</remark>
+     <para>
+      a floating, virtual IP address (&subnetII;.1) which allows clients to connect to the
+      service no matter which physical node it is running on.
+     </para>
+    </listitem>
+    <listitem>
+     <para>&stonith;</para>
+    </listitem>
+   </itemizedlist>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.prereq">
+   <title>System Requirements and Recommendations</title>
+   <remark>toms 2016-07-15: Taken from the file "ha_requirements.xml" and
+    refined.
+   </remark>
+   <para>
+    This section informs you about system requirements and some prerequisites
+    for &sle; &hasi;.
+   </para>
+  <itemizedlist>
+   <title>Hardware Requirements</title>
+   <listitem>
+    <formalpara>
+     <title>Two servers with software as specified in <xref
+      linkend="vl.ha.inst.quick.softreq"/></title>
+     <para>
+     The servers do not require
+     identical hardware (memory, disk space, etc.), but they must have the
+     same architecture. Cross-platform clusters are not supported.
+     Using <literal>pacemaker_remote</literal>, the cluster can be extended to
+     include additional Linux servers beyond the 32-node limit.
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>At least two TCP/IP communication media per cluster node.</title>
+     <para>
+      Cluster
+     nodes use multicast or unicast for communication so the network equipment
+     must support the communication means you want to use. The communication
+     media should support a data rate of 100 Mbit/s or higher.
+     <!--Preferably,
+         the Ethernet channels should be bonded as described in
+         <xref linkend="cha.ha.netbonding"/>. Alternatively, use the second
+         interface for a redundant communication channel in &corosync;. See
+         also <xref linkend="pro.ha.installation.setup.channel2"/>.
+         <remark>bmwiedemann 2015-01-12: are there alternatives to Ethernet? WLAN?
+          - taroth 2015-01-12: checked this with the developers, the answer was:
+          cable connections are more robust</remark>
+     -->
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>A &stonith; mechanism.</title>
+     <para>
+      A &stonith; mechanism can be either a
+     physical device (a power switch which the cluster uses to reset nodes that
+     are thought to be dead or behaving in a strange manner) or a mechanism
+     like SBD watchdog. &stonith; mechanisms are the only reliable way to
+     ensure that no data corruption is performed by nodes that hang and only
+     appear to be dead.
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <itemizedlist xml:id="vl.ha.inst.quick.softreq">
+   <title>Software Requirements</title>
+   <listitem>
+    <para>
+     &slsreg; &productnumber; (with all available online updates) is
+     installed on all nodes that will be part of the cluster.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     &productname; &productnumber; (with all available online updates)
+     is installed on all nodes that will be part of the cluster.
+    </para>
+   </listitem>
+  <!-- <listitem>
+    <para>
+     If you want to use &geo; clusters, make sure that &hageo;
+     &productnumber; (with all available online updates) is installed on
+     all nodes that will be part of the cluster.
+    </para>
+   </listitem>-->
+  </itemizedlist>
+
+  <variablelist>
+   <title>Other Requirements and Recommendations</title>
+   <varlistentry>
+    <term>Time Synchronization</term>
+    <listitem>
+     <para>
+      Cluster nodes should synchronize to an NTP server outside the cluster.
+      For more information, see the <citetitle>&admin;</citetitle> for
+      &sls; &productnumber;, available at
+      <link xlink:href="http://www.suse.com/doc/"/>. Refer to the chapter
+      <citetitle>Time Synchronization with NTP</citetitle>.
+     </para>
+     <para>
+      If nodes are not synchronized, log files and cluster reports are very
+      hard to analyze.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>NIC Names</term>
+    <listitem>
+     <para>
+      Must be identical on all nodes.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Host Name and IP Address</term>
+    <listitem>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Use static IP addresses.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        List all cluster nodes in the <filename>/etc/hosts</filename> file
+        with their fully qualified host
+        name and short host name. It is essential that members of the
+        cluster can find each other by name. If the names are not available,
+        internal cluster communication will fail.
+       </para>
+       <para>
+        For details on how Pacemaker gets the node names, see also
+        <link xlink:href="http://clusterlabs.org/doc/en-US/Pacemaker/1.1/html/Pacemaker_Explained/s-node-name.html"/>.
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      For more information, see the <citetitle>&admin;</citetitle> for
+      &sls; &productnumber;, available at
+      <link xlink:href="http://www.suse.com/doc/sles-12/"/>. Refer to chapter
+      <citetitle>Basic Networking</citetitle>, section
+      <citetitle>Configuring a Network Connection with &yast;</citetitle>
+      &gt; <citetitle>Configuring Host Name and DNS</citetitle>.
+     </para>
+    </listitem>
+   </varlistentry>
+      <varlistentry xml:id="vle.ha.req.ssh">
+    <term>SSH</term>
+    <listitem>
+     <para>
+      All cluster nodes must be able to access each other via SSH. Tools
+      like <command>crm report</command> (for troubleshooting) and
+      &hawk2;'s <guimenu>History Explorer</guimenu> require passwordless
+      SSH access between the nodes,
+      otherwise they can only collect data from the current node.
+     </para>
+     <!--<note>
+      <title>Regulatory Requirements</title>
+      <para>
+       If passwordless SSH access does not comply with regulatory
+       requirements, you can use the work-around described in
+       <xref linkend="app.crmreport.nonroot"/> for running
+       <command>crm report</command>.
+      </para>
+      <para>
+       For the <guimenu>History Explorer</guimenu> there is currently no
+       alternative for passwordless login.
+      </para>
+     </note>-->
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.installation">
+    <title>Installing &sls; and &ha; Extension</title>
+    <remark>toms 2016-07-14: @taroth: should we distinguish installing the HA
+     extension during normal installation or after a successful SLE
+     installation?
+    </remark>
+   <remark>toms 2016-07-15: Registration over SCC is missing.</remark>
     <para>
       The packages needed for configuring and managing a cluster with the
       &hasi; are included in the <literal>&ha;</literal> installation
@@ -67,21 +275,21 @@
 
     <procedure xml:id="pro.ha.inst.quick.pattern">
       <title>Installing the &ha; Pattern</title>
+     <para>If the pattern is not installed yet, proceed as follows:</para>
       <step>
         <para>
-          Start &yast; as &rootuser; user and select <menuchoice>
+          Start &yast; and select <menuchoice>
             <guimenu>Software</guimenu> <guimenu>Software Management</guimenu>
           </menuchoice>.
         </para>
         <para>
-          Alternatively, start the &yast; module as &rootuser; on a command
+          Alternatively, start the &yast; module as &rootuser; user on a command
           line with <command>yast2&nbsp;sw_single</command>.
         </para>
       </step>
       <step>
         <para>
-          From the <guimenu>Filter</guimenu> list, select
-          <guimenu>Patterns</guimenu> and activate the <guimenu>High
+         Click the <guimenu>Patterns</guimenu> tab and activate the <guimenu>High
             Availability</guimenu> pattern in the pattern list.
           <!--SLE HA GEO: <guimenu>GEO Clustering for High Availability</guimenu>-->
         </para>
@@ -90,32 +298,27 @@
         <para>
           Click <guimenu>Accept</guimenu> to start installing the packages.
         </para>
-        <note>
-          <title>Installing Software Packages on All Parties</title>
-          <para>
-            The software packages needed for &ha; clusters are
-            <emphasis>not</emphasis> automatically copied to the cluster nodes.
-          </para>
-        </note>
       </step>
       <step>
         <para>
           Install the &ha; pattern on <emphasis>all</emphasis> machines that
           will be part of your cluster.
         </para>
-        <para>
-          If you do not want to install &sls; &productnumber; and
-          &productname; &productnumber; manually on all nodes that will be
-          part of your cluster, use &ay; to clone existing nodes. For more
-          information, refer to <remark>FIXME Install Quick</remark>
-          <!--<xref linkend="sec.ha.installation.autoyast"/>-->.
-        </para>
       </step>
+     <step>
+      <para>
+       Register the machines at &scc;.
+      </para>
+     </step>
     </procedure>
   </sect1>
+
+<!--
+  toms 2016-05-15: Commented this section as it doesn't really fit into
+  the general structure of intro, usage scenario, installing, setting up etc.
+
   <sect1 xml:id="sec.ha.inst.quick.setup.auto">
   <title>Automatic Cluster Setup (ha-cluster-bootstrap)</title>
-
   <para>
    The <systemitem class="resource">ha-cluster-bootstrap</systemitem>
    package provides everything you need to get a one-node cluster up and
@@ -123,7 +326,8 @@
    cluster:
   </para>
 
-  <variablelist>
+  <variablelist xml:id="vl.ha.inst.quick.common.cmds">
+   <title>Common Commands</title>
    <varlistentry>
     <term><xref linkend="pro.ha.inst.quick.setup.ha-cluster-init" xrefstyle="select:title"/>
     </term>
@@ -157,10 +361,16 @@
     </listitem>
    </varlistentry>
   </variablelist>
+ </sect1>
+-->
 
+ <sect1 xml:id="sec.ha.inst.quick.setup.1st-node">
+  <title>Setting Up the First Node</title>
   <para>
-   All commands execute bootstrap scripts that require only a minimum of
-   time and manual intervention. The bootstrap scripts for initialization
+   All commands from <!--the <xref linkend="vl.ha.inst.quick.common.cmds"/> list-->
+   the <package>ha-cluster-bootstrap</package> package execute bootstrap scripts
+   that require only a minimum of time and manual intervention.
+   The bootstrap scripts for initialization
    and joining automatically open the ports in the firewall that are needed
    for cluster communication. The configuration is written to
    <filename>/etc/sysconfig/SuSEfirewall2.d/services/cluster</filename>. Any
@@ -174,16 +384,21 @@
    cluster:
   </para>
 
-  <itemizedlist>
+  <remark>toms 2016-07-15: disabled the prerequisites list as I think we should
+  integrate a systems and requirements section (see above).
+  </remark>
+  <!--<itemizedlist>
    <title>Prerequisites</title>
    <listitem>
     <para>
-     The requirements listed in <remark>FIXME Install Quick</remark> <!--<xref linkend="sec.ha.requirements.sw"/>--> and
-     <remark>FIXME Install Quick</remark> <!--<xref linkend="sec.ha.requirements.other"/>--> are fulfilled.
+     The requirements listed in <remark>FIXME Install Quick</remark> <!-\-<xref linkend="sec.ha.requirements.sw"/>-\-> and
+     <remark>FIXME Install Quick</remark> <!-\-<xref linkend="sec.ha.requirements.other"/>-\-> are fulfilled.
     </para>
    </listitem>
    <listitem>
     <para>
+     <remark>toms 2016-07-15: Is this item really necessary? When we install
+     the HA pattern this is arlready the case.</remark>
      The <systemitem class="resource">ha-cluster-bootstrap</systemitem>
      package is installed.
     </para>
@@ -193,7 +408,7 @@
      The network is configured according to your needs. For example, a
      private network is available for cluster communication and network
      device bonding is configured. For information on bonding, refer to
-     <remark>FIXME Install Quick</remark> <!--<xref linkend="cha.ha.netbonding"/>-->.
+     <remark>FIXME Install Quick</remark> <!-\-<xref linkend="cha.ha.netbonding"/>-\->.
     </para>
    </listitem>
    <listitem>
@@ -201,50 +416,58 @@
      If you want to use SBD for your shared storage, you need one shared
      block device for SBD. The block device need not be formatted. In
      addition, you will need a suitable hardware watchdog device. For more
-     information, refer to <remark>FIXME Install Quick</remark> <!--<xref linkend="cha.ha.storage.protect"/>-->.
+     information, refer to <remark>FIXME Install Quick</remark> <!-\-<xref linkend="cha.ha.storage.protect"/>-\->.
     </para>
    </listitem>
+   <!-\- toms 2016-07-15: disabled as we haven't included any storage scenario.
    <listitem>
     <para>
      All nodes must be able to see the shared storage via the same paths
      (<filename>/dev/disk/by-path/...</filename> or
      <filename>/dev/disk/by-id/...</filename>).
     </para>
-   </listitem>
-  </itemizedlist>
+   </listitem>-\->
+  </itemizedlist>-->
 
   <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-init">
-   <title>Automatically Setting Up the First Node</title>
+   <title>Automatically Setting Up the First Node (&node1;)</title>
    <para> The <command>ha-cluster-init</command> command checks for
     configuration of NTP and guides you through configuration of the cluster
-    communication layer (&corosync;). Optionally, it lets you configure the
-    following:
+    communication layer (&corosync;). <!--Optionally, it lets you configure the
+    following:-->
    </para>
+   <!--
    <variablelist>
     <varlistentry>
      <term>SBD</term>
      <listitem>
-      <para>A fencing mechanism to protect your shared storage. For details on
-       SBD, see <remark>FIXME Install Quick</remark> <!--<xref linkend="cha.ha.storage.protect"/>-->.</para>
+      <para>A fencing mechanism to protect your shared storage.
+       This feature not described in this document. For details on
+       SBD, see <remark>FIXME Install Quick</remark>
+       <!-\-<xref linkend="cha.ha.storage.protect"/>-\->.
+      </para>
      </listitem>
     </varlistentry>
     <varlistentry>
      <term>Virtual IP</term>
      <listitem>
       <para>A virtual IP address for &hawk2;. For details on &hawk2;, see
-        <remark>FIXME Install Quick</remark> <!--<xref linkend="cha.conf.hawk2"/>-->.</para>
+        <remark>FIXME Install Quick</remark> <!-\-<xref linkend="cha.conf.hawk2"/>-\->.</para>
      </listitem>
     </varlistentry>
     <varlistentry>
      <term>Shared Storage with OCFS2</term>
-     <listitem><!--taroth 2014-07-02: https://bugzilla.novell.com/show_bug.cgi?id=821123-->
+     <listitem><!-\-taroth 2014-07-02: https://bugzilla.novell.com/show_bug.cgi?id=821123-\->
       <para>When running the script with the <option>-t</option> option, it can
        perform additional cluster configuration based on templates. For example,
        <command>ha-cluster-init -t ocfs2</command> will partition some shared
-       storage into two pieces: 1 MB for SBD, and the remainder for OCFS2. </para>
+       storage into two pieces: 1 MB for SBD, and the remainder for OCFS2.
+       This feature not described in this document.
+      </para>
      </listitem>
     </varlistentry>
    </variablelist>
+   -->
    <para>For details about the script's range of functions, its options,
     and an overview of the files it can create and modify, refer to the
     <command>ha-cluster-init</command> man page.
@@ -257,7 +480,7 @@
    </step>
    <step>
     <para>
-     Start the bootstrap script by executing
+     Start the bootstrap script by executing:
     </para>
 <screen>&prompt.root;<command>ha-cluster-init</command></screen>
     <para>
@@ -298,8 +521,15 @@
       </para>
      </step>
     </substeps>
+    <para>
+     Finally, the script will start the &pace; service to bring the
+     one-node cluster online and enable the Web management interface
+     &hawk2;. The URL to use for &hawk2; is displayed on the screen.
+    </para>
    </step>
    <step>
+    <remark>toms 2016-07-15: I guess, this step should be rewritten and SBD
+     removed as we don't use it for this scenario.</remark>
     <para>
      To configure SBD (optional), enter a persistent path to the partition
      of your block device that you want to use for SBD. The path must be
@@ -312,15 +542,10 @@
      with the cluster, rather than using the IP address
      of any specific cluster node.
     -->
-    <para>
-     Finally, the script will start the &pace; service to bring the
-     one-node cluster online and enable the Web management interface
-     &hawk2;. The URL to use for &hawk2; is displayed on the screen.
-    </para>
    </step>
    <!-- taroth 2015-09-22: fate#318549: cluster-init: configure virtual IP for HAWK  -->
    <step>
-    <para>To configure a virtual IP address for cluster administration, enter
+    <para>Configure a virtual IP address for cluster administration with &hawk;, enter
       <literal>yes</literal> when prompted and enter an unused IP address that
      you want to use as administration IP for the cluster. Instead of logging in
      to an individual cluster node with &hawk2;, you can then connect to the
@@ -332,6 +557,23 @@
      <filename>/var/log/ha-cluster-bootstrap.log</filename>.
     </para>
    </step>
+   <step>
+    <remark>toms 2016-07-18: from FATE#320823, c#3</remark>
+    <para>
+     Open the &corosync; configuration file
+     <filename>/etc/corosync/corosync.conf</filename>, locate the <literal>quorum</literal>
+     section, and check if the following key-value pairs exist:
+    </para>
+    <screen>quorum {
+     provider: corosync_votequorum
+     expected_votes: 2
+     two_node: 1
+     wait_for_all: 1
+}</screen>
+    <para>
+     All of these parameters are needed for a two-node cluster setup.
+    </para>
+   </step>
   </procedure>
 
   <para>
@@ -339,14 +581,14 @@
    <command>crm&nbsp;status</command>:
   </para>
 
-<screen>&prompt.root;crm status
-   Last updated: Thu Jul  3 11:04:10 2014
-   Last change: Thu Jul  3 10:58:43 2014
-   Current DC: alice (175704363) - partition with quorum
-   1 Nodes configured
-   0 Resources configured
+<screen>&prompt.root;<command>crm</command> status
+Last updated: Thu Jul  3 11:04:10 2014
+Last change: Thu Jul  3 10:58:43 2014
+Current DC: &node1; (175704363) - partition with quorum
+1 Nodes configured
+0 Resources configured
 
-   Online: [ alice ]</screen>
+Online: [ alice ]</screen>
 
   <important>
    <title>Secure Password</title>
@@ -358,17 +600,21 @@
    </para>
 <screen>&prompt.root;<command>passwd</command> hacluster</screen>
   </important>
+ </sect1>
 
-  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-join">
-   <title>Adding Nodes to an Existing Cluster</title>
-   <para>
-    If you have a cluster up and running (with one or more nodes), add more
-    cluster nodes with the <command>ha-cluster-join</command> bootstrap
-    script. The script only needs access to an existing cluster node and
+ <sect1 xml:id="sec.ha.inst.quick.setup.add-nodes">
+  <title>Adding the Second Node to the Existing Cluster</title>
+  <para>
+    If you have a one-node cluster up and running, add the second cluster
+    node with the <command>ha-cluster-join</command> bootstrap
+    script, described in <xref linkend="pro.ha.inst.quick.setup.ha-cluster-join"/>.
+    The script only needs access to an existing cluster node and
     will complete the basic setup on the current machine automatically.
-    Follow the steps below. For details, refer to the
-    <command>ha-cluster-join</command> man page.
-   </para>
+    For details, refer to the <command>ha-cluster-join</command> man page.
+  </para>
+  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-join">
+   <title>Adding the Second Node &node2; to the Existing Cluster</title>
+   <!-- toms 2016-07-15: Disabled as we describe the crm shell interface only
    <para>
     If you have configured the existing cluster nodes with the &yast;
     cluster module, make sure the following prerequisites are fulfilled
@@ -384,7 +630,7 @@
     <listitem>
      <para>
       &csync; is configured on the existing nodes. For details, refer to
-      <remark>FIXME Install Quick</remark> <!--<xref linkend="pro.ha.installation.setup.csync2.yast"/>-->.
+      <remark>FIXME Install Quick</remark> <!-\-<xref linkend="pro.ha.installation.setup.csync2.yast"/>-\->.
      </para>
     </listitem>
    </itemizedlist>
@@ -393,6 +639,7 @@
     changes in cluster status and view the resources being activated in the
     Web interface.
    </para>
+   -->
    <step>
     <para>
      Log in as &rootuser; to the physical or virtual machine supposed to
@@ -414,7 +661,8 @@
    <step>
     <para>
      If you decide to continue anyway, you will be prompted for the IP
-     address of an existing node. Enter the IP address.
+     address of an existing node. Enter the IP address of the first node
+     (&node1;, <systemitem class="ipaddress">&subnetI;.1</systemitem>).
     </para>
    </step>
    <step>
@@ -427,14 +675,10 @@
      After logging in to the specified node, the script will copy the
      &corosync; configuration, configure SSH and &csync;, and will
      bring the current machine online as new cluster node. Apart from that,
-     it will start the service needed for &hawk2;. If you have configured
-     shared storage with OCFS2, it will also automatically create the mount
-     point directory for the OCFS2 file system.
-    </para>
-   </step>
-   <step>
-    <para>
-     Repeat the steps above for all machines you want to add to the cluster.
+     it will start the service needed for &hawk2;. <!--
+     If you have configured shared storage with OCFS2, it will also
+     automatically create the mount point directory for the OCFS2 file system.
+     -->
     </para>
    </step>
    <step>
@@ -451,83 +695,196 @@
    the following:
   </para>
 
-<screen>&prompt.root;crm status
-   Last updated: Thu Jul  3 11:07:10 2014
-   Last change: Thu Jul  3 10:58:43 2014
-   Current DC: alice (175704363) - partition with quorum
-   2 Nodes configured
-   0 Resources configured
+<screen>&prompt.root;<command>crm</command> status
+Stack: corosync
+Current DC: &node1; (version 1.1.15-17.1-e174ec8) - partition with quorum
+Last updated: Fri Jul 15 12:33:08 2016
+Last change: Fri Jul 15 12:33:03 2016 by hacluster via crm_attribute on &node1;
 
-   Online: [ alice bob ]</screen>
+2 Nodes configured
+0 Resources configured
 
-  <important>
-   <title>Check <systemitem>no-quorum-policy</systemitem></title>
-   <para>
-    After adding all nodes, check if you need to adjust the
-    <systemitem>no-quorum-policy</systemitem> in the global cluster options.
-    This is especially important for two-node clusters. For more
-    information, refer to <remark>FIXME Install Quick</remark> <!--
-    <xref linkend="sec.ha.config.basics.global.quorum"/>-->.
-   </para>
-  </important>
-
-  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-remove">
-   <title>Removing Nodes From An Existing Cluster</title>
-   <para>
-    If you have a cluster up and running (with at least two nodes), you can
-    remove single nodes from the cluster with the
-    <command>ha-cluster-remove</command> bootstrap script. You need to know
-    the IP address or host name of the node you want to remove from the
-    cluster. Follow the steps below. For details, refer to the
-    <command>ha-cluster-remove</command> man page.
-   </para>
-<!--taroth 2013-03-12: is it required that rcopenais is running one the node I 
-    want to take down? taroth 2013-03-12: according to tserong: no, does not
-    matter-->
-   <step>
-    <para>
-     Log in as &rootuser; to one of the cluster nodes.
-    </para>
-   </step>
-   <step>
-    <para>
-     Start the bootstrap script by executing:
-    </para>
-<screen>&prompt.root;<command>ha-cluster-remove</command> <option>-c</option> <replaceable>IP_ADDR_OR_HOSTNAME</replaceable></screen>
-    <para>
-     The script enables the <systemitem class="daemon">sshd</systemitem>,
-     stops the &pace; service on the specified node, and propagates the
-     files to synchronize with &csync; across the remaining nodes.
-    </para>
-<!--information taken from bnc#810292, c#5-->
-    <para>
-     If you specified a host name and the node to remove cannot be contacted
-     (or the host name cannot be resolved), the script will inform you and
-     ask whether to remove the node anyway. If you specified an IP address
-     and the node cannot be contacted, you will be asked to enter the host
-     name and to confirm whether to remove the node anyway.
-    </para>
-   </step>
-   <step>
-    <para>
-     To remove more nodes, repeat the step above.
-    </para>
-   </step>
-   <step>
-    <para>
-     For details of the process, check
-     <filename>/var/log/ha-cluster-bootstrap.log</filename>.
-    </para>
-   </step>
-  </procedure>
+Online: [ &node1; &node2; ]</screen>
 
   <para>
-   If you need to re-add the removed node at a later point in time, add it
-   with <command>ha-cluster-join</command>. For details, refer to
-   <xref linkend="pro.ha.inst.quick.setup.ha-cluster-join"/>.
+   In case you need to remove and replace one of the nodes with another one,
+   use the <command>ha-cluster-remove</command> script with the
+   <option>-c</option>
+   option:
   </para>
+  <screen>&prompt.root;<command>ha-cluster-remove</command> <option>-c</option> <replaceable>IP_ADDR_OR_HOSTNAME</replaceable></screen>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.stonith">
+   <title>Configuring a &stonith;-Resource</title>
+   <remark>toms 2016-07-15: taken from ha_config_cli.xml,
+        xml:id=sec.ha.manual_create.stonith</remark>
+   <para>
+    From the <command>crm</command> perspective, a &stonith; device is
+    just another resource. To create a &stonith; resource, proceed as
+    follows:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Log in as &rootuser; and start the <command>crm</command>
+      interactive shell:
+     </para>
+<screen>&prompt.root;<command>crm</command> configure</screen>
+    </step>
+    <step>
+     <para>
+      Get a list of all &stonith; types with the following command:
+     </para>
+<screen>&prompt.crm;<command>ra</command> list stonith
+apcmaster                  apcmastersnmp              apcsmart
+baytech                    bladehpi                   cyclades
+[... list pruned ...]</screen>
+    </step>
+    <step xml:id="st.ha.manual_create.stonith.type">
+     <para>
+      Choose a &stonith; type from the above list and view the list of
+      possible options. Use the following command:
+     </para>
+<screen>&prompt.crm;<command>ra</command> info stonith:external/ipmi
+IPMI STONITH external device (stonith:external/ipmi)
+
+ipmitool based power management. Apparently, the power off
+method of ipmitool is intercepted by ACPI which then makes
+a regular shutdown. If case of a split brain on a two-node
+it may happen that no node survives. For two-node clusters
+use only the reset method.
+
+Parameters (* denotes required, [] the default):
+
+hostname (string): Hostname
+    The name of the host to be managed by this STONITH device.
+...<!--
+ipaddr (string): IP Address
+    The IP address of the STONITH device.
+
+userid (string): Login
+    The username used for logging in to the STONITH device.
+
+passwd (string): Password
+    The password used for logging in to the STONITH device.
+
+interface (string, [lan]): IPMI interface
+    IPMI interface to use, such as "lan" or "lanplus".
+
+stonith-timeout (time, [60s]):
+    How long to wait for the STONITH action to complete. Overrides the stonith-timeout cluster property
+
+priority (integer, [0]):
+    The priority of the stonith resource. The lower the number, the higher the priority.
+
+Operations' defaults (advisory minimum):
+
+    start         timeout=15
+    stop          timeout=15
+    status        timeout=15
+    monitor_0     interval=15 timeout=15 start-delay=15--></screen>
+    </step>
+    <step>
+     <para>
+      Create the &stonith; resource with the <literal>stonith</literal>
+      class, the type you have chosen in
+      <xref linkend="st.ha.manual_create.stonith.type" xrefstyle="select:label nopage"/>,
+      and the respective parameters if needed, for example:
+     </para>
+<screen>&prompt.crm;<command>configure</command>
+&prompt.crm.conf;<command>primitive</command> my-stonith stonith:external/ipmi \
+    params hostname="&node1;" \
+    ipaddr="&subnetI;.221" \
+    userid="admin" passwd="secret" \
+    op monitor interval=60m timeout=120s  </screen>
+    </step>
+   </procedure>
   </sect1>
- <!--taroth 2016-07-08: @toms: sorry, I did not have time to add further sections yet,
+
+  <sect1 xml:id="sec.ha.inst.quick.test">
+   <title>Testing the Cluster</title>
+   <para>
+    To make sure the whole cluster configuration is correct, use the
+    following procedure to test it:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Log in to &node2; and show the status of your cluster. It should be
+      something like this:
+     </para>
+     <screen>&prompt.root;<command>crm</command> status
+<!--Stack: corosync
+Current DC: &node1; (version 1.1.15-17.1-e174ec8) - partition with quorum
+Last updated: Fri Jul 18 09:33:08 2016
+Last change: Fri Jul 18 09:33:03 2016 by hacluster via crm_attribute on &node1;
+
+2 Nodes configured
+0 Resources configured
+
+Online: [ &node1; &node2; ]
+
+-->[...]
+Full list of resources:
+
+ vip    (ocf::heartbeat:IPaddr2):       Started &node1;</screen>
+    </step>
+    <step>
+     <para>
+      Ping <systemitem>&subnetII;.1</systemitem>, your virtual IP address:
+     </para>
+     <screen>&prompt.root;<command>ping</command></screen>
+    </step>
+    <step>
+     <para>
+      Pull the plug on &node1;.
+     </para>
+     <remark>toms 2016-07-18: Should we add an alternative method? I've tested
+      it with "crm node standby NODE" to put the node "offline" temporarily.
+      Sometimes an administrator doesn't want to go to a server room, so it
+      could be more convenient.
+     </remark>
+     <remark>taroth 2016-07-20: good idea, need to discuss it with krig</remark>
+    </step>
+    <step>
+     <para>
+      Rerun the <command>crm status</command> command. You should see the floating
+      virtual IP address moved to &node2;:
+     </para>
+     <screen>&prompt.root;<command>crm</command> status
+[...]
+Full list of resources:
+
+ vip    (ocf::heartbeat:IPaddr2):       Started &node2;</screen>
+    </step>
+    <step>
+     <para>
+      Watch the uninterrupted flow of pings to your virtual IP address.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    If the pings are received by the floating virtual IP address, the cluster
+    setup and the IP resource works correctly. Cancel the
+    <command>ping</command> command with <keycombo>
+       <keycap function="control"/><keycap>C</keycap>
+      </keycombo>.
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.moreinfo">
+   <title>For More Information</title>
+   <para>
+    Find more documentation for this product at <link
+     xlink:href="http://www.suse.com/documentation/sle-ha-12"/>. The
+    documentation also includes a comprehensive &admin; for
+    &productname;. Refer to it for further configuration and administration
+    tasks.
+   </para>
+  </sect1>
+
+  <!--taroth 2016-07-08: @toms: sorry, I did not have time to add further sections yet,
   please refer to https://fate.suse.com/320823 (feature description *and* the
   respective comments by Kai, Kristoffer, and Antoine-->
  <xi:include href="common_legal.xml"/>
