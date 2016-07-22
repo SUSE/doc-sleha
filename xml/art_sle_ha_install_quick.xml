@@ -290,12 +290,10 @@
 
  <sect1 xml:id="sec.ha.inst.quick.sbd">
   <title>Using SBD as Fencing Mechanism</title>
-  <para><remark>toms 2016-07-20: @taroth, ATM, I've integrated this into a separate
-   section. Maybe it's better to integrate it into section sec.ha.inst.quick.setup.1st-node
-   Not sure. - taroth 2016-07-21: nope, I'd leave it in a separate section,
-   however, this sections needs to mention watchdog, too -
-   For more information, see https://trello.com/c/rclDZHPR and
-   http://www.linux-ha.org/wiki/SBD_Fencing</remark></para>
+  <!-- For more information, see:
+   * https://trello.com/c/rclDZHPR
+   * http://www.linux-ha.org/wiki/SBD_Fencing
+  -->
    <!--taroth 2016-07-21: the following is copied from
     /usr/sbin/ha-cluster-init: If you have shared storage, for example a SAN or
     iSCSI target, you can use it to avoid split-brain scenarios-->
@@ -305,6 +303,9 @@
     (&stonith; Block Devices) as node fencing mechanism. SBD uses watchdog support
     and the <literal>external/sbd</literal> &stonith; resource agent.
    </para>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.req">
+   <title>Requirements for SBD</title>
    <para>
     During setup of the first node with <command>ha-cluster-init</command>, you
     can decide if to use SBD. If yes, you need to enter the path to the shared
@@ -315,7 +316,9 @@
    <itemizedlist>
     <listitem>
      <para>The path to the shared storage device must be persistent and
-      consistent across all nodes in the cluster.</para>
+      consistent across all nodes in the cluster. Use stable device names
+      such as <filename>/dev/disk/by-id/dm-uuid-part1-mpath-abcedf12345</filename>.
+     </para>
     </listitem>
    <listitem>
     <para>The shared storage can be connected via Fibre Channel (FC), Fibre
@@ -346,13 +349,89 @@
    </listitem>
    </varlistentry>
   </variablelist>
-  <para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.setup">
+   <title>Setting Up Softdog Watchdog and SBD</title>
    <remark>taroth 2016-07-21: FIXME: watchdog - toms, maybe you can ask QA again
     what they use as watchdog setup - maybe they have a shorter version than
     what is mentioned in ha_storage_protection.xml
     (pro.ha.storage.protect.watchdog)?
    </remark>
-  </para>
+   <para>
+    In &sls;, watchdog support in the kernel is enabled by default: It ships
+    with several different kernel modules that provide hardware-specific
+    watchdog drivers. The &hasi; uses the SBD daemon as software component
+    that <quote>feeds</quote> the watchdog.
+   </para>
+   <para>
+    It is highly recommended to use the hardware watchdog that best fits your
+    hardware. If no watchdog matches your hardware, or for testing purposes,
+    use the software watchdog driver (<systemitem>softdog</systemitem>).
+   </para>
+   <para>
+    The following procedure uses the <systemitem>softdog</systemitem> watchdog.
+    To setup SBD and watchdog on your machines, do the following on all nodes:
+   </para>
+
+   <procedure xml:id="pro.ha.inst.quick.sbd.setup">
+    <step>
+     <para>
+      Create a persistent, shared storage as described in <xref
+       linkend="sec.ha.inst.quick.sbd.req"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enable the softdog watchdog:
+     </para>
+     <screen>&prompt.root;<command>echo</command> softdog > /etc/modules-load.d/softdog.conf &amp;&amp;<!--
+  --> systemctl restart systemd-modules-load</screen>
+    </step>
+    <step>
+     <para>
+      Reboot.
+     </para>
+    </step>
+    <step>
+     <para>Test if the softdoc module is loaded correctly:
+     </para>
+     <screen>&prompt.root;<command>lsmod</command> | grep dog
+softdog                16384  1</screen>
+    </step>
+    <step>
+     <para>
+      Test your shared storage. This can be done by writing data with the
+      command <command>dd</command> on one node, and read the data on the
+      second node. For our test, the file <filename>/etc/hosts</filename>
+      is used:
+     </para>
+     <substeps>
+      <step>
+        <para>Write data to the shared storage:</para>
+        <screen>&prompt.root;<command>dd</command> if=/etc/hosts of=<replaceable>SBD</replaceable> bs=512</screen>
+      </step>
+      <step>
+       <para>Read data from the shared storage:</para>
+       <screen>&prompt.root;<command>dd</command> if=<replaceable>SBD</replaceable> of=/tmp/hosts bs=512
+Sep 22 17:01:00 &node1; sbd: [13412]: info: Received command test from &node1;</screen>
+      </step>
+      <step>
+       <para>
+        Compare the first 512 bytes of the content.
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      Send a test message to one of your nodes:
+     </para>
+     <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> message &node2; test</screen>
+     <remark>toms 2016-07-22: What to do when the test message fails? How to debug?</remark>
+    </step>
+   </procedure>
+  </sect2>
  </sect1>
 
  <sect1 xml:id="sec.ha.inst.quick.setup.1st-node">
@@ -435,9 +514,6 @@
     </para>
    </step>
    <step>
-    <remark>toms 2016-07-15: @taroth: maybe adjust the xref here. If you
-    remove section "sec.ha.inst.quick.sbd", you probably want to move the
-    content here.</remark>
     <para>
     To set up SBD as node fencing mechanism:</para>
     <substeps>
@@ -503,22 +579,18 @@
   <para>On the login screen, enter the <guimenu>Username</guimenu> and
     <guimenu>Password</guimenu> of the
    <systemitem>hacluster</systemitem> user and go to
-    <guimenu>Status</guimenu> link. </para>
+    <guimenu>Status</guimenu> link (see <xref linkend="fig.ha.inst.quick.one-node-status"/>). </para>
 
-  <remark>toms 2016-07-20: @taroth: Should we add a screenshot here of the
-   current Hawk2 web page? - taroth 2016-07-21: yes
-  </remark>
+  <remark>toms 2016-07-22: Fix screenshot to show alice and bob</remark>
 
-  <!--
   <figure xml:id="fig.ha.inst.quick.one-node-status">
    <title>Status of One-Node Cluster in &hawk2;</title>
    <mediaobject>
     <imageobject>
-     <imagedata width="80%" fileref="hawk-one-node-status.png"/>
+     <imagedata width="80%" fileref="installquick-one-nodecluster.png"/>
     </imageobject>
    </mediaobject>
   </figure>
-  -->
 
   <important>
    <title>Secure Password</title>
