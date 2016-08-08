@@ -769,6 +769,7 @@ r0 role:Primary
 
  <sect1 xml:id="sec.ha.drbd.migrate">
   <title>Migrating from DRBD&nbsp;8 to DRBD&nbsp;9</title>
+  <remark>toms 2016-08-05: link to stacked DRBD</remark>
   <para>
    Between DRBD&nbsp;8 (shipped with &sle; &hasi;&nbsp;12 SP1) and
    DRBD&nbsp;9 (shipped with &sle; &hasi;&nbsp;12 SP2), the metadata format
@@ -865,6 +866,77 @@ r0 role:Primary
     </para>
    </step>
   </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.drbd.resource-stacking">
+  <title>Creating a Stacked DRBD Device</title>
+  <para>
+   A stacked DRBD device contains two other devices of which at least one
+   device is also a DRBD resource. In other words, DRBD adds an additional
+   node on top of an already existing DRBD resource (see <xref
+    linkend="fig.ha.drbd.resource-stacking"/>). Such a replication setup
+   can be used for backup and disaster recovery purposes.
+  </para>
+
+  <figure xml:id="fig.ha.drbd.resource-stacking">
+   <title>Resource Stacking</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata width="50%" fileref="ha_stacked_drbd.svg"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata width="50%" fileref="ha_stacked_drbd.png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   Three-way replication make use of asynchronous (DRBD protocol A) and
+   sychronous replication (DRBD protocol C). The asychronous part is used for
+   the stacked resource whereas the sychronous part is used for the backup.
+  </para>
+
+  <para>
+   Your production environment uses the stacked device. For example,
+   if you have a DRBD device <filename>/dev/drbd0</filename> and a stacked
+   device <filename>/dev/drbd10</filename> on top, the file system will
+   be created on <filename>/dev/drbd10</filename>, see <xref
+    linkend="exa.ha.drbd.stacked-drbd"/> for more details.
+  </para>
+
+  <example xml:id="exa.ha.drbd.stacked-drbd">
+   <title>Configuration of a Three-Node Stacked DRBD Resource</title>
+   <screen># /etc/drbd.d/r0.res
+resource r0 {
+  protocol C;
+  device    /dev/drbd0;
+  disk      /dev/sda1;
+  meta-disk internal;
+
+  on &cluster1;-&node1; {
+    address    &subnetI;.1:7900;<!-- 192.168.122.57 -->
+  }
+
+  on &cluster1;-&node2; {
+    address    &subnetI;.2:7900;<!-- 192.168.122.29 -->
+  }
+}
+
+resource r0-U {
+  protocol A;
+  device     /dev/drbd10;
+
+  stacked-on-top-of r0 {
+    address    &subnetII;.1:7910;<!-- 10.0.0.1: -->
+  }
+
+  on &cluster2;-&node3; {
+    disk       /dev/sda10;
+    address    &subnetII;.2:7910; # Public IP of the backup node<!-- 10.0.0.2 -->
+    meta-disk  internal;
+  }
+}</screen>
+  </example>
  </sect1>
 
  <sect1 xml:id="sec.ha.drbd.test">
