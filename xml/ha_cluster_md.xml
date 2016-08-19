@@ -16,7 +16,7 @@
         <para>The cluster multi-device (Cluster MD) is a software based RAID
    (only suitable for RAID1 now) storage solution for a cluster,
    which provides the redundancy of RAID1 mirroring to the cluster.
-   This chapter shows you how to use Cluster MD.
+   This chapter shows you how to create and use Cluster MD.
    </para>
       </abstract>
       <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
@@ -61,11 +61,71 @@
       <systemitem>cluster-md-kmp-xen</systemitem>.</para>
    </listitem>
   </itemizedlist>
-  <para>Before creating a clustered md device, make sure the DLM resource is up
+
+  <procedure>
+   <step>
+    <para>Make sure the DLM resource is up and running.
+      <remark>toms 2016-08-19: how?</remark>
+    </para>
+   </step>
+   <step>
+    <para>Create the md device:</para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       If you not have an existing normal RAID device, create the clustered
+       RAID with the following command:
+      </para>
+      <screen>&prompt.root;<command>mdadm</command> --create md0 --bitmap=clustered \
+   --raid-devices=2 --level=mirror /dev/sda /dev/sdb</screen>
+    <para>For other useful options, refer to the man page of
+        <command>mdadm</command>. Monitor the progress of the resync in
+        <filename>/proc/mdstat</filename>. </para>
+      <!--
+       This will create a new clustered MD device and initiate a resync of the
+       two devices. A clustered bitmap is a device internal bitmap, with one
+       bitmaps for each node.
+      -->
+     </listitem>
+     <listitem>
+      <para>
+       If you already have an existing normal RAID, first clear the existing
+       bitmap and then create the clustered bitmap:
+      </para>
+      <screen>&prompt.root;<command>mdadm</command> --grow /dev/md<replaceable>X</replaceable> --bitmap=none
+&prompt.root;<command>mdadm</command> --grow /dev/md<replaceable>X</replaceable> --bitmap=clustered</screen>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+     <para>Get the UUID and the related md path:</para>
+     <screen>&prompt.root;<command>mdadm</command> --detail --scan</screen>
+     <para>The UUID must match the UUID stored in the superblock. For details on
+      the UUID, refer to the <command>mdadm.conf</command> man page.
+     </para>
+   </step>
+   <step>
+    <para>Open <filename>/etc/mdadm.conf</filename> and add the md device name
+     and the devices associated with it. Use the UUID from the previous step: </para>
+      <screen>DEVICE /dev/sda /dev/sdb
+ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
+   </step>
+   <step>
+    <para>Open &csync;'s configuration file <filename>/etc/csync2/csync2.cfg</filename>
+     and add <filename>/etc/mdadm.conf</filename>:</para>
+    <screen>group ha_group
+{
+   # ... list of files pruned ...
+   include /etc/mdadm.conf
+}</screen>
+   </step>
+  </procedure>
+
+<!--  <para>Before creating a clustered md device, make sure the DLM resource is up
    and running. To create a device, issue the following command on one cluster
    node:</para>
    
-   <screen># mdadm --create md0 --bitmap=clustered --raid-devices=2 --level=mirror
+   <screen># mdadm -\-create md0 -\-bitmap=clustered -\-raid-devices=2 -\-level=mirror
    /dev/sda /dev/sdb</screen>
   <para>This will create a new clustered MD device and initiate a resync of the
    two devices. A clustered bitmap is a device internal bitmap, with one bitmaps
@@ -77,14 +137,14 @@
   <variablelist>
    <title>Other Options</title>
    <varlistentry>
-    <term><option>--nodes</option></term>
+    <term><option>-\-nodes</option></term>
     <listitem>
      <para>Takes an argument for the maximum number of cluster nodes which can
       be used with the device. If not specified, the default value is 4. </para>
     </listitem>
    </varlistentry>
    <varlistentry>
-    <term><option>--home-cluster</option></term>
+    <term><option>-\-home-cluster</option></term>
     <listitem>
      <para>Takes an argument for the cluster name. Not specifying
       this option will cause mdadm to probe the cluster for the cluster name,
@@ -97,12 +157,12 @@
     </listitem>
    </varlistentry>
    <varlistentry>
-    <term><option>--spare-devices</option></term>
+    <term><option>-\-spare-devices</option></term>
     <listitem>
      <para>In order to create a cluster-md device with a spare for automatic
      failover, execute the following command on one cluster node: </para>
-     <screen># mdadm --create md0 --bitmap=clustered --raid-devices=2 --level=mirror
-      --spare-devices=1 /dev/sda /dev/sdb /dev/sdc</screen>
+     <screen># mdadm -\-create md0 -\-bitmap=clustered -\-raid-devices=2 -\-level=mirror
+      -\-spare-devices=1 /dev/sda /dev/sdb /dev/sdc</screen>
     </listitem>
    </varlistentry>
   </variablelist>
@@ -112,18 +172,14 @@
   <screen>DEVICE /dev/sda /dev/sdb
    ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
   <para>To get the UUID and the related md path, use:</para>
-  <screen># mdadm --detail --scan</screen>
+  <screen># mdadm -\-detail -\-scan</screen>
   <para>The UUID must match the UUID stored in the superblock. For details on
    the UUID, refer to the <command>mdadm.conf</command> man page. </para>
   <para> It may be advisable to add 
    <filename>/etc/mdadm.conf</filename> in the csync tools list of
    files so it is uniform in all nodes.</para>
-  <para>
-   Alternatively, you can create a clustered RAID from a normal RAID by
-   first clearing the existing bitmap and then creating a clustered bitmap:
-  </para>
-  <screen># mdadm --grow /dev/md<replaceable>X</replaceable> --bitmap=none
-# mdadm --grow /dev/md<replaceable>X</replaceable> --bitmap=clustered</screen>
+-->
+
  </sect1>
  
  <sect1 xml:id="sec.ha.cluster-md.ra">
