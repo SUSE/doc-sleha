@@ -69,16 +69,16 @@
     </para>
    </step>
    <step>
-    <para>Create the md device:</para>
+    <para>Create the Cluster MD device:</para>
     <itemizedlist>
      <listitem>
       <para>
-       If you not have an existing normal RAID device, create the clustered
-       RAID with the following command:
+       If you do not have an existing normal RAID device, create the Cluster MD
+       device with the following command:
       </para>
       <screen>&prompt.root;<command>mdadm</command> --create md0 --bitmap=clustered \
    --raid-devices=2 --level=mirror /dev/sda /dev/sdb</screen>
-    <para>For other useful options, refer to the man page of
+      <para>For other useful options, refer to the man page of
         <command>mdadm</command>. Monitor the progress of the resync in
         <filename>/proc/mdstat</filename>. </para>
       <!--
@@ -94,6 +94,14 @@
       </para>
       <screen>&prompt.root;<command>mdadm</command> --grow /dev/md<replaceable>X</replaceable> --bitmap=none
 &prompt.root;<command>mdadm</command> --grow /dev/md<replaceable>X</replaceable> --bitmap=clustered</screen>
+     </listitem>
+     <listitem>
+      <para>Optionally, if you want to create a Cluster MD device with a
+       spare device for automatic failover, run the following command one
+       cluster node:
+      </para>
+     <screen>&prompt.root;<command>mdadm</command> --create md0 --bitmap=clustered --raid-devices=2 \
+      --level=mirror --spare-devices=1 /dev/sda /dev/sdb /dev/sdc</screen>
      </listitem>
     </itemizedlist>
    </step>
@@ -189,7 +197,8 @@ ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
   <procedure>
    <para>Configure a CRM resource as follows:</para>
    <step>
-    <screen>crm(live)configure# primitive raider Raid1 \
+    <para>Create a <systemitem>Raid1</systemitem> primitive:</para>
+    <screen>&prompt.crm.conf;<command>primitive</command> raider Raid1 \
   params raidconf="/etc/mdadm.conf" raiddev=/dev/md0 \
   force_clones=true \
   op monitor timeout=20s interval=10 \
@@ -197,7 +206,7 @@ ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
   op stop timeout=20s interval=0 </screen>
    </step>
    <step>
-    <para>Add the raider resource to the base-group that you have created for
+    <para>Add the <systemitem>raider</systemitem> resource to the base-group that you have created for
      DLM:</para>
     <screen>&prompt.crm.conf;<command>modgroup</command> base-group add raider</screen>
     <para>The <command>add</command> subcommand appends the new group
@@ -212,8 +221,10 @@ ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
     <para>Review your changes with 
      <command>show</command>.</para>
    </step>
-   <step><para>If everything seems correct, submit your changes with 
-     <command>commit</command>.</para></step>
+   <step>
+    <para>If everything seems correct, submit your changes with
+     <command>commit</command>.</para>
+   </step>
   </procedure>
  </sect1>
  
@@ -221,7 +232,7 @@ ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
   <title>Adding A Device</title>
   <para>To add a device to an existing md-device, use the following command on
    one cluster node:</para>
-  <screen># mdadm --manage md127 --add /dev/sdc</screen>
+  <screen>&prompt.root;<command>mdadm</command> --manage md0 --add /dev/sdc</screen>
   <para>Ensure that the device is "visible" on each node, and the md device is
    active, or else the command will fail. Behavior of the new device added
    depends on the state of the MD cluster device. If only one of the mirrored
@@ -234,24 +245,36 @@ ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
   <title>Re-adding a Temporarily Failed Device</title>
   <para>Quite often the failures are transient and limited to a single node. If
    any of the node encounters a failure during an I/O operation, the device will
-   be marked as failed for the entire cluster. This could happen due to a cable
-   failure on one of the nodes. After correcting the problem, you can re-add the
-   device and only the portions of the device which are out of sync will be
+   be marked as failed for the entire cluster.
+  </para>
+  <para>
+   This could happen, for example, due to a cable failure on one of the nodes.
+   After correcting the problem, you can re-add the device. Only the portions
+   of the device which are out of sync will be
    synced (as opposed to syncing the entire device by adding a new one). In
-   order to re-add the device, issue the following on one cluster node:</para>
-
-  <screen># mdadm --manage /dev/md127 --re-add /dev/sdb</screen>
+   order to re-add the device, run the following command on one cluster node:
+  </para>
+  <screen>&prompt.root;<command>mdadm</command> --manage /dev/md0 --re-add /dev/sdb</screen>
  </sect1>
  
  
  <sect1 xml:id="sec.ha.cluster-md.dev.remove">
   <title>Removing a Device</title>
-  <para>Before hot-removing a device for replacement, make sure the device is
-   failed. This can be seen in /proc/mdstat with a (F) with the device. If you
-   wish to explicitly fail a device (say because the device is too old or slow),
-   you can perform it by issuing the following command on one cluster node:</para>
-  <screen># mdadm --manage /dev/md127 --fail /dev/sda</screen>
-  <para>You can remove the failed device using the command on one cluster node:</para>
-  <screen># mdadm --manage /dev/md127 --remove /dev/sda</screen>
+  <para>Before hot-removing a device for replacement, do the following:</para>
+
+  <procedure>
+   <step>
+    <para>Make sure the device is failed by introspecting <filename>/proc/mdstat</filename>.
+    Look for a <literal>(F)</literal> before the device.</para>
+   </step>
+   <step>
+    <para>Run the following command on one cluster node to make a device fail:</para>
+    <screen>&prompt.root;<command>mdadm</command> --manage /dev/md0 --fail /dev/sda</screen>
+   </step>
+   <step>
+    <para>Remove the failed device using the command on one cluster node:</para>
+    <screen>&prompt.root;<command>mdadm</command> --manage /dev/md0 --remove /dev/sda</screen>
+   </step>
+  </procedure>
  </sect1>
 </chapter>
