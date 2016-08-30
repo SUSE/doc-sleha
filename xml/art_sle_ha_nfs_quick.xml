@@ -270,15 +270,246 @@
  </sect1>
 -->
 
- <sect1 xml:id="sec_ha_quick_nfs_initial_drbd_resource">
-   <title>Creating DRBD Configuration</title>
+<!--
+  <sect1 xml:id="sec_ha_quick_nfs_initial_lvm_config">
+    <title>Configuring LVM on Top of DRBD</title>
+    <remark>Fate#321158: DRBD on Top of LVM</remark>
+    <para>LVM (<emphasis>Logical Volume Manager</emphasis>) enables
+      flexible distribution of hard disk space over several file
+      systems. It was developed because sometimes the need to change the
+      segmenting of hard disk space arises just after the initial
+      partitioning has been done. </para>
+   <sect2 xml:id="sec_ha_quick_nfs_initial_lvm_config_lvm">
+    <title>Configuring LVM</title>
+    <para>
+     To use LVM with DRBD, it is necessary to change some options in the LVM
+     configuration file (<filename>/etc/lvm/lvm.conf</filename>) and to
+     remove stale cache entries on the nodes. This can be done manually (see
+     the following procedure) or by using the &yast; DRBD module. In the &yast;
+     DRBD module, to deactivate the automatic change, disable the check box
+      <guimenu>Modify LVM Device Filter Automatically</guimenu>
+      and change the filter manually. In the <guimenu>LVM Configuration</guimenu>
+      entry, you can enable or disable the LVM cache.
+    </para>
+    <para>Do the following:</para>
+    <procedure>
+     <step>
+      <para>On your primary node, open <filename>/etc/lvm/lvm.conf</filename>
+        in a text editor.
+      </para>
+     </step>
+     <step>
+      <para>
+       Search for the line starting with <literal>filter</literal> and edit
+       it as follows:
+      </para>
+<screen>filter = [ "r|/dev/sda.*|" ]</screen>
+      <para>
+       This masks the underlying block device from the list of devices LVM
+       scans for physical volume signatures. This way, LVM is instructed to
+       read physical volume signatures from DRBD devices, rather than from
+       the underlying backing block devices.
+      </para>
+      <para>
+       However, if you are using LVM <emphasis>exclusively</emphasis> on
+       your DRBD devices, then you may also specify the LVM filter as such:
+      </para>
+<screen>filter = [ "a|/dev/drbd.*|", "r|.*|" ]</screen>
+     </step>
+     <step>
+      <para>
+       In addition, disable the LVM cache by setting:
+      </para>
+<screen>write_cache_state = 0
+use_lvmetad = 0</screen>
+     </step>
+     <step>
+      <para>
+       Save your changes to the file.
+      </para>
+     </step>
+     <step>
+      <para>
+       Delete <filename>/etc/lvm/cache/.cache</filename> to remove any stale
+       cache entries.
+      </para>
+     </step>
+     <step>
+      <para>
+       Use &csync; to replicate these changes to the peer nodes.
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec_ha_quick_nfs_initial_lvm_config_volume">
+    <title>Creating Volumes on the DRBD Device</title>
+    <para> Now you can prepare the physical volume, create an LVM volume
+        group with logical volumes, and create file systems on the
+        logical volumes. This is needed to segment your DRBD device
+        into different parts.</para>
+    <important>
+     <title>Automatic Synchronization</title>
+     <para>
+      Execute all of the following steps only on the node where your
+      resource is currently in the primary role. It is
+      <emphasis>not</emphasis> necessary to repeat the commands on the DRBD
+      peer node as the changes are automatically synchronized.
+     </para>
+    </important>
+    <procedure>
+     <step>
+      <para> Create an LVM volume group by initializing the DRBD
+            resource as an LVM physical volume: </para>
+<screen>&prompt.root;<command>pvcreate</command> /dev/drbd/by-res/nfs/0</screen>
+     </step>
+     <step>
+      <para> Create an LVM Volume Group <systemitem>nfs</systemitem>
+            that includes this physical volume: </para>
+<screen>&prompt.root;<command>vgcreate</command> nfs /dev/drbd/by-res/nfs/0</screen>
+     </step>
+     <step>
+      <para> Create logical volumes in the volume group. This example
+            assumes two logical volumes of 20 GB each, named
+              <literal>sales</literal> and <literal>devel</literal>: </para>
+<screen>&prompt.root;<command>lvcreate</command> -n sales -L 20G nfs
+&prompt.root;<command>lvcreate</command> -n devel -L 20G nfs</screen>
+     </step>
+     <step>
+      <para> Activate the volume group and create file systems on the
+            new logical volumes. This example assumes
+              <literal>ext3</literal> as the file system type: </para>
+<screen>&prompt.root;<command>vgchange</command> -ay nfs
+&prompt.root;<command>mkfs.ext3</command> /dev/nfs/sales
+&prompt.root;<command>mkfs.ext3</command> /dev/nfs/devel</screen>
+     </step>
+    </procedure>
+   </sect2>
+ </sect1>
+-->
+
+  <sect1 xml:id="sec_ha_quick_nfs_initial_lvm">
+   <title>Preparing LVM</title>
    <para>
-    First, it is necessary to configure a DRBD resource to hold your data.
-    This resource will act as the physical volume of an LVM volume group to
-    be created later. This section assumes that the LVM volume group is to
+     To use LVM with DRBD, it is necessary to change some options in the LVM
+     configuration file (<filename>/etc/lvm/lvm.conf</filename>) and to
+     remove stale cache entries on the nodes. <!--This can be done manually (see
+     the following procedure) or by using the &yast; DRBD module. In the &yast;
+     DRBD module, to deactivate the automatic change, disable the check box
+      <guimenu>Modify LVM Device Filter Automatically</guimenu>
+      and change the filter manually. In the <guimenu>LVM Configuration</guimenu>
+      entry, you can enable or disable the LVM cache.-->
+    </para>
+   <para>Do the following:</para>
+   <procedure>
+    <step>
+     <para>On your primary node, open <filename>/etc/lvm/lvm.conf</filename>
+      in a text editor.
+     </para>
+     <remark>toms 2016-08-29: No special filters need to be set, right?</remark>
+    </step>
+    <!--<step>
+     <para>
+      Search for the line starting with <literal>filter</literal> and edit
+      it as follows:
+     </para>
+     <screen>filter = [ "r|/dev/sda.*|" ]</screen>
+     <para>
+      This masks the underlying block device from the list of devices LVM
+      scans for physical volume signatures. This way, LVM is instructed to
+      read physical volume signatures from DRBD devices, rather than from
+      the underlying backing block devices.
+     </para>
+     <para>
+      However, if you are using LVM <emphasis>exclusively</emphasis> on
+      your DRBD devices, then you may also specify the LVM filter as such:
+     </para>
+     <screen>filter = [ "a|/dev/drbd.*|", "r|.*|" ]</screen>
+    </step>-->
+    <step>
+     <para>
+      Disable the LVM cache and the start of <command>lvmetad</command> daemon
+      by setting:
+     </para>
+     <screen>write_cache_state = 0
+use_lvmetad = 0</screen>
+    </step>
+    <step>
+     <para>
+      Save your changes to the file.
+     </para>
+    </step>
+    <step>
+     <para>
+      Delete <filename>/etc/lvm/cache/.cache</filename> to remove any stale
+      cache entries.
+     </para>
+    </step>
+    <step>
+     <para>
+      Use &csync; to replicate these changes to the peer nodes:
+     </para>
+     <screen>&prompt.root;<command>csync</command> -xv</screen>
+    </step>
+   </procedure>
+  </sect1>
+
+  <sect1 xml:id="sec_ha_quick_nfs_lvm">
+   <title>Creating a LVM Device</title>
+   <para>LVM (<emphasis>Logical Volume Manager</emphasis>) enables
+    flexible distribution of hard disk space over several file
+    systems. It was developed because sometimes the need to change the
+    segmenting of hard disk space arises just after the initial
+    partitioning has been done.
+   </para>
+   <para>To prepare your disks for using LVM, do the following:</para>
+   <procedure>
+    <step>
+     <para>
+      Create an LVM volume group and replace <filename>/dev/sdb1</filename>
+      with your corresponding device for LVM:</para>
+     <screen>&prompt.root;<command>pvcreate</command> /dev/sdb1</screen>
+    </step>
+    <step>
+     <para>Create an LVM Volume Group <systemitem>nfs</systemitem>
+            that includes this physical volume: </para>
+     <screen>&prompt.root;<command>vgcreate</command> nfs /dev/sdb1</screen>
+    </step>
+    <step>
+      <para>
+       Create one or more logical volumes in the volume group
+       <systemitem>nfs</systemitem>. This example assumes 20 Gigabyte, named
+       <systemitem>work</systemitem>:
+      </para>
+      <screen>&prompt.root;<command>lvcreate</command> -n work -L 20G nfs</screen>
+     </step>
+     <step>
+      <para>
+       Activate the volume group<!-- and create file systems on the new logical
+       volumes. This example assumes <literal>ext3</literal> as the file
+       system type-->: </para>
+<screen>&prompt.root;<command>vgchange</command> -ay nfs<!--
+&prompt.root;<command>mkfs.ext3</command> /dev/nfs/work--></screen>
+     </step>
+   </procedure>
+   <para>After you have successfully executed the above steps, your system
+    will make the device <filename>/dev/<replaceable
+     >VOLGROUP</replaceable>/<replaceable
+      >LOGICAL_VOLUME</replaceable></filename> visible.
+    In this case it will be <filename>/dev/nfs/work</filename>.
+   </para>
+  </sect1>
+
+ <sect1 xml:id="sec_ha_quick_nfs_drbd_device">
+   <title>Creating a DRBD Device</title>
+   <para>
+    It is necessary to configure a DRBD resource on top of LVM to hold your data.
+    <remark>toms 2016-08-30: Add some good reason why this is good/necessary/useful.</remark>
+    This section assumes that the LVM volume group is to
     be called <literal>nfs</literal>. Hence, the DRBD resource uses that
     same name.
    </para>
+<!--
    <sect2 xml:id="sec.ha_quick_nfs_usingyast">
     <title>Using &yast;</title>
     <para>&yast; can be used for the initial setup of DRBD.
@@ -397,7 +628,7 @@
           </entry>
           <entry align="center" namest="c2" nameend="c3">
            <para>
-            <filename>/dev/sda1</filename>
+            <filename>/dev/nfs/work</filename>
            </para>
           </entry>
          </row>
@@ -424,46 +655,88 @@
      </step>
     </procedure>
    </sect2>
-   <sect2 xml:id="sec.ha_quick_nfs_usingcli">
-    <title>Using Command Line</title>
+-->
+
+   <sect2 xml:id="sec.ha_quick_nfs_drbd_config">
+    <title>Creating DRBD Configuration</title>
     <para>
-     It is highly recommended that you put your resource configuration in a
-     file with a <filename class="extension">.res</filename> extension. The
-     file name should be identical to that of the resource. As the file must
-     reside in the <filename>/etc/drbd.d/</filename> directory, this example
-     uses the <filename>/etc/drbd.d/nfs.res</filename> file. Proceed as
-     follows:
+     It is highly recommended to follow these advise:
+    </para>
+
+    <itemizedlist>
+     <listitem>
+      <para>Use the directory <filename>/etc/drbd.d/</filename> for your
+      configuration.</para>
+     </listitem>
+     <listitem>
+      <para>Name the file to its purpose of the resource.</para>
+     </listitem>
+     <listitem>
+      <para>Put your resource configuration in a file with a <filename
+       class="extension">.res</filename> extension.</para>
+     </listitem>
+    </itemizedlist>
+
+    <para>
+     This example uses the <filename>/etc/drbd.d/nfs.res</filename> file.
+     Proceed as follows:
     </para>
     <procedure>
+     <title>Creating DRBD Configuration</title>
      <step>
       <para>
        Create the file <filename>/etc/drbd.d/nfs.res</filename> with the
-        following contents and replace <filename>/dev/sda1</filename> with the correct
-        partition.
+        following contents:
       </para>
       <remark>toms 2016-07-25: TODO bsc#981560</remark>
 <screen>resource nfs {
-   device /dev/drbd0;
-   disk   /dev/sda1;
-   meta-disk internal;
+   device /dev/drbd0; <co xml:id="co.ha_quick_nfs_drbd.device"/>
+   disk   /dev/nfs/work; <co xml:id="co.ha_quick_nfs_drbd.disk"/>
+   meta-disk internal; <co xml:id="co.ha_quick_nfs_drbd.metadisk"/>
 
    net {
-      protocol	C;
+      protocol	C; <co xml:id="co.ha_quick_nfs_drbd.protocol"/>
    }
 
    connection-mesh {
       host	&node1; &node2;;
    }
-   on &node1; {
+   on &node1; { <co xml:id="co.ha_quick_nfs_drbd.on"/>
       address   &subnetI;.1:&drbd.port;;
       node-id   0;
    }
-   on &node2; {
+   on &node2; { <xref linkend="co.ha_quick_nfs_drbd.on"/>
       address   &subnetI;.2:&drbd.port;;
       node-id   1;
    }
 }</screen>
-       <para>
+      <calloutlist>
+       <callout arearefs="co.ha_quick_nfs_drbd.device">
+        <para>The DRBD device that applications are supposed to access.</para>
+       </callout>
+       <callout arearefs="co.ha_quick_nfs_drbd.disk">
+        <para>The lower-level block device used by DRBD to store the actual
+         data. This is the LVM device that was created in <xref
+          linkend="sec_ha_quick_nfs_lvm"/>.
+        </para>
+       </callout>
+       <callout arearefs="co.ha_quick_nfs_drbd.metadisk">
+        <para>Where the meta data format is stored. With
+         <literal>internal</literal>, the meta data is stored together with
+         the user data on the same device.
+        </para>
+       </callout>
+       <callout arearefs="co.ha_quick_nfs_drbd.protocol">
+        <para>The specified protocol to be used for this connection. For protocol
+         <literal>C</literal>, a write is considered to be complete as soon as
+         it has reached all disks, be it local or remote.
+        </para>
+       </callout>
+       <callout arearefs="co.ha_quick_nfs_drbd.on">
+        <para>Contains the IP address and a unique identifier for each node.</para>
+       </callout>
+      </calloutlist>
+      <para>
          If you have different partitions on each node, remove the
          <literal>disk</literal> keyword from the global part.
          Add the individual partitions on the node configuration, for
@@ -502,8 +775,8 @@ include /etc/drbd.d;</screen>
     </procedure>
    </sect2>
 
-   <sect2 xml:id="sec_ha_quick_nfs_initial_finaldrbd">
-    <title>Finalizing the DRBD Setup</title>
+   <sect2 xml:id="sec_ha_quick_nfs_drbd_activate">
+    <title>Activating the DRBD Device</title>
     <para>
      After you have prepared your DRBD configuration (either with &yast; or
      manually), proceed as follows:
@@ -529,9 +802,11 @@ include /etc/drbd.d;</screen>
       </para>
      </step>
      <step>
-      <para>To shorten the initial resychronization of your DRBD resource,
-      check the following:</para>
-      <remark>toms 2016-08-25: TODO. Ask Yan :)</remark>
+      <para>
+       If the DRBD devices on all nodes have the same data, you can skip
+       the initial resychronization. Use the following command:
+      </para>
+      <remark>toms 2016-08-30: use it from Admin Guide?</remark>
      </step>
      <step>
        <para>Make &node1; primary:</para>
@@ -549,90 +824,26 @@ include /etc/drbd.d;</screen>
     </procedure>
     <para>
      After the sychronization is finished, you can access the DRBD resource
-     on the file <filename>/dev/drbd0</filename>.
+     on the block device <filename>/dev/drbd0</filename>. Use this device
+     for creating your file system.
      Find more information about DRBD in <xref linkend="cha.ha.drbd"/>.
      </para>
    </sect2>
+
+   <sect2 xml:id="sec_ha_quick_nfs_drbd_createfs">
+    <title>Creating the File System</title>
+    <para>After you have finished <xref linkend="sec_ha_quick_nfs_drbd_activate"/>
+    you should see a DRBD device on <filename>/dev/drbd0</filename>.
+    </para>
+    <screen>&prompt.root;<command>mkfs.ext3</command> /dev/drbd0</screen>
+   </sect2>
   </sect1>
 
-  <sect1 xml:id="sec_ha_quick_nfs_initial_lvm_config">
-    <title>Configuring LVM on Top of DRBD</title>
-    <remark>Fate#321158: DRBD on Top of LVM</remark>
-    <para>LVM (<emphasis>Logical Volume Manager</emphasis>) enables
-      flexible distribution of hard disk space over several file
-      systems. It was developed because sometimes the need to change the
-      segmenting of hard disk space arises just after the initial
-      partitioning has been done. </para>
-   <sect2 xml:id="sec_ha_quick_nfs_initial_lvm_config_lvm">
-    <title>Configuring LVM</title>
-    <para>
-     To use LVM with DRBD, it is necessary to change some options in the LVM
-     configuration file (<filename>/etc/lvm/lvm.conf</filename>) and to
-     remove stale cache entries on the nodes. This can be done manually (see
-     the following procedure) or by using the &yast; DRBD module. In the &yast;
-     DRBD module, to deactivate the automatic change, disable the check box
-      <guimenu>Modify LVM Device Filter Automatically</guimenu>
-      and change the filter manually. In the <guimenu>LVM Configuration</guimenu>
-      entry, you can enable or disable the LVM cache.
-    </para>
-    <para>Do the following:</para>
-    <procedure>
-     <step>
-      <para>On your primary node, open <filename>/etc/lvm/lvm.conf</filename>
-        in a text editor.
-      </para>
-     </step>
-     <step>
-      <para>
-       Search for the line starting with <literal>filter</literal> and edit
-       it as follows:
-      </para>
-<screen>filter = [ "r|/dev/sda.*|" ]</screen>
-      <para>
-       This masks the underlying block device from the list of devices LVM
-       scans for physical volume signatures. This way, LVM is instructed to
-       read physical volume signatures from DRBD devices, rather than from
-       the underlying backing block devices.
-      </para>
-      <para>
-       However, if you are using LVM <emphasis>exclusively</emphasis> on
-       your DRBD devices, then you may also specify the LVM filter as such:
-      </para>
-<screen>filter = [ "a|/dev/drbd.*|", "r|.*|" ]</screen>
-     </step>
-     <step>
-      <para>
-       In addition, disable the LVM cache by setting:
-      </para>
-<screen>write_cache_state = 0
-use_lvmetad = 0</screen>
-     </step>
-     <step>
-      <para>
-       Save your changes to the file.
-      </para>
-     </step>
-     <step>
-      <para>
-       Delete <filename>/etc/lvm/cache/.cache</filename> to remove any stale
-       cache entries.
-      </para>
-     </step>
-     <step>
-      <para>
-       Use &csync; to replicate these changes to the peer nodes.
-      </para>
-     </step>
-    </procedure>
-   </sect2>
-
-   <sect2 xml:id="sec_ha_quick_nfs_initial_lvm_config_volume">
-    <title>Creating Volumes on the DRBD Device</title>
-    <para> Now you can prepare the physical volume, create an LVM volume
-        group with logical volumes, and create file systems on the
-        logical volumes. This is needed to segment your DRBD device
-        into different parts.</para>
-    <important>
+  <!--
+  <sect1 xml:id="sec_ha_quick_nfs_drbd">
+   <title></title>
+   <para></para>
+   <important>
      <title>Automatic Synchronization</title>
      <para>
       Execute all of the following steps only on the node where your
@@ -641,35 +852,14 @@ use_lvmetad = 0</screen>
       peer node as the changes are automatically synchronized.
      </para>
     </important>
+
     <procedure>
      <step>
-      <para> Create an LVM volume group by initializing the DRBD
-            resource as an LVM physical volume: </para>
-<screen>&prompt.root;<command>pvcreate</command> /dev/drbd/by-res/nfs/0</screen>
-     </step>
-     <step>
-      <para> Create an LVM Volume Group <systemitem>nfs</systemitem>
-            that includes this physical volume: </para>
-<screen>&prompt.root;<command>vgcreate</command> nfs /dev/drbd/by-res/nfs/0</screen>
-     </step>
-     <step>
-      <para> Create logical volumes in the volume group. This example
-            assumes two logical volumes of 20 GB each, named
-              <literal>sales</literal> and <literal>devel</literal>: </para>
-<screen>&prompt.root;<command>lvcreate</command> -n sales -L 20G nfs
-&prompt.root;<command>lvcreate</command> -n devel -L 20G nfs</screen>
-     </step>
-     <step>
-      <para> Activate the volume group and create file systems on the
-            new logical volumes. This example assumes
-              <literal>ext3</literal> as the file system type: </para>
-<screen>&prompt.root;<command>vgchange</command> -ay nfs
-&prompt.root;<command>mkfs.ext3</command> /dev/nfs/sales
-&prompt.root;<command>mkfs.ext3</command> /dev/nfs/devel</screen>
+      <para>x</para>
      </step>
     </procedure>
-   </sect2>
- </sect1>
+  </sect1>
+-->
 
  <sect1 xml:id="sec_ha_quick_nfs_resources">
   <title>Creating Cluster Resources<!-- for an HA NFS Server--></title>
@@ -689,14 +879,12 @@ use_lvmetad = 0</screen>
     <listitem>
         <para>The service is to host an NFSv4 virtual file system root
           hosted from <literal>/srv/nfs</literal>, with exports data
-          served from <literal>/srv/nfs/sales</literal> and
-            <literal>/srv/nfs/devel</literal>. </para>
+          served from <literal>/srv/nfs/work</literal>. </para>
     </listitem>
     <listitem>
         <para>Into these export directories, the cluster will mount
             <literal>ext3</literal> file systems from logical volumes
-          named <literal>sales</literal> and <literal>devel</literal>,
-          respectively. Both of these logical volumes will be part of a
+          named <literal>work</literal>. This logical volume will be part of a
           highly available volume group, named <literal>nfs</literal>,
           which is hosted on a DRBD device. </para>
     </listitem>
@@ -761,18 +949,18 @@ use_lvmetad = 0</screen>
   ocf:heartbeat:LVM \
     params volgrpname="nfs" \
   op monitor interval="30s"
-&prompt.crm.conf;<command>primitive</command> fs_devel \
+&prompt.crm.conf;<command>primitive</command> fs_work \
   ocf:heartbeat:Filesystem \
-  params device=/dev/nfs/devel \
-    directory=/srv/nfs/devel \
+  params device=/dev/nfs/work \
+    directory=/srv/nfs/work \
     fstype=ext3 \
-  op monitor interval="10s"
+  op monitor interval="10s"<!--
 &prompt.crm.conf;<command>primitive</command> fs_sales \
   ocf:heartbeat:Filesystem \
   params device=/dev/nfs/sales \
     directory=/srv/nfs/sales \
     fstype=ext3 \
-  op monitor interval="10s"</screen>
+  op monitor interval="10s"--></screen>
     </listitem>
     <listitem>
      <para>
@@ -780,7 +968,7 @@ use_lvmetad = 0</screen>
       <emphasis>group</emphasis>:
      </para>
 <screen>&prompt.crm.conf;<command>group</command> g-nfs \
-  lvm_nfs fs_devel fs_sales</screen>
+  lvm_nfs fs_work<!-- fs_sales--></screen>
     </listitem>
     <listitem>
      <para>
@@ -807,7 +995,7 @@ use_lvmetad = 0</screen>
     <listitem>
      <para>
       It activates all Logical Volumes of the <literal>nfs</literal> LVM
-      Volume Group on the same node where DRBD is in the primary role.
+      volume group on the same node where DRBD is in the primary role.
       Confirm this with <command>vgdisplay</command> or
       <command>lvs</command>.
      </para>
