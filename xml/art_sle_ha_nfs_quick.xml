@@ -46,7 +46,7 @@
   <para>
    NFS (the Network File System) is one of the most long-lived and
    ubiquitous networked storage solutions on Linux. The solution described
-   in this document is applicable to NFS clients using version 2 or version 4.
+   in this document is applicable to NFS clients using version 3 or version 4.
   </para>
  </sect1>
  <sect1 xml:id="sec_ha_quick_nfs_usagescenario">
@@ -71,7 +71,7 @@
     <para>
      Two floating, virtual IP addresses (<systemitem class="ipaddress"
       >&nfs-vip-hawk;</systemitem> and <systemitem class="ipaddress"
-      >&nfs-vip-exports;</systemitem>) which address allows clients to connect to
+      >&nfs-vip-exports;</systemitem>) which allows clients to connect to
      the service no matter which physical node it is running on.
      One is used for cluster administration with &hawk2;, the other IP address
      is used exclusively for the NFS exports.
@@ -91,7 +91,7 @@
    <listitem>
     <para>
      Local storage on each host. The data is synchronized between the
-     hosts using DRBD in combination with LVM.
+     hosts using DRBD on top of LVM.
     </para>
    </listitem>
    <listitem>
@@ -173,13 +173,14 @@
 
  <sect1 xml:id="sec_ha_quick_nfs_drbd_device">
    <title>Creating a DRBD Device</title>
-   <remark>toms 2016-08-30: Add some good reason why DRBD on top of LVM is
-    good/necessary/useful.</remark>
    <para>
-    It is necessary to configure a DRBD resource on top of LVM to hold your data.
-    This section assumes that the LVM volume group is to
-    be called <literal>nfs</literal>. Hence, the DRBD resource uses that
-    same name.
+    This section describes how to set up a DRBD device on top of LVM. Using
+    LVM as a backend of DRBD has some benefits to configure it this way:
+    configuring, adding, and resizing is easier than using LVM on top of DRBD.
+   </para>
+  <para>
+    As the LVM volume group is named <literal>nfs</literal> hence the
+    DRBD resource uses the same name.
    </para>
 
    <sect2 xml:id="sec.ha_quick_nfs_drbd_config">
@@ -224,7 +225,7 @@
    }
 
    connection-mesh {
-      host	&node1; &node2;;
+      hosts	&node1; &node2;;
    }
    on &node1; { <co xml:id="co.ha_quick_nfs_drbd.on"/>
       address   &subnetI;.1:&drbd.port;;
@@ -261,20 +262,6 @@
         <para>Contains the IP address and a unique identifier for each node.</para>
        </callout>
       </calloutlist>
-      <para>
-         If you have different partitions on each node, remove the
-         <literal>disk</literal> keyword from the global part.
-         Add the individual partitions on the node configuration, for
-         example:
-       </para>
-       <screen>on &node1; {
-   disk /dev/sda1;
-   address &subnetI;.1:&drbd.port;;
-}
-on &node2; {
-   disk /dev/sdb5;
-   address &subnetI;.2:&drbd.port;;
-}</screen>
      </step>
      <step>
       <para>
@@ -303,8 +290,7 @@ include /etc/drbd.d;</screen>
    <sect2 xml:id="sec_ha_quick_nfs_drbd_activate">
     <title>Activating the DRBD Device</title>
     <para>
-     After you have prepared your DRBD configuration (either with &yast; or
-     manually), proceed as follows:
+     After you have prepared your DRBD configuration, proceed as follows:
     </para>
 
     <!--
@@ -543,13 +529,9 @@ include /etc/drbd.d;</screen>
       Configure LVM and the file system type resources as follows (but
       <emphasis>do not</emphasis> commit this configuration yet):
      </para>
-<screen>&prompt.crm.conf;<command>primitive</command> lvm_nfs \
-  ocf:heartbeat:LVM \
-    params volgrpname="nfs" \
-  op monitor interval="30s"
-&prompt.crm.conf;<command>primitive</command> fs_work \
+<screen>&prompt.crm.conf;<command>primitive</command> fs_work \
   ocf:heartbeat:Filesystem \
-  params device=/dev/nfs/work \
+  params device=/dev/drbd/by-disk/nfs/work \
     directory=/srv/nfs/work \
     fstype=ext3 \
   op monitor interval="10s"</screen>
@@ -559,8 +541,7 @@ include /etc/drbd.d;</screen>
       Combine these resources into a Pacemaker resource
       <emphasis>group</emphasis>:
      </para>
-<screen>&prompt.crm.conf;<command>group</command> g-nfs<!--
---> lvm_nfs fs_work</screen>
+<screen>&prompt.crm.conf;<command>group</command> g-nfs fs_work</screen>
     </listitem>
     <listitem>
      <para>
@@ -625,8 +606,7 @@ include /etc/drbd.d;</screen>
       </para>
 <screen>&prompt.crm.conf;<command>primitive</command> exportfs_root \
   ocf:heartbeat:exportfs \
-  params fsid=0 \
-    directory="/srv/nfs" \
+  params directory="/srv/nfs" fsid=0 \
     options="rw,crossmnt" \
     clientspec="&nfs-clientspec;" \<!-- 10.9.9.0/24 -->
   op monitor interval="30s"
@@ -666,10 +646,8 @@ include /etc/drbd.d;</screen>
    <sect3 xml:id="sec_ha_quick_nfs_resources_nfsexport_nonroot">
     <title>Non-root NFS Exports</title>
     <para>
-     All NFS exports that do <emphasis>not</emphasis> represent an NFSv4
-     virtual file system root must set the <literal>fsid</literal> option.
-     The value is set to either a unique positive integer (as used in the
-     example), or a UUID string (32 hex digits with arbitrary punctuation).
+     To export our <filename>/srv/nfs/work</filename> directory to clients,
+     use the following primitive:
     </para>
     <orderedlist>
      <listitem>
@@ -722,7 +700,7 @@ include /etc/drbd.d;</screen>
     &crmshell;:
    </para>
    <screen>&prompt.crm.conf;<command>primitive</command> vip_nfs IPaddr2 \
-   params ip=&nfs-vip-exports; cidr_netmask=32 \
+   params ip=&nfs-vip-exports; cidr_netmask=24 \
    op monitor interval=10 timeout=20
 &prompt.crm.conf;<command>modgroup</command> g-nfs add vip_nfs</screen>
   </sect2>
@@ -749,22 +727,12 @@ include /etc/drbd.d;</screen>
    export on the server.
   </para>
 
-  <important>
-   <title>Configure Virtual File System for NFSv4</title>
-   <para>
-    Connecting to the NFS server with NFSv4 <emphasis>will not
-    work</emphasis> unless you have configured an NFSv4 virtual file system
-    root. For details on how to set this up, see
-    <xref linkend="sec_ha_quick_nfs_resources_nfsexport_nfsv4root"/>.
-   </para>
-  </important>
-
   <para>
    In its simplest form, the command to mount the NFS export with NFSv3
    looks like this:
   </para>
 
-<screen>&prompt.root;<command>mount</command> -t nfs &nfs-vip-exports;:/srv/nfs/work /home/work</screen>
+<screen>&prompt.root;<command>mount</command> -o vers=4 &nfs-vip-exports;:/work /home/work</screen>
 
   <para>
    For selecting a specific transport protocol (<option>proto</option>) and
@@ -773,7 +741,7 @@ include /etc/drbd.d;</screen>
   </para>
 
 <screen>&prompt.root;<command>mount</command> -t nfs -o proto=udp,rsize=32768,wsize=32768 \
-    &nfs-vip-exports;:/srv/nfs/work /home/work</screen>
+    &nfs-vip-exports;:/work /home/work</screen>
 
   <para>
    To connect to a highly available NFS service, NFSv4 clients must use the
@@ -788,10 +756,7 @@ include /etc/drbd.d;</screen>
   </para>
 
 <screen>&prompt.root;<command>mount</command> -t nfs4 &nfs-vip-exports;:/work /home/work</screen>
-<remark>toms 2016-09-01: Why do I get this gives me the error message (although
- it works for NFSv3)?
-mount.nfs4: mounting IPADDRESS:/srv/nfs/work failed, reason given by server: No such file or directory
-</remark>
+
   <para>
    For further NFSv3 and NFSv4 mount options, consult the
    <command>nfs</command> man page.
