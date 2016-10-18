@@ -1,0 +1,586 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_resources_i.xml" version="5.0" xml:id="sec.ha.geo.rsc">
+ <title>Configuración de los recursos y las restricciones del clúster</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editar</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>sí</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Aparte de los recursos y las restricciones que debe definir para la configuración específica del clúster, los clústeres geográficos requieren recursos y restricciones adicionales que se describen a continuación. Puede configurarlos con la shell de crm (crmsh), como se muestra en los ejemplos siguientes, o con la consola Web de alta disponibilidad HA Web Konsole (Hawk2).
+ </para>
+
+ <para>
+  Esta sección se centra en las tareas específicas de los clústeres geográficos. Para obtener información básica sobre la herramienta de gestión de clústeres preferida así como instrucciones generales sobre cómo configurar sus recursos y restricciones, consulte uno de los capítulos siguientes de la <citetitle>Guía de administración</citetitle> de <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>, disponible en <link xlink:href="http://www.suse.com/documentation/"/>:
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    Hawk2: capítulo <citetitle>Configuración y gestión de recursos del clúster (interfaz Web)</citetitle>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    crmsh: capítulo <citetitle>Configuración y gestión de recursos del clúster (línea de comandos)</citetitle>
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <important>
+  <title>sin sincronización del CIB en los sitios</title>
+  <para>
+   El CIB <emphasis>no</emphasis> se sincroniza automáticamente entre los sitios de clúster de un clúster geográfico. Esto significa que debe configurar en consecuencia todos los recursos que deben contar con alta disponibilidad en el clúster geográfico para cada sitio.
+  </para>
+  <para>
+   Para simplificar la transferencia de la configuración a otros sitios de clúster, es posible configurar cualquier recurso con parámetros específicos del sitio de forma que los valores de los parámetros dependan del nombre del sitio de clúster donde se ejecuta el recurso.
+  </para>
+  <para>
+   Para que ese sistema funcione, los nombres de clúster para cada sitio deben estar definidos en los archivos <filename>/etc/corosync/corosync.conf</filename> respectivos. Por ejemplo, <filename>/etc/corosync/corosync.conf</filename> del sitio 1 (<literal>amsterdam</literal>) debe contener la siguiente entrada:
+  </para>
+<screen>totem {
+   [...]
+   cluster_name: amsterdam
+   }</screen>
+  <para>
+   Después de configurar los recursos en un sitio, puede etiquetar los recursos necesarios en todos los sitios de clúster, exportarlos desde el CIB actual y, después, importarlos en el CIB de otro sitio de clúster. Para obtener información, consulte la <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+  </para>
+ </important>
+
+ <sect2 xml:id="sec.ha.geo.rsc.drbd">
+  <title>Recursos y restricciones de DRBD</title>
+  <para>
+   Para completar la configuración de DRBD, debe configurar algunos recursos y restricciones, como se muestra en el <xref linkend="pro.ha.geo.rsc.drbd" xrefstyle="select:label"/> y transferirlos a los demás sitios de clúster, como se explica en la <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+  </para>
+  <procedure xml:id="pro.ha.geo.rsc.drbd">
+   <title>Configuración de recursos para una configuración de DRBD</title>
+   <step>
+    <para>
+     En uno de los nodos del clúster <literal>amsterdam</literal>, inicie una shell y entre como usuario <systemitem class="username">root</systemitem> o equivalente.
+    </para>
+   </step>
+   <step>
+    <para>
+     Escriba <command>crm configure</command> para cambiar a la shell interactiva de crm.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configure la dirección IP de servicio (dependiente del sitio) para NFS como recurso primitive básico:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
+  params iflabel="nfs" nic="eth1" cidr_netmask="24"
+  params rule #cluster-name eq amsterdam ip="192.168.201.151" \
+  params rule #cluster-name eq berlin ip="192.168.202.151" \
+  op monitor interval=10</screen>
+   </step>
+   <step>
+    <para>
+     Configure un recurso de sistema de archivos y un recurso para el servidor NFS:
+    </para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> nfs_fs ocf:heartbeat:Filesystem \
+  params device="/dev/drbd/by-res/nfs/0" directory="/mnt/nfs" \
+  fstype="ext4"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> nfs_service systemd:nfs-server</screen>
+   </step>
+   <step>
+    <para>
+     Configure los recursos primitive siguientes y los recursos de varios estados para DRBD:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> drbd_nfs ocf:linbit:drbd \
+  params drbd_resource="nfs-upper" \
+  op monitor interval="31" role="Slave" \
+  op monitor interval="30" role="Master"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> drbd_nfs_lower ocf:linbit:drbd \
+  params rule #cluster-name eq amsterdam \
+  drbd_resource="nfs-lower-amsterdam" \
+  params rule #cluster-name eq berlin \
+  drbd_resource="nfs-lower-berlin" \                                
+  op monitor interval="31" role="Slave" \
+  op monitor interval="30" role="Master"
+<prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms_drbd_nfs drbd_nfs \
+  meta master-max="1" master-node-max="1" \
+  clone-max="1" clone-node-max="1" notify="true"
+<prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms_drbd_nfs_lower drbd_nfs_lower \
+  meta master-max="1" master-node-max="1" \
+  clone-max="2" clone-node-max="1" notify="true"</screen>
+   </step>
+   <step>
+    <para>
+     Añada un grupo con la colocación y las restricciones de orden siguientes:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> g_nfs nfs_fs nfs_service
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_ip_with_lower \
+   inf: ip_nfs:Started  ms_drbd_nfs_lower:Master
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_g_with_upper \
+   inf: g_nfs:Started  ms_drbd_nfs:Master
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_upper_with_ip \
+   inf: ms_drbd_nfs:Master  ip_nfs:Started
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_lower_drbd_before_ip_nfs \
+   inf: ms_drbd_nfs_lower:promote  ip_nfs:start
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_ip_nfs_before_drbd \
+   inf: ip_nfs:start  ms_drbd_nfs:promote
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_drbd_nfs_before_svc \
+   inf: ms_drbd_nfs:promote  g_nfs:start</screen>
+   </step>
+   <step>
+    <para>
+     Revise los cambios con el comando <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si todo está correcto, envíe los cambios con el comando <command>commit</command> y salga de la configuración en tiempo real de crm con el comando <command>exit</command>.
+    </para>
+    <para>
+     La configuración se guarda en el CIB.
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.rsc.booth">
+  <title>Dependencias, restricciones y recursos del ticket para booth</title>
+  <para>
+   Para completar la configuración de booth, debe llevar a cabo los pasos siguientes para configurar los recursos y las restricciones necesarias para booth y para el failover de los recursos:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.constraints" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.boothd" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.order" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Las configuraciones del recurso deben estar disponibles en todos los sitios de clúster. Transfiéralas a los demás sitios como se describe en la <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+  </para>
+  <procedure xml:id="pro.ha.geo.setup.rsc.constraints">
+   <title>Configuración de dependencias de recursos del ticket</title>
+   <para>
+     Para los clústeres geográficos, puede especificar los recursos que dependen de un ticket determinado. Además de este tipo especial de restricción, puede definir un atributo <literal>loss-policy</literal> que defina lo que debe ocurrir con los recursos respectivos si el ticket se revoca. El atributo <literal>loss-policy</literal> puede tener los valores siguientes:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <literal>fence</literal>: aísla los nodos en los que se ejecutan los recursos relevantes.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>stop</literal>: detiene los recursos relevantes.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>freeze</literal>: no hace nada con los recursos relevantes.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>demote</literal>: baja de nivel los recursos relevantes que se ejecutan en el modo <literal>principal</literal> a modo <literal>esclavo</literal>.
+      </para>
+     </listitem>
+    </itemizedlist> 
+   <step>
+    <para>
+     En uno de los nodos del clúster amsterdam, inicie una shell y entre como usuario <systemitem class="username">root</systemitem> o equivalente.
+
+    </para>
+   </step>
+   <step>
+    <para>
+     Escriba <command>crm configure</command> para cambiar a la shell interactiva de crm.
+    </para>
+   </step>
+   <step xml:id="step.ha.geo.setup.rsc.constraints">
+    <para>
+     Configure las restricciones que definen qué recursos dependerán de un ticket determinado. Por ejemplo, se necesita la siguiente restricción para el escenario de DRBD descrito en la <xref linkend="sec.ha.geo.drbd.scenario"/>:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> nfs-req-ticket-nfs ticket-nfs: \ 
+   ms_drbd_nfs:Master loss-policy=demote</screen>
+    <para>
+     Este comando crea una restricción con el ID <literal>nfs-req-ticket-nfs</literal>. Define que el recurso de varios estados <literal>ms_drbd_nfs</literal> depende de <literal>ticket-nfs</literal>. Sin embargo, solo el modo principal del recurso depende del ticket. En caso de que <literal>ticket-nfs</literal> se revoque, <literal>ms_drbd_nfs</literal> baja de nivel automáticamente a modo <literal>esclavo</literal>, lo que a su vez devolverá a DRBD al modo <literal>secundario</literal>. De este modo, se garantiza que la réplica de DRBD siga en ejecución aunque un sitio no tenga el ticket.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si desea que otros recursos dependan de otros tickets, cree tantas restricciones como sean necesarias con <command>rsc_ticket</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Revise los cambios con el comando <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si todo está correcto, envíe los cambios con el comando <command>commit</command> y salga de la configuración en tiempo real de crm con el comando <command>exit</command>.
+    </para>
+    <para>
+     La configuración se guarda en el CIB.
+    </para>
+   </step>
+  </procedure>
+  <example xml:id="ex.ha.geo.setup.rsc.ticket.dep">
+   <title>Dependencia del ticket para recursos primitive</title>
+   <para>
+    Este es otro ejemplo de restricción que hace que un recurso primitive <literal>rsc1</literal> dependa de <literal>ticketA</literal>:
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> rsc1-req-ticketA ticketA: \
+   rsc1 loss-policy="fence"</screen>
+   <para>
+    En caso de que <literal>ticketA</literal> se revoque, el nodo en el que se ejecuta el recurso deberá aislarse.
+   </para>
+  </example>
+  <procedure xml:id="pro.ha.geo.setup.rsc.boothd">
+   <title>Configuración de un grupo de recursos para <systemitem class="daemon">boothd</systemitem></title> 
+   <para>
+      Se debe ejecutar una instancia de <systemitem class="daemon">boothd</systemitem> en cada sitio que se comunique con los demás daemons de booth. El daemon puede iniciarse en cualquier nodo, por lo tanto, debe configurarse como recurso primitive. Para que el recurso de <systemitem>boothd</systemitem> permanezca en el mismo nodo, si es posible, añada persistencia del recurso a la configuración. Como cada daemon necesita una dirección IP permanente, configure otro recurso primitive con una dirección IP virtual. Agrupe ambos recursos primitive:</para> 
+   <step>
+    <para>
+     En uno de los nodos del clúster <literal>amsterdam</literal>, inicie una shell y entre como usuario <systemitem class="username">root</systemitem> o equivalente.
+    </para>
+   </step>
+   <step>
+    <para>
+     Escriba <command>crm configure</command> para cambiar a la shell interactiva de crm.
+    </para>
+   </step>
+   <step>
+    <para>
+     Escriba lo siguiente para crear ambos recursos primitive y para añadirlos a un grupo, <literal>g-booth</literal>:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip-booth ocf:heartbeat:IPaddr2 \
+  params iflabel="ha" nic="eth1" cidr_netmask="24"
+  params rule #cluster-name eq amsterdam ip="192.168.201.151" \
+  params rule #cluster-name eq berlin ip="192.168.202.151" 
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> booth ocf:pacemaker:booth-site \
+  meta resource-stickiness="INFINITY" \
+  params config="nfs" op monitor interval="10s"
+<prompt role="custom">crm(live)configure# </prompt><command>group</command> g-booth ip-booth booth</screen>
+    <para>
+     Con esta configuración, cada daemon de booth estará disponible en su dirección IP individual, independientemente del nodo en el que se ejecute el daemon.
+    </para>
+   </step>
+   <step>
+    <para>
+     Revise los cambios con el comando <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si todo está correcto, envíe los cambios con el comando <command>commit</command> y salga de la configuración en tiempo real de crm con el comando <command>exit</command>.
+    </para>
+    <para>
+     La configuración se guarda en el CIB.
+    </para>
+   </step>
+  </procedure>
+
+  <procedure xml:id="pro.ha.geo.setup.rsc.order">
+   <title>Adición de una restricción de orden</title> 
+   <para>
+      Si se ha otorgado un ticket a un sitio pero todos los nodos de dicho sitio no pueden alojar el grupo de recursos de <systemitem class="daemon">boothd</systemitem> por cualquier motivo, se puede producir una situación de <quote>clúster con nodos malinformados</quote> entre lugares geográficamente dispersos. En tal caso, no habrá disponible ninguna instancia de <systemitem class="daemon">boothd</systemitem> para gestionar de forma segura el failover del ticket a otro sitio. Para evitar una posible infracción por simultaneidad del ticket (el ticket se otorga a varios sitios al mismo tiempo), añada una restricción de orden: 
+     </para>  
+   <step>
+    <para>
+     En uno de los nodos del clúster amsterdam, inicie una shell y entre como usuario <systemitem class="username">root</systemitem> o equivalente.
+    </para>
+   </step>
+   <step>
+    <para>
+     Escriba <command>crm configure</command> para cambiar a la shell interactiva de crm.
+    </para>
+   </step>
+   <step>
+    <para>
+     Cree una restricción de orden:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-booth-before-nfs inf: g-booth ms_drbd_nfs:promote</screen>
+    <para>
+     La restricción de orden <literal>o-booth-before-nfs</literal> define que el recurso <literal>ms_drbd_nfs</literal> solo puede subirse de nivel a modo principal después de que se haya iniciado el grupo de recursos <literal>g-booth</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Para cualquier otro recurso que dependa de un determinado ticket, defina otras restricciones de orden.
+    </para>
+   </step>
+   <step>
+    <para>
+     Revise los cambios con el comando <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si todo está correcto, envíe los cambios con el comando <command>commit</command> y salga de la configuración en tiempo real de crm con el comando <command>exit</command>.
+    </para>
+    <para>
+     La configuración se guarda en el CIB.
+    </para>
+   </step>
+  </procedure>
+  <example xml:id="ex.ha.geo.rsc.order">
+   <title>Restricción de orden para recursos primitive</title>
+   <para>
+    Si el recurso que depende de un ticket determinado no es un recurso de varios estados sino un recurso primitive, la restricción de orden tendrá un aspecto similar al siguiente:
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-booth-before-rsc1 inf: g-booth rsc1</screen>
+   <para>
+    Define que <literal>rsc1</literal> (que depende de <literal>ticketA</literal>) solo se puede iniciar después del grupo de recursos <literal>g-booth</literal>.
+   </para>
+  </example>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.rsc.sync.cib">
+
+  <title>Transferencia de la configuración del recurso a otros sitios de clúster</title>
+  <para>
+   Si ha configurado recursos para un sitio de un clúster como se describe en la <xref linkend="sec.ha.geo.rsc.drbd" xrefstyle="select:label"/> y en la <xref linkend="sec.ha.geo.rsc.booth" xrefstyle="select:label"/>, aún no ha terminado. Debe transferir la configuración del recurso a los demás sitios del clúster geográfico.
+  </para>
+  <para>
+   Para simplificar la transferencia, puede etiquetar todos los recursos necesarios en <emphasis>todos</emphasis> los sitios de clúster, exportarlos desde el CIB actual y después importarlos en el CIB de otro sitio de clúster. En el <xref linkend="pro.ha.geo.rsc.sync.cib"/> se proporciona un ejemplo de cómo hacerlo. Se basa en los siguientes requisitos previos:
+  </para>
+  <itemizedlist>
+   <title>Requisitos previos</title>
+   <listitem>
+    <para>
+     Dispone de un clúster geográfico con dos sitios: el clúster <literal>amsterdam</literal> y el clúster <literal>berlin</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Los nombres de clúster de cada sitio se deben definir en los archivos <filename>/etc/corosync/corosync.conf</filename> respectivos:
+    </para>
+<screen>totem {
+     [...]
+     cluster_name: amsterdam
+     }</screen>
+    <para>
+     Esto se puede realizar manualmente (editando <filename>/etc/corosync/corosync.conf</filename>) o con el módulo de clúster de YaST, tal y como se describe en la <citetitle>Guía de administración</citetitle> de <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase>, disponible en <link xlink:href="http://www.suse.com/documentation/"/>. Consulte el capítulo <citetitle>Instalación y configuración básica</citetitle>, procedimiento <citetitle>Definición del primer canal de comunicación</citetitle>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Debe haber configurado los recursos necesarios para DRBD y booth, como se describe en la <xref linkend="sec.ha.geo.rsc.drbd"/> y en la <xref linkend="sec.ha.geo.rsc.booth"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <procedure xml:id="pro.ha.geo.rsc.sync.cib">
+   <title>Transferencia de la configuración del recurso a otros sitios de clúster</title>
+   <step>
+    <para>
+     Entre en uno de los nodos del clúster <literal>amsterdam</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Inicie el clúster con:
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+   </step>
+   <step>
+    <para>
+     Escriba <command>crm configure</command> para cambiar a la shell interactiva de crm.
+    </para>
+   </step>
+   <step>
+    <para>
+     Etiquete los recursos y las restricciones necesarios en el clúster geográfico:
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Revise la configuración del CIB actual:
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt>show</screen>
+     </step>
+     <step>
+      <para>
+       Introduzca el comando siguiente para agrupar los recursos relacionados con el clúster geográfico con la etiqueta <literal>geo_resources</literal>:
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>tag</command> geo_resources: \
+  ip_nfs nfs_fs nfs_service drbd_nfs drbd_nfs_lower ms_drbd_nfs \
+  ms_drbd_nfs_lower g_nfs <co xml:id="co.geo.rsc.drbd"/>\
+  col_nfs_ip_with_lower  col_nfs_g_with_upper col_nfs_upper_with_ip <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
+  o_lower_drbd_before_ip_nfs o_ip_nfs_before_drbd \
+  o_drbd_nfs_before_svc <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
+  nfs-req-ticket-nfs ip-booth booth g-booth o-booth-before-nfs <co xml:id="co.geo.rsc.booth"/>
+  [...] <co xml:id="co.geo.rsc.any"/></screen>
+      <para>
+       El etiquetado no crea ninguna relación de colocación ni de orden entre los recursos.
+      </para>
+      <calloutlist>
+       <callout arearefs="co.geo.rsc.drbd">
+        <para>
+         Recursos y restricciones de DRBD, consulte la <xref linkend="sec.ha.geo.rsc.drbd"/>.
+        </para>
+       </callout>
+       <callout arearefs="co.geo.rsc.booth">
+        <para>
+         Recursos y restricciones de boothd, consulte la <xref linkend="sec.ha.geo.rsc.booth"/>.
+        </para>
+       </callout>
+       <callout arearefs="co.geo.rsc.any">
+        <para>
+         Cualquier otro recurso de su configuración particular que necesite en todos los sitios del clúster geográfico.
+        </para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step>
+      <para>
+       Revise los cambios con el comando <command>show</command>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Cuando la configuración se adapte a sus preferencias, envíe los cambios con el comando <command>submit</command> y salga del shell en tiempo real de crm mediante <command>exit</command>.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st.ha.geo.rsc.sync.cib.export.start">
+    <para>
+     Exporte los recursos y las restricciones etiquetados a un archivo denominado <filename>exported.cib</filename>:
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command> tag:geo_resources geo_resources &gt; exported.cib</screen>
+    <para>
+     El comando <command>crm configure show tag:</command><replaceable>NOMBREETIQUETA</replaceable> muestra todos los recursos que pertenecen a la etiqueta <replaceable>NOMBREETIQUETA</replaceable>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Entre en uno de los nodos del clúster <literal>berlin</literal> y haga lo siguiente:
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Inicie el clúster con:
+      </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+     </step>
+     <step>
+      <para>
+       Copie el archivo <filename>exported.cib</filename> del clúster <literal>amsterdam</literal> a este nodo. <remark>taroth
+        2014-11-26: alternatively, the CIB can be loaded from an URL - consider
+        if to mention this, too</remark>
+      </para>
+     </step>
+     <step>
+      <para>
+       Importe los recursos y las restricciones etiquetados del archivo <filename>exported.cib</filename> al CIB del clúster <literal>berlin</literal>:
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm configure load</command> update <replaceable>PATH_TO_FILE/exported.cib</replaceable></screen>
+      <para>
+       Si se utiliza el parámetro <option>update</option> para el comando <command>crm configure load</command>, crmsh intenta integrar el contenido del archivo en la configuración del CIB actual (en lugar de sustituir el CIB actual con el contenido del archivo).
+      </para>
+     </step>
+     <step xml:id="st.ha.geo.rsc.sync.cib.import.stop">
+      <para>
+       Consulte la configuración del CIB actualizado con el siguiente comando:
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command></screen>
+      <para>
+       Los recursos y las restricciones importados aparecerán en el CIB.
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  <para>
+   Esta configuración dará como resultado lo siguiente:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Si se otorga <literal>ticket-nfs</literal> al clúster <literal>amsterdam</literal>, el nodo donde se aloja el recurso <literal>ip_nfs</literal> obtendrá la dirección IP <literal>192.168.201.151</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Si se otorga <literal>ticket-nfs</literal> al clúster <literal>berlin</literal>, el nodo donde se aloja el recurso <literal>ip_nfs</literal> obtendrá la dirección IP <literal>192.168.202.151</literal>.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <example xml:id="ex.ha.geo.rsc.refer.params">
+   <title>Referencia a los parámetros dependientes del sitio en los recursos</title>
+   <para>
+    Según el ejemplo del <xref linkend="pro.ha.geo.rsc.drbd" xrefstyle="select:label"/>, también puede crear recursos que hagan referencia a parámetros específicos del sitio de otro recurso; por ejemplo, los parámetros de IP de <literal>ip_nfs</literal>. Proceda de la siguiente manera:
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      En el clúster <literal>amsterdam</literal>, cree un recurso falso que haga referencia a los parámetros de IP de <literal>ip_nfs</literal> y utilícelos como valores para el parámetro <literal>state</literal>:
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dummy1 ocf:pacemaker:Dummy \
+  params rule #cluster-name eq amsterdam \
+  @ip_nfs-instance_attributes-0-ip:state \
+  params rule #cluster-name eq berlin \
+  @ip_nfs-instance_attributes-1-ip:state \
+  op monitor interval=10</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Añada una restricción para que el recurso <literal>dummy1</literal> dependa también de <literal>ticket-nfs</literal>:
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> dummy1-dep-ticket-nfs \
+  ticket-nfs: dummy1 loss-policy=stop</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Etiquete el recurso y la restricción:
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>tag</command> geo_resources_2: dummy1 \
+  dummy1-dep-ticket-nfs</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Revise los cambios con el comando <command>show</command>, envíe los cambios con <command>submit</command> y salga de la shell en tiempo real de crm con <command>exit</command>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Exporte los recursos con la etiqueta <literal>geo_resources_2</literal> del clúster <literal>amsterdam</literal> e impórtelos en el CIB del clúster <literal>berlin</literal>, igual que del <xref linkend="st.ha.geo.rsc.sync.cib.export.start"/> al <xref linkend="st.ha.geo.rsc.sync.cib.import.stop"/> del <xref linkend="pro.ha.geo.rsc.sync.cib" xrefstyle="select:label"/>.
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    Esta configuración dará como resultado lo siguiente:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Al otorgar <literal>ticket-nfs</literal> al clúster <literal>amsterdam</literal>, se creará el archivo siguiente en el nodo donde se aloja el recurso <literal>dummy</literal>: <filename>/var/lib/heartbeat/cores/192.168.201.151</filename>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Al otorgar <literal>ticket-nfs</literal> al clúster <literal>berlin</literal>, se creará el archivo siguiente en el nodo donde se aloja el recurso <literal>dummy</literal>: <filename>/var/lib/heartbeat/cores/192.168.202.151</filename>.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </example>
+ </sect2>
+</sect1>

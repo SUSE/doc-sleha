@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_drbd_i.xml" version="5.0" xml:id="sec.ha.geo.drbd">
+ <title>Configuración de DRBD</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editar</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>sí</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Para obtener una descripción del escenario general, consulte la <xref linkend="sec.ha.geo.oview"/>. Supongamos que tiene dos sitios de clúster que se conectan con una conexión IPv4 o IPv6 enrutada y una velocidad de transmisión de entre unos pocos Mb/s y 10 Gb/s, por lo que utilizar un sistema de archivos de clúster entre los sitios no será posible debido a la alta latencia. Pero se puede utilizar DRBD para replicar los datos a fin de conseguir un failover rápido en caso de que uno de los sitios quede fuera de servicio (configuración activo/pasivo). DRBD es un software para replicar datos de almacenamiento mediante la duplicación del contenido de los dispositivos de bloque (discos duros, particiones, volúmenes lógicos etc.) entre hosts ubicados en sitios diferentes. El failover se gestiona mediante los servicios de booth; consulte <xref linkend="vle.ha.geo.components.booth"/>.
+ </para>
+
+ <sect2 xml:id="sec.ha.geo.drbd.scenario">
+  <title>Escenario de DRBD y pasos básicos</title>
+  <para>
+   En la <xref linkend="fig.ha.geo.drbd.setup"/> se muestra una representación gráfica de la configuración y los recursos que se configurarán en las secciones siguientes.
+  </para>
+  <figure xml:id="fig.ha.geo.drbd.setup">
+   <title>Configuración de DRBD y apilamiento de recursos</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geo_drbd.png" width="80%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geo_drbd.png" width="80%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <itemizedlist xml:id="il.ha.geo.drbd.scenario">
+   <title>Detalles del escenario</title>
+   <listitem>
+    <para>
+     Debe proporcionarse un sistema de archivos para todo el clúster geográfico mediante NFS.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LVM se utiliza como capa de almacenamiento por debajo de DRBD.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Un recurso DRBD <quote>apilado:</quote>
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       La instancia de DRBD de la capa superior se ejecuta en un nodo por sitio y es responsable de replicar los datos al otro sitio del clúster geográfico.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       La instancia de DRBD de la capa inferior es responsable de la réplica local de los datos (entre los nodos de un sitio de clúster). Después de activar uno de los dispositivos DRBD de la capa inferior en un nodo por sitio, se iniciará la IP de servicio (que debe configurarse como recurso de clúster).
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     En el sitio amsterdam, DRBD se ejecuta con el protocolo<literal>C</literal>, un protocolo de réplica sincrónico. Utiliza las direcciones IP locales en una LAN. </para>
+   </listitem>
+   <listitem>
+    <para>
+     La IP de servicio no solo se utiliza para el servicio en sí, sino que también sirve como punto fijo al que puede acceder el dispositivo DRBD de la capa superior (que se ejecuta en estado secundario) para la réplica.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     En el sitio donde se debe ejecutar el servicio del sistema de archivos, la instancia de DRBD de la capa superior se establece en modo <literal>primario</literal> mediante el agente de recurso <systemitem>ocf:linbit:drbd</systemitem>. Esto significa que las aplicaciones podrán montar y usar el sistema de archivos incluido.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Opcionalmente, la conexión DRBD con el otro sitio del clúster geográfico puede utilizar un proxy de DRBD intermedio.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   En este escenario de configuración, debe llevar a cabo los siguientes pasos básicos:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Edite los archivos de configuración de DRBD para que incluyan los fragmentos de configuración para cada sitio del clúster geográfico y la conexión DRBD entre los sitios. Para obtener información, consulte los ejemplos de la <xref linkend="sec.ha.geo.drbd.cfg"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configure los recursos del clúster como se explica en la <xref linkend="sec.ha.geo.rsc.drbd"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configure booth como se describe en la <xref linkend="sec.ha.geo.booth"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configure la sincronización entre DRBD y los archivos de configuración de booth dentro de cada clúster local y en todos los sitios del clúster geográfico. Para obtener información detallada, consulte la <xref linkend="sec.ha.geo.sync"/>.
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.drbd.cfg">
+  <title>Configuración de DRBD</title>
+  <para>
+   A partir de DRBD 8.3, el archivo de configuración de DRBD se divide en varios archivos independientes. Deben estar ubicados en el directorio <filename>/etc/drbd.d/</filename>. Los fragmentos de configuración de DRBD siguientes muestran una configuración de DRBD básica en el escenario mencionado en <xref linkend="il.ha.geo.drbd.scenario"/>. Todos los fragmentos pueden añadirse a un único archivo de configuración de recursos de DRBD, por ejemplo, <filename>/etc/drbd.d/nfs.res</filename>. A continuación, es posible sincronizar este archivo mediante Csync2, como se describe en la <xref linkend="sec.ha.geo.booth.sync.csync2.setup"/>. Tenga en cuenta que los fragmentos de configuración de DRBD siguientes son básicos: no incluyen ninguna opción de ajuste de rendimiento ni elementos similares. Para obtener información sobre cómo ajustar DRBD, consulte el capítulo <citetitle>DRBD</citetitle> en la Guía de administración de <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>, disponible en <link xlink:href="http://www.suse.com/documentation/"/>.
+  </para>
+  <example xml:id="ex.ha.geo.drbd.cfg.site1">
+   <title>Fragmento de configuración de DRBD para el sitio 1 (amsterdam)</title>
+<screen>resource nfs-lower-amsterdam <co xml:id="co.geo.drbd.config.rsc"/>{
+         disk        /dev/volgroup/lv-nfs; <co xml:id="co.geo.drbd.config.disk"/>
+         meta-disk   internal; <co xml:id="co.geo.drbd.config.meta-disk"/>
+         device      /dev/drbd0; <co xml:id="co.geo.drbd.config.device"/>
+         protocol    C;  <co xml:id="co.geo.drbd.config.protocol"/>
+         net {
+                      shared-secret  "2a9702a6-8747-11e3-9ebb-782bcbd0c11c"; <co xml:id="co.geo.drbd.config.shared-secret"/>
+         }
+
+         on alice { <co xml:id="co.geo.drbd.config.resname"/>
+                      address         192.168.201.111:7900; <co xml:id="co.geo.drbd.config.address"/>
+                      node-id 0; <co xml:id="co.geo.drbd.config.node-id"/>
+         }
+         on bob { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.201.112:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>
+                      node-id 1; <xref linkend="co.geo.drbd.config.node-id" xrefstyle="select:nopage"/>
+         }
+         connection-mesh { <co xml:id="co.geo.drbd.config.connection-mesh"/>
+                      hosts alice bob;
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc">
+      <para>
+      Un nombre de recurso que permite algunas asociaciones con el servicio respectivo (en este caso: NFS). Si también se incluye el nombre del sitio, es posible sincronizar la configuración completa de DRBD con todos los sitios sin provocar conflictos de nombre.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk">
+      <para>
+       El dispositivo que se replica entre los nodos. En este ejemplo, LVM se utiliza como capa de almacenamiento por debajo de DRBD y el nombre de grupo del volumen es <literal>volgroup</literal>.
+      </para></callout>
+    <callout arearefs="co.geo.drbd.config.meta-disk">
+     <para>
+      El parámetro meta-disk suele incluir el valor <literal>internal</literal>, pero es posible especificar explícitamente un dispositivo para guardar los metadatos. Consulte <link xlink:href="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/> para obtener más información. 
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device">
+     <para>
+       El nombre de dispositivo para DRBD y su número secundario. Para diferenciar entre la instancia de DRBD de la capa inferior para la réplica local y la de la capa superior para la réplica entre los sitios del clúster geográfico, se utilizan los números secundarios de dispositivo <literal>0</literal> y <literal>10</literal>.
+   </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.protocol">
+      <para>
+       DRBD se ejecuta con el protocolo <literal>C</literal>, un protocolo de réplica sincrónico. Se considera que las operaciones de escritura locales en el nodo principal se han completado solo después de que tanto la escritura en el disco local como en el disco remoto se haya confirmado. Como resultado, se garantiza que la pérdida de un solo nodo no suponga pérdida de datos. Por supuesto, la pérdida de datos es inevitable incluso con este protocolo de réplica si ambos nodos (o sus subsistemas de almacenamiento) se destruyen irreversiblemente al mismo tiempo.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+     <para>
+       Se usa un secreto compartido para validar los pares de conexión. Se necesita un secreto compartido distinto para cada par de conexión. Puede obtener valores únicos con el programa <command>uuidgen</command>.
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.resname">
+    <para>
+       La sección <literal>on</literal> indica a qué host se aplica esta declaración de la configuración.
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+      <para>
+      La dirección IP local y el número de puerto del nodo respectivo. Cada recurso DRBD necesita un puerto individual.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.node-id">
+      <para>
+        El ID de nodo es necesario si se configuran más de dos nodos. Debe ser un número entero no negativo exclusivo para diferenciar los distintos nodos.
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.connection-mesh">
+     <para>
+       Define todos los nodos de una red en malla. El parámetro <option>hosts</option> contiene todos los nombres de host que comparten la misma configuración de DRBD.
+    </para>
+    </callout>
+   </calloutlist>
+  </example>
+  <example xml:id="ex.ha.geo.drbd.cfg.site2">
+   <title>Fragmento de configuración de DRBD para el sitio 2 (berlin)</title>
+   <para>
+    La configuración para el sitio 2 (berlin) es casi idéntica que la del sitio 1: puede conservar los valores de la mayoría de los parámetros, incluidos los nombres del grupo de volumen y el volumen lógico. Sin embargo, deben modificarse los valores de los siguientes parámetros:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      El nombre del recurso de DRBD (<xref linkend="co.geo.drbd.config.rsc" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      El nombre y las direcciones IP locales de los nodos (<xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/> y <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      El secreto compartido (<xref linkend="co.geo.drbd.config.shared-secret" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+   </itemizedlist>
+<screen>resource nfs-lower-berlin <xref linkend="co.geo.drbd.config.rsc" xrefstyle="select:nopage"/>{
+         disk        /dev/volgroup/lv-nfs; <xref linkend="co.geo.drbd.config.disk" xrefstyle="select:nopage"/>
+         meta-disk   internal; <xref linkend="co.geo.drbd.config.meta-disk" xrefstyle="select:nopage"/>
+         device      /dev/drbd0; <xref linkend="co.geo.drbd.config.device" xrefstyle="select:nopage"/>
+         protocol    C;  <xref linkend="co.geo.drbd.config.protocol" xrefstyle="select:nopage"/>
+         net {
+                      shared-secret "2e9290a0-8747-11e3-a28c-782bcbd0c11c"; <xref linkend="co.geo.drbd.config.shared-secret" xrefstyle="select:nopage"/>
+         }
+
+         on charly { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.202.111:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>
+                      node-id 0;
+         }
+         on doro { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.202.112:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="selec:nopage"/>
+                      node-id 1;
+         }
+         connection-mesh {
+                      hosts charly doro;
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc">
+      <para>
+      Un nombre de recurso que permite algunas asociaciones con el servicio respectivo (en este caso: NFS). Si también se incluye el nombre del sitio, es posible sincronizar la configuración completa de DRBD con todos los sitios sin provocar conflictos de nombre.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk">
+       <para>
+       El dispositivo que se replica entre los nodos. En este ejemplo, LVM se utiliza como capa de almacenamiento por debajo de DRBD y el nombre de grupo del volumen es <literal>volgroup</literal>.
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.meta-disk">
+     <para>
+      El parámetro meta-disk suele incluir el valor <literal>internal</literal>, pero es posible especificar explícitamente un dispositivo para guardar los metadatos. Consulte <link xlink:href="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/> para obtener más información. 
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device">
+       <para>
+       El nombre de dispositivo para DRBD y su número secundario. Para diferenciar entre la instancia de DRBD de la capa inferior para la réplica local y la de la capa superior para la réplica entre los sitios del clúster geográfico, se utilizan los números secundarios de dispositivo <literal>0</literal> y <literal>10</literal>.
+   </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.protocol">
+     <para>
+       DRBD se ejecuta con el protocolo <literal>C</literal>, un protocolo de réplica sincrónico. Se considera que las operaciones de escritura locales en el nodo principal se han completado solo después de que tanto la escritura en el disco local como en el disco remoto se haya confirmado. Como resultado, se garantiza que la pérdida de un solo nodo no suponga pérdida de datos. Por supuesto, la pérdida de datos es inevitable incluso con este protocolo de réplica si ambos nodos (o sus subsistemas de almacenamiento) se destruyen irreversiblemente al mismo tiempo.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+       <para>
+       Se usa un secreto compartido para validar los pares de conexión. Se necesita un secreto compartido distinto para cada par de conexión. Puede obtener valores únicos con el programa <command>uuidgen</command>.
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.resname">
+       <para>
+       La sección <literal>on</literal> indica a qué host se aplica esta declaración de la configuración.
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+     <para>
+      La dirección IP local y el número de puerto del nodo respectivo. Cada recurso DRBD necesita un puerto individual.
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+  <example xml:id="ex.ha.geo.drbd.cfg.cross-site">
+   <title>Fragmento de configuración de DRBD para conexión entre sitios</title>
+<screen>resource nfs-upper <co xml:id="co.geo.drbd.config.rsc.cross"/> {
+         disk        /dev/drbd0; <co xml:id="co.geo.drbd.config.disk.cross"/>
+         meta-disk   internal; 
+         device      /dev/drbd10; <co xml:id="co.geo.drbd.config.device.cross"/>
+         protocol    A;  <co xml:id="co.geo.drbd.config.protocol.cross"/>
+         net {
+                      shared-secret  "3105dd88-8747-11e3-a7fd-782bcbd0c11c";  <co xml:id="co.geo.drbd.config.shared-secret.cross"/>
+                      ping-timeout   20; <co xml:id="co.geo.drbd.config.ping-timeout"/>
+         }
+
+         stacked-on-top-of           nfs-lower-amsterdam { <co xml:id="co.geo.drbd.config.stackedontopof"/>
+                      address        192.168.201.151:7910; <co xml:id="co.geo.drbd.config.address.cross"/>
+         }
+         stacked-on-top-of           nfs-lower-berlin { <xref linkend="co.geo.drbd.config.stackedontopof" xrefstyle="select:nopage"/>
+                      address        192.168.202.151:7910; <xref linkend="co.geo.drbd.config.address.cross" xrefstyle="select:nopage"/>
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc.cross">
+     <para>
+      Un nombre de recurso que permite algunas asociaciones con el servicio respectivo (en este caso: NFS). Esta es la configuración de la instancia de DRBD de la capa superior, responsable de replicar los datos con el otro sitio del clúster geográfico.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk.cross">
+     <para>
+      El disco de almacenamiento que se debe replicar es el dispositivo DRBD, <filename>/dev/drbd0</filename>. Puede utilizar <filename>/dev/drbd/by-res/<replaceable>nfs-sitio-inferior-N</replaceable>/0</filename> en su lugar, pero esa configuración sería específica para el sitio y, por lo tanto, habría que trasladarla a la configuración de cada sitio; es decir, por debajo de la palabra clave <literal>stacked-on-top-of</literal> respectiva.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device.cross">
+     <para>
+       El nombre de dispositivo para DRBD y su número secundario. Para diferenciar entre la instancia de DRBD de la capa inferior para la réplica local y la de la capa superior para la réplica entre los sitios del clúster geográfico, se utilizan los números secundarios de dispositivo <literal>0</literal> y <literal>10</literal>.
+   </para>
+  </callout>
+    <callout arearefs="co.geo.drbd.config.protocol.cross">
+     <para>
+      DRBD se ejecuta con el protocolo <literal>A</literal>, un protocolo de réplica asíncrona empleado para las réplicas a larga distancia. Se considera que las operaciones de escritura local en el nodo principal se han completado cuando finaliza la escritura en el disco local y el paquete de réplica se ha colocado en el búfer de envío TCP local. Si se produce un failover forzado, podría producirse una pérdida de datos. Los datos del nodo de reserva son coherentes después del failover. Sin embargo, las actualizaciones más recientes realizadas antes del fallo podrían perderse.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.ping-timeout">
+     <para>
+      Debido a la mayor latencia, establezca el tiempo límite de ping en <literal>20</literal>.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+    <para>
+       Se usa un secreto compartido para validar los pares de conexión. Se necesita un secreto compartido distinto para cada par de conexión. Puede obtener valores únicos con el programa <command>uuidgen</command>.
+      </para>
+  </callout>
+    <callout arearefs="co.geo.drbd.config.stackedontopof">
+     <para>
+      En lugar de pasar los nombres de host, se indica a DRBD que apile sobre el dispositivo inferior. Esto implica que el dispositivo inferior debe ser el <literal>primario</literal>.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+     <para>
+      Para permitir la conexión TCP/IP con el otro sitio de clúster geográfico si no sabe qué nodo del clúster cuenta con el dispositivo DRBD inferior <literal>primario</literal>, utilice la dirección IP de servicio configurada para NFS. Consulte el <xref linkend="pro.ha.geo.rsc.drbd"/> para comprobar cómo se configura una IP de servicio.
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect2>
+</sect1>

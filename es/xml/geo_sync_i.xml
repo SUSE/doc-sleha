@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_sync_i.xml" version="5.0" xml:id="sec.ha.geo.sync">
+ <title>Sincronización de archivos de configuración en todos los sitios y árbitros</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editar</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>sí</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Para replicar los archivos de configuración importantes en todos los nodos del clúster y entre los clústeres geográficos, utilice Csync2. Csync2 puede gestionar cualquier número de hosts, ordenados en grupos de sincronización. Cada grupo de sincronización tiene su propia lista de hosts miembros y sus patrones de inclusión y exclusión que definen qué archivos se deben sincronizar en el grupo de sincronización. Los grupos, los nombres de host que pertenecen a cada grupo y las reglas de inclusión y exclusión de cada grupo se especifican en el archivo de configuración de Csync2, <filename>/etc/csync2/csync2.cfg</filename>.
+ </para>
+
+ <para>
+  Para la autenticación, Csync2 utiliza las direcciones IP y las claves precompartidas en cada grupo de sincronización. Debe generar un archivo de clave para cada grupo de sincronización y copiarlo en todos los miembros del grupo.
+ </para>
+
+ <para>
+  Csync2 se pondrá en contacto con otros servidores a través de un puerto TCP (por defecto <literal>6556</literal>) e iniciará instancias remotas de Csync2. Para obtener información detallada sobre Csync2, consulte <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>
+ </para>
+
+ <sect2 xml:id="sec.ha.geo.booth.sync.csync2.setup">
+  <title>Configuración de Csync2 para clústeres geográficos</title>
+  <para>
+   En la <citetitle>Guía de administración</citetitle> de <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>, capítulo <citetitle>Instalación y configuración básicas</citetitle>, sección <citetitle>Transferencia de la configuración a todos los nodos</citetitle>, se explica cómo configurar Csync2 para clústeres individuales con YaST. Sin embargo, YaST no puede gestionar configuraciones de Csync2 más complejas, como las necesarias para los clústeres geográficos. Para la siguiente instalación, configure manualmente Csync2 editando los archivos de configuración, como se muestra en la <xref linkend="fig.ha.geo.csync.config"/>.
+  </para>
+  <para>
+   Para ajustar Csync2 a fin de sincronizar archivos que no solo se encuentren en clústeres locales, sino también en sitios dispersos geográficamente, debe definir dos grupos de sincronización en la configuración de Csync2:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Un grupo global <literal>ha_global</literal> (para los archivos que deban sincronizarse globalmente, en todos los sitios y con árbitros que pertenezcan a un clúster geográfico).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Un grupo para el sitio de clúster local <literal>ha_local</literal> (para los archivos que deban sincronizarse en el clúster local).
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Para obtener una descripción general de los archivos de configuración de Csync2 para los dos grupos de sincronización, consulte la <xref linkend="fig.ha.geo.csync.config"/>.
+  </para>
+  <figure xml:id="fig.ha.geo.csync.config">
+   <title>Configuración de Csync2 de ejemplo para clústeres geográficos</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="multi-site-csync2.svg" width="100%"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="multi-site-csync2.png" width="100%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <para>
+   Los archivos de clave de autenticación y sus referencias se muestran en rojo. Los nombres de los archivos de configuración de Csync2 aparecen en azul y sus referencias, en verde. Para obtener información detallada, consulte <xref linkend="vl.fig.ha.geo.csync.config.files"/>.
+  </para>
+  <variablelist xml:id="vl.fig.ha.geo.csync.config.files">
+   <title>Configuración de Csync2 de ejemplo: archivos de configuración</title>
+   <varlistentry xml:id="vle.ha.geo.csync.csync2.cfg">
+    <term><filename>/etc/csync2/csync2.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      Es el principal archivo de configuración de Csync2. Es corto y sencillo a propósito y solo incluye lo siguiente:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        La definición del grupo de sincronización <literal>ha_local</literal>. El grupo consta de dos nodos (<literal>this-site-host-1</literal> y <literal>this-site-host-2</literal>) y emplea <filename>/etc/csync2/ha_local.key</filename> para la autenticación. En otro archivo de configuración de Csync2, <filename>/etc/csync2/ha_local.cfg</filename>, se define una lista de archivos que deben sincronizarse para este grupo. Se incluye con la declaración <literal>config</literal>.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Una referencia a otro archivo de configuración de Csync2, <filename>/etc/csync2.cfg/ha_global.cfg</filename>, incluida con la declaración <literal>config</literal>.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.geo.csync.ha_local.cfg">
+    <term><filename>/etc/csync2/ha_local.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      Este archivo afecta solo al clúster local. Especifica una lista de archivos que deben sincronizarse solo dentro del grupo de sincronización <literal>ha_local</literal>, ya que estos archivos son específicos de cada clúster. Los más importantes son los siguientes:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        El archivo <filename>/etc/csync2/csync2.cfg</filename> contiene la lista de los nodos del clúster local.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        La clave de autenticación <filename>/etc/csync2/ha_local.key</filename>, que se debe usar para la sincronización de Csync2 en el clúster local.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        El archivo <filename>/etc/corosync/corosync.conf</filename> define los canales de comunicación entre los nodos del clúster local.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/corosync/authkey</filename> es la clave de autenticación de Corosync.
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      El resto de la lista de archivos depende de la configuración específica del clúster. Los archivos mostrados en la <xref linkend="fig.ha.geo.csync.config"/> son meros ejemplos. Si también desea sincronizar archivos de aplicaciones específicas del sitio, puede incluirlos en <filename>ha_local.cfg</filename>. Aunque <filename>ha_local.cfg</filename> está dirigido a los nodos que pertenecen a un sitio del clúster geográfico, el contenido puede ser idéntico en todos los sitios. Si se necesitan conjuntos diferentes de hosts o claves distintas, puede ser necesario añadir grupos adicionales.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.geo.csync.ha_global.cfg">
+    <term><filename>/etc/csync2.cfg/ha_global.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      Este archivo define el grupo de sincronización <literal>ha_global</literal> de Csync2. El grupo abarca <emphasis>todos</emphasis> los nodos de clúster en varios sitios, incluido el árbitro. Dado que se recomienda utilizar una clave independiente para cada grupo de sincronización de Csync2, este grupo utiliza <filename>/etc/csync2/ha_global.key</filename> para la autenticación. Las declaraciones <literal>include</literal> definen la lista de archivos que se van a sincronizar en el grupo de sincronización <literal>ha_global</literal>. Los más importantes son los siguientes:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/ha_global.cfg</filename> y <filename>/etc/csync2/ha_global.key</filename> (el archivo de configuración para el grupo de sincronización <literal>ha_global</literal> y la clave de autenticación usada para la sincronización dentro del grupo).
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/booth/</filename>, el directorio por defecto que contiene la configuración de booth. En caso de que utilice una configuración de booth para varios inquilinos, este directorio contiene más de un archivo de configuración de booth. Si utiliza la autenticación para booth, resulta útil colocar también el archivo de clave en este directorio. 
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/drbd.conf</filename> y <filename>/etc/drbd.d</filename> (si utiliza DRBD en la configuración del clúster). La configuración de DRBD se puede sincronizar globalmente, ya que se obtiene a partir de los nombres de host incluidos en el archivo de configuración del recurso.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/zypp/repos.de</filename>. Es probable que los repositorios de paquetes sean los mismos en todos los nodos del clúster.
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      Los demás archivos mostrados <filename>/etc/root/<replaceable>*</replaceable></filename>) son ejemplos que se pueden incluir por comodidad (para facilitar el trabajo de los administradores del clúster).
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <note>
+   <para>
+    Los archivos <filename>csync2.cfg</filename> y <filename>ha_local.key</filename> son específicos de cada sitio, lo que significa que se deben crear archivos distintos para cada sitio de clúster. Los archivos son idénticos en los nodos que pertenecen al mismo clúster, pero distintos a los de otros clústeres. Cada archivo <filename>csync2.cfg</filename> debe contener una lista de hosts (nodos de clúster) que pertenecen al sitio, además de una clave de autenticación específica del sitio.
+   </para>
+   <para>
+    El árbitro necesita también un archivo <filename>csync2.cfg</filename>; aunque solo es necesario que haga referencia a <filename>ha_global.cfg</filename>.
+   </para>
+  </note>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.booth.sync.csync2.start">
+  <title>Sincronización de cambios con Csync2</title>
+  <para>
+   Para sincronizar correctamente los archivos con Csync2, deben cumplirse los siguientes requisitos previos:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     La misma configuración de Csync2 debe estar disponible en todos los equipos que pertenezcan al mismo grupo de sincronización.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     La clave de autenticación de Csync2 de cada grupo de sincronización debe estar disponible en todos los miembros de ese grupo.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+    Csync2 debe ejecutarse en <emphasis>todos</emphasis> los nodos y en el árbitro.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Por lo tanto, antes de la primera ejecución de Csync2, debe llevar a cabo los preparativos siguientes:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Entre en un equipo en cada grupo de sincronización y genere una clave de autenticación para el grupo correspondiente:
+    </para>
+    <screen><prompt role="root">root # </prompt><command>csync2</command> -k <replaceable>NAME_OF_KEYFILE</replaceable></screen>
+    <para>
+     Pero <emphasis>no</emphasis> vuelva a generar el archivo de clave en ningún otro miembro del mismo grupo.
+    </para>
+    <para>
+     Respecto a la <xref linkend="fig.ha.geo.csync.config"/>, se producirán los archivos de clave siguientes: <filename>/etc/csync2/ha_global.key</filename> y una clave local (<filename>/etc/csync2/ha_local.key</filename>) por cada sitio.
+    </para>
+   </step>
+   <step>
+    <para>
+     Copie cada archivo de clave en <emphasis>todos</emphasis> los miembros del grupo de sincronización correspondiente. Respecto a la <xref linkend="fig.ha.geo.csync.config"/>:
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Copie <filename>/etc/csync2/ha_global.key</filename> en <emphasis>todas</emphasis> las partes (el árbitro y todos los nodos del clúster en todos los sitios del clúster geográfico). El archivo de claves debe estar disponible en todos los hosts del grupo <literal>ha_global</literal> definidos en <filename>ha_global.cfg</filename>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Copie el archivo de clave local para cada sitio (<filename>/etc/csync2/ha_local.key</filename>) en todos los nodos del clúster que pertenezcan al sitio correspondiente del clúster geográfico.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Copie el archivo de configuración específico del sitio <filename>/etc/csync2/csync2.cfg</filename> en todos los nodos del clúster que pertenezcan al sitio correspondiente del clúster geográfico y el árbitro.
+    </para>
+   </step>
+   <step>
+    <para>
+     Ejecute el comando siguiente en todos los nodos y el árbitro para provocar que el servicio csync2 se inicie automáticamente durante el arranque:
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> enable csync2.socket</screen>
+   </step>
+   <step>
+    <para>
+     Ejecute el comando siguiente en todos los nodos y el árbitro para iniciar el servicio ahora:
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start csync2.socket</screen>
+   </step>
+  </procedure>
+  <procedure xml:id="pro.ha.geo.setup.csync2.start">
+   <title>Sincronización de archivos con Csync2</title>
+   <step>
+    <para>
+     Para sincronizar inicialmente todos los archivos una vez, ejecute el comando siguiente en el equipo <emphasis>desde</emphasis> el que desea copiar la configuración:
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-xv</option></screen>
+    <para>
+     Esto sincronizará todos los archivos una vez enviándolos a los otros miembros de los grupos de sincronización. Si todos los archivos se sincronizan correctamente, Csync2 se completa sin errores.
+    </para>
+    <para>
+     Si uno o varios de los archivos que se van a sincronizar se han modificado en otros equipos (no solo en el actual), Csync2 informa sobre un conflicto. Obtendrá un resultado similar al siguiente:
+    </para>
+<screen>While syncing file /etc/corosync/corosync.conf:
+ERROR from peer site-2-host-1: File is also marked dirty here!
+Finished with 1 errors.</screen>
+   </step>
+   <step>
+    <para>
+     Si tiene la seguridad de que la versión del archivo en el equipo actual es la <quote>mejor</quote>, puede resolver el conflicto forzando el uso de este archivo y volviendo a sincronizar:
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-f</option> /etc/corosync/corosync.conf
+<prompt role="root">root # </prompt><command>csync2</command> <option>-x</option></screen>
+   </step>
+  </procedure>
+  <para>
+   Para obtener información sobre las opciones de Csync2, ejecute <command>csync2 </command> <option>-help</option>.
+  </para>
+  <note>
+   <title>aplicación de sincronización después de realizar cualquier cambio</title>
+   <para>
+    Csync2 solo aplica los cambios. <emphasis>No</emphasis> sincroniza de forma continua los archivos entre los equipos.
+   </para>
+   <para>
+    Cada vez que actualice archivos que deban sincronizarse, deberá enviar los cambios a otros equipos del mismo grupo de sincronización: ejecute <command>csync2 </command> <option>-xv</option> en el equipo donde realizó los cambios. Si ejecuta el comando en cualquier otro equipo con archivos sin cambiar, no ocurrirá nada.
+   </para>
+  </note>
+ </sect2>
+</sect1>

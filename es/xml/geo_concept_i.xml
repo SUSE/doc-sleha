@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_concept_i.xml" version="5.0" xml:id="sec.ha.geo.concept">
+ <title>Descripción conceptual</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editar</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>sí</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Los clústeres geográficos basados en <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> se pueden considerar clústeres de <quote>superposición</quote> en los que cada sitio de clúster se corresponde con un nodo de clúster en un clúster tradicional. La superposición de clústeres se gestiona mediante el mecanismo de booth. Garantiza que los recursos del clúster tengan siempre una alta disponibilidad en los distintos sitios del clúster. Esto se consigue mediante objetos de clúster denominados tickets, que se tratan como dominios de failover entre sitios del clúster en caso de que un sitio deje de estar activo. El mecanismo booth garantiza que cada ticket pertenece a un único sitio en cada momento.
+ </para>
+
+ <para>
+  En la lista siguiente se explican con más detalle los componentes individuales y los mecanismos que se han introducido para los clústeres geográficos.
+ </para>
+
+ <variablelist xml:id="vl.ha.geo.components">
+  <title>Componentes y gestión de tickets</title>
+  <varlistentry xml:id="vle.ha.geo.components.ticket">
+   <term>Ticket</term>
+   <listitem>
+    <para>
+     Un ticket otorga el derecho a ejecutar determinados recursos en un sitio de clúster específico. El ticket solo puede ser propiedad de un sitio en cada momento. Inicialmente, ninguno de los sitios tiene un ticket; el administrador del clúster debe otorgar cada ticket una vez. Después, booth gestiona los tickets para el failover automático de los recursos. Aunque los administradores también pueden intervenir y otorgar o revocar tickets manualmente.
+    </para>
+    <para>
+     Después de que un ticket se revoque administrativamente, deja de estar gestionado por booth. Para que booth vuelva a gestionar el ticket, este debe otorgarse de nuevo a un sitio.
+    </para>
+    <para>
+     Los recursos se pueden asociar a un ticket determinado mediante dependencias. Los recursos correspondientes a un ticket definido solo se inician si este está disponible en un sitio. Y viceversa, si el ticket se elimina, los recursos dependientes se detienen automáticamente.
+    </para>
+    <para>
+     La presencia o ausencia de tickets para un sitio se almacena en el CIB como un estado del clúster. En relación con un ticket determinado, solo existen dos estados para un sitio: <literal>verdadero</literal> (el sitio tiene el ticket) o <literal>falso</literal> (el sitio no tiene el ticket). La situación en la que un determinado ticket está ausente (durante el estado inicial del clúster geográfico) no es distinta a cuando el ticket se ha revocado. Ambos casos quedan reflejados con el valor <literal>falso</literal>.
+    </para>
+    <para>
+     Un ticket en un clúster de superposición es similar a un recurso en un clúster tradicional. Pero, a diferencia de los clústeres tradicionales, los tickets son el único tipo de recurso de un clúster de superposición. Se trata de recursos primitivos que no es necesario configurar ni duplicar.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.booth">
+   <term>Gestor de tickets de clúster de booth</term>
+   <listitem>
+    <para>
+     El mecanismo booth es la instancia que gestiona la distribución de los tickets y, por lo tanto, el proceso de failover entre los sitios de un clúster geográfico. Todos los clústeres y árbitros participantes ejecutan un servicio, <systemitem class="daemon">boothd</systemitem>. Este se conecta con los daemons de booth que se ejecuten en los demás sitios e intercambia detalles de conectividad. Después de que se otorgue un ticket a un sitio, el mecanismo booth puede gestionar el ticket automáticamente: si el sitio que contiene el ticket está fuera de servicio, los daemons de booth votarán cuál de los otros sitios recibirá el ticket. Para protegerse contra fallos de conexión breves, los sitios que pierdan la votación (ya sea explícitamente o de forma implícita al desconectarse del cuerpo de la votación) deberán ceder el ticket tras un tiempo de espera. De esta forma, se garantiza que el ticket solo se redistribuirá una vez que el sitio anterior lo haya cedido. Consulte también <xref linkend="vle.ha.geo.components.deadman"/>.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.arbitrator">
+   <term>Árbitro</term>
+   <listitem>
+    <para>
+     Cada sitio ejecuta una instancia de booth que es responsable de la comunicación con los demás sitios. Si en su instalación hay un número par de sitios, necesita una instancia adicional para lograr el consenso a la hora de tomar decisiones, por ejemplo para el failover de los recursos en los sitios. En tal caso, puede añadir uno o varios árbitros que se ejecuten en sitios adicionales. Los árbitros son máquinas individuales en las que se ejecuta una instancia de booth de un modo especial. Dado que todas las instancias de booth se comunican entre sí, los árbitros ayudan a tomar decisiones más fiables sobre si se deben otorgar o revocar tickets. Los árbitros no pueden contener tickets.
+    </para>
+    <para>
+     Disponer de un árbitro es especialmente importante en el caso de que haya dos sitios; por ejemplo, hay dos causas posibles por las que el sitio <literal>A</literal> ya no puede comunicarse con el sitio <literal>B</literal>:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Un fallo de red entre <literal>A</literal> y <literal>B</literal>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       El sitio <literal>B</literal> está inactivo.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     Sin embargo, si el sitio<literal>C</literal> (el árbitro) aún puede comunicarse con el sitio <literal>B</literal>, el sitio <literal>B</literal> aún debe estar activo y en ejecución.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>Failover del ticket</term>
+   <listitem>
+    <para>
+     Si el ticket se pierde, lo que significa que las demás instancias de booth no tienen noticias del propietario del ticket durante un tiempo lo suficientemente prolongado, uno de los sitios restantes adquirirá el ticket. Esto se denomina failover del ticket. Si los miembros restantes no consiguen formar una mayoría, no se puede realizar el failover del ticket.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.deadman">
+   <term>Dependencia de hombre muerto (<literal>loss-policy="fence"</literal>)</term>
+   <listitem>
+    <para>
+     Cuando se revoca un ticket, puede pasar mucho tiempo antes de que todos los recursos dependientes del ticket se detengan, especialmente en el caso de los recursos en cascada. Para acortar el proceso, el administrador del clúster puede configurar, junto con las dependencias del ticket, una directiva de pérdida (<literal>loss-policy</literal>) por si el ticket se revoca en un sitio. Si la directiva de la pérdida se define como un límite (<literal>fence</literal>), los nodos en los que se encuentran los recursos dependientes se aíslan.
+    </para>
+    <warning>
+     <title>pérdida potencial de datos</title>
+     <para>
+      Por otro lado, <literal>loss-policy="fence"</literal> acelera considerablemente el proceso de recuperación del clúster y garantiza que los recursos se puedan migrar con más rapidez.
+     </para>
+     <para>
+      Pero también puede producir una pérdida de todos los datos no escritos, por ejemplo:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Los datos que se encuentran en un almacenamiento compartido (como DRBD).
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Los datos de una base de datos de réplica (por ejemplo, MariaDB o PostgreSQL) que aún no haya accedido al otro sitio porque su enlace de red sea lento.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </warning>
+   </listitem>
+  </varlistentry>
+ </variablelist>
+
+ <figure xml:id="fig.ha.geo.example1">
+  <title>Clúster de dos sitios (4 nodos + árbitro)</title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+
+ <para>
+  Probablemente, el caso más habitual sea el de un clúster geográfico con dos sitios y un único árbitro en un tercer sitio. Esto requiere tres instancias de booth, consulte la <xref linkend="fig.ha.geo.example1"/>. El límite máximo (actualmente) es de 16 instancias de booth.
+ </para>
+
+ <para>
+  Como es habitual, el CIB se sincroniza en cada clúster, pero no se sincroniza automáticamente en todos los sitios de un clúster geográfico. Sin embargo, a partir de <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>12, transferir configuraciones de recursos a otros sitios de clúster es más fácil. Para obtener información, consulte la <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+ </para>
+</sect1>
