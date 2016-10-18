@@ -1,0 +1,649 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<?provo dirname="install_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_install_quick.xml" version="5.0" xml:lang="fr" xml:id="art.ha.install.quick">
+<?suse-quickstart columns="no" version="2"?>
+
+
+  
+  <title>Démarrage rapide de l'installation et de la configuration</title>
+ <subtitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase></productnumber>
+  <productname><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname>
+  <date><?dbtimestamp ?>
+
+</date>
+  <xi:include href="ha_authors.xml"/>
+  <abstract>
+   <para>
+     Le présent document explique comment configurer une grappe très basique de deux noeuds à l'aide des scripts d'amorçage fournis par le paquetage <systemitem class="resource">ha-cluster-bootstrap</systemitem>. Ce processus inclut la configuration d'une adresse IP virtuelle en tant que ressource de grappe et l'utilisation d'un détecteur de vues de grappe divergentes (SBD pour split brain detector) sur un stockage partagé en tant que mécanisme d'isolation.
+    
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:bugtracker>
+    <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+    <dm:product>SUSE Linux Enterprise High Availability Extension 12 SP2</dm:product>
+    <dm:component>Documentation</dm:component>
+   </dm:bugtracker>
+   <dm:translation>oui</dm:translation>
+  </dm:docmanager>
+ </info>
+
+  <sect1 xml:id="sec.ha.inst.quick.usage-scenario">
+   <title>Scénario d'utilisation</title>
+   <para>
+    Les procédures décrites dans le présent document permettent de configurer une grappe de base de deux noeuds présentant les caractéristiques suivantes :
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Deux noeuds : <systemitem class="server">alice</systemitem>(adresse IP : <systemitem class="ipaddress">192.168.1.1</systemitem>) et <systemitem class="server">bob</systemitem> (adresse IP : <systemitem class="ipaddress">192.168.1.2</systemitem>), connectés entre eux via le réseau.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Une adresse IP virtuelle flottante (<systemitem class="ipaddress">192.168.2.1</systemitem>), qui permet aux clients de se connecter au service quel que soit le noeud physique sur lequel il s'exécute.
+     </para>
+    </listitem>
+    <listitem>
+     <para>Un périphérique de stockage partagé, utilisé comme mécanisme d'isolation SBD afin d'éviter les scénarios de vues de grappe divergentes.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Un système de basculement des ressources d'un noeud vers l'autre en cas de défaillance de l'hôte actif (configuration <emphasis>active/passive</emphasis>).
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    Une fois la grappe configurée au moyen des scripts d'amorçage, nous la surveillerons à l'aide de l'interface graphique Hawk (HA Web Konsole), l'un des outils de gestion de grappe fournis avec <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase>. Pour tester le bon fonctionnement du basculement des ressources, nous mettrons simplement l'un des noeuds en mode veille et vérifierons si l'adresse IP virtuelle est migrée vers l'autre noeud.
+   </para>
+   <para>
+    La grappe de deux noeuds peut être utilisée à des fins de test ou comme une configuration de grappe minimale que vous pouvez étendre par la suite. Avant d'utiliser la grappe dans un environnement de production, modifiez-la en fonction de vos besoins.
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.req">
+   <title>Configuration système requise</title>
+   <para>
+    Cette section décrit la configuration système minimale requise pour le scénario présenté dans la <xref linkend="sec.ha.inst.quick.usage-scenario"/>. Si vous souhaitez adapter la grappe en vue de l'utiliser dans un environnement de production, consultez la liste complète des <citetitle>recommandations et conditions système requises</citetitle> dans le <citetitle>Guide d'administration</citetitle> de <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> : <link xlink:href="https://www.suse.com/documentation/sle-ha-12/book_sleha/data/cha_ha_requirements.html"/>.
+   </para>
+  <variablelist xml:id="vl.ha.inst.quick.req.hw">
+   <title>Configuration matérielle requise</title>
+   <varlistentry>
+    <term>Serveurs</term>
+    <listitem>
+    <para>
+     Deux serveurs exécutant les logiciels spécifiés dans la rubrique <xref linkend="il.ha.inst.quick.req.sw"/>.
+     </para>
+     <para>
+      Ces serveurs peuvent être des machines virtuelles ou sans système d'exploitation. Ils ne nécessitent pas une configuration matérielle identique (mémoire, espace disque, etc.), mais doivent avoir la même architecture. Les grappes multi plate-forme ne sont pas prises en charge.
+     </para>
+     
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Canaux de communication</term>
+   <listitem>
+     <para>
+       Au moins deux médias de communication TCP/IP par noeud de grappe. L'équipement réseau doit prendre en charge le moyen de communication que vous souhaitez utiliser pour les communications au sein de la grappe, à savoir la multidiffusion ou la monodiffusion. Les médias de communication doivent prendre en charge un débit de données de 100 Mbit/s ou plus. La prise en charge d'une grappe requiert au moins deux chemins de communication redondants. Cette configuration peut être obtenue via :</para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          La liaison de périphériques réseau (option à privilégier).
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          Un deuxième canal de communication dans Corosync.
+         </para>
+        </listitem>
+       </itemizedlist>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Isolation de noeud/STONITH</term>
+   <listitem>
+     <para>
+      Pour éviter un scénario de <quote>vues de grappe divergentes</quote>, les grappes ont besoin d'un mécanisme d'isolation de noeud. Dans un scénario de vues de grappe divergentes, les noeuds de grappe sont divisés en deux groupes ou plus qui ne se connaissent pas (en raison d'une défaillance matérielle ou logicielle, ou d'une interruption de la connexion réseau). Un mécanisme d'isolation isole le noeud en question (généralement en le réinitialisant ou en le mettant hors tension). Ce processus est également appelé STONITH (<quote>Shoot the other node in the head</quote>). Un mécanisme d'isolation de noeud peut être un dispositif physique (un bouton marche/arrêt) ou un mécanisme de type SBD (STONITH par disque) associé à un système de surveillance (watchdog). L'utilisation d'un SBD nécessite un stockage partagé. 
+     </para>
+   </listitem>
+   </varlistentry>
+  </variablelist>
+
+   <para>
+    Les logiciels ci-dessous doivent être installés sur tous les noeuds de la grappe.
+   </para>
+
+  <itemizedlist xml:id="il.ha.inst.quick.req.sw">
+   <title>Configuration logicielle requise</title>
+    <listitem>
+      <para>
+   SUSE® Linux Enterprise Server<phrase role="productnumber"><phrase os="sles"> 12 SP2</phrase></phrase> (avec toutes les mises à jour en ligne disponibles)
+  </para>
+    </listitem>
+    <listitem>
+      <para>
+   <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase> (avec toutes les mises à jour en ligne disponibles)
+  </para>
+    </listitem>
+   </itemizedlist>
+
+  <variablelist xml:id="vl.ha.inst.quick.req.other">
+   <title>Autres conditions requises et recommandations</title>
+   <varlistentry>
+    <term>Synchronisation horaire</term>
+     <listitem>
+   <para>
+     Les noeuds de la grappe doivent se synchroniser avec un serveur NTP situé en dehors de la grappe. Pour plus d'informations, reportez-vous au <citetitle>Guide d'administration</citetitle> de SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase> : <link xlink:href="http://www.suse.com/documentation/sles-12/book_sle_admin/data/cha_netz_xntp.html"/>.
+    </para>
+    <para>
+     Si les noeuds ne sont pas synchronisés, il se peut que la grappe ne fonctionne pas correctement. En outre, les fichiers journaux et les rapports de grappe sont très difficiles à analyser en l'absence de synchronisation. Si vous utilisez les scripts d'amorçage, le système vous avertira si un service NTP n'est pas encore configuré.
+    </para>
+  </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Nom d'hôte et adresse IP</term>
+    <listitem>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Utilisez des adresses IP statiques.
+       </para>
+      </listitem>
+      <listitem>
+        <para>
+     Répertoriez tous les noeuds de la grappe, avec leur nom d'hôte complet et leur nom d'hôte abrégé, dans le fichier <filename>/etc/hosts</filename>. Il est essentiel que les membres de la grappe puissent se trouver sur la base de leurs noms. Si les noms ne sont pas disponibles, la communication interne au sein de la grappe ne fonctionnera pas.
+   </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.req.ssh">
+    <term>SSH</term>
+    <listitem>
+      <para>
+    Tous les noeuds de la grappe doivent pouvoir accéder les uns aux autres via le protocole SSH. Des outils tels que les <command>rapports CRM</command> (pour le dépannage) et l'<guimenu>explorateur d'historique</guimenu> de Hawk2 requièrent un accès SSH sans mot de passe entre les noeuds, faute de quoi ils peuvent uniquement collecter des données du noeud actif.
+  </para>
+     <para>
+      Si vous utilisez les scripts d'amorçage pour configurer la grappe, les clés SSH sont automatiquement créées et copiées.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.bootstrap">
+  <title>Présentation des scripts d'amorçage</title>
+  <para>
+   Toutes les commandes du paquetage <package>ha-cluster-bootstrap</package> exécutent des scripts d'amorçage qui ne nécessitent qu'un minimum de temps et d'effort manuel.
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Le script <command>ha-cluster-init</command> permet de définir les paramètres de base nécessaires pour la communication au sein de la grappe. À ce moment-là, vous disposez d'une grappe opérationnelle comportant un seul noeud.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Le script <command>ha-cluster-join</command> vous permet d'ajouter des noeuds à votre grappe.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Le script <command>ha-cluster-remove</command> vous permet de supprimer des noeuds de votre grappe.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Tous les scripts d'amorçage consignent des données dans le fichier<filename>/var/log/ha-cluster-bootstrap.log</filename>. Pour toute information à propos du processus d'amorçage, consultez ce fichier. Toutes les options définies au cours du processus d'amorçage peuvent être modifiées ultérieurement à l'aide du module de grappe YaST. Pour plus d'informations, reportez-vous à la documentation <link xlink:href="https://www.suse.com/documentation/sle-ha-12/book_sleha/data/sec_ha_installation_setup_manual.html"/>.
+  </para>
+  <para>Chaque script est fourni avec une page de manuel présentant les différentes fonctions, les options du script et les fichiers que ce dernier peut créer et modifier.
+  </para>
+  <para>
+   Le script d'amorçage <command>ha-cluster-init</command> vérifie et configure les composants suivants :
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>NTP</term>
+    <listitem>
+     <para>
+      Si un service NTP n'a pas été configuré pour se lancer au moment du démarrage, un message s'affiche.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SSH</term>
+    <listitem>
+     <para>Le script crée les clés SSH nécessaires pour que les noeuds de la grappe puissent accéder les uns aux autres sans mot de passe.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      Le script configure Csync2 de manière à répliquer les fichiers de configuration sur tous les noeuds d'une grappe.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Corosync</term>
+    <listitem>
+     <para>Le script configure le système de communication de la grappe.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SBD/surveillance</term>
+    <listitem>
+     <para>Le script vérifie si un système de surveillance existe et vous demande si vous souhaitez configurer un SBD comme mécanisme d'isolation de noeud.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Adresse IP virtuelle flottante</term>
+    <listitem>
+     <para>Le script vous demande si vous souhaitez configurer une adresse IP virtuelle pour l'administration de la grappe à l'aide de Hawk2.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Pare-feu</term>
+    <listitem>
+     <para>Le script ouvre les ports du pare-feu qui sont nécessaires pour les communications de grappe.</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.installation">
+    <title>Installation de SUSE Linux Enterprise Server et High Availability Extension</title>
+    <para>
+      Les paquetages nécessaires pour configurer et gérer une grappe avec High Availability Extension sont inclus dans le modèle d'installation <literal>Haute disponibilité</literal>. Ce modèle est disponible uniquement si <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> a été installé en tant qu'extension de SUSE® Linux Enterprise Server.
+    </para>
+    <para>
+      Pour plus d'informations sur l'installation des extensions, reportez-vous au manuel <citetitle>SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase> Deployment Guide</citetitle> (Guide de déploiement de SUSE Linux Enterprise 12 SP2) : <link xlink:href="https://www.suse.com/documentation/sles-12/book_sle_deployment/data/cha_add-ons.html"/>.
+    </para>
+
+    <procedure xml:id="pro.ha.inst.quick.pattern">
+      <title>Installation du modèle Haute disponibilité</title>
+     <para>Si le modèle n'est pas encore installé, procédez comme suit :</para>
+      <step>
+        <para>
+          Démarrez YaST et sélectionnez <menuchoice> <guimenu>Logiciel</guimenu> <guimenu>Installer et supprimer des logiciels</guimenu> </menuchoice>.
+        </para>
+      </step>
+      <step>
+        <para>
+         Cliquez sur l'onglet <guimenu>Modèles</guimenu> et activez le modèle <guimenu>Haute disponibilité</guimenu> dans la liste des modèles.
+          
+        </para>
+      </step>
+      <step>
+        <para>
+          Cliquez sur <guimenu>Accepter</guimenu> pour démarrer l'installation des paquetages.
+        </para>
+      </step>
+      <step>
+       <para>
+          Installez le modèle Haute disponibilité sur <emphasis>toutes</emphasis> les machines qui feront partie de votre grappe.
+       </para>
+       <note>
+        <title>installation des paquetages logiciels sur toutes les parties</title>
+        <para>
+         Pour procéder à une installation automatisée de SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase> et de <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase>, utilisez AutoYaST pour cloner des noeuds existants. Pour plus d'informations, reportez-vous à la documentation <link xlink:href="https://www.suse.com/documentation/sle-ha-12/book_sleha/data/sec_ha_installation_autoyast.html"/>.
+        </para>
+       </note>
+      </step>
+     <step>
+      <para>
+       Enregistrez les machines sur le SUSE Customer Center. Pour plus d'informations, reportez-vous au site <link xlink:href="https://www.suse.com/doc/sles-12/book_sle_deployment/data/sec_update_registersystem.html"/>. 
+      </para>
+     </step>
+    </procedure>
+  </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.sbd">
+  <title>Utilisation d'un SBD comme mécanisme d'isolation</title>
+  
+   
+   <para>
+    Si vous disposez d'un stockage partagé, tel qu'un SAN (Storage Area Network), vous pouvez l'utiliser pour éviter des scénarios de vues de grappe divergentes en configurant un SBD en tant que mécanisme d'isolation de noeud. Un SBD utilise la prise en charge de la surveillance et l'agent de ressource STONITH <literal>external/sbd</literal>.
+   </para>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.req">
+   <title>Configuration requise pour le SBD</title>
+   <para>
+    Lors de la configuration du premier noeud à l'aide du script <command>ha-cluster-init</command>, vous pouvez décider d'utiliser ou non un SBD. Si vous choisissez d'utiliser un SBD, vous devez spécifier le chemin d'accès au périphérique de stockage partagé. Par défaut, le script <command>ha-cluster-init</command> crée automatiquement une petite partition sur le périphérique à utiliser pour le SBD.
+   </para>
+   <para>Pour pouvoir utiliser un SBD, les conditions suivantes doivent être remplies :</para>
+
+   <itemizedlist>
+    <listitem>
+     <para>Le chemin d'accès au périphérique de stockage partagé doit être persistant et cohérent sur tous les noeuds de la grappe. Utilisez des noms de périphérique stables, tels que <filename>/dev/disk/by-id/dm-uuid-part1-mpath-abcedf12345</filename>.
+     </para>
+    </listitem>
+    <listitem>
+     <para> Le périphérique SBD <emphasis>ne doit pas</emphasis> utiliser cLVM2 ou la technologie RAID basée sur un hôte, ni résider sur une instance DRBD*.
+     </para>
+    </listitem>
+   </itemizedlist>
+
+  <para>
+   Pour plus d'informations sur la configuration d'un stockage partagé, reportez-vous au <citetitle>Guide d'administration du stockage</citetitle> de SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase> : <link xlink:href="https://www.suse.com/documentation/sles-12/stor_admin/data/stor_admin.html"/>.
+  </para>
+  
+  </sect2>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.setup">
+   <title>Configuration de la surveillance logicielle (softdog) et du SBD</title>
+   
+   <para>
+    Dans SUSE Linux Enterprise Server (SLES), la prise en charge de la surveillance dans le kernel est activée par défaut : SLES inclut plusieurs modules de kernel qui fournissent des pilotes de surveillance propres au matériel. High Availability Extension utilise le daemon SBD comme composant logiciel pour <quote>alimenter</quote> le système de surveillance.
+   </para>
+   <para>
+    Il est vivement recommandé d'utiliser la surveillance matérielle la plus adaptée à votre matériel.
+   </para>
+
+   <note>
+    <title>la surveillance logicielle n'est pas prise en charge.</title>
+    <para>
+     SUSE ne prend pas en charge la <systemitem>surveillance logicielle</systemitem> pour la production. Utilisez la <systemitem>surveillance logicielle</systemitem> à des fins de test uniquement. Avant d'utiliser la grappe dans un environnement de production, remplacez le module de <systemitem>surveillance logicielle</systemitem> par le module matériel correspondant. Pour plus d'informations, reportez-vous à la documentation <link xlink:href="https://www.suse.com/doc/sle-ha-12/book_sleha/data/sec_ha_storage_protect_fencing.html#pro_ha_storage_protect_watchdog"/>.
+    </para>
+   </note>
+
+   <para>
+    La procédure suivante utilise la <systemitem>surveillance logicielle</systemitem> :
+   </para>
+
+   <procedure xml:id="pro.ha.inst.quick.sbd.setup">
+    <step>
+     <para>
+      Créez un stockage partagé persistant comme décrit dans la <xref linkend="sec.ha.inst.quick.sbd.req"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Activez la surveillance logicielle :
+     </para>
+     
+     <screen><prompt role="root">root # </prompt><command>echo</command> softdog &gt; /etc/modules-load.d/watchdog.conf
+<prompt role="root">root # </prompt><command>systemctl</command> restart systemd-modules-load</screen>
+    </step>
+    <step>
+      
+     <para>Vérifiez si le module de surveillance logicielle est chargé correctement :
+     </para>
+     <screen><prompt role="root">root # </prompt><command>lsmod</command> | grep dog
+softdog                16384  1</screen>
+    </step>
+    <step>
+     <para>
+      Sur <systemitem class="server">bob</systemitem>, démarrez le SBD pour écouter sur le périphérique SBD :
+     </para>
+     <screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> watch</screen>
+    </step>
+    <step>
+     <para>
+      Sur <systemitem class="server">alice</systemitem>, envoyez un message de test :
+     </para>
+     <screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> message bob test</screen>
+     <remark>toms 2016-07-22: What to do when the test message fails? How to debug?</remark>
+    </step>
+    <step>
+     <para>
+      Sur <systemitem class="server">bob</systemitem>, vérifiez l'état à l'aide de la commande <command>systemctl</command> et vous devriez voir le message reçu :
+     </para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> status sbd
+[...]
+info: Received command test from alice on disk <replaceable>SBD</replaceable></screen>
+    </step>
+    <step>
+     <para>
+      Arrêtez de surveiller le périphérique SBD sur <systemitem class="server">bob</systemitem> à l'aide de la commande ci-dessous :
+     </para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> stop sbd</screen>
+    </step>
+   </procedure>
+
+   <para>
+    Il est vivement recommandé de tester le bon fonctionnement du mécanisme d'isolation SBD en cas de vues de grappe divergentes. Ce type de test peut être exécuté en bloquant la communication de grappe Corosync.
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.setup.1st-node">
+  <title>Configuration du premier noeud</title>
+   <para>
+   Configurez le premier noeud à l'aide du script <command>ha-cluster-init</command>. Cette opération ne nécessite qu'un minimum de temps et d'effort manuel.
+  </para>
+
+  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-init">
+   <title>configuration du premier noeud (<systemitem class="server">alice</systemitem>) à l'aide du script <command>ha-cluster-init</command></title>
+   <step>
+    <para>
+     Connectez-vous en tant qu'utilisateur <systemitem class="username">root</systemitem> à la machine physique ou virtuelle que vous souhaitez utiliser comme noeud de grappe.
+    </para>
+   </step>
+   <step>
+    <para>
+     Démarrez le script d'amorçage en exécutant la commande suivante :
+    </para>
+    <screen><prompt role="root">root # </prompt><command>ha-cluster-init</command></screen>
+    <para>
+     Le script vérifie la configuration NTP et la présence d'un service de surveillance matérielle. Il génère les clés SSH publiques et privées utilisées pour l'accès SSH et la synchronisation Csync2, et démarre les services respectifs.
+    </para>
+    
+   </step>
+   <step>
+    <para>
+     Configurez la couche de communication de grappe (Corosync) :
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Spécifiez une adresse réseau pour la liaison. Par défaut, le script propose l'adresse réseau <systemitem>eth0</systemitem>. Vous pouvez également spécifier une autre adresse réseau, par exemple <literal>bond0</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Spécifiez une adresse de multidiffusion. Le script propose une adresse aléatoire que vous pouvez utiliser comme adresse par défaut. Bien entendu, votre réseau spécifique doit prendre en charge cette adresse de multidiffusion.
+      </para>
+     </step>
+     <step>
+      <para>
+       Spécifiez un port de multidiffusion. Par défaut, le script propose le port <literal>5405</literal>.
+      </para>
+     </step>
+    </substeps>
+    <para>
+     Enfin, le script démarre le service Pacemaker pour mettre en ligne la grappe à un noeud et activer Hawk2. L'URL à utiliser pour Hawk2 apparaît à l'écran.
+    </para>
+   </step>
+   <step>
+    <para>
+    Configurez le SBD comme mécanisme d'isolation de noeud :</para>
+    <substeps>
+     <step>
+      <para>Spécifiez <literal>y</literal> pour confirmer que vous souhaitez utiliser le SBD.</para>
+     </step>
+     <step>
+      <para>Entrez un chemin d'accès persistant à la partition du périphérique de bloc que vous souhaitez utiliser pour le SBD (voir <xref linkend="sec.ha.inst.quick.sbd"/>). Le chemin doit être cohérent sur tous les noeuds de la grappe.</para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st.ha-cluster-init.ip">
+    
+    <para>Configurez une adresse IP virtuelle pour l'administration de la grappe avec Hawk2. (Nous utiliserons cette ressource IP virtuelle ultérieurement pour tester le bon fonctionnement du basculement).</para>
+    <substeps>
+     <step>
+      <para>Spécifiez <literal>y</literal> pour confirmer que vous souhaitez configurer une adresse IP virtuelle.</para></step>
+     <step>
+      <para>Spécifiez une adresse IP inutilisée que vous souhaitez employer comme adresse IP d'administration pour Hawk2 : <literal>192.168.2.1</literal>.
+      </para>
+      <para>Au lieu de vous connecter à un noeud de grappe individuel avec Hawk2, vous pouvez vous connecter à l'adresse IP virtuelle.</para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+
+  <para>
+   Vous disposez maintenant d'une grappe opérationnelle comportant un seul noeud. Pour visualiser son état, procédez comme suit :
+  </para>
+
+  <procedure xml:id="pro.ha.inst.quick.hawk2.login">
+   <title>connexion à l'interface Web Hawk2</title>
+   <step>
+    <para> Sur une machine, démarrez un navigateur Web et assurez-vous que JavaScript et les cookies sont activés. </para>
+   </step>
+   <step>
+    <para> Spécifiez comme URL l'adresse IP ou le nom d'hôte d'un noeud de grappe qui exécute le service Web Hawk. Vous pouvez également spécifier l'adresse IP virtuelle que vous avez configurée à l'<xref linkend="st.ha-cluster-init.ip"/> de la <xref linkend="pro.ha.inst.quick.setup.ha-cluster-init"/> : </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    <note>
+     <title>avertissement de certificat</title>
+     <para> Si un avertissement de certificat s'affiche la première fois que vous tentez d'accéder à l'URL, un certificat auto-signé est utilisé. Par défaut, les certificats auto-signés ne sont pas considérés comme fiables. </para>
+     <para> Demandez à votre opérateur de grappe de vous fournir les informations relatives au certificat afin de vérifier ce dernier. </para>
+     <para> Pour continuer, vous pouvez ajouter une exception dans le navigateur afin d'ignorer l'avertissement. </para>
+     
+    </note>
+   </step>
+   <step>
+    <para> Dans l'écran de connexion de Hawk2, spécifiez le <guimenu>nom d'utilisateur</guimenu> et le <guimenu>mot de passe</guimenu> de l'utilisateur qui a été créé lors de la procédure d'amorçage (utilisateur : <systemitem class="username">hacluster</systemitem>, mot de passe : <literal>Linux</literal>).</para>
+    <important>
+     <title>mot de passe sécurisé</title>
+     <para>Remplacez dès que possible le mot de passe par défaut par un mot de passe sécurisé :
+     </para>
+     <screen><prompt role="root">root # </prompt><command>passwd</command> hacluster</screen>
+    </important>
+   </step>
+   <step>
+    <para>
+     Cliquez sur <guimenu>Connexion</guimenu>. Une fois que vous êtes connecté, l'interface Web Hawk2 affiche l'écran d'état par défaut, lequel permet de visualiser rapidement l'état actuel de la grappe :
+    </para>
+    <figure xml:id="fig.ha.inst.quick.one-node-status">
+     <title>état de la grappe à un noeud dans Hawk2</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata width="80%" fileref="installquick-one-nodecluster.png"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.setup.2nd-node">
+  <title>Ajout du deuxième noeud</title>
+  <para>
+    Si vous disposez d'une grappe à un noeud opérationnelle, ajoutez-y le deuxième noeud à l'aide du script d'amorçage <command>ha-cluster-join</command>, comme décrit dans la <xref linkend="pro.ha.inst.quick.setup.ha-cluster-join" xrefstyle="select:label nopage"/>. Le script nécessite uniquement un accès à un noeud de grappe existant et procède automatiquement à la configuration de base sur la machine actuelle. Pour plus d'informations, reportez-vous à la page de manuel relative au script <command>ha-cluster-join</command>.
+  </para>
+  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-join">
+   <title>ajout du deuxième noeud (<systemitem class="server">bob</systemitem>) à l'aide du script <command>ha-cluster-join</command></title>
+   <step>
+    <para>
+     Connectez-vous en tant qu'utilisateur <systemitem class="username">root</systemitem> à la machine physique ou virtuelle censée rejoindre la grappe.
+    </para>
+   </step>
+   <step>
+    <para>
+     Démarrez le script d'amorçage en exécutant la commande suivante :
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-join</command></screen>
+    <para>
+     Si un service NTP n'a pas été configuré pour se lancer au moment du démarrage, un message s'affiche. Le script vérifie également la présence d'un périphérique de surveillance matérielle (ce type de périphérique est important si vous souhaitez configurer un SBD) et vous avertit si aucun périphérique de ce type n'est présent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si vous décidez de continuer, le système vous invite à spécifier l'adresse IP d'un noeud existant. Spécifiez l'adresse IP du premier noeud (<systemitem class="server">alice</systemitem>, <systemitem class="ipaddress">192.168.1.1</systemitem>).
+    </para>
+   </step>
+   <step>
+    <para>
+     Si vous n'avez pas déjà configuré un accès SSH sans mot de passe entre les deux machines, le système vous invite également à spécifier le mot de passe <systemitem class="username">root</systemitem> du noeud existant.
+    </para>
+    <para>
+     Une fois connecté au noeud spécifié, le script copie la configuration Corosync, configure SSH et Csync2, et met en ligne la machine actuelle en tant que nouveau noeud de grappe. Par ailleurs, le script démarre le service requis pour Hawk2. 
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   Vérifiez l'état de la grappe dans Hawk2. Dans <menuchoice> <guimenu>État</guimenu> <guimenu>Noeuds</guimenu> </menuchoice>, vous devriez normalement voir deux noeuds présentant un état vert (voir <xref linkend="fig.ha.inst.quick.two-node-cluster"/>).
+  </para>
+
+  <figure xml:id="fig.ha.inst.quick.two-node-cluster">
+   <title>État de la grappe de deux noeuds</title>
+   <mediaobject>
+    <imageobject>
+     <imagedata width="80%" fileref="installquick-two-nodecluster-status.png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.test">
+   <title>Test de la grappe</title>
+   <para>
+    La <xref linkend="pro.ha.inst.quick.test"/> est un test simple qui permet de vérifier si la grappe déplace l'adresse IP virtuelle vers l'autre noeud lorsque le noeud qui exécute actuellement la ressource est mis en mode <literal>veille</literal>.
+   </para>
+   <para>Toutefois, un test réaliste implique des cas et des scénarios d'utilisation spécifiques, notamment la vérification du bon fonctionnement du mécanisme d'isolation destiné à éviter une situation de vues de grappe divergentes. Si vous n'avez pas configuré votre mécanisme d'isolation correctement, la grappe ne fonctionnera pas convenablement.</para>
+   <para>Avant d'utiliser la grappe dans un environnement de production, testez-la scrupuleusement en fonction de l'utilisation que vous comptez en faire.
+    
+   </para>
+    <remark>toms 2016-07-27: Fate#321073
+    Tool for Standardize Testing of Basic Cluster Functionality</remark>
+   <procedure xml:id="pro.ha.inst.quick.test">
+    <title>test du basculement des ressources</title>
+    <step>
+     <para>
+      Ouvrez un terminal et exécutez une commande ping sur l'adresse <systemitem>192.168.2.1</systemitem>, autrement dit votre adresse IP virtuelle :
+     </para>
+     <screen><prompt role="root">root # </prompt><command>ping</command> 192.168.2.1</screen>
+    </step>
+    <step>
+     <para>
+      Connectez-vous à votre grappe, comme décrit dans la <xref linkend="pro.ha.inst.quick.hawk2.login"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Dans Hawk2 <menuchoice> <guimenu>État</guimenu> <guimenu>Ressources</guimenu> </menuchoice>, vérifiez sur quel noeud s'exécute l'adresse IP virtuelle (ressource <systemitem>adresse_admin</systemitem>). Supposons que la ressource s'exécute sur <systemitem class="server">alice</systemitem>.
+      </para>
+    </step>
+    <step>
+     <para>
+      Mettez <systemitem class="server">alice</systemitem> en mode <guimenu>veille</guimenu> (voir <xref linkend="fig.ha.inst.quick.standby"/>).
+     </para>
+     <figure xml:id="fig.ha.inst.quick.standby">
+      <title>Noeud <systemitem class="server">alice</systemitem> en mode veille</title>
+      <mediaobject>
+       <imageobject>
+        <imagedata width="60%" fileref="installquick-standby-node.png"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+     
+    </step>
+    <step>
+     <para>
+      Cliquez sur <menuchoice> <guimenu>État</guimenu> <guimenu>Ressources</guimenu> </menuchoice>. La ressource <systemitem>adresse_admin</systemitem> a été migrée vers <systemitem class="server">bob</systemitem>.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    Pendant la migration, vous devriez normalement voir un flux continu de requêtes ping envoyées à l'adresse IP virtuelle. Cela montre que la configuration de grappe et l'adresse IP flottante fonctionnent correctement. Annulez la commande <command>ping</command> en appuyant sur <keycombo> <keycap function="control"/><keycap>C</keycap> </keycombo>.
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.moreinfo">
+   <title>Informations complémentaires</title>
+   <para>
+    Le site <link xlink:href="http://www.suse.com/documentation/sle-ha-12"/> fournit davantage d'informations à propos de ce produit. La documentation inclut également un Guide d'administration complet pour <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>. Pour en savoir plus sur les tâches de configuration et d'administration, consultez ce manuel.
+   </para>
+  </sect1>
+ <xi:include href="common_legal.xml"/>
+</article>

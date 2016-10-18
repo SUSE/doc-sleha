@@ -1,0 +1,586 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_resources_i.xml" version="5.0" xml:id="sec.ha.geo.rsc">
+ <title>Configuration des ressources et contraintes de grappe</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>modification</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>oui</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Hormis les ressources et les contraintes que vous devez définir pour votre configuration de grappe spécifique, les grappes géographiques exigent des ressources et contraintes supplémentaires comme décrit ci-dessous. Vous pouvez les configurer avec le shell crm (crmsh) comme illustré dans les exemples ci-dessous ou avec HA Web Konsole (Hawk2).
+ </para>
+
+ <para>
+  Cette section traite des tâches spécifiques aux grappes géographiques. Pour une présentation de votre outil de gestion de grappe préféré et des instructions générales sur la manière de configurer des ressources et des contraintes avec ce dernier, reportez-vous à l'un des chapitres suivants du manuel <citetitle>Administration Guide</citetitle> for <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> (Guide d'administration de SUSE Linux Enterprise High Availability Extension), disponible à l'adresse <link xlink:href="http://www.suse.com/documentation/"/> :
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    Hawk2 : chapitre <citetitle>Configuring and Managing Cluster Resources (Web Interface)</citetitle> (Configuration et gestion des ressources de grappe [interface Web])
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    crmsh : chapitre <citetitle>Configuring and Managing Cluster Resources (Command Line)</citetitle> (Configuration et gestion des ressources de grappe [ligne de commande])
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <important>
+  <title>aucune synchronisation CIB au niveau des sites</title>
+  <para>
+   Le CIB n'est <emphasis>pas</emphasis> synchronisé automatiquement sur les sites d'une grappe géographique. Cela signifie que vous devez configurer en conséquence toutes les ressources qui doivent être hautement disponibles dans la grappe géographique pour chaque site.
+  </para>
+  <para>
+   Pour simplifier le transfert de la configuration vers d'autres sites de grappe, toutes les ressources présentant des paramètres propres au site peuvent être configurées de manière à ce que les valeurs des paramètres dépendent du nom du site de grappe sur lequel la ressource est exécutée.
+  </para>
+  <para>
+   Pour une configuration fonctionnelle, les noms de grappe de chaque site doivent être définis dans les fichiers <filename>/etc/corosync/corosync.conf</filename> respectifs. Par exemple, le fichier <filename>/etc/corosync/corosync.conf</filename> du site 1 (<literal>amsterdam</literal>) doit contenir l'entrée suivante :
+  </para>
+<screen>totem {
+   [...]
+   cluster_name: amsterdam
+   }</screen>
+  <para>
+   Après avoir configuré les ressources sur un site, vous pouvez marquer les ressources nécessaires sur tous les sites de grappe, les exporter à partir du CIB actuel et les importer dans le CIB d'un autre site de grappe. Pour plus de détails, reportez-vous à la <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+  </para>
+ </important>
+
+ <sect2 xml:id="sec.ha.geo.rsc.drbd">
+  <title>Ressources et contraintes pour DRBD</title>
+  <para>
+   Pour terminer la configuration de DRBD, vous devez configurer certaines ressources et contraintes comme illustré dans la <xref linkend="pro.ha.geo.rsc.drbd" xrefstyle="select:label"/> et les transférer vers d'autres sites de grappe comme expliqué à la <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+  </para>
+  <procedure xml:id="pro.ha.geo.rsc.drbd">
+   <title>Configuration des ressources pour une installation DRBD</title>
+   <step>
+    <para>
+     Sur l'un des noeuds de la grappe <literal>amsterdam</literal>, démarrez un shell et connectez-vous en tant qu'utilisateur <systemitem class="username">root</systemitem> ou équivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Entrez <command>crm configure</command> pour basculer vers le shell crm interactif.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configurez l'IP de service (propre au site) pour NFS en tant que primitive de base :
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
+  params iflabel="nfs" nic="eth1" cidr_netmask="24"
+  params rule #cluster-name eq amsterdam ip="192.168.201.151" \
+  params rule #cluster-name eq berlin ip="192.168.202.151" \
+  op monitor interval=10</screen>
+   </step>
+   <step>
+    <para>
+     Configurez une ressource pour le système de fichiers et une ressource pour le serveur NFS :
+    </para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> nfs_fs ocf:heartbeat:Filesystem \
+  params device="/dev/drbd/by-res/nfs/0" directory="/mnt/nfs" \
+  fstype="ext4"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> nfs_service systemd:nfs-server</screen>
+   </step>
+   <step>
+    <para>
+     Configurez les primitives et les ressources multi-états suivantes pour DRBD :
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> drbd_nfs ocf:linbit:drbd \
+  params drbd_resource="nfs-upper" \
+  op monitor interval="31" role="Slave" \
+  op monitor interval="30" role="Master"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> drbd_nfs_lower ocf:linbit:drbd \
+  params rule #cluster-name eq amsterdam \
+  drbd_resource="nfs-lower-amsterdam" \
+  params rule #cluster-name eq berlin \
+  drbd_resource="nfs-lower-berlin" \                                
+  op monitor interval="31" role="Slave" \
+  op monitor interval="30" role="Master"
+<prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms_drbd_nfs drbd_nfs \
+  meta master-max="1" master-node-max="1" \
+  clone-max="1" clone-node-max="1" notify="true"
+<prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms_drbd_nfs_lower drbd_nfs_lower \
+  meta master-max="1" master-node-max="1" \
+  clone-max="2" clone-node-max="1" notify="true"</screen>
+   </step>
+   <step>
+    <para>
+     Ajoutez un groupe avec les contraintes d'ordre et de colocation suivantes :
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> g_nfs nfs_fs nfs_service
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_ip_with_lower \
+   inf: ip_nfs:Started  ms_drbd_nfs_lower:Master
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_g_with_upper \
+   inf: g_nfs:Started  ms_drbd_nfs:Master
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_upper_with_ip \
+   inf: ms_drbd_nfs:Master  ip_nfs:Started
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_lower_drbd_before_ip_nfs \
+   inf: ms_drbd_nfs_lower:promote  ip_nfs:start
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_ip_nfs_before_drbd \
+   inf: ip_nfs:start  ms_drbd_nfs:promote
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_drbd_nfs_before_svc \
+   inf: ms_drbd_nfs:promote  g_nfs:start</screen>
+   </step>
+   <step>
+    <para>
+     Passez en revue vos modifications en entrant la commande <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si tout est correct, soumettez vos modifications en entrant la commande <command>commit</command> et quittez la configuration crm live avec la commande <command>exit</command>.
+    </para>
+    <para>
+     La configuration est enregistrée dans le CIB.
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.rsc.booth">
+  <title>Dépendances de ticket, contraintes et ressources pour le booth</title>
+  <para>
+   Pour terminer la configuration du booth, vous devez exécuter la procédure suivante pour configurer les ressources et contraintes nécessaires pour le booth et le basculement des ressources :
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.constraints" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.boothd" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.order" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Les configurations de ressource doivent être disponibles sur chacun des sites de grappe. Transférez-les vers les autres sites comme décrit à la <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+  </para>
+  <procedure xml:id="pro.ha.geo.setup.rsc.constraints">
+   <title>Configuration des dépendances de ticket de ressources</title>
+   <para>
+     Pour les grappes géographiques, vous pouvez spécifier les ressources qui dépendent d'un ticket donné. Outre ce type spécial de contrainte, vous pouvez définir un attribut <literal>loss-policy</literal> qui définit ce qu'il advient des ressources respectives si le ticket est révoqué. L'attribut <literal>loss-policy</literal> peut présenter les valeurs suivantes :
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <literal>délimitation</literal> : délimiter les noeuds qui exécutent les ressources pertinentes.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>arrêter</literal> : arrêter les ressources pertinentes.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>figer</literal> : ne rien faire aux ressources pertinentes.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>rétrograder</literal> : rétrograder les ressources pertinentes en cours d'exécution du mode <literal>maître</literal> en mode <literal>esclave</literal>.
+      </para>
+     </listitem>
+    </itemizedlist> 
+   <step>
+    <para>
+     Sur l'un des noeuds de la grappe amsterdam, démarrez un shell et connectez-vous en tant qu'utilisateur <systemitem class="username">root</systemitem> ou équivalent.
+
+    </para>
+   </step>
+   <step>
+    <para>
+     Entrez <command>crm configure</command> pour basculer vers le shell crm interactif.
+    </para>
+   </step>
+   <step xml:id="step.ha.geo.setup.rsc.constraints">
+    <para>
+     Configurez des contraintes qui définissent quelles ressources dépendent d'un ticket donné. Par exemple, nous avons besoin de la contrainte suivante pour le scénario DRBD décrit à la <xref linkend="sec.ha.geo.drbd.scenario"/> :
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> nfs-req-ticket-nfs ticket-nfs: \ 
+   ms_drbd_nfs:Master loss-policy=demote</screen>
+    <para>
+     Cette commande crée une contrainte portant l'ID <literal>nfs-req-ticket-nfs</literal>. Elle indique que la ressource multi-état <literal>ms_drbd_nfs</literal> dépend de <literal>ticket-nfs</literal>. Toutefois, seul le mode maître de la ressource dépend du ticket. Si le ticket <literal>ticket-nfs</literal> est révoqué, la ressource <literal>ms_drbd_nfs</literal> est automatiquement rétrogradée en mode <literal>esclave</literal> et DRBD passe en mode <literal>Secondaire</literal>. De cette manière, la réplication DRBD est toujours en cours, même si un site n'a pas le ticket.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si vous souhaitez que d'autres ressources dépendent d'autres tickets, créez autant de contraintes que nécessaire avec <command>rsc_ticket</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Passez en revue vos modifications en entrant la commande <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si tout est correct, soumettez vos modifications en entrant la commande <command>commit</command> et quittez la configuration crm live avec la commande <command>exit</command>.
+    </para>
+    <para>
+     La configuration est enregistrée dans le CIB.
+    </para>
+   </step>
+  </procedure>
+  <example xml:id="ex.ha.geo.setup.rsc.ticket.dep">
+   <title>Dépendance de ticket pour des primitives</title>
+   <para>
+    Voici un autre exemple de contrainte qui rend une ressource primitive <literal>rsc1</literal> dépendante de <literal>ticketA</literal> :
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> rsc1-req-ticketA ticketA: \
+   rsc1 loss-policy="fence"</screen>
+   <para>
+    Si <literal>ticketA</literal> est révoqué, le noeud exécutant la ressource doit être délimité.
+   </para>
+  </example>
+  <procedure xml:id="pro.ha.geo.setup.rsc.boothd">
+   <title>Configuration d'un groupe de ressources pour <systemitem class="daemon">boothd</systemitem></title> 
+   <para>
+      Chaque site doit exécuter une instance de <systemitem class="daemon">boothd</systemitem> qui communique avec les autres daemons de booth. Le daemon peut être démarré sur n'importe quel noeud et doit donc être configuré comme ressource primitive. Pour que la ressource <systemitem>boothd</systemitem> reste sur le même noeud, si possible, ajoutez une persistance de ressource à la configuration. Étant donné que chaque daemon a besoin d'une adresse IP persistante, configurez une autre primitive avec une adresse IP virtuelle. Groupez les deux primitives :</para> 
+   <step>
+    <para>
+     Sur l'un des noeuds de la grappe <literal>amsterdam</literal>, démarrez un shell et connectez-vous en tant qu'utilisateur <systemitem class="username">root</systemitem> ou équivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Entrez <command>crm configure</command> pour basculer vers le shell crm interactif.
+    </para>
+   </step>
+   <step>
+    <para>
+     Entrez la commande suivante pour créer les deux ressources primitives et les ajouter à un groupe, <literal>g-booth</literal> :
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip-booth ocf:heartbeat:IPaddr2 \
+  params iflabel="ha" nic="eth1" cidr_netmask="24"
+  params rule #cluster-name eq amsterdam ip="192.168.201.151" \
+  params rule #cluster-name eq berlin ip="192.168.202.151" 
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> booth ocf:pacemaker:booth-site \
+  meta resource-stickiness="INFINITY" \
+  params config="nfs" op monitor interval="10s"
+<prompt role="custom">crm(live)configure# </prompt><command>group</command> g-booth ip-booth booth</screen>
+    <para>
+     Avec cette configuration, chaque daemon de booth sera disponible sur son adresse IP individuelle, indépendamment du noeud sur lequel le daemon est exécuté.
+    </para>
+   </step>
+   <step>
+    <para>
+     Passez en revue vos modifications en entrant la commande <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si tout est correct, soumettez vos modifications en entrant la commande <command>commit</command> et quittez la configuration crm live avec la commande <command>exit</command>.
+    </para>
+    <para>
+     La configuration est enregistrée dans le CIB.
+    </para>
+   </step>
+  </procedure>
+
+  <procedure xml:id="pro.ha.geo.setup.rsc.order">
+   <title>Ajout d'une contrainte de commande</title> 
+   <para>
+      Si un ticket a été accordé à un site mais que, pour une raison quelconque, tous les noeuds de ce site ne parviennent pas à héberger le groupe de ressources <systemitem class="daemon">boothd</systemitem>, une situation <quote>split-brain</quote> peut se produire au niveau des sites géographiquement dispersés. Dans ce cas, aucune instance <systemitem class="daemon">boothd</systemitem> ne sera disponible pour gérer en toute sécurité le basculement du ticket vers un autre site. Pour éviter une potentielle violation de simultanéité du ticket (le ticket est accordé à plusieurs sites simultanément), ajoutez une contrainte d'ordre : 
+     </para>  
+   <step>
+    <para>
+     Sur l'un des noeuds de la grappe amsterdam, démarrez un shell et connectez-vous en tant qu'utilisateur <systemitem class="username">root</systemitem> ou équivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Entrez <command>crm configure</command> pour basculer vers le shell crm interactif.
+    </para>
+   </step>
+   <step>
+    <para>
+     Créez une contrainte d'ordre :
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-booth-before-nfs inf: g-booth ms_drbd_nfs:promote</screen>
+    <para>
+     La contrainte d'ordre <literal>o-booth-before-nfs</literal> définit que la ressource <literal>ms_drbd_nfs</literal> ne peut être promue en mode maître qu'après le démarrage du groupe de ressources <literal>g-booth</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Pour les éventuelles autres ressources qui dépendent d'un ticket donné, définissez d'autres contraintes de commande.
+    </para>
+   </step>
+   <step>
+    <para>
+     Passez en revue vos modifications en entrant la commande <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Si tout est correct, soumettez vos modifications en entrant la commande <command>commit</command> et quittez la configuration crm live avec la commande <command>exit</command>.
+    </para>
+    <para>
+     La configuration est enregistrée dans le CIB.
+    </para>
+   </step>
+  </procedure>
+  <example xml:id="ex.ha.geo.rsc.order">
+   <title>Contrainte d'ordre pour les primitives</title>
+   <para>
+    Si la ressource qui dépend d'un ticket donné n'est pas une ressource multi-état mais primitive, la contrainte d'ordre ressemble à ceci :
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-booth-before-rsc1 inf: g-booth rsc1</screen>
+   <para>
+    Elle définit que <literal>rsc1</literal> (qui dépend de <literal>ticketA</literal>) ne peut être démarré qu'après le groupe de ressources <literal>g-booth</literal>.
+   </para>
+  </example>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.rsc.sync.cib">
+
+  <title>Transfert de la configuration des ressources à d'autres sites de grappe</title>
+  <para>
+   Si vous avez configuré des ressources pour un site de grappe comme décrit à la <xref linkend="sec.ha.geo.rsc.drbd" xrefstyle="select:label"/> et à la <xref linkend="sec.ha.geo.rsc.booth" xrefstyle="select:label"/>, votre tâche n'est pas encore terminée. Vous devez transférer la configuration des ressources à d'autres sites de votre grappe géographique.
+  </para>
+  <para>
+   Pour simplifier le transfert, vous pouvez marquer les ressources nécessaires sur <emphasis>tous</emphasis> les sites de grappe, les exporter à partir du CIB actuel et les importer dans le CIB d'un autre site de grappe. La <xref linkend="pro.ha.geo.rsc.sync.cib"/> fournit un exemple de la méthode à utiliser. Elle est basée sur les conditions préalables suivantes :
+  </para>
+  <itemizedlist>
+   <title>Conditions préalables</title>
+   <listitem>
+    <para>
+     Vous disposez d'une grappe géographique avec deux sites : <literal>amsterdam</literal> et <literal>berlin</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Les noms de grappe pour chaque site sont définis dans leur fichier <filename>/etc/corosync/corosync.conf</filename> respectif :
+    </para>
+<screen>totem {
+     [...]
+     cluster_name: amsterdam
+     }</screen>
+    <para>
+     Cette opération peut soit être effectuée manuellement (en modifiant le fichier <filename>/etc/corosync/corosync.conf</filename>) ou à l'aide du module de grappe YaST comme décrit dans le manuel <citetitle>Administration Guide</citetitle> for <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase> (Guide d'Administration de SUSE Linux Enterprise High Availability Extension), disponible à l'adresse <link xlink:href="http://www.suse.com/documentation/"/>. Reportez-vous au chapitre <citetitle>Installation and Basic Setup</citetitle> (Installation et configuration de base), procédure <citetitle>Defining the First Communication Channel</citetitle> (Définition du premier canal de communication).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Vous avez configuré les ressources nécessaires pour DRBD et booth comme indiqué à la <xref linkend="sec.ha.geo.rsc.drbd"/> et à la <xref linkend="sec.ha.geo.rsc.booth"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <procedure xml:id="pro.ha.geo.rsc.sync.cib">
+   <title>Transfert de la configuration des ressources à d'autres sites de grappe</title>
+   <step>
+    <para>
+     Connectez-vous à l'un des noeuds de la grappe <literal>amsterdam</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Démarrez la grappe en entrant la commande suivante :
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+   </step>
+   <step>
+    <para>
+     Entrez <command>crm configure</command> pour basculer vers le shell crm interactif.
+    </para>
+   </step>
+   <step>
+    <para>
+     Marquez les ressources et contraintes nécessaires au sein de la grappe géographique :
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Passez en revue la configuration CIB actuelle :
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt>show</screen>
+     </step>
+     <step>
+      <para>
+       Entrez la commande suivante pour regrouper les ressources liées à la grappe géographique avec la balise <literal>geo_resources</literal>:
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>tag</command> geo_resources: \
+  ip_nfs nfs_fs nfs_service drbd_nfs drbd_nfs_lower ms_drbd_nfs \
+  ms_drbd_nfs_lower g_nfs <co xml:id="co.geo.rsc.drbd"/>\
+  col_nfs_ip_with_lower  col_nfs_g_with_upper col_nfs_upper_with_ip <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
+  o_lower_drbd_before_ip_nfs o_ip_nfs_before_drbd \
+  o_drbd_nfs_before_svc <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
+  nfs-req-ticket-nfs ip-booth booth g-booth o-booth-before-nfs <co xml:id="co.geo.rsc.booth"/>
+  [...] <co xml:id="co.geo.rsc.any"/></screen>
+      <para>
+       L'ajout de balises ne crée pas de colocation ni de relation d'ordre entre les ressources.
+      </para>
+      <calloutlist>
+       <callout arearefs="co.geo.rsc.drbd">
+        <para>
+         Pour plus d'informations sur les ressources et contraintes pour DRBD, reportez-vous à la <xref linkend="sec.ha.geo.rsc.drbd"/>.
+        </para>
+       </callout>
+       <callout arearefs="co.geo.rsc.booth">
+        <para>
+         Pour plus d'informations sur les ressources et contraintes pour boothd, reportez-vous à la <xref linkend="sec.ha.geo.rsc.booth"/>.
+        </para>
+       </callout>
+       <callout arearefs="co.geo.rsc.any">
+        <para>
+         Toutes les autres ressources de votre configuration spécifique dont vous avez besoin sur tous les sites de la grappe géographique.
+        </para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step>
+      <para>
+       Passez en revue vos modifications en entrant la commande <command>show</command>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Si la configuration répond à vos souhaits, confirmez vos modifications en entrant la commande <command>submit</command> et quittez le shell crm live avec la commande <command>exit</command>.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st.ha.geo.rsc.sync.cib.export.start">
+    <para>
+     Exportez les contraintes et les ressources marquées dans un fichier nommé <filename>exported.cib</filename> :
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command> tag:geo_resources geo_resources &gt; exported.cib</screen>
+    <para>
+     La commande <command>crm configure show tag:</command><replaceable>NOM_BALISE</replaceable> affiche toutes les ressources associées à la balise <replaceable>NOM_BALISE</replaceable>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Connectez-vous à l'un des noeuds de grappe <literal>berlin</literal> et procédez comme suit :
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Démarrez la grappe en entrant la commande suivante :
+      </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+     </step>
+     <step>
+      <para>
+       Copiez le fichier <filename>exported.cib</filename> de la grappe <literal>amsterdam</literal> vers ce noeud. <remark>taroth
+        2014-11-26: alternatively, the CIB can be loaded from an URL - consider
+        if to mention this, too</remark>
+      </para>
+     </step>
+     <step>
+      <para>
+       Importez les contraintes et les ressources marquées à partir du fichier <filename>exported.cib</filename> dans le CIB de la grappe <literal>berlin</literal> :
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm configure load</command> update <replaceable>PATH_TO_FILE/exported.cib</replaceable></screen>
+      <para>
+       Lorsque vous utilisez le paramètre <option>update</option> pour la commande <command>crm configure load</command>, crmsh essaie d'intégrer le contenu du fichier à la configuration actuelle du CIB (au lieu de remplacer le CIB actuel par le contenu du fichier).
+      </para>
+     </step>
+     <step xml:id="st.ha.geo.rsc.sync.cib.import.stop">
+      <para>
+       Affichez la configuration CIB mise à jour en entrant la commande suivante :
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command></screen>
+      <para>
+       Les contraintes et ressources importées s'affichent dans le CIB.
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  <para>
+   Le résultat de cette configuration se présentera comme suit :
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Lors de l'octroi de <literal>ticket-nfs</literal> à la grappe <literal>amsterdam</literal>, le noeud hébergeant la ressource <literal>ip_nfs</literal> obtiendra l'adresse IP <literal>192.168.201.151</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Lors de l'octroi de <literal>ticket-nfs</literal> à la grappe <literal>berlin</literal>, le noeud hébergeant la ressource <literal>ip_nfs</literal> obtiendra l'adresse IP <literal>192.168.202.151</literal>.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <example xml:id="ex.ha.geo.rsc.refer.params">
+   <title>Référencement de paramètres dépendant de site dans les ressources</title>
+   <para>
+    Sur la base de l'exemple de la <xref linkend="pro.ha.geo.rsc.drbd" xrefstyle="select:label"/>, vous pouvez également créer des ressources faisant référence aux paramètres dépendant de site spécifiques d'une autre ressource, par exemple, les paramètres IP de <literal>ip_nfs</literal>. Procédez de la façon suivante :
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      Dans la grappe <literal>amsterdam</literal>, créez une ressource fictive qui référence les paramètres IP de <literal>ip_nfs</literal> et les utilise comme valeur de ses paramètres <literal>state</literal> :
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dummy1 ocf:pacemaker:Dummy \
+  params rule #cluster-name eq amsterdam \
+  @ip_nfs-instance_attributes-0-ip:state \
+  params rule #cluster-name eq berlin \
+  @ip_nfs-instance_attributes-1-ip:state \
+  op monitor interval=10</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Ajoutez une contrainte pour rendre la ressource <literal>dummy1</literal> également dépendante de <literal>ticket nfs</literal> :
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> dummy1-dep-ticket-nfs \
+  ticket-nfs: dummy1 loss-policy=stop</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Marquez la ressource et la contrainte :
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>tag</command> geo_resources_2: dummy1 \
+  dummy1-dep-ticket-nfs</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Passez en revue vos modifications en entrant la commande <command>show</command>, confirmez-les en indiquant <command>submit</command> et quittez le shell crm live avec la commande <command>exit</command>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Exportez les ressources marquées <literal>geo_resources_2</literal> à partir de la grappe <literal>amsterdam</literal> et importez-les dans le CIB de la grappe <literal>berlin</literal>, comme aux étapes (<xref linkend="st.ha.geo.rsc.sync.cib.export.start"/> à l'<xref linkend="st.ha.geo.rsc.sync.cib.import.stop"/>) de la <xref linkend="pro.ha.geo.rsc.sync.cib" xrefstyle="select:label"/>.
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    Le résultat de cette configuration se présentera comme suit :
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Lors de l'octroi de <literal>ticket-nfs</literal> à la grappe <literal>amsterdam</literal>, le fichier suivant sera créé sur le noeud qui héberge la ressource <literal>dummy</literal> :<filename>/var/lib/heartbeat/cores/192.168.201.151</filename>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Lors de l'octroi de <literal>ticket-nfs</literal> à la grappe <literal>berlin</literal>, le fichier suivant sera créé sur le noeud qui héberge la ressource <literal>dummy</literal> :<filename>/var/lib/heartbeat/cores/192.168.202.151</filename>.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </example>
+ </sect2>
+</sect1>

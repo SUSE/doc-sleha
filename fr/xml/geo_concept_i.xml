@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_concept_i.xml" version="5.0" xml:id="sec.ha.geo.concept">
+ <title>Présentation conceptuelle</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>modification</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>oui</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Les grappes géographiques basées sur <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> peuvent être considérées comme des grappes de <quote>superposition</quote>, dans lesquelles chaque site correspond à un noeud d'une grappe traditionnelle. La grappe de superposition est gérée par le mécanisme booth, qui garantit la haute disponibilité des ressources de la grappe sur ses différents sites. Pour ce faire, il utilise des objets de grappe appelés tickets, qui sont traités comme un domaine de basculement entre les sites de la grappe en cas de défaillance d'un site. Le mécanisme booth veille à ce que chaque ticket ne soit détenu que par un seul site à la fois.
+ </para>
+
+ <para>
+  La liste ci-dessous décrit de manière plus détaillée les différents composants et mécanismes qui ont été introduits pour les grappes géographiques.
+ </para>
+
+ <variablelist xml:id="vl.ha.geo.components">
+  <title>Composants et gestion des tickets</title>
+  <varlistentry xml:id="vle.ha.geo.components.ticket">
+   <term>Ticket</term>
+   <listitem>
+    <para>
+     Un ticket donne le droit d'exécuter certaines ressources sur un site de grappe spécifique. Un ticket ne peut être détenu que par un seul site à la fois. Au départ, aucun des sites ne possède de ticket ; chaque ticket doit être accordé une seule fois par l'administrateur de la grappe. Après cela, les tickets sont gérés par le booth pour le basculement automatique des ressources. Toutefois, les administrateurs peuvent aussi intervenir et octroyer ou révoquer des tickets manuellement.
+    </para>
+    <para>
+     Une fois qu'un ticket est révoqué par un administrateur, il n'est plus géré par le mécanisme booth. Pour que le ticket soit de nouveau géré par le mécanisme booth, il doit être réoctroyé à un site.
+    </para>
+    <para>
+     Des ressources peuvent être associées à un certain ticket par des dépendances. Le cas échéant, ces ressources ne sont démarrées que si le ticket en question est disponible sur un site. En revanche, si le ticket est supprimé, les ressources qui en dépendent sont automatiquement arrêtées.
+    </para>
+    <para>
+     La présence ou l'absence de tickets pour un site est enregistrée dans le CIB en tant qu'état de grappe. Un site ne peut avoir que deux états par rapport à un ticket donné : <literal>true</literal> (le site possède le ticket) ou <literal>false</literal> (le site ne possède pas le ticket). En l'absence d'un certain ticket (lors de l'état initial de la grappe géographique), la situation est traitée de la même manière qu'en cas de révocation d'un ticket. Dans les deux cas, la valeur est <literal>false</literal>.
+    </para>
+    <para>
+     Un ticket dans une grappe de superposition équivaut à une ressource dans une grappe traditionnelle. Mais contrairement aux grappes traditionnelles, une grappe de superposition ne compte qu'un seul type de ressource : les tickets. Il s'agit de ressources primitives qui ne doivent pas être configurées ni clonées.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.booth">
+   <term>Gestionnaire de tickets de grappe booth</term>
+   <listitem>
+    <para>
+     Booth est l'instance qui gère la distribution des tickets et, par conséquent, le processus de basculement entre les sites d'une grappe géographique. Chacun des arbitres et grappes participants exécute un service appelé <systemitem class="daemon">boothd</systemitem>, qui se connecte aux daemons booth en cours d'exécution sur les autres sites et échange des informations de connectivité. Une fois qu'un ticket a été octroyé à un site, le mécanisme booth peut le gérer automatiquement : si le site qui détient le ticket est hors service, les daemons booth votent pour déterminer lequel des autres sites recevra le ticket. Pour éviter de brefs échecs de connexion, les sites qui perdent le scrutin (soit explicitement, soit implicitement en étant déconnectés de l'organe électeur) doivent renoncer au ticket après un timeout. De cette manière, un ticket n'est redistribué qu'après avoir été abandonné par le site précédent. Voir aussi <xref linkend="vle.ha.geo.components.deadman"/>.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.arbitrator">
+   <term>Arbitre</term>
+   <listitem>
+    <para>
+     Chaque site exécute une instance de booth qui est chargée de communiquer avec les autres sites. Si vous disposez d'une installation comportant un nombre pair de sites, vous avez besoin d'une instance supplémentaire pour parvenir à un consensus sur des décisions telles que le basculement des ressources entre les sites. Le cas échéant, ajoutez un ou plusieurs arbitres s'exécutant sur d'autres sites. Les arbitres sont des machines uniques qui exécutent une instance de booth dans un mode particulier. Comme toutes les instances de booth communiquent les unes avec les autres, les arbitres aident à prendre des décisions plus fiables concernant l'octroi ou la révocation de tickets. Les arbitres ne peuvent détenir aucun ticket.
+    </para>
+    <para>
+     Un arbitre joue un rôle particulièrement important dans un scénario à deux sites. Par exemple, l'interruption de la communication entre le site <literal>A</literal> et le site <literal>B</literal> peut s'expliquer de deux façons :
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Une défaillance du réseau entre les sites <literal>A</literal> et <literal>B</literal>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       L'arrêt du site <literal>B</literal>.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     Toutefois, si le site <literal>C</literal> (arbitre) peut toujours communiquer avec le site <literal>B</literal>, ce dernier doit toujours être opérationnel.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>Basculement de ticket</term>
+   <listitem>
+    <para>
+     Si un ticket est perdu, autrement dit si les autres instances de booth n'ont pas de nouvelles du propriétaire du ticket dans un délai raisonnable, l'un des sites restants acquiert le ticket. Ce processus s'appelle « basculement de ticket ». Si les membres restants ne parviennent pas à former une majorité, le ticket ne peut pas basculer.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.deadman">
+   <term>Dépendance « homme mort » (<literal>loss-policy="fence"</literal>)</term>
+   <listitem>
+    <para>
+     Une fois qu'un ticket est révoqué, l'arrêt de toutes les ressources qui en dépendent peut prendre un certain temps, en particulier dans le cas de ressources en cascade. Pour raccourcir ce processus, l'administrateur de la grappe peut configurer une stratégie <literal>loss-policy</literal> (ainsi que les dépendances de ticket) pour le cas où un ticket serait retiré à un site. Si la stratégie loss-policy est définie sur <literal>fence</literal>, les noeuds qui hébergent des ressources dépendantes sont délimités.
+    </para>
+    <warning>
+     <title>risque de perte de données</title>
+     <para>
+      D'un côté, la stratégie <literal>loss-policy="fence"</literal> accélère considérablement le processus de récupération de la grappe et garantit une migration plus rapide des ressources.
+     </para>
+     <para>
+      De l'autre, elle peut provoquer la perte de toutes les données non écrites, telles que :
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Les données résidant sur un stockage partagé (par exemple, DRBD).
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Les données se trouvant dans une base de données de réplication (par exemple, MariaDB ou PostgreSQL) qui n'ont pas encore atteint l'autre site, en raison d'une connexion réseau lente.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </warning>
+   </listitem>
+  </varlistentry>
+ </variablelist>
+
+ <figure xml:id="fig.ha.geo.example1">
+  <title>Grappe de deux sites (4 noeuds + arbitre)</title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+
+ <para>
+  Le scénario le plus courant est probablement celui d'une grappe géographique comportant deux sites et un arbitre sur un troisième site. Dans ce cas-là, trois instances de booth sont nécessaires (voir <xref linkend="fig.ha.geo.example1"/>). La limite maximale est (actuellement) fixée à 16 instances de booth.
+ </para>
+
+ <para>
+  Comme toujours, le CIB est synchronisé au sein de chaque grappe, mais n'est pas automatiquement synchronisé sur les sites d'une grappe géographique. Toutefois, à partir de <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 12, le transfert de configurations de ressource vers d'autres sites de la grappe est plus facile qu'avec les versions précédentes. Pour plus d'informations, reportez-vous à la <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+ </para>
+</sect1>

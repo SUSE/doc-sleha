@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_sync_i.xml" version="5.0" xml:id="sec.ha.geo.sync">
+ <title>Synchronisation des fichiers de configuration sur l'ensemble des sites et des arbitres</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>modification</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>oui</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Pour répliquer des fichiers de configuration importants sur tous les noeuds de la grappe et dans les grappes géographiques, utilisez Csync2. Cet outil peut gérer un nombre illimité d'hôtes triés par groupes de synchronisation. Chaque groupe de synchronisation a sa propre liste d'hôtes membres, et dispose de ses propres modèles d'inclusion/exclusion pour déterminer quels fichiers doivent être synchronisés dans le groupe. Les groupes, les noms d'hôte appartenant à chaque groupe et les règles d'inclusion/exclusion de chaque groupe sont spécifiés dans le fichier de configuration de Csync2 (<filename>/etc/csync2/csync2.cfg</filename>).
+ </para>
+
+ <para>
+  Pour l'authentification, Csync2 utilise les adresses IP et les clés pré-partagées au sein d'un groupe de synchronisation. Vous devez générer un fichier de clé pour chaque groupe de synchronisation et le copier sur tous les membres du groupe.
+ </para>
+
+ <para>
+  Csync2 contacte d'autres serveurs via un port TCP (par défaut, le port <literal>6556</literal>) et démarre des instances Csync2 distantes. Pour plus d'informations sur Csync2, reportez-vous au document <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>.
+ </para>
+
+ <sect2 xml:id="sec.ha.geo.booth.sync.csync2.setup">
+  <title>Configuration de Csync2 pour des grappes géographiques</title>
+  <para>
+   La section <citetitle>Transferring the Configuration to All Nodes</citetitle> (Transfert de la configuration sur tous les noeuds) du chapitre <phrase role="productname"><phrase os="sles">Installation and Basic Setup</phrase></phrase> (Installation et configuration de base) du manuel <citetitle>SUSE Linux Enterprise High Availability Extension</citetitle> <citetitle>Administration Guide</citetitle> (Guide d'administration de USE Linux Enterprise High Availability Extension) explique comment configurer Csync2 pour des grappes distinctes à l'aide de YaST. Toutefois, YaST ne permet pas de procéder à des configurations plus complexes de Csync2, comme celles nécessaires pour les grappes géographiques. Pour effectuer la configuration ci-dessous (illustrée dans la <xref linkend="fig.ha.geo.csync.config"/>), configurez Csync2 manuellement en modifiant les fichiers de configuration.
+  </para>
+  <para>
+   Pour paramétrer Csync2 de manière à synchroniser des fichiers dans les grappes locales, mais aussi sur des sites géographiquement dispersés, vous devez définir deux groupes de synchronisation dans la configuration de Csync2 :
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Un groupe global <literal>ha_global</literal> (pour les fichiers qui doivent être synchronisés globalement, sur l'ensemble des sites et arbitres appartenant à une grappe géographique).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Un groupe pour le site de grappe local <literal>ha_local</literal> (pour les fichiers qui doivent être synchronisés au sein de la grappe locale).
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Pour obtenir un aperçu des différents fichiers de configuration Csync2 de pour les deux groupes de synchronisation, reportez-vous à la <xref linkend="fig.ha.geo.csync.config"/>.
+  </para>
+  <figure xml:id="fig.ha.geo.csync.config">
+   <title>Exemple de configuration de Csync2 pour les grappes géographiques</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="multi-site-csync2.svg" width="100%"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="multi-site-csync2.png" width="100%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <para>
+   Les fichiers de clé d'authentification et leurs références sont indiqués en rouge. Les noms des fichiers de configuration de Csync2 sont indiqués en bleu, et leurs références en vert. Pour plus d'informations, reportez-vous à la section <xref linkend="vl.fig.ha.geo.csync.config.files"/>.
+  </para>
+  <variablelist xml:id="vl.fig.ha.geo.csync.config.files">
+   <title>Exemple de configuration de Csync2 : fichiers de configuration</title>
+   <varlistentry xml:id="vle.ha.geo.csync.csync2.cfg">
+    <term><filename>/etc/csync2/csync2.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      Il s'agit du principal fichier de configuration de Csync2. Il est volontairement court et simple, et contient les éléments suivants :
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        La définition du groupe de synchronisation <literal>ha_local</literal>. Le groupe se compose de deux noeuds (<literal>this-site-host-1</literal> et <literal>this-site-host-2</literal>) et utilise le fichier <filename>/etc/csync2/ha_local.key</filename> pour l'authentification. Une liste des fichiers à synchroniser uniquement pour ce groupe est définie dans un autre de fichier de configuration de Csync2 (<filename>/etc/csync2/ha_local.cfg</filename>) inclus avec l'instruction <literal>config</literal>.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Une référence à un autre de fichier de configuration de Csync2 (<filename>/etc/csync2.cfg/ha_global.cfg</filename>) inclus avec l'instruction <literal>config</literal>.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.geo.csync.ha_local.cfg">
+    <term><filename>/etc/csync2/ha_local.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      Ce fichier concerne uniquement la grappe locale. Il contient une liste des fichiers à synchroniser uniquement dans le groupe de synchronisation <literal>ha_local</literal>, dans la mesure où ces fichiers sont propres à chaque grappe. Les plus importants sont les suivants :
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/csync2.cfg</filename>, le fichier qui contient la liste des noeuds de la grappe locale.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/ha_local.key</filename>, la clé d'authentification à utiliser pour la synchronisation Csync2 au sein de la grappe locale.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/corosync/corosync.conf</filename>, le fichier qui définit les canaux de communication entre les noeuds de la grappe locale.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/corosync/authkey</filename>, la clé d'authentification Corosync.
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      Les autres fichiers de la liste dépendent de votre installation de grappe spécifique. Les fichiers listés dans la <xref linkend="fig.ha.geo.csync.config"/> ne sont que des exemples. Si vous souhaitez également synchroniser des fichiers pour des applications propres à un site, incluez-les aussi dans le fichier <filename>ha_local.cfg</filename>. Même si le fichier <filename>ha_local.cfg</filename> est destiné aux noeuds appartenant à un site de votre grappe géographique, le contenu peut être identique sur tous les sites. Si vous avez besoin de différents ensembles d'hôtes ou de différentes clés, vous devrez peut-être ajouter des groupes supplémentaires.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.geo.csync.ha_global.cfg">
+    <term><filename>/etc/csync2.cfg/ha_global.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      Ce fichier définit le groupe de synchronisation Csync2 <literal>ha_global</literal>. Ce groupe couvre <emphasis>tous</emphasis> les noeuds de grappe sur plusieurs sites, y compris l'arbitre. Étant donné qu'il est recommandé d'utiliser une clé distincte pour chaque groupe de synchronisation Csync2, ce groupe utilise le fichier <filename>/etc/csync2/ha_global.key</filename> pour l'authentification. Les instructions d'inclusion (<literal>include</literal>) définissent la liste des fichiers à synchroniser dans le groupe de synchronisation <literal>ha_global</literal>. Les plus importants sont les suivants :
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/ha_global.cfg</filename> et <filename>/etc/csync2/ha_global.key</filename> (fichier de configuration pour le groupe de synchronisation <literal>ha_global</literal> et clé d'authentification utilisée pour la synchronisation au sein du groupe).
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/booth/</filename>, le répertoire par défaut qui contient la configuration de booth. Si vous utilisez une configuration de booth pour plusieurs locataires, ce répertoire contient plusieurs fichiers de configuration de booth. Si vous utilisez l'authentification pour le booth, il est utile de placer le fichier de clé dans ce répertoire aussi. 
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/drbd.conf</filename> et <filename>/etc/drbd.d</filename> (si vous utilisez DRBD dans votre installation de grappe). La configuration de DRBD peut être synchronisée globalement, dans la mesure où la configuration est déduite des noms d'hôte contenus dans le fichier de configuration de ressource.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/zypp/repos.de</filename>. Les dépôts de paquetages sont susceptibles d'être identiques sur tous les noeuds de grappe.
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      Les autres fichiers indiqués (<filename>/etc/root/<replaceable>*</replaceable></filename>) sont des exemples qui peuvent être inclus par souci de commodité (pour faciliter la vie d'un administrateur de grappe).
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <note>
+   <para>
+    Les fichiers <filename>csync2.cfg</filename> et <filename>ha_local.key</filename> sont propres aux sites, autrement dit vous devez en créer des différents pour chaque site de grappe. Les fichiers sont identiques sur les noeuds appartenant à la même grappe, mais sont différents sur une autre grappe. Chaque fichier <filename>csync2.cfg</filename> doit contenir une liste des hôtes (noeuds de grappe) appartenant au site, ainsi qu'une clé d'authentification propre au site.
+   </para>
+   <para>
+    L'arbitre requiert aussi un fichier <filename>csync2.cfg</filename>. Cependant, il doit uniquement référencer le fichier <filename>ha_global.cfg</filename>.
+   </para>
+  </note>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.booth.sync.csync2.start">
+  <title>Synchronisation des modifications à l'aide de Csync2</title>
+  <para>
+   Pour synchroniser correctement les fichiers à l'aide de Csync2, les conditions préalables suivantes doivent être remplies :
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     La même configuration Csync2 est disponible sur toutes les machines qui appartiennent au même groupe de synchronisation.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     La clé d'authentification Csync2 de chaque groupe de synchronisation doit être disponible sur tous les membres de ce groupe.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+    Csync2 doit s'exécuter sur <emphasis>tous</emphasis> les nœuds et l'arbitre.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Avant d'exécuter Csync2 pour la première fois, vous devez donc effectuer les préparatifs suivants :
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Connectez-vous à une machine par groupe de synchronisation, et générez une clé d'authentification pour le groupe concerné :
+    </para>
+    <screen><prompt role="root">root # </prompt><command>csync2</command> -k <replaceable>NAME_OF_KEYFILE</replaceable></screen>
+    <para>
+     Toutefois, ne régénérez <emphasis>pas</emphasis> le fichier de clé sur un autre membre du même groupe.
+    </para>
+    <para>
+     Si l'on se base sur la <xref linkend="fig.ha.geo.csync.config"/>, les fichiers de clé suivants seraient générés :<filename>/etc/csync2/ha_global.key</filename> et une clé locale (<filename>/etc/csync2/ha_local.key</filename>) par site.
+    </para>
+   </step>
+   <step>
+    <para>
+     Copiez chaque fichier de clé sur <emphasis>tous</emphasis> les membres du groupe de synchronisation correspondant. En ce qui concerne la <xref linkend="fig.ha.geo.csync.config"/> :
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Copiez le fichier <filename>/etc/csync2/ha_global.key</filename> sur <emphasis>toutes</emphasis> les parties (l'arbitre et tous les noeuds de grappe sur tous les sites de votre grappe géographique). Le fichier de clé doit être disponible sur tous les hôtes figurant dans le groupe <literal>ha_global</literal> défini dans le fichier <filename>ha_global.cfg</filename>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Copiez le fichier de clé locale de chaque site (<filename>/etc/csync2/ha_local.key</filename>) sur tous les noeuds de grappe appartenant au site correspondant de votre grappe géographique.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Copiez le fichier de configuration propre au site (<filename>/etc/csync2/csync2.cfg</filename>) sur tous les noeuds de grappe appartenant au site correspondant de votre grappe géographique et à l'arbitre.
+    </para>
+   </step>
+   <step>
+    <para>
+     Exécutez la commande ci-dessous sur tous les noeuds et l'arbitre pour lancer automatiquement le service csync2 au moment du démarrage :
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> enable csync2.socket</screen>
+   </step>
+   <step>
+    <para>
+     Exécutez la commande ci-dessous sur tous les noeuds et l'arbitre pour démarrer immédiatement le service :
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start csync2.socket</screen>
+   </step>
+  </procedure>
+  <procedure xml:id="pro.ha.geo.setup.csync2.start">
+   <title>Synchronisation des fichiers à l'aide de Csync2</title>
+   <step>
+    <para>
+     Pour synchroniser tous les fichiers une seule fois au départ, exécutez la commande ci-dessous sur la machine <emphasis>à partir de laquelle</emphasis> vous souhaitez copier la configuration :
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-xv</option></screen>
+    <para>
+     Cette opération permet de synchroniser une seule fois tous les fichiers en les distribuant sur les autres membres des groupes de synchronisation. Si tous les fichiers sont synchronisés correctement, Csync2 termine l'opération sans erreur.
+    </para>
+    <para>
+     Si un ou plusieurs fichiers à synchroniser ont été modifiés sur d'autres machines (pas uniquement sur la machine actuelle), Csync2 signale un conflit. Le cas échéant, un message similaire à celui figurant ci-dessous s'affiche :
+    </para>
+<screen>While syncing file /etc/corosync/corosync.conf:
+ERROR from peer site-2-host-1: File is also marked dirty here!
+Finished with 1 errors.</screen>
+   </step>
+   <step>
+    <para>
+     Si vous êtes certain que la version de fichier présente sur la machine actuelle est la <quote>meilleure</quote>, vous pouvez résoudre le conflit en forçant ce fichier et en réeffectuant la synchronisation :
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-f</option> /etc/corosync/corosync.conf
+<prompt role="root">root # </prompt><command>csync2</command> <option>-x</option></screen>
+   </step>
+  </procedure>
+  <para>
+   Pour plus d'informations sur les options de Csync2, exécutez <command>csync2 </command> <option>-help</option>.
+  </para>
+  <note>
+   <title>exécution de la synchronisation après toutes modifications</title>
+   <para>
+    L'outil Csync2 ne fait que distribuer les modifications. Il ne synchronise <emphasis>pas</emphasis> en permanence les fichiers entre les machines.
+   </para>
+   <para>
+    Chaque fois que vous mettez à jour des fichiers à synchroniser, vous devez distribuer les modifications sur les autres machines appartenant au même groupe de synchronisation. Pour ce faire, exécutez la commande <command>csync2</command> <option>-xv</option> sur la machine sur laquelle vous avez effectué les modifications. Si vous exécutez la commande sur une des autres machines comportant des fichiers inchangés, il ne se passera rien.
+   </para>
+  </note>
+ </sect2>
+</sect1>
