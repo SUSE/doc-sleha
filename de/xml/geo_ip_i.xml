@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_ip_i.xml" version="5.0" xml:id="sec.ha.geo.ip.relocation">
+
+
+ <title>Einrichten der IP-Relokation über DNS-Update</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>Bearbeiten</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>Ja</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Wenn eine Site Ihres GeoClusters ausfällt und ein Ticket-Failover stattfindet, müssen Sie in der Regel das Netzwerk-Routing entsprechend anpassen (oder Sie müssen einen Netzwerk-Failover für jedes Ticket konfiguriert haben). Je nach der Art des Service, der an ein Ticket gebunden ist, gibt es eine Alternativlösung, um das Routing neu zu konfigurieren: Sie können dynamische DNS-Updates verwenden und stattdessen die IP-Adresse für einen Service ändern.
+ </para>
+
+ <para>
+  Für dieses Szenario müssen die folgenden Voraussetzungen erfüllt sein:
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    Der Service, für den ein Failover erfolgen soll, muss an einen Hostnamen gebunden sein.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Der DNS-Server muss für dynamische DNS-Updates konfiguriert sein. Informationen zum Ausführen dieses Schritts mit „BIND/named“ finden Sie in der Dokumentation zu <literal>named</literal> oder unter <link xlink:href="http://www.semicomplete.com/articles/dynamic-dns-with-dhcp/"/>. <remark>taroth 2014-11-21: lmb, would you consider the aforementioned link appropriate (WRT to
+     our customers and the kind of setup that is needed here)?</remark> Weitere Informationen zum Einrichten von DNS einschließlich dynamischer Updates von Zonendaten finden Sie im Kapitel <citetitle>Domain Name System (DNS)</citetitle> des Administrationshandbuchs für SUSE Linux Enterprise Server. Dieses ist unter <link xlink:href="http://www.suse.com/documentation/"/> verfügbar.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    In den folgenden Beispielen wird angenommen, dass die DNS-Updates für die zu aktualisierende Zone durch einen gemeinsamen Schlüssel (TSIG-Schlüssel) geschützt sind. Der Schlüssel lässt sich mit <command>dnssec-keygen</command> erstellen:
+   </para>
+<screen><prompt role="root">root # </prompt><command>dnssec-keygen</command> -a hmac-md5 -b 128 -n USER geo-update</screen>
+   <para>
+    Sie finden weitere Informationen auf der man-Seite zu <command>dnssec-keygen</command> oder im Administrationshandbuch für SUSE Linux Enterprise Server 12 SP2 unter <link xlink:href="http://www.suse.com/documentation/"/>. Lesen Sie im Kapitel <citetitle>Domain Name System (DNS)</citetitle> den Abschnitt <citetitle>Sichere Transaktionen</citetitle>.
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <para>
+  <xref linkend="ex.ha.geo.dyn.dns.rsc.config"/> verdeutlicht, wie der Ressourcenagent <systemitem>ocf:heartbeat:dnsupdate</systemitem> zum Verwalten des Kommandos <command>nsupdate</command> verwendet wird. <remark>taroth 2014-11-21: lmb, is the following correct? it
+   is mentioned in the description of fate#316112, however, your example in c#9 mentions focuses on
+   IPv4 only...</remark> Der Ressourcenagent unterstützt sowohl IPv4 als auch IPv6.
+ </para>
+
+ <example xml:id="ex.ha.geo.dyn.dns.rsc.config">
+  <title>Ressourcenkonfiguration für dynamische DNS-Updates</title>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dns-update-ip ocf:heartbeat:dnsupdate params \
+  hostname="www.domain.com"<co xml:id="co.dyn.dns.hostname"/> ip="192.168.3.4"<co xml:id="co.dyn.dns.ip"/>\
+  keyfile="<replaceable>/etc/whereever/Kgeo-update*</replaceable>.key"<co xml:id="co.dyn.dns.key"/>\
+  server="192.168.1.1"<co xml:id="co.dyn.dns.srv"/> serverport="53"<co xml:id="co.dyn.dns.srv.port"/></screen>
+  <calloutlist>
+   <callout arearefs="co.dyn.dns.hostname">
+    <para>
+     Hostname, der an den Service gebunden ist, für den zusammen mit dem Ticket ein Failover stattfinden muss. Die IP-Adresse dieses Hostnamens muss über dynamische DNS-Updates aktualisiert werden.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.ip">
+    <para>
+     IP-Adresse des Servers, der den zu migrierenden Service hostet. <remark>taroth 2014-11-21:
+     lmb, this description taken from fate c#9 is IMHO a bit misleading as it seems to imply that
+     this param is about the *current* IP address. However, from the description in
+     /usr/lib/ocf/resource.d/heartbeat/dnsupdate, I think this needs to be the IP address that
+     will be used for the hostname *after* failover - is that correct?</remark> Die hier angegebene IP-Adresse kann auch der Cluster-Steuerung unterliegen. Damit wird kein lokaler Failover verarbeitet, aber es wird sichergestellt, dass Außenstehende nach einem Ticket-Failover an die richtige Site geleitet werden.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.key">
+    <para>
+     Pfad zu der Datei mit dem mit <command>dnssec-keygen</command> generierten öffentlichen Schlüssel.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.srv">
+    <para>
+     IP-Adresse des DNS-Servers, an den die Updates gesendet werden sollen. Wird kein Server angegeben, wird standardmäßig der Master-Server für die richtige Zone angegeben.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.srv.port">
+    <para>
+     Port, der für die Kommunikation mit dem DNS-Server verwendet werden soll. Diese Option ist nur wirksam, wenn ein DNS-Server angegeben ist.
+    </para>
+   </callout>
+  </calloutlist>
+  <para>
+   Mit der obigen Ressourcenkonfiguration kümmert sich der Ressourcenagent darum, dass die ausgefallene GeoCluster-Site aus dem DNS-Eintrag entfernt wird und die IP-Adresse für einen Service über ein dynamisches DNS-Update geändert wird.
+  </para>
+ </example>
+</sect1>

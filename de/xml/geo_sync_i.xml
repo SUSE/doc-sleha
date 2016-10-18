@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_sync_i.xml" version="5.0" xml:id="sec.ha.geo.sync">
+ <title>Synchronisieren von Konfigurationsdateien zwischen allen Sites und Vermittlern</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>Bearbeiten</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>Ja</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Zum Replizieren wichtiger Konfigurationsdateien zwischen allen Knoten im Cluster und zwischen GeoClustern verwenden Sie Csync2. Csync2 unterstützt beliebig viele in Synchronisierungsgruppen eingeteilte Hosts. Jede Synchronisierungsgruppe weist eine eigene Liste von Mitgliedshosts und eigene „include/exclude“-Schemata auf, die angeben, welche Dateien in der Synchronisierungsgruppe synchronisiert werden sollen. Die Gruppen, die Namen der zu den einzelnen Gruppen gehörenden Hosts sowie die „include/exclude“-Regeln für die einzelnen Gruppen werden in der Csync2-Konfigurationsdatei <filename>/etc/csync2/csync2.cfg</filename> angegeben.
+ </para>
+
+ <para>
+  Für die Authentifizierung verwendet Csync2 die IP-Adressen und Pre-Shared-Keys (vorher vereinbarte Schlüssel) innerhalb einer Synchronisierungsgruppe. Sie müssen für jede Synchronisierungsgruppe eine Schlüsseldatei generieren und diese auf alle Mitglieder der Gruppe kopieren.
+ </para>
+
+ <para>
+  Csync2 spricht andere Server über einen TCP-Port (standardmäßig <literal>6556</literal>) an und startet Csync2-Remote-Instanzen. Ausführliche Informationen zu Csync2 finden Sie unter <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>.
+ </para>
+
+ <sect2 xml:id="sec.ha.geo.booth.sync.csync2.setup">
+  <title>Csync2-Einrichtung für GeoCluster</title>
+  <para>
+   Die Vorgehensweise zum Einrichten von Csync2 für einzelne Cluster mit YaST wird im <citetitle>Administration Guide</citetitle> (Administrationshandbuch) für <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>, Kapitel <citetitle>Installation and Basic Setup</citetitle> (Installation und grundlegende Einrichtung), Abschnitt <citetitle>Transferring the Configuration to All Nodes</citetitle> (Übertragen der Konfiguration auf alle Knoten) beschrieben. Komplexere Csync2-Einrichtungen, wie sie für GeoCluster erforderlich sind, lassen sich mit YaST jedoch nicht ausführen. Konfigurieren Sie für die folgende, in <xref linkend="fig.ha.geo.csync.config"/> dargestellte Einrichtung Csync2 manuell, indem Sie die Konfigurationsdateien bearbeiten.
+  </para>
+  <para>
+   Um Csync2 so anzupassen, dass Dateien nicht nur innerhalb lokaler Cluster, sondern auch zwischen geografisch verteilten Sites synchronisiert werden, müssen Sie in der Csync2-Konfiguration zwei Synchronisierungsgruppen definieren:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Die globale Gruppe <literal>ha_global</literal> (für die Dateien, die global zwischen allen zu einem GeoCluster gehörenden Sites und Vermittlern synchronisiert werden müssen)
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Die Gruppe <literal>ha_local</literal> für die lokale Cluster-Site (für die Dateien, die innerhalb des lokalen Clusters synchronisiert werden müssen)
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Einen Überblick über die verschiedenen Csync2-Konfigurationsdateien für die beiden Synchronisierungsgruppen erhalten Sie in <xref linkend="fig.ha.geo.csync.config"/>.
+  </para>
+  <figure xml:id="fig.ha.geo.csync.config">
+   <title>Beispiel einer Csync2-Einrichtung für GeoCluster</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="multi-site-csync2.svg" width="100%"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="multi-site-csync2.png" width="100%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <para>
+   Authentifizierungsschlüsseldateien und die zugehörigen Bezüge sind rot dargestellt. Die Namen der Csync2-Konfigurationsdateien sind blau und die entsprechenden Bezüge grün dargestellt. Detaillierte Informationen finden Sie in <xref linkend="vl.fig.ha.geo.csync.config.files"/>.
+  </para>
+  <variablelist xml:id="vl.fig.ha.geo.csync.config.files">
+   <title>Beispiel einer Csync2-Einrichtung: Konfigurationsdateien</title>
+   <varlistentry xml:id="vle.ha.geo.csync.csync2.cfg">
+    <term><filename>/etc/csync2/csync2.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      Die Hauptkonfigurationsdatei für Csync2. Sie ist absichtlich kurz und einfach gehalten und umfasst Folgendes:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Die Definition der Synchronisierungsgruppe <literal>ha_local</literal>. Die Gruppe setzt sich aus den zwei Knoten (<literal>this-site-host-1</literal> und <literal>this-site-host-2</literal>) zusammen und verwendet zur Authentifizierung <filename>/etc/csync2/ha_local.key</filename>. In einer anderen Csync2-Konfigurationsdatei mit dem Namen <filename>/etc/csync2/ha_local.cfg</filename> ist eine nur für diese Gruppe geltende Liste von zu synchronisierenden Dateien definiert. Sie wird mit der Anweisung <literal>config</literal> eingeschlossen.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Einen Bezug zu einer anderen Csync2-Konfigurationsdatei mit dem Namen <filename>/etc/csync2.cfg/ha_global.cfg</filename>, die mit der Anweisung <literal>config</literal> eingeschlossen wird.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.geo.csync.ha_local.cfg">
+    <term><filename>/etc/csync2/ha_local.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      Diese Datei gilt nur für den lokalen Cluster. Sie gibt eine Liste der Dateien an, die nur in der Synchronisierungsgruppe <literal>ha_local</literal> synchronisiert werden sollen, da sie Cluster-spezifisch sind. Am wichtigsten sind folgende Dateien:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/csync2.cfg</filename>, denn diese Datei enthält die Liste der lokalen Cluster-Knoten
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/ha_local.key</filename>, der für die Csync2-Synchronisierung im lokalen Cluster zu verwendende Authentifizierungsschlüssel
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/corosync/corosync.conf</filename>, denn diese Datei definiert die Kommunikationskanäle zwischen den lokalen Cluster-Knoten
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/corosync/authkey</filename>, der Corosync-Authentifizierungsschlüssel
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      Die übrigen Dateien in der Liste hängen von der jeweiligen Cluster-Einrichtung ab. Die in <xref linkend="fig.ha.geo.csync.config"/> aufgelisteten Dateien sind lediglich Beispiele. Wenn Sie auch Dateien für Site-spezifische Anwendungen synchronisieren möchten, schließen Sie diese ebenfalls in <filename>ha_local.cfg</filename> ein. <filename>ha_local.cfg</filename> ist zwar auf die Knoten ausgerichtet, die zu einer Site des GeoClusters gehören, doch der Inhalt kann auf allen Sites identisch sein. Wenn Sie unterschiedliche Gruppen von Hosts oder andere Schlüssel benötigen, müssen Sie ggf. zusätzliche Gruppen hinzufügen.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.geo.csync.ha_global.cfg">
+    <term><filename>/etc/csync2.cfg/ha_global.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      Mit dieser Datei wird die Csync2-Synchronisierungsgruppe <literal>ha_global</literal> definiert. Diese Gruppe umfasst <emphasis>alle</emphasis> Cluster-Knoten auf mehreren Sites einschließlich des Vermittlers. Da empfohlen wird, für jede Csync2-Synchronisierungsgruppe einen anderen Schlüssel zu verwenden, wird für diese Gruppe zur Authentifizierung <filename>/etc/csync2/ha_global.key</filename> verwendet. Mit den <literal>include</literal>-Anweisungen werden die Dateien festgelegt, die in der Synchronisierungsgruppe <literal>ha_global</literal> synchronisiert werden sollen. Am wichtigsten sind folgende Dateien:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/ha_global.cfg</filename> und <filename>/etc/csync2/ha_global.key</filename> (die Konfigurationsdatei für die Synchronisierungsgruppe <literal>ha_global</literal> und der für die Synchronisierung in der Gruppe verwendete Authentifizierungsschlüssel).
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/booth/</filename>, das Standardverzeichnis der booth-Konfiguration. Bei Verwendung einer booth-Einrichtung für mehrere Mandanten enthält dieses Verzeichnis mehrere booth-Konfigurationsdateien. Wenn Sie die Authentifizierung für booth verwenden, ist es sinnvoll, auch die Schlüsseldatei in diesem Verzeichnis abzulegen. 
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/drbd.conf</filename> und <filename>/etc/drbd.d</filename> (wenn in der Cluster-Einrichtung DRBD verwendet wird). Die DRBD-Konfiguration kann global synchronisiert werden, da die Konfiguration von den in der Ressourcenkonfigurationsdatei enthaltenen Hostnamen abgeleitet wird.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/zypp/repos.de</filename>. Die Paket-Repositorys sind wahrscheinlich auf allen Cluster-Knoten gleich.
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      Die anderen dargestellten Dateien (<filename>/etc/root/<replaceable>*</replaceable></filename>) sind Beispiele. Sie können aus Bequemlichkeitsgründen eingeschlossen werden (zur Vereinfachung der Aufgaben eines Cluster-Administrators).
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <note>
+   <para>
+    Die Dateien <filename>csync2.cfg</filename> und <filename>ha_local.key</filename> sind Site-spezifisch, was bedeutet, dass für jede Cluster-Site eigene Dateien erstellt werden müssen. Auf den Knoten, die zu demselben Cluster gehören, sind die Dateien identisch, auf einem anderen Cluster hingegen unterschiedlich. Jede Datei <filename>csync2.cfg</filename> muss eine Liste der zu der Site gehörenden Hosts (Cluster-Knoten) sowie einen Site-spezifischen Authentifizierungsschlüssel enthalten.
+   </para>
+   <para>
+    Auch für den Vermittler ist eine Datei <filename>csync2.cfg</filename> erforderlich. Diese muss jedoch nur auf <filename>ha_global.cfg</filename> Bezug nehmen.
+   </para>
+  </note>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.booth.sync.csync2.start">
+  <title>Synchronisieren von Änderungen mit Csync2</title>
+  <para>
+   Damit die Dateien mit Csync2 erfolgreich synchronisiert werden können, müssen die folgenden Voraussetzungen erfüllt sein:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Auf allen Rechnern, die zu derselben Synchronisierungsgruppe gehören, muss dieselbe Csync2-Konfiguration verfügbar sein.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Der Csync2-Authentifizierungsschlüssel für jede Synchronisierungsgruppe muss auf allen Mitgliedern dieser Gruppe verfügbar sein.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+    Csync2 muss auf <emphasis>allen</emphasis> Knoten und auf dem Vermittler ausgeführt werden.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Vor der ersten Ausführung von Csync2 müssen Sie daher die folgenden Vorbereitungen treffen:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Melden Sie sich pro Synchronisierungsgruppe bei einem Rechner an und generieren Sie einen Authentifizierungsschlüssel für die betreffende Gruppe:
+    </para>
+    <screen><prompt role="root">root # </prompt><command>csync2</command> -k <replaceable>NAME_OF_KEYFILE</replaceable></screen>
+    <para>
+     Generieren Sie jedoch die Schlüsseldatei <emphasis>nicht</emphasis> erneut auf einem anderen Mitglied derselben Gruppe.
+    </para>
+    <para>
+     In dem in <xref linkend="fig.ha.geo.csync.config"/> gezeigten Beispiel hätte dies die Erstellung der folgenden Schlüsseldateien zur Folge: <filename>/etc/csync2/ha_global.key</filename> und ein lokaler Schlüssel (<filename>/etc/csync2/ha_local.key</filename>) pro Site.
+    </para>
+   </step>
+   <step>
+    <para>
+     Kopieren Sie jede Schlüsseldatei auf <emphasis>alle</emphasis> Mitglieder der jeweiligen Synchronisierungsgruppe. Bezogen auf <xref linkend="fig.ha.geo.csync.config"/>:
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Kopieren Sie <filename>/etc/csync2/ha_global.key</filename> auf <emphasis>alle</emphasis> beteiligten Rechner (den Vermittler und alle Cluster-Knoten auf allen Sites des GeoClusters). Die Schlüsseldatei muss auf allen Hosts verfügbar sein, die in der in <filename>ha_global.cfg</filename> definierten Gruppe <literal>ha_global</literal> aufgeführt sind.
+      </para>
+     </step>
+     <step>
+      <para>
+       Kopieren Sie die lokale Schlüsseldatei für jede Site (<filename>/etc/csync2/ha_local.key</filename>) auf alle Cluster-Knoten, die zur jeweiligen Site des GeoClusters gehören.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Kopieren Sie die Site-spezifische Konfigurationsdatei <filename>/etc/csync2/csync2.cfg</filename> auf alle Cluster-Knoten, die zur jeweiligen Site des GeoClusters gehören, und auf den Vermittler.
+    </para>
+   </step>
+   <step>
+    <para>
+     Führen Sie das folgende Kommando auf allen Knoten und auf dem Vermittler aus, damit der csync2-Service beim Booten automatisch gestartet wird:
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> enable csync2.socket</screen>
+   </step>
+   <step>
+    <para>
+     Führen Sie das folgende Kommando auf allen Knoten und auf dem Vermittler aus, um den Service sofort zu starten:
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start csync2.socket</screen>
+   </step>
+  </procedure>
+  <procedure xml:id="pro.ha.geo.setup.csync2.start">
+   <title>Dateien mit Csync2 synchronisieren</title>
+   <step>
+    <para>
+     Um anfangs alle Dateien einmal zu synchronisieren, führen Sie auf dem Rechner, <emphasis>von dem</emphasis> die Konfiguration kopiert werden soll, das folgende Kommando aus:
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-xv</option></screen>
+    <para>
+     Damit werden alle Dateien einmal synchronisiert, indem sie mit einem Push-Vorgang auf die anderen Mitglieder der Synchronisierungsgruppen übertragen werden. Wird die Synchronisierung erfolgreich abgeschlossen, wird Csync2 ohne Fehler beendet.
+    </para>
+    <para>
+     Wenn eine oder mehrere zu synchronisierende Dateien auf anderen Rechnern (nicht nur auf dem aktuellen) geändert wurden, meldet Csync2 einen Konflikt. Eine Ausgabe ähnlich der folgenden wird angezeigt:
+    </para>
+<screen>While syncing file /etc/corosync/corosync.conf:
+ERROR from peer site-2-host-1: File is also marked dirty here!
+Finished with 1 errors.</screen>
+   </step>
+   <step>
+    <para>
+     Wenn Sie sich sicher sind, dass die Dateiversion auf dem aktuellen Rechner die <quote>beste</quote> ist, können Sie den Konflikt lösen, indem Sie diese Datei und eine erneute Synchronisierung erzwingen:
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-f</option> /etc/corosync/corosync.conf
+<prompt role="root">root # </prompt><command>csync2</command> <option>-x</option></screen>
+   </step>
+  </procedure>
+  <para>
+   Wenn Sie weitere Informationen zu den Csync2-Optionen benötigen, führen Sie <command>csync2 </command> <option>-help</option> aus.
+  </para>
+  <note>
+   <title>Ausführung der Synchronisierung im Push-Verfahren nach Änderungen</title>
+   <para>
+    Mit Csync2 werden Änderungen nur im Push-Verfahren übertragen. Eine kontinuierliche Synchronisierung von Dateien zwischen den Rechnern findet <emphasis>nicht</emphasis> statt.
+   </para>
+   <para>
+    Wann immer Sie Dateien, die synchronisiert werden müssen, aktualisieren, müssen Sie die Änderungen im Push-Verfahren auf die anderen Rechner derselben Synchronisierungsgruppe übertragen. Führen Sie dazu auf dem Rechner, auf dem Sie die Änderungen vorgenommen haben, <command>csync2 </command> <option>-xv</option> aus. Wenn Sie dieses Kommando auf einem der anderen Rechner, auf dem keine Dateien geändert wurden, ausführen, geschieht nichts.
+   </para>
+  </note>
+ </sect2>
+</sect1>

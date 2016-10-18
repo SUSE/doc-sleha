@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_concept_i.xml" version="5.0" xml:id="sec.ha.geo.concept">
+ <title>Konzeptüberblick</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>Bearbeiten</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>Ja</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  GeoCluster, die auf <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> basieren, können als <quote>Overlay</quote>-Cluster betrachtet werden, wobei jede Cluster-Site einem Cluster-Knoten in einem traditionellen Cluster entspricht. Der Overlay-Cluster wird durch den booth-Mechanismus verwaltet. Dieser stellt sicher, dass die Cluster-Ressourcen über verschiedene Cluster-Sites hinweg hochverfügbar sind. Erreicht wird dies durch die Verwendung von als „Ticket“ bezeichneten Cluster-Objekten, die als Failover-Domäne zwischen Cluster-Sites behandelt werden, sollte eine Site ausfallen. booth stellt sicher, dass jedes Ticket jeweils nur einer Site gehört.
+ </para>
+
+ <para>
+  In der folgenden Liste werden die einzelnen Komponenten und Mechanismen, die für GeoCluster eingeführt wurden, ausführlicher erläutert.
+ </para>
+
+ <variablelist xml:id="vl.ha.geo.components">
+  <title>Komponenten und Ticketverwaltung</title>
+  <varlistentry xml:id="vle.ha.geo.components.ticket">
+   <term>Ticket</term>
+   <listitem>
+    <para>
+     Mit einem Ticket wird das Recht zum Ausführen bestimmter Ressourcen auf einer bestimmten Cluster-Site gewährt. Ein Ticket kann jeweils nur einer Site gehören. Anfangs verfügt keine der Sites über ein Ticket. Jedes Ticket muss einmal vom Cluster-Administrator gewährt werden. Danach werden Tickets von booth verwaltet, sodass ein automatischer Failover von Ressourcen stattfindet. Administratoren können jedoch auch eingreifen und Tickets manuell gewähren oder zurückziehen.
+    </para>
+    <para>
+     Ein Ticket, das von einem Administrator zurückgezogen wurde, wird von booth nicht mehr verwaltet. Damit booth die Verwaltung des Tickets wieder aufnimmt, muss dieses zunächst erneut einer Site gewährt werden.
+    </para>
+    <para>
+     Ressourcen können über Abhängigkeiten an ein bestimmtes Ticket gebunden werden. Nur wenn das festgelegte Ticket auf einer Site verfügbar ist, werden die betreffenden Ressourcen gestartet. Umgekehrt werden beim Entfernen des Tickets die von diesem Ticket abhängigen Ressourcen automatisch gestoppt.
+    </para>
+    <para>
+     Ob für eine Site Tickets vorhanden sind oder nicht, wird in der CIB als Cluster-Status gespeichert. In Bezug auf ein bestimmtes Ticket kann eine Site nur zwei Status aufweisen: <literal>true</literal> (die Site hat das Ticket) oder <literal>false</literal> (die Site hat das Ticket nicht). Das Nichtvorhandensein eines bestimmten Tickets (im Anfangszustand des GeoClusters) wird nicht anders behandelt als die Situation nach dem Zurückziehen des Tickets. Beide spiegeln sich im Wert <literal>false</literal> wider.
+    </para>
+    <para>
+     Ein Ticket in einem Overlay-Cluster ist mit einer Ressource in einem traditionellen Cluster vergleichbar. Doch anders als bei traditionellen Clustern sind Tickets in einem Overlay-Cluster der einzige Ressourcentyp. Es handelt sich dabei um primitive Ressourcen, die nicht konfiguriert oder geklont werden müssen.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.booth">
+   <term>Cluster-Ticket-Manager booth</term>
+   <listitem>
+    <para>
+     booth ist die Instanz, die die Ticketverteilung und damit den Failover-Prozess zwischen den Sites eines GeoClusters verwaltet. Auf jedem der teilnehmenden Cluster und Vermittler wird ein Service ausgeführt: <systemitem class="daemon">boothd</systemitem>. Dieser stellt eine Verbindung mit den booth-Daemons her, die auf den anderen Sites ausgeführt werden, und tauscht Konnektivitätsinformationen mit ihnen aus. Nachdem ein Ticket einer Site gewährt wurde, kann es vom booth-Mechanismus automatisch verwaltet werden. Ist die Site, die das Ticket besitzt, außer Betrieb, entscheiden die booth-Daemons per Vote darüber, welche der anderen Sites das Ticket erhält. Zum Schutz vor kurzzeitigen Verbindungsfehlern müssen Sites, die das Vote verlieren (entweder explizit oder implizit durch Trennung der Verbindung mit der Voting-Instanz), das Ticket nach einer Zeitüberschreitung freigeben. Auf diese Weise wird sichergestellt, dass ein Ticket erst dann weitergegeben wird, wenn es von der vorherigen Site freigegeben wurde. Siehe auch <xref linkend="vle.ha.geo.components.deadman"/>.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.arbitrator">
+   <term>Vermittler</term>
+   <listitem>
+    <para>
+     Auf jeder Site wird eine booth-Instanz ausgeführt, die für die Kommunikation mit den anderen Sites zuständig ist. Bei einer Einrichtung mit einer geraden Anzahl von Sites benötigen Sie eine zusätzliche Instanz, damit bei Entscheidungen, z. B. über den Failover von Ressourcen zwischen den Sites, ein Konsens erreicht werden kann. Fügen Sie in diesem Fall einen oder mehrere Vermittler auf zusätzlichen Sites hinzu. Vermittler sind einzelne Rechner, auf denen eine booth-Instanz in einem speziellen Modus ausgeführt wird. Da alle booth-Instanzen miteinander kommunizieren, tragen Vermittler dazu bei, zuverlässigere Entscheidungen bezüglich des Gewährens oder Zurückziehens von Tickets zu treffen. Vermittler können keine Tickets besitzen.
+    </para>
+    <para>
+     Ein Vermittler ist besonders bei Szenarien mit zwei Sites wichtig. Wenn beispielsweise Site <literal>A</literal> nicht mehr mit Site <literal>B</literal> kommunizieren kann, kann das zwei Gründe haben:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Einen Netzwerkfehler zwischen <literal>A</literal> und <literal>B</literal>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Einen Ausfall von Site <literal>B</literal>
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     Wenn jedoch Site <literal>C</literal> (der Vermittler) noch mit Site <literal>B</literal> kommunizieren kann, muss Site <literal>B</literal> noch betriebsbereit sein.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>Ticket-Failover</term>
+   <listitem>
+    <para>
+     Wenn das Ticket verloren geht und daher andere booth-Instanzen ausreichend lange nichts vom Eigentümer des Tickets hören, bezieht eine der verbleibenden Sites das Ticket. Dies wird als Ticket-Failover bezeichnet. Falls die verbleibenden Mitglieder keine Mehrheit bilden können, kann kein Failover des Tickets erfolgen.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.deadman">
+   <term>Dead Man-Abhängigkeit (<literal>loss-policy="fence"</literal>)</term>
+   <listitem>
+    <para>
+     Wenn ein Ticket zurückgezogen wurde, kann es lange dauern, bis alle von diesem Ticket abhängigen Ressourcen gestoppt sind, besonders bei kaskadierenden Ressourcen. Um diesen Prozess zu verkürzen, kann der Cluster-Administrator eine <literal>loss-policy</literal> (zusammen mit den Ticketabhängigkeiten) für den Fall konfigurieren, dass ein Ticket von einer Site zurückgezogen wird. Wenn „loss-policy“ auf <literal>fence</literal> festgelegt ist, werden die Knoten, die abhängige Ressourcen hosten, eingegrenzt.
+    </para>
+    <warning>
+     <title>Potenzieller Datenverlust</title>
+     <para>
+      Einerseits lässt sich mit <literal>loss-policy="fence"</literal> die Wiederherstellung des Clusters erheblich beschleunigen und eine schnellere Migration von Ressourcen sicherstellen,
+     </para>
+     <para>
+      andererseits besteht das Risiko, dass alle noch nicht geschriebenen Daten, wie die folgenden, verloren gehen:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Daten auf gemeinsam genutztem Speicher (wie DRBD)
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Daten in einer Replikationsdatenbank (wie MariaDB oder PostgreSQL), die die andere Site aufgrund einer langsamen Netzwerkverbindung noch nicht erreicht haben
+       </para>
+      </listitem>
+     </itemizedlist>
+    </warning>
+   </listitem>
+  </varlistentry>
+ </variablelist>
+
+ <figure xml:id="fig.ha.geo.example1">
+  <title>Cluster mit zwei Sites (4 Knoten + Vermittler)</title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+
+ <para>
+  Das gängigste Szenario ist wahrscheinlich ein GeoCluster mit zwei Sites und einem einzelnen Vermittler auf einer dritten Site. Dafür sind drei booth-Instanzen erforderlich (siehe <xref linkend="fig.ha.geo.example1"/>). Die Obergrenze liegt (zurzeit) bei 16 booth-Instanzen.
+ </para>
+
+ <para>
+  Wie gewöhnlich wird die CIB innerhalb jedes Clusters synchronisiert, eine automatische Synchronisierung zwischen den Sites eines·GeoClusters findet jedoch nicht statt. Mit <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 12 lassen sich Ressourcenkonfigurationen jedoch leichter als zuvor an andere Cluster-Sites übertragen. Weitere Informationen finden Sie in <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+ </para>
+</sect1>
