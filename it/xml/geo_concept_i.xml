@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_concept_i.xml" version="5.0" xml:id="sec.ha.geo.concept">
+ <title>Panoramica concettuale</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>modifica</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>sì</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  I Geo cluster basati su <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> possono essere considerati cluster <quote>overlay</quote> dove ogni sito del cluster corrisponde a un nodo del cluster in un cluster tradizionale. Il cluster overlay viene gestito dal meccanismo di booth che garantisce un'elevata disponibilità delle risorse del cluster tra i diversi siti del cluster. È possibile ottenere questo risultato utilizzando oggetti del cluster denominati richieste, considerati come dominio di failover tra i siti del cluster, nel caso in cui un sito fosse indisponibile. Booth garantisce che ogni richiesta appartenga a un solo sito alla volta.
+ </para>
+
+ <para>
+  Nell'elenco seguente vengono spiegati in dettaglio i singoli componenti e meccanismi introdotti per i Geo cluster.
+ </para>
+
+ <variablelist xml:id="vl.ha.geo.components">
+  <title>Gestione richiesta e componenti</title>
+  <varlistentry xml:id="vle.ha.geo.components.ticket">
+   <term>Richiesta</term>
+   <listitem>
+    <para>
+     Una richiesta concede il diritto di eseguire determinate risorse su un sito specifico del cluster. La richiesta può appartenere solo a un sito alla volta. Inizialmente, nessun sito dispone di richieste; ciascuna richiesta deve essere concessa una volta dall'amministratore del cluster. In seguito, le richieste vengono gestite da booth per il failover automatico delle risorse. Gli amministratori possono, tuttavia, intervenire e concedere o revocare manualmente le richieste.
+    </para>
+    <para>
+     Una richiesta revocata da un amministratore non è più gestita da booth. Affinché booth possa iniziare a gestire di nuovo la richiesta, quest'ultima deve essere nuovamente concessa a un sito.
+    </para>
+    <para>
+     Le risorse possono essere associate a una determinata richiesta da dipendenze. Solo se la richiesta definita è disponibile in un sito, vengono avviate le risorse rispettive. Al contrario, se la richiesta viene rimossa, le risorse che dipendono da tale richiesta vengono arrestate automaticamente.
+    </para>
+    <para>
+     La presenza o assenza di richieste per un sito è memorizzata nel CIB come stato del cluster. Rispetto a una determinata richiesta, vi sono solo due stati per un sito: <literal>vero</literal> (il sito ha la richiesta) o <literal>falso</literal> (il sito non dispone della richiesta). L'assenza di una determinata richiesta (durante lo stato iniziale del Geo cluster) viene considerata analogamente alla situazione successiva alla revoca della richiesta: entrambe sono definite dal valore <literal>falso</literal>.
+    </para>
+    <para>
+     Una richiesta in un cluster overlay è simile a una risorsa in un cluster tradizionale. Rispetto ai cluster tradizionali, tuttavia, le richieste sono il solo tipo di risorsa in un cluster overlay. Sono le risorse primitive che non devono essere configurate o clonate.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.booth">
+   <term>Gestore richiesta cluster booth</term>
+   <listitem>
+    <para>
+     Booth è l'istanza che gestisce la distribuzione delle richieste e, di conseguenza, il processo di failover tra i siti di un Geo cluster. Ciascun cluster e arbitro partecipante esegue un servizio, <systemitem class="daemon">boothd</systemitem> che si collega ai daemon di booth in esecuzione negli altri siti e scambia le informazioni di connettività. Dopo aver concesso una richiesta a un sito, il meccanismo di booth può gestire automaticamente la richiesta: se il sito che detiene la richiesta non è in servizio, i daemon di booth votano quale degli altri siti otterrà la richiesta. Per la protezione da brevi errori di connessione, i siti che perdono il voto (esplicitamente o implicitamente tramite disconnessione dal corpo votante) devono abbandonare la richiesta al termine di un timeout. In questo modo, è certo che la richiesta verrà ridistribuita solo se è stata abbandonata dal sito precedente. Vedere anche <xref linkend="vle.ha.geo.components.deadman"/>.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.arbitrator">
+   <term>Arbitro</term>
+   <listitem>
+    <para>
+     Ciascun sito esegue un'istanza di booth responsabile della comunicazione con gli altri siti. Se la configurazione in uso prevede un numero pari di siti, è necessaria un'istanza aggiuntiva per ottenere il consenso sulle decisioni come failover delle risorse tra i siti. In questo caso, aggiungere uno o più arbitri in esecuzione in siti aggiuntivi. Gli arbitri sono singoli computer che eseguono un'istanza di booth in una modalità speciale. Poiché tutte le istanze di booth comunicano tra loro, gli arbitri consentono di prendere decisioni più affidabili sulla concessione o la revoca delle richieste. Gli arbitri non possono detenere richieste.
+    </para>
+    <para>
+     L'arbitro è particolarmente importante per uno scenario a due siti: ad esempio, se il sito <literal>A</literal> non può più comunicare con il sito <literal>B</literal>, vi sono due possibili cause:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Un guasto di rete tra <literal>A</literal> e <literal>B</literal>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Il sito <literal>B</literal> non è attivo.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     Tuttavia, se il sito <literal>C</literal> (l'arbitro) riesce a comunicare con il sito <literal>B</literal>, il sito <literal>B</literal> deve essere attivo e in funzione.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>Failover della richiesta</term>
+   <listitem>
+    <para>
+     Se la richiesta viene persa, ossia le altre istanze di booth non sono in grado di ascoltare il proprietario della richiesta per un periodo di tempo sufficientemente lungo, uno dei siti rimanenti acquisisce la richiesta. Questa situazione è denominata failover della richiesta. Se i membri rimanenti non possono formare una maggioranza, non si verifica il failover della richiesta.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.deadman">
+   <term>Dipendenza "dead man" (<literal>policy di perdita="delimitatore"</literal>)</term>
+   <listitem>
+    <para>
+     Dopo la revoca di una richiesta, può essere necessario un determinato intervallo prima che tutte le risorse che dipendono da tale richiesta vengano arrestate, soprattutto nel caso di risorse in serie. Per limitare tale processo, l'amministratore del cluster può configurare una <literal>policy di perdita</literal> (insieme con le dipendenze della richiesta) per il caso in cui una richiesta venga revocata da un sito. Se si imposta la policy di perdita su <literal>delimitatore</literal>, i nodi che contengono le risorse dipendenti dall'host vengono delimitati.
+    </para>
+    <warning>
+     <title>potenziale perdita di dati</title>
+     <para>
+      Da una parte, la <literal>policy di perdita="delimitatore"</literal> velocizza sensibilmente il processo di ripristino del cluster e assicura una più rapida migrazione delle risorse.
+     </para>
+     <para>
+      D'altra parte, può portare alla perdita di tutti i dati non scritti, come:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Dati presenti sull'archiviazione condivisa (ad esempio, DRBD).
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Dati in un database di replica (ad esempio, MariaDB o PostgreSQL) che non ha ancora raggiunto l'altro sito, a causa di un collegamento di rete lento.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </warning>
+   </listitem>
+  </varlistentry>
+ </variablelist>
+
+ <figure xml:id="fig.ha.geo.example1">
+  <title>Cluster a due siti (4 nodi + arbitro)</title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+
+ <para>
+  Lo scenario più comune è probabilmente un Geo cluster con due siti e un singolo arbitro su un terzo sito. Ciò richiede tre istanze di booth, vedere <xref linkend="fig.ha.geo.example1"/>. Il limite superiore è (attualmente) 16 istanze di booth.
+ </para>
+
+ <para>
+  Il CIB è sincronizzato all'interno di ciascun cluster, ma non è sincronizzato automaticamente tra tutti i siti di un Geo cluster. Tuttavia, con la versione <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 12, il trasferimento delle configurazioni di risorse negli altri siti del cluster è più semplice di prima. Per informazioni, vedere <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+ </para>
+</sect1>

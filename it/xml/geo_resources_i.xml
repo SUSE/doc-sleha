@@ -1,0 +1,586 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_resources_i.xml" version="5.0" xml:id="sec.ha.geo.rsc">
+ <title>Configurazione di vincoli e risorse del cluster</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>modifica</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>sì</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Oltre alle risorse e ai vincoli necessari per definire la specifica configurazione del cluster, i Geo cluster richiedono vincoli e risorse aggiuntivi come descritto di seguito. È possibile configurarli con la shell crm (crmsh) come dimostrato negli esempi di seguito, oppure con la HA Web Konsole (Hawk2).
+ </para>
+
+ <para>
+  Questa sezione illustra le attività specifiche dei Geo cluster. Per un'introduzione allo strumento di gestione cluster preferito e per le istruzioni generali su come configurarne risorse e vincoli, consultare uno dei seguenti capitoli nella <citetitle>Guida di amministrazione</citetitle> di <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>, disponibile da <link xlink:href="http://www.suse.com/documentation/"/>:
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    Hawk2: capitolo <citetitle>Configurazione e gestione delle risorse del cluster (Interfaccia Web)</citetitle>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    crmsh: capitolo <citetitle>Configurazione e gestione delle risorse del cluster (Riga di comando)</citetitle>
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <important>
+  <title>nessuna sincronizzazione CIB tra i siti</title>
+  <para>
+   Il CIB <emphasis>non</emphasis> viene sincronizzato automaticamente tra i siti di un Geo cluster. Questo significa che occorre configurare di conseguenza tutte le risorse che devono avere un'alta disponibilità nel Geo cluster per ogni sito.
+  </para>
+  <para>
+   Per semplificare il trasferimento della configurazione ad altri siti del cluster, è possibile configurare qualsiasi risorsa con parametri specifici del sito in modo tale che i valori del parametro dipendano dal nome del sito del cluster in cui è in esecuzione la risorsa.
+  </para>
+  <para>
+   Per ottenere questo risultato, i nomi del cluster per tale sito devono essere definiti nei rispettivi file <filename>/etc/corosync/corosync.conf</filename>. Ad esempio, <filename>/etc/corosync/corosync.conf</filename> del sito 1 (<literal>amsterdam</literal>) deve contenere la voce seguente:
+  </para>
+<screen>totem {
+   [...]
+   cluster_name: amsterdam
+   }</screen>
+  <para>
+   Dopo aver configurato le risorse su un sito, è possibile contrassegnare le risorse necessarie su tutti i siti del cluster, esportarle dal CIB corrente, quindi importarle nel CIB di un altro sito del cluster. Per informazioni, vedere <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+  </para>
+ </important>
+
+ <sect2 xml:id="sec.ha.geo.rsc.drbd">
+  <title>Risorse e vincoli per DRBD</title>
+  <para>
+   Per completare la configurazione di DRBD, è necessario configurare alcune risorse e vincoli come illustrato in <xref linkend="pro.ha.geo.rsc.drbd" xrefstyle="select:label"/> e trasferirli negli altri siti del cluster come indicato nella <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+  </para>
+  <procedure xml:id="pro.ha.geo.rsc.drbd">
+   <title>Configurazione delle risorse per un'impostazione di DRBD</title>
+   <step>
+    <para>
+     Su uno dei nodi del cluster <literal>amsterdam</literal>, avviare una shell ed eseguire il login come <systemitem class="username">root</systemitem> o equivalente.
+    </para>
+   </step>
+   <step>
+    <para>
+     Immettere <command>crm configure</command> per passare alla shell crm interattiva.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configurare il servizio (dipendente dal sito) IP per NFS come primitiva di base:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
+  params iflabel="nfs" nic="eth1" cidr_netmask="24"
+  params rule #cluster-name eq amsterdam ip="192.168.201.151" \
+  params rule #cluster-name eq berlin ip="192.168.202.151" \
+  op monitor interval=10</screen>
+   </step>
+   <step>
+    <para>
+     Configurare una risorsa del file system e una risorsa per il server NFS:
+    </para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> nfs_fs ocf:heartbeat:Filesystem \
+  params device="/dev/drbd/by-res/nfs/0" directory="/mnt/nfs" \
+  fstype="ext4"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> nfs_service systemd:nfs-server</screen>
+   </step>
+   <step>
+    <para>
+     Configurare le seguenti risorse a stato multiplo e primitive per DRBD:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> drbd_nfs ocf:linbit:drbd \
+  params drbd_resource="nfs-upper" \
+  op monitor interval="31" role="Slave" \
+  op monitor interval="30" role="Master"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> drbd_nfs_lower ocf:linbit:drbd \
+  params rule #cluster-name eq amsterdam \
+  drbd_resource="nfs-lower-amsterdam" \
+  params rule #cluster-name eq berlin \
+  drbd_resource="nfs-lower-berlin" \                                
+  op monitor interval="31" role="Slave" \
+  op monitor interval="30" role="Master"
+<prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms_drbd_nfs drbd_nfs \
+  meta master-max="1" master-node-max="1" \
+  clone-max="1" clone-node-max="1" notify="true"
+<prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms_drbd_nfs_lower drbd_nfs_lower \
+  meta master-max="1" master-node-max="1" \
+  clone-max="2" clone-node-max="1" notify="true"</screen>
+   </step>
+   <step>
+    <para>
+     Aggiungere un gruppo con i seguenti vincoli di ordinamento e co-ubicazione:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> g_nfs nfs_fs nfs_service
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_ip_with_lower \
+   inf: ip_nfs:Started  ms_drbd_nfs_lower:Master
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_g_with_upper \
+   inf: g_nfs:Started  ms_drbd_nfs:Master
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_upper_with_ip \
+   inf: ms_drbd_nfs:Master  ip_nfs:Started
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_lower_drbd_before_ip_nfs \
+   inf: ms_drbd_nfs_lower:promote  ip_nfs:start
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_ip_nfs_before_drbd \
+   inf: ip_nfs:start  ms_drbd_nfs:promote
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_drbd_nfs_before_svc \
+   inf: ms_drbd_nfs:promote  g_nfs:start</screen>
+   </step>
+   <step>
+    <para>
+     Rivedere le modifiche con <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Se tutto è corretto, inviare le modifiche con <command>commit</command> e uscire dalla configurazione live crm con <command>exit</command>.
+    </para>
+    <para>
+     La configurazione viene salvata nel CIB.
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.rsc.booth">
+  <title>Risorse, vincoli e dipendenze richiesta per booth</title>
+  <para>
+   Per completare la configurazione booth, occorre eseguire la procedura indicata per configurare le risorse e i vincoli necessari per booth e failover delle risorse:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.constraints" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.boothd" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.order" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Le configurazioni delle risorse devono essere disponibili su ciascuno dei siti del cluster. Trasferirle negli altri siti come descritto nella <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+  </para>
+  <procedure xml:id="pro.ha.geo.setup.rsc.constraints">
+   <title>Configurazione delle dipendenze richiesta delle risorse</title>
+   <para>
+     Per i Geo cluster, è possibile specificare quali risorse dipendono da una determinata richiesta. Insieme con questo tipo speciale di vincolo, è possibile impostare una <literal>policy di perdita</literal> che definisce la situazione delle risorse rispettive in caso di revoca della richiesta. L'attributo <literal>policy di perdita</literal> può avere i valori seguenti:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <literal>delimitatore</literal>: delimita i nodi che eseguono le risorse relative.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>stop</literal>: arresta le risorse relative.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>blocca</literal>: non esegue alcuna azione sulle risorse relative.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>abbassa</literal>: abbassa le risorse pertinenti in esecuzione in modalità <literal>master</literal> alla modalità <literal>slave</literal>.
+      </para>
+     </listitem>
+    </itemizedlist> 
+   <step>
+    <para>
+     Su uno dei nodi del cluster amsterdam, avviare una shell ed eseguire il login come <systemitem class="username">root</systemitem> o equivalente.
+
+    </para>
+   </step>
+   <step>
+    <para>
+     Immettere <command>crm configure</command> per passare alla shell crm interattiva.
+    </para>
+   </step>
+   <step xml:id="step.ha.geo.setup.rsc.constraints">
+    <para>
+     Configurare i vincoli che definiscono quali risorse dipendono da una determinata richiesta. Ad esempio, per lo scenario DRBD definito nella <xref linkend="sec.ha.geo.drbd.scenario"/> è necessario il seguente vincolo:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> nfs-req-ticket-nfs ticket-nfs: \ 
+   ms_drbd_nfs:Master loss-policy=demote</screen>
+    <para>
+     Questo comando crea un vincolo con l'ID <literal>nfs-req-ticket-nfs</literal>. Definisce la dipendenza della risorsa a stato multiplo <literal>ms_drbd_nfs</literal> da <literal>ticket-nfs</literal>. Tuttavia, solo la modalità master della risorsa dipende dalla richiesta. In caso di revoca di <literal>ticket-nfs</literal>, <literal>ms_drbd_nfs</literal> viene automaticamente abbassata alla modalità <literal>slave</literal>, che quindi porta DRBD in modalità <literal>Secondaria</literal>. In questo modo, si assicura che la replica DRBD sia ancora in esecuzione anche se un sito non ha la richiesta.
+    </para>
+   </step>
+   <step>
+    <para>
+     Se si desidera che altre risorse dipendano da ulteriori richieste, creare tutti i vincoli necessari con <command>rsc_ticket</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Rivedere le modifiche con <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Se tutto è corretto, inviare le modifiche con <command>commit</command> e uscire dalla configurazione live crm con <command>exit</command>.
+    </para>
+    <para>
+     La configurazione viene salvata nel CIB.
+    </para>
+   </step>
+  </procedure>
+  <example xml:id="ex.ha.geo.setup.rsc.ticket.dep">
+   <title>Dipendenza della richiesta per primitive</title>
+   <para>
+    Viene quindi mostrato un altro esempio per un vincolo che rende dipendente la risorsa primitiva <literal>rsc1</literal> da <literal>ticketA</literal>:
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> rsc1-req-ticketA ticketA: \
+   rsc1 loss-policy="fence"</screen>
+   <para>
+    In caso di revoca di <literal>ticketA</literal>, il nodo che esegue la risorsa deve essere delimitato.
+   </para>
+  </example>
+  <procedure xml:id="pro.ha.geo.setup.rsc.boothd">
+   <title>Configurazione di un gruppo di risorse per <systemitem class="daemon">boothd</systemitem></title> 
+   <para>
+      Ciascun sito deve eseguire un'istanza di <systemitem class="daemon">boothd</systemitem> che comunica con gli altri daemon di booth. È possibile avviare il daemon su qualsiasi nodo, quindi deve essere configurato come risorsa primitiva. Per tenere la risorsa <systemitem>boothd</systemitem> sullo stesso nodo, se possibile, aggiungere la persistenza della risorsa alla configurazione. Poiché ogni daemon richiede un indirizzo IP persistente, configurare un'altra primitiva con un indirizzo IP virtuale. Raggruppare entrambe le primitive:</para> 
+   <step>
+    <para>
+     Su uno dei nodi del cluster <literal>amsterdam</literal>, avviare una shell ed eseguire il login come <systemitem class="username">root</systemitem> o equivalente.
+    </para>
+   </step>
+   <step>
+    <para>
+     Immettere <command>crm configure</command> per passare alla shell crm interattiva.
+    </para>
+   </step>
+   <step>
+    <para>
+     Immettere quanto segue per creare entrambe le risorse primitive e aggiungerle a un gruppo, <literal>g-booth</literal>:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip-booth ocf:heartbeat:IPaddr2 \
+  params iflabel="ha" nic="eth1" cidr_netmask="24"
+  params rule #cluster-name eq amsterdam ip="192.168.201.151" \
+  params rule #cluster-name eq berlin ip="192.168.202.151" 
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> booth ocf:pacemaker:booth-site \
+  meta resource-stickiness="INFINITY" \
+  params config="nfs" op monitor interval="10s"
+<prompt role="custom">crm(live)configure# </prompt><command>group</command> g-booth ip-booth booth</screen>
+    <para>
+     Con questa configurazione, ciascun daemon di booth sarà disponibile ai propri indirizzi IP, indipendente dal nodo su cui il daemon è in esecuzione.
+    </para>
+   </step>
+   <step>
+    <para>
+     Rivedere le modifiche con <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Se tutto è corretto, inviare le modifiche con <command>commit</command> e uscire dalla configurazione live crm con <command>exit</command>.
+    </para>
+    <para>
+     La configurazione viene salvata nel CIB.
+    </para>
+   </step>
+  </procedure>
+
+  <procedure xml:id="pro.ha.geo.setup.rsc.order">
+   <title>Aggiunta di un vincolo di ordinamento</title> 
+   <para>
+      Se a un sito è stata concessa una richiesta, ma tutti i nodi di tale sito non ospitano il gruppo di risorse <systemitem class="daemon">boothd</systemitem> per qualsiasi motivo, può verificarsi una situazione <quote>split-brain</quote> tra i siti dispersi geograficamente. In tale caso, non sarà disponibile alcuna istanza <systemitem class="daemon">boothd</systemitem> per gestire in modo sicuro il failover della richiesta verso un altro sito. Per evitare una potenziale violazione di concorrenza della richiesta (la richiesta è concessa a più siti contemporaneamente), aggiungere un vincolo di ordinamento: 
+     </para>  
+   <step>
+    <para>
+     Su uno dei nodi del cluster amsterdam, avviare una shell ed eseguire il login come <systemitem class="username">root</systemitem> o equivalente.
+    </para>
+   </step>
+   <step>
+    <para>
+     Immettere <command>crm configure</command> per passare alla shell crm interattiva.
+    </para>
+   </step>
+   <step>
+    <para>
+     Creare un vincolo di ordinamento:
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-booth-before-nfs inf: g-booth ms_drbd_nfs:promote</screen>
+    <para>
+     Il vincolo di ordinamento <literal>o-booth-before-nfs</literal> definisce che la risorsa <literal>ms_drbd_nfs</literal> può essere promossa alla modalità master solo dopo l'avvio del gruppo di risorse <literal>g-booth</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Definire ulteriori vincoli di ordinamento per eventuali altre risorse che dipendono da una determinata richiesta.
+    </para>
+   </step>
+   <step>
+    <para>
+     Rivedere le modifiche con <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Se tutto è corretto, inviare le modifiche con <command>commit</command> e uscire dalla configurazione live crm con <command>exit</command>.
+    </para>
+    <para>
+     La configurazione viene salvata nel CIB.
+    </para>
+   </step>
+  </procedure>
+  <example xml:id="ex.ha.geo.rsc.order">
+   <title>Vincolo di ordinamento per primitive</title>
+   <para>
+    Se la risorsa che dipende da una determinata richiesta non è una risorsa a stato multiplo ma una primitiva, il vincolo di ordinamento sarà:
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-booth-before-rsc1 inf: g-booth rsc1</screen>
+   <para>
+    Definisce che <literal>rsc1</literal> (dipendente da <literal>ticketA</literal>) può essere avviata solo dopo il gruppo di risorse <literal>g-booth</literal>.
+   </para>
+  </example>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.rsc.sync.cib">
+
+  <title>Trasferimento della configurazione risorsa ad altri siti del cluster</title>
+  <para>
+   Se sono state configurate risorse per un sito del cluster come descritto nella <xref linkend="sec.ha.geo.rsc.drbd" xrefstyle="select:label"/> e <xref linkend="sec.ha.geo.rsc.booth" xrefstyle="select:label"/>, la procedura non è ancora terminata. È necessario trasferire la configurazione della risorsa agli altri siti del Geo cluster.
+  </para>
+  <para>
+   Per semplificare il trasferimento, è possibile contrassegnare le risorse necessarie in <emphasis>tutti</emphasis> i siti del cluster, esportarle dal CIB corrente, quindi importarle nel CIB di un altro sito del cluster. <xref linkend="pro.ha.geo.rsc.sync.cib"/> fornisce un esempio di come procedere e si basa sui seguenti prerequisiti:
+  </para>
+  <itemizedlist>
+   <title>Prerequisiti</title>
+   <listitem>
+    <para>
+     È presente un Geo cluster con due siti: il cluster <literal>amsterdam</literal> e il cluster <literal>berlin</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     I nomi del cluster per tale sito vengono definiti nei rispettivi file <filename>/etc/corosync/corosync.conf</filename>.
+    </para>
+<screen>totem {
+     [...]
+     cluster_name: amsterdam
+     }</screen>
+    <para>
+     È possibile procedere manualmente (modificando <filename>/etc/corosync/corosync.conf</filename>) o con il modulo cluster YaST come descritto nella <citetitle>Guida di amministrazione</citetitle> di <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase>, disponibile in <link xlink:href="http://www.suse.com/documentation/"/>. Consultare il capitolo <citetitle>Installazione e configurazione di base</citetitle>, procedura <citetitle>Definizione del primo canale di comunicazione</citetitle>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Sono state configurate le risorse necessarie per DRBD e booth come descritto nella <xref linkend="sec.ha.geo.rsc.drbd"/> e <xref linkend="sec.ha.geo.rsc.booth"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <procedure xml:id="pro.ha.geo.rsc.sync.cib">
+   <title>Trasferimento della configurazione risorsa ad altri siti del cluster</title>
+   <step>
+    <para>
+     Eseguire il login a uno dei nodi del cluster <literal>amsterdam</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Avviare il cluster con:
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+   </step>
+   <step>
+    <para>
+     Immettere <command>crm configure</command> per passare alla shell crm interattiva.
+    </para>
+   </step>
+   <step>
+    <para>
+     Contrassegnare le risorse e i vincoli necessari nel Geo cluster:
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Rivedere la configurazione CIB corrente:
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt>show</screen>
+     </step>
+     <step>
+      <para>
+       Immettere il seguente comando per raggruppare le risorse correlate al Geo cluster con il tag <literal>geo_resources</literal>:
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>tag</command> geo_resources: \
+  ip_nfs nfs_fs nfs_service drbd_nfs drbd_nfs_lower ms_drbd_nfs \
+  ms_drbd_nfs_lower g_nfs <co xml:id="co.geo.rsc.drbd"/>\
+  col_nfs_ip_with_lower  col_nfs_g_with_upper col_nfs_upper_with_ip <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
+  o_lower_drbd_before_ip_nfs o_ip_nfs_before_drbd \
+  o_drbd_nfs_before_svc <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
+  nfs-req-ticket-nfs ip-booth booth g-booth o-booth-before-nfs <co xml:id="co.geo.rsc.booth"/>
+  [...] <co xml:id="co.geo.rsc.any"/></screen>
+      <para>
+       Il tag non crea alcuna relazione di co-ubicazione o ordinamento tra le risorse.
+      </para>
+      <calloutlist>
+       <callout arearefs="co.geo.rsc.drbd">
+        <para>
+         Risorse e vincoli per DRBD, vedere <xref linkend="sec.ha.geo.rsc.drbd"/>.
+        </para>
+       </callout>
+       <callout arearefs="co.geo.rsc.booth">
+        <para>
+         Risorse e vincoli per boothd, vedere <xref linkend="sec.ha.geo.rsc.booth"/>.
+        </para>
+       </callout>
+       <callout arearefs="co.geo.rsc.any">
+        <para>
+         Eventuali altre risorse della configurazione specifica necessarie su tutti i siti del Geo cluster.
+        </para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step>
+      <para>
+       Rivedere le modifiche con <command>show</command>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Se la configurazione rispetta tutti i requisiti, inviare le modifiche con <command>submit</command> e uscire dalla shell live crm con <command>exit</command>.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st.ha.geo.rsc.sync.cib.export.start">
+    <para>
+     Esportare risorse e vincoli contrassegnati in un file con il nome <filename>exported.cib</filename>:
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command> tag:geo_resources geo_resources &gt; exported.cib</screen>
+    <para>
+     Il comando <command>crm configure show tag:</command><replaceable>NOMETAG</replaceable> mostra tutte le risorse che appartengono al tag <replaceable>NOMETAG</replaceable>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Eseguire il login in uno dei nodi del cluster <literal>berlin</literal> e procedere come indicato di seguito:
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Avviare il cluster con:
+      </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+     </step>
+     <step>
+      <para>
+       Copiare il file <filename>exported.cib</filename> dal cluster <literal>amsterdam</literal> in questo nodo. <remark>taroth
+        2014-11-26: alternatively, the CIB can be loaded from an URL - consider
+        if to mention this, too</remark>
+      </para>
+     </step>
+     <step>
+      <para>
+       Importare vincoli e risorse contrassegnati dal file <filename>exported.cib</filename> nel CIB del cluster <literal>berlin</literal>:
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm configure load</command> update <replaceable>PATH_TO_FILE/exported.cib</replaceable></screen>
+      <para>
+       Quando si utilizza il parametro <option>update</option> per il comando <command>crm configure load</command>, crmsh tenta di integrare il contenuto del file nella configurazione CIB corrente (invece di sostituire il CIB corrente con il contenuto del file).
+      </para>
+     </step>
+     <step xml:id="st.ha.geo.rsc.sync.cib.import.stop">
+      <para>
+       Visualizzare la configurazione aggiornata del CIB con il comando seguente:
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command></screen>
+      <para>
+       Le risorse e i vincoli importati compaiono nel CIB.
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  <para>
+   Questa configurazione determina quanto segue:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Quando si concede <literal>ticket-nfs</literal> al cluster <literal>amsterdam</literal>, il nodo che contiene la risorsa <literal>ip_nfs</literal> ottiene l'indirizzo IP <literal>192.168.201.151</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Quando si concede <literal>ticket-nfs</literal> al cluster <literal>berlin</literal>, il nodo che contiene la risorsa <literal>ip_nfs</literal> ottiene l'indirizzo IP <literal>192.168.202.151</literal>.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <example xml:id="ex.ha.geo.rsc.refer.params">
+   <title>Creazione di riferimenti ai parametri dipendenti dal sito nelle risorse</title>
+   <para>
+    In base agli esempi della <xref linkend="pro.ha.geo.rsc.drbd" xrefstyle="select:label"/>, è inoltre possibile creare risorse che fanno riferimento a parametri specifici del sito di un'altra risorsa, ad esempio, i parametri IP di <literal>ip_nfs</literal>. Procedere come segue:
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      Nel cluster <literal>amsterdam</literal> creare una risorsa fittizia che faccia riferimento ai parametri IP di <literal>ip_nfs</literal> e li utilizzi come valore del proprio parametro <literal>state</literal>:
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dummy1 ocf:pacemaker:Dummy \
+  params rule #cluster-name eq amsterdam \
+  @ip_nfs-instance_attributes-0-ip:state \
+  params rule #cluster-name eq berlin \
+  @ip_nfs-instance_attributes-1-ip:state \
+  op monitor interval=10</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Aggiungere un vincolo in modo che la risorsa <literal>dummy1</literal> dipenda anche da <literal>ticket-nfs</literal>:
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> dummy1-dep-ticket-nfs \
+  ticket-nfs: dummy1 loss-policy=stop</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Contrassegnare la risorsa e il vincolo:
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>tag</command> geo_resources_2: dummy1 \
+  dummy1-dep-ticket-nfs</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Rivedere le modifiche con <command>show</command>, inviarle con <command>submit</command> e uscire dalla shell live crm con <command>exit</command>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Esportare le risorse contrassegnate con <literal>geo_resources_2</literal> dal cluster <literal>amsterdam</literal> e importarle nel CIB del cluster <literal>berlin</literal>, come da <xref linkend="st.ha.geo.rsc.sync.cib.export.start"/> a <xref linkend="st.ha.geo.rsc.sync.cib.import.stop"/> di <xref linkend="pro.ha.geo.rsc.sync.cib" xrefstyle="select:label"/>.
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    Questa configurazione determina quanto segue:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Quando si concede <literal>ticket-nfs</literal> al cluster <literal>amsterdam</literal>, nel nodo che ospita la risorsa <literal>fittizia</literal> verrà creato il seguente file: <filename>/var/lib/heartbeat/cores/192.168.201.151</filename>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Quando si concede <literal>ticket-nfs</literal> al cluster <literal>berlin</literal>, nel nodo che ospita la risorsa <literal>fittizia</literal> verrà creato il seguente file: <filename>/var/lib/heartbeat/cores/192.168.202.151</filename>.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </example>
+ </sect2>
+</sect1>
