@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_drbd_i.xml" version="5.0" xml:id="sec.ha.geo.drbd">
+ <title>设置 DRBD</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  有关整体方案的说明，请参见<xref linkend="sec.ha.geo.oview"/>。假设您的两个群集站点使用路由式 IPv4 或 IPv6 连接，其传输速度为几 Mb/秒至 10 Gb/秒不等，并且由于延迟较高，无法在这些站点上使用群集文件系统。但是，您可以使用 DRBD 来复制数据，以便在其中一个站点关闭时，可以快速故障转移（主动/被动设置）。DRBD 软件通过在不同站点上的主机之间镜像块设备（硬盘、分区、逻辑卷等）的内容来复制储存数据。故障转移通过 booth 服务进行管理，具体请参见<xref linkend="vle.ha.geo.components.booth"/>。
+ </para>
+
+ <sect2 xml:id="sec.ha.geo.drbd.scenario">
+  <title>DRBD 方案和基本步骤</title>
+  <para>
+   <xref linkend="fig.ha.geo.drbd.setup"/>以图形方式显示了下面我们将要配置的设置和资源。
+  </para>
+  <figure xml:id="fig.ha.geo.drbd.setup">
+   <title>DRBD 设置和资源堆栈</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geo_drbd.png" width="80%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geo_drbd.png" width="80%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <itemizedlist xml:id="il.ha.geo.drbd.scenario">
+   <title>方案 - 细节</title>
+   <listitem>
+    <para>
+     通过 NFS 在整个地域群集上提供文件系统。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LVM 用作 DRBD 下面的储存层。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     一个<quote>堆栈式</quote> DRBD 资源：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       上层 DRDB 在每个站点的一个节点上运行，负责将数据复制到地域群集的另一个站点。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       下层 DRBD 负责数据的本地复制（在一个群集站点的多个节点之间）。在每个站点的一个节点上激活某个下层 DRBD 设备后，将启动服务 IP（将配置为群集资源）。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     在 amsterdam 站点上，DRBD 在协议 <literal>C</literal>（一种同步复制协议）中运行。它使用 LAN 中的本地 IP 地址。 </para>
+   </listitem>
+   <listitem>
+    <para>
+     服务 IP 不仅如此处所述用于服务，而且还用作上层 DRBD 设备（在次要状态下运行）在复制时访问的固定点。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     在应该运行文件系统服务的站点上，<systemitem>ocf:linbit:drbd</systemitem> 资源代理将上层 DRBD 设置为 <literal>primary</literal> 模式。这意味着，应用程序可以装入和使用其中的文件系统。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     与地域群集的另一个站点建立的 DRBD 连接可以选择性地在两者之间使用 DRBD 代理。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   对于这种设置方案，需要执行以下基本步骤：
+  </para>
+  <procedure>
+   <step>
+    <para>
+     编辑 DRBD 配置文件，以包含每个地域群集和站点间 DRBD 连接的配置代码片段。有关细节，请参见<xref linkend="sec.ha.geo.drbd.cfg"/>中的示例。
+    </para>
+   </step>
+   <step>
+    <para>
+     按<xref linkend="sec.ha.geo.rsc.drbd"/>中所述配置群集资源。
+    </para>
+   </step>
+   <step>
+    <para>
+     按<xref linkend="sec.ha.geo.booth"/>中所述配置 booth。
+    </para>
+   </step>
+   <step>
+    <para>
+     配置每个本地群集内部以及地域群集站点之间的 DRBD 和 booth 配置文件同步。有关细节，请参见<xref linkend="sec.ha.geo.sync"/>。
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.drbd.cfg">
+  <title>DRBD 配置</title>
+  <para>
+   从 DRBD 8.3 开始，DRBD 配置文件已划分为多个不同的文件。这些文件必须位于 <filename>/etc/drbd.d/</filename> 目录中。以下 DRBD 配置代码片段显示了<xref linkend="il.ha.geo.drbd.scenario"/>中所述方案的基本 DRBD 配置。可将所有代码片段添加到一个 DRBD 资源配置文件，例如 <filename>/etc/drbd.d/nfs.res</filename>。然后，可按<xref linkend="sec.ha.geo.booth.sync.csync2.setup"/>中所述，使用 Csync2 同步此文件。请注意，下面的 DRBD 配置代码片段十分精简 — 不包括任何性能优化选项或类似代码。有关如何优化 DRBD 的细节，请参见 <link xlink:href="http://www.suse.com/documentation/"/> 上提供的《<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 管理指南》中的“<citetitle>DRBD</citetitle>”一章。
+  </para>
+  <example xml:id="ex.ha.geo.drbd.cfg.site1">
+   <title>站点 1 (amsterdam) 的 DRBD 配置代码片段</title>
+<screen>resource nfs-lower-amsterdam <co xml:id="co.geo.drbd.config.rsc"/>{
+         disk        /dev/volgroup/lv-nfs; <co xml:id="co.geo.drbd.config.disk"/>
+         meta-disk   internal; <co xml:id="co.geo.drbd.config.meta-disk"/>
+         device      /dev/drbd0; <co xml:id="co.geo.drbd.config.device"/>
+         protocol    C;  <co xml:id="co.geo.drbd.config.protocol"/>
+         net {
+                      shared-secret  "2a9702a6-8747-11e3-9ebb-782bcbd0c11c"; <co xml:id="co.geo.drbd.config.shared-secret"/>
+         }
+
+         on alice { <co xml:id="co.geo.drbd.config.resname"/>
+                      address         192.168.201.111:7900; <co xml:id="co.geo.drbd.config.address"/>
+                      node-id 0; <co xml:id="co.geo.drbd.config.node-id"/>
+         }
+         on bob { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.201.112:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>
+                      node-id 1; <xref linkend="co.geo.drbd.config.node-id" xrefstyle="select:nopage"/>
+         }
+         connection-mesh { <co xml:id="co.geo.drbd.config.connection-mesh"/>
+                      hosts alice bob;
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc">
+      <para>
+      用来与相应服务（本例中为 NFS）建立某种关联的资源名称。如果同时包含站点名称，则可以在站点之间同步整个 DRBD 配置，且不会造成名称冲突。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk">
+      <para>
+       在节点之间复制的设备。在本示例中，LVM 用作 DRBD 下面的储存层，卷组名称为 <literal>volgroup</literal>。
+      </para></callout>
+    <callout arearefs="co.geo.drbd.config.meta-disk">
+     <para>
+      元磁盘参数通常包含值 <literal>internal</literal>，但可以明确指定一个设备来保存元数据。有关详细信息，请参见<link xlink:href="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/>。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device">
+     <para>
+       DRBD 的设备名及其次要编号。为了将用于本地复制的下层 DRBD 与用于地域群集站点之间复制的上层 DRBD 区分开来，此处使用了设备次要编号 <literal>0</literal> 和 <literal>10</literal>。
+   </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.protocol">
+      <para>
+       DRBD 在协议 <literal>C</literal>（一种同步复制协议）中运行。只有在同时确认了本地和远程磁盘写入之后，才将主节点上的本地写入操作视为已完成。因此，可以保证一个节点丢失不会导致任何数据丢失。当然，如果两个节点（或其储存子系统）同时发生了不可恢复的损坏，则即使采用这种复制协议，也会不可避免地发生数据丢失。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+     <para>
+       共享机密用于验证连接对。需要为每个连接对使用不同的共享机密。可以使用 <command>uuidgen</command> 程序获取唯一值。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.resname">
+    <para>
+       <literal>on</literal> 部分指定了此配置语句要应用到的主机。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+      <para>
+      相应节点的本地 IP 地址和端口号。每个 DRBD 资源需要有各自的端口。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.node-id">
+      <para>
+        配置两个以上的节点时，需要节点 ID。该 ID 是用于区分不同节点的唯一非负整数。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.connection-mesh">
+     <para>
+       定义网格的所有节点。<option>hosts</option> 参数包含共享相同 DRBD 设置的所有主机名。
+    </para>
+    </callout>
+   </calloutlist>
+  </example>
+  <example xml:id="ex.ha.geo.drbd.cfg.site2">
+   <title>站点 2 (berlin) 的 DRBD 配置代码片段</title>
+   <para>
+    站点 2 (berlin) 的配置与站点 1 大致相同：您可以保留大多数参数的值，包括卷组和逻辑卷的名称。但是，需要更改以下参数的值：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      DRBD 资源的名称 (<xref linkend="co.geo.drbd.config.rsc" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      节点的名称和本地 IP 地址（<xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/> 和 <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>）。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      共享机密 (<xref linkend="co.geo.drbd.config.shared-secret" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+   </itemizedlist>
+<screen>resource nfs-lower-berlin <xref linkend="co.geo.drbd.config.rsc" xrefstyle="select:nopage"/>{
+         disk        /dev/volgroup/lv-nfs; <xref linkend="co.geo.drbd.config.disk" xrefstyle="select:nopage"/>
+         meta-disk   internal; <xref linkend="co.geo.drbd.config.meta-disk" xrefstyle="select:nopage"/>
+         device      /dev/drbd0; <xref linkend="co.geo.drbd.config.device" xrefstyle="select:nopage"/>
+         protocol    C;  <xref linkend="co.geo.drbd.config.protocol" xrefstyle="select:nopage"/>
+         net {
+                      shared-secret "2e9290a0-8747-11e3-a28c-782bcbd0c11c"; <xref linkend="co.geo.drbd.config.shared-secret" xrefstyle="select:nopage"/>
+         }
+
+         on charly { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.202.111:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>
+                      node-id 0;
+         }
+         on doro { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.202.112:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="selec:nopage"/>
+                      node-id 1;
+         }
+         connection-mesh {
+                      hosts charly doro;
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc">
+      <para>
+      用来与相应服务（本例中为 NFS）建立某种关联的资源名称。如果同时包含站点名称，则可以在站点之间同步整个 DRBD 配置，且不会造成名称冲突。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk">
+       <para>
+       在节点之间复制的设备。在本示例中，LVM 用作 DRBD 下面的储存层，卷组名称为 <literal>volgroup</literal>。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.meta-disk">
+     <para>
+      元磁盘参数通常包含值 <literal>internal</literal>，但可以明确指定一个设备来保存元数据。有关详细信息，请参见<link xlink:href="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/>。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device">
+       <para>
+       DRBD 的设备名及其次要编号。为了将用于本地复制的下层 DRBD 与用于地域群集站点之间复制的上层 DRBD 区分开来，此处使用了设备次要编号 <literal>0</literal> 和 <literal>10</literal>。
+   </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.protocol">
+     <para>
+       DRBD 在协议 <literal>C</literal>（一种同步复制协议）中运行。只有在同时确认了本地和远程磁盘写入之后，才将主节点上的本地写入操作视为已完成。因此，可以保证一个节点丢失不会导致任何数据丢失。当然，如果两个节点（或其储存子系统）同时发生了不可恢复的损坏，则即使采用这种复制协议，也会不可避免地发生数据丢失。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+       <para>
+       共享机密用于验证连接对。需要为每个连接对使用不同的共享机密。可以使用 <command>uuidgen</command> 程序获取唯一值。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.resname">
+       <para>
+       <literal>on</literal> 部分指定了此配置语句要应用到的主机。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+     <para>
+      相应节点的本地 IP 地址和端口号。每个 DRBD 资源需要有各自的端口。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+  <example xml:id="ex.ha.geo.drbd.cfg.cross-site">
+   <title>跨站点连接的 DRBD 配置代码片段</title>
+<screen>resource nfs-upper <co xml:id="co.geo.drbd.config.rsc.cross"/> {
+         disk        /dev/drbd0; <co xml:id="co.geo.drbd.config.disk.cross"/>
+         meta-disk   internal; 
+         device      /dev/drbd10; <co xml:id="co.geo.drbd.config.device.cross"/>
+         protocol    A;  <co xml:id="co.geo.drbd.config.protocol.cross"/>
+         net {
+                      shared-secret  "3105dd88-8747-11e3-a7fd-782bcbd0c11c";  <co xml:id="co.geo.drbd.config.shared-secret.cross"/>
+                      ping-timeout   20; <co xml:id="co.geo.drbd.config.ping-timeout"/>
+         }
+
+         stacked-on-top-of           nfs-lower-amsterdam { <co xml:id="co.geo.drbd.config.stackedontopof"/>
+                      address        192.168.201.151:7910; <co xml:id="co.geo.drbd.config.address.cross"/>
+         }
+         stacked-on-top-of           nfs-lower-berlin { <xref linkend="co.geo.drbd.config.stackedontopof" xrefstyle="select:nopage"/>
+                      address        192.168.202.151:7910; <xref linkend="co.geo.drbd.config.address.cross" xrefstyle="select:nopage"/>
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc.cross">
+     <para>
+      用来与相应服务（本例中为 NFS）建立某种关联的资源名称。这是上层 DRBD（负责将数据复制到地域群集的另一个站点）的配置。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk.cross">
+     <para>
+      用于复制的储存磁盘为 DRBD 设备 <filename>/dev/drbd0</filename>。您可以改用 <filename>/dev/drbd/by-res/<replaceable>nfs-lower-site-N</replaceable>/0</filename>，但这种用法与具体的站点相关，因此需要将它移入每个站点的配置，也就是说，需要移到相应 <literal>stacked-on-top-of</literal> 关键字的下面。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device.cross">
+     <para>
+       DRBD 的设备名及其次要编号。为了将用于本地复制的下层 DRBD 与用于地域群集站点之间复制的上层 DRBD 区分开来，此处使用了设备次要编号 <literal>0</literal> 和 <literal>10</literal>。
+   </para>
+  </callout>
+    <callout arearefs="co.geo.drbd.config.protocol.cross">
+     <para>
+      DRBD 在协议 <literal>A</literal>（用于远距离复制的异步复制协议）中运行。完成本地磁盘写入并将复制包放入本地 TCP 发送缓冲区后，即将主节点上的本地写入操作视为已完成。如果出现强制故障转移，可能会发生数据丢失。故障转移后，待机节点上的数据将保持一致。但是，最近在崩溃之前执行的更新可能会丢失。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.ping-timeout">
+     <para>
+      由于延迟较高，此处将 ping 超时设置为 <literal>20</literal>。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+    <para>
+       共享机密用于验证连接对。需要为每个连接对使用不同的共享机密。可以使用 <command>uuidgen</command> 程序获取唯一值。
+      </para>
+  </callout>
+    <callout arearefs="co.geo.drbd.config.stackedontopof">
+     <para>
+      无需传递任何主机名，我们可以告知 DRBD 要堆栈在其下层设备上。这意味着，下层设备必须是<literal>主要</literal>设备。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+     <para>
+      在不知道哪个群集节点包含<literal>主要</literal>下层 DRBD 设备的情况下，要允许与地域群集的另一个站点建立 TCP/IP 连接，可以使用针对 NFS 配置的服务 IP 地址。有关如何配置服务 IP，请参见<xref linkend="pro.ha.geo.rsc.drbd"/>。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect2>
+</sect1>

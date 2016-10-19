@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_sync_i.xml" version="5.0" xml:id="sec.ha.geo.sync">
+ <title>跨所有站点和仲裁方同步配置文件</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  要跨群集中的所有节点和跨地域群集复制重要配置文件，可以使用 Csync2。Csync2 可处理排入同步组的任意数量的主机。每个同步组都有自己的成员主机列表及其包含/排除模式，包含/排除模式定义了在同步组中应同步哪些文件。同步组、属于每个组的主机名以及每个组的包含/排除规则均在 Csync2 配置文件 <filename>/etc/csync2/csync2.cfg</filename> 中指定。
+ </para>
+
+ <para>
+  对于身份验证，Csync2 使用 IP 地址和同步组中的预共享密钥。需要为每个同步组生成一个密钥文件，并将其复制到所有组成员。
+ </para>
+
+ <para>
+  Csync2 将通过 TCP 端口（默认为 <literal>6556</literal>）访问其他服务器，并启动远程 Csync2 实例。有关 Csync2 的详细信息，请参见 <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>。
+ </para>
+
+ <sect2 xml:id="sec.ha.geo.booth.sync.csync2.setup">
+  <title>地域群集的 Csync2 设置</title>
+  <para>
+   《<citetitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 管理指南</citetitle>》的“<citetitle>安装和基本设置</citetitle>”一章中的“<citetitle>将配置传输到所有节点</citetitle>”一节介绍了如何使用 YaST 为各个群集设置 Csync2。但是，如同无法处理地域群集所需的设置一样，YaST 无法处理较复杂的 Csync2 设置。对于<xref linkend="fig.ha.geo.csync.config"/>中所示的以下设置，可以通过编辑配置文件来手动配置 Csync2。
+  </para>
+  <para>
+   要调整 Csync2，以便不仅能够在本地群集内部同步文件，而且还能跨地理分散的站点同步文件，您需要在 Csync2 配置中定义两个同步组：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     全局组 <literal>ha_global</literal>（适用于需要跨地域群集中的所有站点和仲裁方全局同步的文件）。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     用于本地群集站点的组 <literal>ha_local</literal>（适用于需要在本地群集内部同步的文件）。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   有关这两个同步组的多个 Csync2 配置文件的概述，请参见<xref linkend="fig.ha.geo.csync.config"/>。
+  </para>
+  <figure xml:id="fig.ha.geo.csync.config">
+   <title>地域群集的示例 Csync2 设置</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="multi-site-csync2.svg" width="100%"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="multi-site-csync2.png" width="100%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <para>
+   身份验证密钥文件及其参照以红色显示。Csync2 配置文件的名称以蓝色显示，其参照以绿色显示。有关细节，请参见<xref linkend="vl.fig.ha.geo.csync.config.files"/>。
+  </para>
+  <variablelist xml:id="vl.fig.ha.geo.csync.config.files">
+   <title>示例 Csync2 设置：配置文件</title>
+   <varlistentry xml:id="vle.ha.geo.csync.csync2.cfg">
+    <term><filename>/etc/csync2/csync2.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      主要 Csync2 配置文件。我们特意精简了此文件，其中只包含以下信息：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        同步组 <literal>ha_local</literal> 的定义。该组包括两个节点（<literal>this-site-host-1</literal> 和 <literal>this-site-host-2</literal>），使用 <filename>/etc/csync2/ha_local.key</filename> 进行身份验证。要为此组同步的文件列表只在另一个 Csync2 配置文件 <filename>/etc/csync2/ha_local.cfg</filename> 中做了定义。<literal>config</literal> 语句包含了此定义。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        对另一个 Csync2 配置文件 <filename>/etc/csync2.cfg/ha_global.cfg</filename> 的参照包含在 <literal>config</literal> 语句中。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.geo.csync.ha_local.cfg">
+    <term><filename>/etc/csync2/ha_local.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      此文件仅与本地群集相关。它指定只在 <literal>ha_local</literal> 同步组内部同步的文件列表，因为这些文件特定于每个群集。最重要的文件如下：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/csync2.cfg</filename>，此文件包含本地群集节点的列表。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/ha_local.key</filename>，用于在本地群集内部进行 Csync2 同步的身份验证密钥。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/corosync/corosync.conf</filename>，此文件定义本地群集节点之间的通讯通道。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/corosync/authkey</filename>，Corosync 身份验证密钥。
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      文件列表中的其余文件取决于特定的群集设置。<xref linkend="fig.ha.geo.csync.config"/>中所列的文件只是示例。如果还要同步任何站点特定应用程序的文件，请同时将这些文件包含在 <filename>ha_local.cfg</filename> 中。尽管 <filename>ha_local.cfg</filename> 面向属于地域群集站点之一的节点，但其内容在所有站点上可以相同。如果需要不同的主机集或不同的密钥，可能需要添加额外的组。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.geo.csync.ha_global.cfg">
+    <term><filename>/etc/csync2.cfg/ha_global.cfg</filename>
+    </term>
+    <listitem>
+     <para>
+      此文件定义 Csync2 同步组 <literal>ha_global</literal>。该组跨越多个站点中的<emphasis>所有</emphasis>群集节点（包括仲裁方）。由于我们建议针对每个 Csync2 同步组使用不同的密钥，此组使用 <filename>/etc/csync2/ha_global.key</filename> 进行身份验证。<literal>include</literal> 语句定义要在 <literal>ha_global</literal> 同步组内部同步的文件列表。最重要的文件如下：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <filename>/etc/csync2/ha_global.cfg</filename> 和 <filename>/etc/csync2/ha_global.key</filename>（<literal>ha_global</literal> 同步组的配置文件，以及用于在组内部进行同步的身份验证密钥）。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/booth/</filename>，用于保存 booth 配置的默认目录。如果您为多个租户使用 booth 设置，该设置将包含多个 booth 配置文件。如果为 booth 使用身份验证，则最好是也在此目录中放置密钥文件。 
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/drbd.conf</filename> 和 <filename>/etc/drbd.d</filename>（如果在群集设置中使用 DRBD）。DRBD 配置可全局同步，因为它从资源配置文件中包含的主机名派生配置。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <filename>/etc/zypp/repos.de</filename>。包储存库有可能在所有群集节点上相同。
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      显示的其他文件 (<filename>/etc/root/<replaceable>*</replaceable></filename>) 是出于方便可以包含的示例（使群集管理员的工作变得更简单）。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <note>
+   <para>
+    文件 <filename>csync2.cfg</filename> 和 <filename>ha_local.key</filename> 特定于站点，这意味着，需要为每个群集站点创建不同的文件。这些文件在属于同一群集的节点上相同，但在其他群集上则不同。每个 <filename>csync2.cfg</filename> 文件需要包含属于站点的主机（群集节点）列表，加上站点特定的身份验证密钥。
+   </para>
+   <para>
+    仲裁方也需要 <filename>csync2.cfg</filename> 文件。不过，仲裁方只需参照 <filename>ha_global.cfg</filename>。
+   </para>
+  </note>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.booth.sync.csync2.start">
+  <title>使用 Csync2 同步更改</title>
+  <para>
+   要成功地使用 Csync2 同步文件，必须满足以下先决条件：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     在属于同一个同步组的所有计算机上提供相同的 Csync2 配置。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     必须在该组的所有成员上提供每个同步组的 Csync2 身份验证密钥。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+    Csync2 必须在<emphasis>所有</emphasis>节点和仲裁方上运行。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   因此，在首次运行 Csync2 之前，需要做好以下准备：
+  </para>
+  <procedure>
+   <step>
+    <para>
+     根据每个同步组登录到一台计算机，然后为相应的组生成身份验证密钥：
+    </para>
+    <screen><prompt role="root">root # </prompt><command>csync2</command> -k <replaceable>NAME_OF_KEYFILE</replaceable></screen>
+    <para>
+     但是，<emphasis>不要</emphasis>在同一个组的其他任何成员上重复生成密钥文件。
+    </para>
+    <para>
+     对于<xref linkend="fig.ha.geo.csync.config"/>，这会生成以下密钥文件：<filename>/etc/csync2/ha_global.key</filename> 以及每个站点的一个本地密钥 (<filename>/etc/csync2/ha_local.key</filename>)。
+    </para>
+   </step>
+   <step>
+    <para>
+     将每个密钥文件复制到相应同步组的<emphasis>所有</emphasis>成员。对于<xref linkend="fig.ha.geo.csync.config"/>：
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       将 <filename>/etc/csync2/ha_global.key</filename> 复制到<emphasis>所有</emphasis>各方（地域群集所有站点上的仲裁方和所有群集节点）。需要在 <filename>ha_global.cfg</filename> 中定义的 <literal>ha_global</literal> 组内所列的所有主机上提供密钥文件。
+      </para>
+     </step>
+     <step>
+      <para>
+       将每个站点的本地密钥文件 (<filename>/etc/csync2/ha_local.key</filename>) 复制到属于地域群集相应站点的所有群集节点上。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     将站点特定的 <filename>/etc/csync2/csync2.cfg</filename> 配置文件复制到属于地域群集相应站点的所有群集节点，并复制到仲裁方。
+    </para>
+   </step>
+   <step>
+    <para>
+     在所有节点和仲裁方上执行以下命令，使 csync2 服务在引导时自动启动：
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> enable csync2.socket</screen>
+   </step>
+   <step>
+    <para>
+     在所有节点和仲裁方上执行以下命令，以便立即启动服务：
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start csync2.socket</screen>
+   </step>
+  </procedure>
+  <procedure xml:id="pro.ha.geo.setup.csync2.start">
+   <title>使用 Csync2 同步文件</title>
+   <step>
+    <para>
+     要对所有文件执行一次初始同步，请在要<emphasis>从中</emphasis>复制配置的计算机上执行以下命令：
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-xv</option></screen>
+    <para>
+     这会将所有文件推送到同步组的其他成员，从而同步所有文件一次。如果所有文件都成功同步，则 Csync2 将完成，不会报错。
+    </para>
+    <para>
+     如果在其他计算机（而不仅是当前节点）上对要同步的一个或多个文件进行了修改，Csync2 将报告冲突。您将得到类似以下内容的输出：
+    </para>
+<screen>While syncing file /etc/corosync/corosync.conf:
+ERROR from peer site-2-host-1: File is also marked dirty here!
+Finished with 1 errors.</screen>
+   </step>
+   <step>
+    <para>
+     如果确信当前计算机上的文件版本是<quote>最佳</quote>版本，可以通过强制使用此文件并重新同步来解决冲突：
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-f</option> /etc/corosync/corosync.conf
+<prompt role="root">root # </prompt><command>csync2</command> <option>-x</option></screen>
+   </step>
+  </procedure>
+  <para>
+   有关 Csync2 选项的更多信息，请运行 <command>csync2 </command><option>-help</option>。
+  </para>
+  <note>
+   <title>在任何更改后推送同步</title>
+   <para>
+    Csync2 仅推送更改。它<emphasis>不会</emphasis>在计算机之间连续同步文件。
+   </para>
+   <para>
+    每次更新需要同步的文件时，都必须将更改推送到同一个同步组的其他计算机：在执行更改的计算机上运行 <command>csync2 </command> <option>-xv</option>。如果对未更改文件的任何其他计算机运行此命令，则不会执行任何操作。
+   </para>
+  </note>
+ </sect2>
+</sect1>

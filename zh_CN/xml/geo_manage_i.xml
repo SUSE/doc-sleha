@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_manage_i.xml" version="5.0" xml:id="sec.ha.geo.manage">
+ <title>管理地域群集</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  在 booth 可以管理地域群集中的特定票据前，首先需要手动将该票据授予给站点。
+ </para>
+
+ <sect2 xml:id="sec.ha.geo.manage.cli">
+  <title>通过命令行</title>
+  <para>
+   使用 <command>booth client</command> 命令行工具可以按<xref linkend="vl.ha.booth.client.cmds"/>中所述授予、列出或撤消票据。可以在群集中的任何计算机上运行 <command>booth client</command> 命令，而不仅是能够在运行 <systemitem class="daemon">boothd</systemitem> 的计算机上运行。<command>booth client</command> 命令尝试通过查看 booth 配置文件和本地定义的 IP 地址来查找<quote>本地</quote>群集。如果未指定 booth 客户端应连接到的站点（使用 <option>-s</option> 选项），则始终会连接到本地站点。
+  </para>
+  <note>
+   <title>语法更改</title>
+   <para>
+    从 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 11 开始，booth 客户端命令的语法已得到简化。例如，可以在 <option>list</option>、<option>grant</option> 或 <option>revoke</option> 操作中省略 <literal>client</literal> 关键字：<command>booth list</command>。此外，指定票据时可以省略 <option>-t</option> 选项。
+   </para>
+   <para>
+    以前的语法仍受支持。有关详细信息，请参见 booth 手册页中的“<literal>摘要</literal>”一节。不过，本手册中的示例使用简化的语法。
+   </para>
+  </note>
+
+  <variablelist xml:id="vl.ha.booth.client.cmds">
+   <title><command>booth client</command> 命令概述</title>
+   <varlistentry>
+    <term>列出所有票据</term>
+    <listitem>
+<screen><prompt role="root">root # </prompt><command>booth</command> list
+ticket: ticketA, leader: none
+ticket: ticketB, leader: 10.2.12.101, expires: 2014-08-13 10:28:57</screen>
+     <para>
+      如果未使用 <option>-s</option> 指定特定的站点，将从本地 booth 实例请求有关票据的信息。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>向站点授予票据</term>
+    <listitem>
+<screen><prompt role="root">root # </prompt><command>booth</command> grant -s 192.168.201.151 ticketA
+booth[27891]: 2014/08/13_10:21:23 info: grant request sent, waiting for the result ...
+booth[27891]: 2014/08/13_10:21:23 info: grant succeeded!</screen>
+     <para>
+      在这种情况下，<literal>ticketA</literal> 将授予给站点 <literal>192.168.201.151</literal>，如果省略 <option>-s</option> 选项，booth 将自动连接到当前站点（运行 booth 客户端的站点）并请求 <command>grant</command> 操作。
+     </para>
+     <para>
+      在授予票据前，该命令将执行一个健全性检查。如果同一票据已授予给其他站点，则系统会向您发出警告，并提示您先从当前站点中撤消该票据。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>从站点撤消票据</term>
+    <listitem>
+<screen><prompt role="root">root # </prompt><command>booth</command> revoke ticketA
+booth[27900]: 2014/08/13_10:21:23 info: revoke succeeded!</screen>
+     <para>
+      Booth 将检查当前向哪个站点授予了票据，并针对 <literal>ticketA</literal> 请求 <command>revoke</command> 操作。撤消操作将立即执行。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   <command>grant</command> 和（在某些情况下）<command>revoke</command> 操作可能需要在一段时间后才返回确切操作的结果。客户端将一直等待返回结果，直到超过了票据的  <varname>timeout </varname> 值。此时间过后，客户端将放弃等待 — 除非使用了 <option>-w</option> 选项，在这种情况下，客户端会无限期等待。在日志文件中或者使用 <command>crm_ticket -L</command> 命令查找确切的状态。
+  </para>
+  <warning>
+   <title><command>crm_ticket</command> 和 <command>crm site ticket</command></title>
+   <para>
+    如果 booth 服务由于某些原因未在运行，您还可以使用 <command>crm_ticket</command> 或 <command>crm site ticket</command> 手动管理票据。这两个命令仅在群集节点上可用。如需干预，则使用它们时要非常小心，因为它们<emphasis>无法</emphasis>校验同一张票据是否已授予给其他站点。有关详细信息，请阅读手册页。
+   </para>
+   <para>
+    只要 booth 已启动并在运行，请只使用 <command>booth client</command> 进行手动干预。
+   </para>
+  </warning>
+  <para>
+   最初将票据授予某个站点后，booth 机制将会自动接管并管理票据。如果持有票据的站点停止服务，票据将会在失效时间后自动撤消，授予其他站点。依赖于该票据的资源将故障转移到持有该票据的新站点。之前运行了这些资源的节点将会按照您在约束中设置的 <literal>loss-policy</literal> 进行处理。
+  </para>
+
+  <procedure xml:id="pro.ha.geo.manage.tickets">
+   <title>手动管理票据</title>
+   <para>
+    假设您要将 <literal>ticket-nfs</literal> 从站点 <literal>amsterdam</literal>（使用虚拟 IP <literal>192.168.201.151</literal>）手动移动到站点 <literal>berlin</literal>（使用虚拟 IP <literal>192.168.202.151</literal>），请执行以下操作：
+   </para>
+   <step>
+    <para>
+     使用以下命令将 <literal>ticket-nfs</literal> 设置为备用：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm_ticket</command> -t ticket-nfs -s</screen>
+   </step>
+   <step>
+    <para>
+     等待依赖于 <literal>ticket-nfs</literal> 的任何资源停止或完全降级。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用以下命令从站点 <literal>amsterdam</literal> 中撤消 <literal>ticket-nfs</literal>：
+    </para>
+<screen><prompt role="root">root # </prompt><command>booth</command> revoke -s 192.168.201.151 ticket-nfs</screen>
+   </step>
+   <step>
+    <para>
+     从原始站点中撤消票据后，使用以下命令将它授予给站点 <literal>berlin</literal>：
+    </para>
+<screen><prompt role="root">root # </prompt><command>booth</command> grant -s 192.168.202.151 ticket-nfs</screen>
+   </step>
+  </procedure>
+  <remark>phil 2013-12: Will/Should get a cleaner, more integrated workflow - "booth client move -t ticket -s new-site"
+     or something similar. - dmuhamedagic 2014-08-13: N/A</remark>
+ </sect2>
+
+ 
+ <xi:include href="geo_manage_hawk2_i.xml"/>
+</sect1>

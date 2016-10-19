@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_concept_i.xml" version="5.0" xml:id="sec.ha.geo.concept">
+ <title>概念概述</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  基于 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 的地域群集可视为<quote>覆盖</quote>群集，其中每个群集站点对应传统群集中的一个群集节点。覆盖群集是通过 booth 机制管理的。它可以保证群集资源在不同群集站点中的高可用性。如果某个群集站点发生故障，则会使用被视为群集站点间故障转移域的群集对象（称作“票据”）来实现。Booth 可保证每个票据每次只能由一个站点拥有。
+ </para>
+
+ <para>
+  以下列表更详细地介绍了为地域群集引入的各个组件和机制。
+ </para>
+
+ <variablelist xml:id="vl.ha.geo.components">
+  <title>组件和票据管理</title>
+  <varlistentry xml:id="vle.ha.geo.components.ticket">
+   <term>票据</term>
+   <listitem>
+    <para>
+     票据授予在特定群集站点上运行某些资源的权限。一张票据某个时间内只能由一个站点所拥有。最初，每个站点都没有票据 - 每张票据都必须由群集管理员授予一次。之后，票据通过 booth 来管理，用于资源的自动故障转移。但是，管理员还可以进行干预以及手动授予或撤消票据。
+    </para>
+    <para>
+     出于管理目的撤消某个票据后，该票据不再由 booth 管理。要使 booth 再次开始管理该票据，必须再次将该票据授予站点。
+    </para>
+    <para>
+     资源可按依赖性绑定到特定票据。仅当站点有定义好的票据时，才会启动相应资源。反之亦然，如果删除了票据，将会自动停止依赖于该票据的资源。
+    </para>
+    <para>
+     站点有无票据的状态作为一种群集状态储存在 CIB 中。一个站点对于特定票据只有两种状态：<literal>true</literal>（站点拥有该票据）或 <literal>false</literal>（站点没有该票据）。将无特定票据状态（在地域群集的初始状态期间）与票据被撤消后的状态视为相同的。它们都是用值 <literal>false</literal> 来表示。
+    </para>
+    <para>
+     覆盖群集中的票据类似于传统群集中的资源。但和传统群集不同的是，在覆盖群集中票据是唯一一种资源类型。票据这种原始资源既不需要配置也不需要克隆。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.booth">
+   <term>Booth 群集票据管理器</term>
+   <listitem>
+    <para>
+     Booth 是管理票据分发以及地域群集的站点间故障转移进程的实例。每个参与群集和仲裁程序都运行 <systemitem class="daemon">boothd</systemitem> 服务。它连接到其他站点上运行的 booth 守护程序，并交换连接性细节。将票据授予站点后，booth 机制可以自动管理票据：如果持有票据的站点暂停服务，则 booth 守护程序会选举下一个将获得该票据的站点。为了防止短暂连接故障，失去选票（因与选举主体断开连接而显式或隐式失去选票）的站点需要在超时时间后放弃票据。因此，可以确保在前一个站点放弃票据后才重新分发票据。另请参见<xref linkend="vle.ha.geo.components.deadman"/>。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.arbitrator">
+   <term>仲裁程序</term>
+   <listitem>
+    <para>
+     每个站点运行一个 booth 实例，负责与其他站点通讯。如果您配置了偶数个站点，则还需要一个实例，以在诸如跨站点资源的故障转移等决定方面达成共识。在这种情况下，请添加一台或多台在其他站点运行的仲裁程序。仲裁程序是一台以特殊模式运行 booth 实例的计算机。因为所有 booth 实例都相互通讯，仲裁方有助于提高票据授予或撤消决定的可靠性。仲裁方无法保留任何票据。
+    </para>
+    <para>
+     仲裁程序对双站点情境尤其重要：如果站点 <literal>A</literal> 无法再与站点 <literal>B</literal> 通讯，则可能有两种原因：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       站点 <literal>A</literal> 和 <literal>B</literal> 之间发生网络故障。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       站点 <literal>B</literal> 发生故障。
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     但是，如果站点 <literal>C</literal>（仲裁程序）仍然能与站点 <literal>B</literal> 通讯，则站点 <literal>B</literal> 一定还在正常运行。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>票据故障转移</term>
+   <listitem>
+    <para>
+     如果票据丢失（这意味着其他 booth 实例在相当长的时间内无法与票据所有者通讯），剩余的一个站点将获取票据。这称为票据故障转移。如果剩余的成员构不成大多数，则票据无法故障转移。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.deadman">
+   <term>Dead Man 依赖性 (<literal>loss-policy="fence"</literal>)</term>
+   <listitem>
+    <para>
+     撤消票据后，在停止依赖于该票据的所有资源之前可能需要很长时间，尤其是级联资源。 要缩短该过程，群集管理员可以针对票据从站点撤消的情况配置一个 <literal>loss-policy</literal>（以及票据依赖性）。如果将 loss-policy 设置为 <literal>fence</literal>，托管依赖资源的节点将会被屏蔽。 
+    </para>
+    <warning>
+     <title>潜在的数据丢失</title>
+     <para>
+      一方面，<literal>loss-policy="fence"</literal> 可以大大加快群集恢复过程，并确保更迅速地迁移资源。
+     </para>
+     <para>
+      但另一方面，它可能会导致丢失所有未写入的数据，例如：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        依赖共享储存（例如 DRBD）的数据。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        位于复制数据库（例如 MariaDB 或 PostgreSQL）中，由于网络链接速度缓慢而尚未进入另一站点的数据。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </warning>
+   </listitem>
+  </varlistentry>
+ </variablelist>
+
+ <figure xml:id="fig.ha.geo.example1">
+  <title>双站点群集（4 个节点 + 仲裁方）</title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+
+ <para>
+  最常见的情境可能是，一个地域群集包含两个站点和一个在第三个站点上运行的仲裁方。这就需要三个 booth 实例，请参见<xref linkend="fig.ha.geo.example1"/>。（目前的）上限为 16 个 booth 实例。
+ </para>
+
+ <para>
+  通常，CIB 会在每个群集中同步，但不会跨地域群集的各个站点自动同步。但是，从 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 12 开始，将资源配置传输到其他群集站点的过程比以往更方便。有关详细信息，请参见<xref linkend="sec.ha.geo.rsc.sync.cib"/>。
+ </para>
+</sect1>
