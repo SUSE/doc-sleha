@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_concept_i.xml" version="5.0" xml:id="sec.ha.geo.concept">
+ <title>概念の概要</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>を基にしたGeoクラスタは、各クラスタサイトが従来のクラスタ内の1つのクラスタノードに対応する<quote>オーバーレイ</quote>クラスタであると考えることができます。オーバーレイクラスタはブース構造によって管理されます。この方式では、複数のクラスタサイトに対するクラスタリソースの高可用性が保証されます。これは、サイトをダウン状態にする必要がある場合、クラスタサイト間のフェールオーバードメインとして扱われるチケットと呼ばれるクラスタオブジェクトを使用することで可能になります。ブースは、すべてのチケットがどの時点においても1つのサイトのみによって所有されることを保証します。
+ </para>
+
+ <para>
+  以下では、Geoクラスタ向けに導入された個別のコンポーネントとメカニズムについて詳しく説明します。
+ </para>
+
+ <variablelist xml:id="vl.ha.geo.components">
+  <title>コンポーネントおよびチケットの管理</title>
+  <varlistentry xml:id="vle.ha.geo.components.ticket">
+   <term>チケット</term>
+   <listitem>
+    <para>
+     チケットは指定のクラスタサイトの特定のリソースを実行する権利を付与します。チケットは1度に1つのサイトだけが所有できます。最初はどのサイトもチケットを持ちません。クラスタ管理者が各チケットを1度付与する必要があります。その後、チケットはブースによってリソースの自動フェールオーバー用に管理されます。ただし、管理者は手動でチケットに介入して、付与または取り消しを行えます。
+    </para>
+    <para>
+     チケットが管理目的のために取り消された場合、そのチケットはブースによって管理されなくなります。チケットがブースによって再び管理されるようにするには、そのチケットをいずれかのサイトに再び付与する必要があります。
+    </para>
+    <para>
+     リソースを特定のチケットに依存させることができます。定義されたチケットがサイトで使用できる場合のみそれぞれのリソースが始動します。その逆に、チケットが削除されると、そのチケットに依存するリソースが自動的に停止します。
+    </para>
+    <para>
+     サイトにおけるチケットの有無はクラスタステータスとしてCIBに保存されます。特定のチケットについては、サイトに対して<literal>true</literal> (サイトにチケットがある)または<literal>false</literal> (サイトにチケットがない)の2つの状態のみとなります。 特定のチケットがない状況(Geoクラスタの初期状態時)は、チケットが取り消された後の状況と同じように扱われます。どちらの状況も<literal>false</literal>という値で表されます。
+    </para>
+    <para>
+     オーバーレイクラスタ内のチケットは従来のクラスタ内のリソースに似ています。ただし、従来のクラスタとは違って、チケットはオーバーレイクラスタ内の唯一のリソースタイプです。これらは、設定やクローン作成の必要がないプリミティブリソースです。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.booth">
+   <term>ブースクラスタチケットマネージャ</term>
+   <listitem>
+    <para>
+     ブースは、チケットの配布を管理するインスタンスであるため、Geoクラスタのサイト間のフェールオーバープロセスとなります。それぞれの参加クラスタおよびアービトレータが、サービスである<systemitem class="daemon">boothd</systemitem>を実行します。これは、別のサイトで実行しているブースデーモンに接続し、接続性の詳細を交換します。チケットがサイトに付与された後は、ブースメカニズムによってそのチケットを自動的に管理できます。そのチケットを保有しているサイトが稼働していない場合、ブースデーモンは、他のサイトのうち、どのサイトがそのチケットを取得するのかを投票します。短い接続の不具合を防ぐため、(明示的または、投票本体から接続が外れることで暗示的に)投票を失ったサイトはタイムアウト後にチケットを放棄する必要があります。このため、チケットは前のサイトによって放棄された後にのみ再配布されるようになっています。<xref linkend="vle.ha.geo.components.deadman"/>も参照してください。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.arbitrator">
+   <term>アービトレータ</term>
+   <listitem>
+    <para>
+     各サイトが、他のサイトとの通信に責任を持つブースインスタンスを1つ実行します。偶数のサイトを設定している場合は、サイト全体のリソースのフェールオーバーなど、決定について合意状態に達するための追加インスタンスが必要です。この場合、追加サイトで実行するアービトレータを1つ以上追加します。アービトレータは専用モードでブースインスタンスを実行する単一のマシンです。すべてのブースインスタンスは互いに通信するため、アービトレータによりチケットの付与または取り消しについてより信頼性の高い決定が可能となります。アービトレータはどのチケットも保有できません。
+    </para>
+    <para>
+     アービトレータは、2つのサイトのシナリオで特に重要です。たとえば、サイト<literal>A</literal>がサイト<literal>B</literal>と通信できなくなった場合、考えられる原因は2つあります。
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <literal>A</literal>と<literal>B</literal>の間にネットワーク障害が起こっている。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       サイト<literal>B</literal>がダウンしている。
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     ただし、サイト<literal>C</literal>(アービトレータ)はサイト<literal>B</literal>と通信できているため、サイト<literal>B</literal>は起動したまま、実行する必要があります。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>チケットフェールオーバー</term>
+   <listitem>
+    <para>
+     チケットが失われた場合、すなわち他のブースインスタンスがそのチケットの所有者と一定時間にわたって通信できなかった場合は、残りのサイトのいずれかがそのチケットを取得します。これはチケットフェールオーバーと呼ばれます。残りのメンバーが多数派を構成できない場合は、そのチケットはフェールオーバーできません。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.deadman">
+   <term>Dead Man Dependency (<literal>loss-policy="fence"</literal>)</term>
+   <listitem>
+    <para>
+     チケットが取り消された後、特にリソースがカスケード接続されている場合、そのチケットに依存するすべてのリソースが停止するまで長い時間がかかります。プロセスを短縮するため、クラスタ管理者は、サイトからチケットが取り消された場合に備えて、<literal>loss-policy</literal>を(チケット依存性と一緒に)設定できます。loss-policyが<literal>fence</literal>に設定される場合、依存するリソースをホストしているノードはフェンスされます。
+    </para>
+    <warning>
+     <title>データ喪失の可能性</title>
+     <para>
+      一方では、<literal>loss-policy="fence"</literal>という設定によって、クラスタのリカバリプロセスが大幅に高速化されて、リソースをより迅速に移行することが可能になります。
+     </para>
+     <para>
+      その一方で、この設定が原因で、たとえば次のような未書き込みデータがすべて失われる可能性があります。
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        共有ストレージ(DRBDなど)に配置されたデータ
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        低速なネットワークリンクが原因で他方のサイトにまだ達していないレプリケーションデータベース(MariaDBやPostgreSQLなど)内のデータ
+       </para>
+      </listitem>
+     </itemizedlist>
+    </warning>
+   </listitem>
+  </varlistentry>
+ </variablelist>
+
+ <figure xml:id="fig.ha.geo.example1">
+  <title>2サイトクラスタ(4ノード + アービトレータ)</title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+
+ <para>
+  おそらく最も一般的なシナリオは、2つのサイトと、3つ目のサイト上の単一のアービトレータで構成されるGeoクラスタです。これには3つのブースインスタンスが必要です。<xref linkend="fig.ha.geo.example1"/>を参照してください。上限は(現時点では)16個のブースインスタンスです。
+ </para>
+
+ <para>
+  通常どおり、CIBは各クラスタ内で同期されますが、Geoクラスタのサイト間で自動的に同期されることはありません。ただし、<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 12以降では、他のクラスタサイトへのリソース設定の転送は以前より簡単です。詳細については、<xref linkend="sec.ha.geo.rsc.sync.cib"/>を参照してください。
+ </para>
+</sect1>

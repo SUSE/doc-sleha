@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_ip_i.xml" version="5.0" xml:id="sec.ha.geo.ip.relocation">
+
+
+ <title>DNSアップデートを通じたIPアドレス再割り当ての設定</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Geoクラスタの1つのサイトがダウンして、チケットフェールオーバーが発生した場合は、通常は状況に応じてネットワークルーティングを調整する必要があります(または各チケットについてネットワークフェールオーバーを事前に設定しておく必要があります)。チケットにバインドされているサービスの種類に応じて、ルーティングを再設定するための代替手段があります。ダイナミックDNSアップデートを使用して代わりにサービスのIPアドレスを変更できます。
+ </para>
+
+ <para>
+  このシナリオの場合は、以下の前提条件が満たされている必要があります。
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    フェールオーバーする必要のあるサービスがホスト名にバインドされている必要があります。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    DNSサーバがダイナミックDNSアップデートをサポートするように設定されている必要があります。BIND/namedを使用してこのように設定する方法については、<literal>named</literal>のドキュメントまたは<link xlink:href="http://www.semicomplete.com/articles/dynamic-dns-with-dhcp/"/>を参照してください。<remark>taroth 2014-11-21: lmb, would you consider the aforementioned link appropriate (WRT to
+     our customers and the kind of setup that is needed here)?</remark> DNSのセットアップ方法の詳細については(ゾーンデータの動的更新を含む)、『SUSE Linux Enterprise Administration Guide』の「<citetitle>The Domain Name System</citetitle>」の章を参照してください。<link xlink:href="http://www.suse.com/documentation/"/>から入手できます。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    次の例では、更新されるゾーンの共有鍵(TSIG鍵)によってDNSアップデートが保護されていると想定しています。この鍵は、<command>dnssec-keygen</command>を使用して作成できます。
+   </para>
+<screen><prompt role="root">root # </prompt><command>dnssec-keygen</command> -a hmac-md5 -b 128 -n USER geo-update</screen>
+   <para>
+    詳細については、<command>dnssec-keygen</command>のマニュアルページまたは『SUSE Linux Enterprise Administration Guide』(<link xlink:href="http://www.suse.com/documentation/"/>から入手可能)を参照してください。「<citetitle>The Domain Name System</citetitle>」という章の「<citetitle>Secure Transactions</citetitle>」という節を参照してください。
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <para>
+  <xref linkend="ex.ha.geo.dyn.dns.rsc.config"/>では、<systemitem>ocf:heartbeat:dnsupdate</systemitem>リソースエージェントを使用して<command>nsupdate</command>コマンドを管理する方法を例示しています。<remark>taroth 2014-11-21: lmb, is the following correct? it
+   is mentioned in the description of fate#316112, however, your example in c#9 mentions focuses on
+   IPv4 only...</remark> このリソースエージェントはIPv4とIPv6の両方をサポートしています。
+ </para>
+
+ <example xml:id="ex.ha.geo.dyn.dns.rsc.config">
+  <title>ダイナミックDNSアップデートに対応するためのリソース設定</title>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dns-update-ip ocf:heartbeat:dnsupdate params \
+  hostname="www.domain.com"<co xml:id="co.dyn.dns.hostname"/> ip="192.168.3.4"<co xml:id="co.dyn.dns.ip"/>\
+  keyfile="<replaceable>/etc/whereever/Kgeo-update*</replaceable>.key"<co xml:id="co.dyn.dns.key"/>\
+  server="192.168.1.1"<co xml:id="co.dyn.dns.srv"/> serverport="53"<co xml:id="co.dyn.dns.srv.port"/></screen>
+  <calloutlist>
+   <callout arearefs="co.dyn.dns.hostname">
+    <para>
+     チケットとともにフェールオーバーする必要のあるサービスにバインドされたホスト名。このホスト名のIPアドレスはダイナミックDNSを通じて更新される必要があります。
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.ip">
+    <para>
+     移行されるサービスをホストしているサーバのIPアドレス。<remark>taroth 2014-11-21:
+     lmb, this description taken from fate c#9 is IMHO a bit misleading as it seems to imply that
+     this param is about the *current* IP address. However, from the description in
+     /usr/lib/ocf/resource.d/heartbeat/dnsupdate, I think this needs to be the IP address that
+     will be used for the hostname *after* failover - is that correct?</remark> ここで指定されるIPアドレスはクラスタ管理下であってもかまいません。これによりローカルフェールオーバーは処理されませんが、チケットのフェールオーバー後に外部の第三者が適切なサイトに誘導されるようになります。
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.key">
+    <para>
+     <command>dnssec-keygen</command>を使用して生成された公開鍵ファイルのパス。
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.srv">
+    <para>
+     アップデートの送信先となるDNSサーバのIPアドレス。サーバが指定されていない場合は、デフォルトでは正しいゾーンのマスタサーバが使用されます。
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.srv.port">
+    <para>
+     DNSサーバとの通信に使用されるポート。このオプションが有効となるのは、DNSサーバが指定されている場合のみです。
+    </para>
+   </callout>
+  </calloutlist>
+  <para>
+   上記のリソース設定を使用した場合は、リソースエージェントは障害が発生したGeoクラスタサイトをDNSレコードから削除して、ダイナミックDNSアップデートを通じてサービスのIPアドレスを変更します。
+  </para>
+ </example>
+</sect1>

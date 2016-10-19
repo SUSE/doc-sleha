@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_drbd_i.xml" version="5.0" xml:id="sec.ha.geo.drbd">
+ <title>DRBDの設定</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  全体的なシナリオの詳細については、<xref linkend="sec.ha.geo.oview"/>を参照してください。ルーティングされたIPv4接続またはIPv6接続で接続された2つのクラスタサイトがあるとします。この接続の伝送速度は、数Mbit/秒から最大10Gbit/秒の範囲です。この場合は、待ち時間が長いため、これらのサイトにまがたってクラスタファイルシステムを使用することはできません。しかし、一方のサイトがダウンした場合に素早いフェールオーバーを可能にするために、DRBDを使用してデータを複製できます(アクティブ/パッシブセットアップ)。DRBDは、別々のサイトに配置されたホスト間でブロックデバイス(ハードディスク、パーティション、論理ボリュームなど)のコンテンツをミラーリングすることで、ストレージデータを複製するためのソフトウェアです。フェールオーバーはブースサービスを介して管理されます(<xref linkend="vle.ha.geo.components.booth"/>を参照)。
+ </para>
+
+ <sect2 xml:id="sec.ha.geo.drbd.scenario">
+  <title>DRBDのシナリオと基本ステップ</title>
+  <para>
+   <xref linkend="fig.ha.geo.drbd.setup"/>では、以下で設定するセットアップとリソースをグラフィカルに表示しています。
+  </para>
+  <figure xml:id="fig.ha.geo.drbd.setup">
+   <title>DRBDのセットアップとリソースのスタッキング</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geo_drbd.png" width="80%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geo_drbd.png" width="80%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <itemizedlist xml:id="il.ha.geo.drbd.scenario">
+   <title>シナリオ － 詳細</title>
+   <listitem>
+    <para>
+     ファイルシステムはNFSを介してGeoクラスタ全体にわたって提供されます。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     DRBDの下のストレージ層としてLVMが使用されます。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <quote>スタックされた</quote>DRBDリソース:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       上位層のDRBDは、サイトあたり1つのノード上で実行され、Geoクラスタのもう一方のサイトにデータを複製します。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       下位層のDRBDは、データのローカルレプリケーションを実行します(1つのクラスタサイトのノード間で)。サイトあたり1つのノード上でいずれかの下位DRBDデバイスをアクティブ化した後に、サービスのIPアドレス(クラスタリソースとして設定されるもの)が開始されます。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     サイトamsterdam上で、DRBDは、同期レプリケーションプロトコルであるプロトコル<literal>C</literal>で実行されています。DRBDではLAN内のローカルIPアドレスが使用されます。 </para>
+   </listitem>
+   <listitem>
+    <para>
+     サービスのIPアドレスは、サービス自体用だけに使用されるのではなく、レプリケーションのために上位DRBDデバイス(2次状態で実行されているもの)がアクセスできる固定ポイントとしても使用されます。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ファイルシステムサービスを実行する必要のあるサイト上で、上位層DRBDは<systemitem>ocf:linbit:drbd</systemitem>リソースエージェントによって<literal>primary</literal>モードに設定されます。 この結果として、各種のアプリケーションはこの場所のファイルシステムをマウントして使用できます。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     希望に応じて、Geoクラスタのもう一方のサイトへのDRBD接続では、その間でDRBDプロキシを使用できます。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   このセットアップシナリオの場合は、以下の基本ステップを実行する必要があります。
+  </para>
+  <procedure>
+   <step>
+    <para>
+     DRBD設定ファイルを編集して、各Geoクラスタサイトの設定と、サイト間のDRBD接続の設定を追加します。詳細については、<xref linkend="sec.ha.geo.drbd.cfg"/>にある例を参照してください。
+    </para>
+   </step>
+   <step>
+    <para>
+     クラスタリソースを設定します(<xref linkend="sec.ha.geo.rsc.drbd"/>を参照)。
+    </para>
+   </step>
+   <step>
+    <para>
+     ブースを設定します(<xref linkend="sec.ha.geo.booth"/>を参照)。
+    </para>
+   </step>
+   <step>
+    <para>
+     各ローカルクラスタ内とGeoクラスタサイト間のDRBDとブース設定ファイルの同期を設定します。詳細については、<xref linkend="sec.ha.geo.sync"/>を参照してください。
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.drbd.cfg">
+  <title>DRBDの設定</title>
+  <para>
+   DRBD 8.3以降では、DRBD設定ファイルは複数の個別ファイルに分割されています。これらのファイルは<filename>/etc/drbd.d/</filename>ディレクトリに配置する必要があります。以下のいくつかのDRBD設定断片では、<xref linkend="il.ha.geo.drbd.scenario"/>で説明したシナリオに対応する基本的なDRBD設定を示しています。すべての断片は、単一のDRBDリソース設定ファイルに追加できます(<filename>/etc/drbd.d/nfs.res</filename>など)。その後、このファイルをCsync2を使用して同期できます(<xref linkend="sec.ha.geo.booth.sync.csync2.setup"/>を参照)。以下のDRBD設定の断片は必要最小限のものです。すなわち、これらの設定断片にはパフォーマンスチューニングオプションなどは一切含まれていません。DRBDのチューニング方法の詳細については、<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>の『Administration Guide』(<link xlink:href="http://www.suse.com/documentation/"/>から入手可能)で「<citetitle>DRBD</citetitle>」の章を参照してください。
+  </para>
+  <example xml:id="ex.ha.geo.drbd.cfg.site1">
+   <title>サイト1(amsterdam)用のDRBD設定断片</title>
+<screen>resource nfs-lower-amsterdam <co xml:id="co.geo.drbd.config.rsc"/>{
+         disk        /dev/volgroup/lv-nfs; <co xml:id="co.geo.drbd.config.disk"/>
+         meta-disk   internal; <co xml:id="co.geo.drbd.config.meta-disk"/>
+         device      /dev/drbd0; <co xml:id="co.geo.drbd.config.device"/>
+         protocol    C;  <co xml:id="co.geo.drbd.config.protocol"/>
+         net {
+                      shared-secret  "2a9702a6-8747-11e3-9ebb-782bcbd0c11c"; <co xml:id="co.geo.drbd.config.shared-secret"/>
+         }
+
+         on alice { <co xml:id="co.geo.drbd.config.resname"/>
+                      address         192.168.201.111:7900; <co xml:id="co.geo.drbd.config.address"/>
+                      node-id 0; <co xml:id="co.geo.drbd.config.node-id"/>
+         }
+         on bob { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.201.112:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>
+                      node-id 1; <xref linkend="co.geo.drbd.config.node-id" xrefstyle="select:nopage"/>
+         }
+         connection-mesh { <co xml:id="co.geo.drbd.config.connection-mesh"/>
+                      hosts alice bob;
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc">
+      <para>
+      それぞれのサービス(ここではNFS)への関連付けを可能にするリソース名。サイト名も含めることにより、名前の競合を生じさせることなく、全体的なDRBD設定をサイト間で同期させることができます。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk">
+      <para>
+       ノード間で複製されるデバイス。この例では、LVMはDRBDの下のストレージ層として使用されており、ボリュームグループ名は<literal>volgroup</literal>です。
+      </para></callout>
+    <callout arearefs="co.geo.drbd.config.meta-disk">
+     <para>
+      meta-diskパラメータには、通常、値<literal>internal</literal>が含まれますが、メタデータを保持する明示的なデバイスを指定することもできです。詳細については、<link xlink:href="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/>を参照してください。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device">
+     <para>
+       DRBD用デバイス名とそのマイナー番号。ローカルレプリケーション用の下位層DRBDと、Geoクラスタサイト間のレプリケーション用の上位層DRBDを区別するために、デバイスマイナー番号として<literal>0</literal>と<literal>10</literal>が使用されています。
+   </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.protocol">
+      <para>
+       DRBDは、同期レプリケーションプロトコルであるプロトコル<literal>C</literal>で実行されています。プライマリノード上のローカル書き込み操作が完了したと見なされるタイミングは、ローカルとリモートの両方のディスク書き込みが確認された後です。このため、単一ノードが失われた場合でもデータは一切失われないことが保証されます。両方のノード(または両ノードのストレージサブシステム)が同時に破損して復旧不能になった場合は、当然ながら、このレプリケーションプロトコルを採用している場合でも、データの喪失を避けることはできません。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+     <para>
+       共有秘密を使用して接続ペアが検証されます。接続ペアごとに異なる共有秘密が必要です。<command>uuidgen</command>プログラムを使用して、他と重複しない共有秘密値を得ることができます。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.resname">
+    <para>
+       <literal>on</literal>セクションでは、この設定文が適用されるホストを記述します。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+      <para>
+      それぞれのノードのローカルIPアドレスとポート番号。各DRBDリソースは個別のポートを必要とします。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.node-id">
+      <para>
+        複数のノードを設定する際は、ノードIDが必要です。ノードIDは、別々のノードを区別するための固有の負でない整数です。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.connection-mesh">
+     <para>
+       同一メッシュのすべてのノードを設定します。<option>hosts</option>パラメータには、同じDRBDセットアップを共有するすべてのホスト名が含まれます。
+    </para>
+    </callout>
+   </calloutlist>
+  </example>
+  <example xml:id="ex.ha.geo.drbd.cfg.site2">
+   <title>サイト2(berlin)用のDRBD設定断片</title>
+   <para>
+    サイト2(berlin)の設定は、サイト1の設定とほとんど同じです。したがって、ほとんどのパラメータの値をそのまま使用できます(ボリュームグループや論理ボリュームの名前を含む)。ただし、以下のパラメータの値は変更する必要があります。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      DRBDリソースの名前(<xref linkend="co.geo.drbd.config.rsc" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      ノードの名前とローカルIPアドレス(<xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>と<xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      共有秘密(<xref linkend="co.geo.drbd.config.shared-secret" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+   </itemizedlist>
+<screen>resource nfs-lower-berlin <xref linkend="co.geo.drbd.config.rsc" xrefstyle="select:nopage"/>{
+         disk        /dev/volgroup/lv-nfs; <xref linkend="co.geo.drbd.config.disk" xrefstyle="select:nopage"/>
+         meta-disk   internal; <xref linkend="co.geo.drbd.config.meta-disk" xrefstyle="select:nopage"/>
+         device      /dev/drbd0; <xref linkend="co.geo.drbd.config.device" xrefstyle="select:nopage"/>
+         protocol    C;  <xref linkend="co.geo.drbd.config.protocol" xrefstyle="select:nopage"/>
+         net {
+                      shared-secret "2e9290a0-8747-11e3-a28c-782bcbd0c11c"; <xref linkend="co.geo.drbd.config.shared-secret" xrefstyle="select:nopage"/>
+         }
+
+         on charly { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.202.111:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>
+                      node-id 0;
+         }
+         on doro { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.202.112:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="selec:nopage"/>
+                      node-id 1;
+         }
+         connection-mesh {
+                      hosts charly doro;
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc">
+      <para>
+      それぞれのサービス(ここではNFS)への関連付けを可能にするリソース名。サイト名も含めることにより、名前の競合を生じさせることなく、全体的なDRBD設定をサイト間で同期させることができます。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk">
+       <para>
+       ノード間で複製されるデバイス。この例では、LVMはDRBDの下のストレージ層として使用されており、ボリュームグループ名は<literal>volgroup</literal>です。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.meta-disk">
+     <para>
+      meta-diskパラメータには、通常、値<literal>internal</literal>が含まれますが、メタデータを保持する明示的なデバイスを指定することもできです。詳細については、<link xlink:href="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/>を参照してください。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device">
+       <para>
+       DRBD用デバイス名とそのマイナー番号。ローカルレプリケーション用の下位層DRBDと、Geoクラスタサイト間のレプリケーション用の上位層DRBDを区別するために、デバイスマイナー番号として<literal>0</literal>と<literal>10</literal>が使用されています。
+   </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.protocol">
+     <para>
+       DRBDは、同期レプリケーションプロトコルであるプロトコル<literal>C</literal>で実行されています。プライマリノード上のローカル書き込み操作が完了したと見なされるタイミングは、ローカルとリモートの両方のディスク書き込みが確認された後です。このため、単一ノードが失われた場合でもデータは一切失われないことが保証されます。両方のノード(または両ノードのストレージサブシステム)が同時に破損して復旧不能になった場合は、当然ながら、このレプリケーションプロトコルを採用している場合でも、データの喪失を避けることはできません。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+       <para>
+       共有秘密を使用して接続ペアが検証されます。接続ペアごとに異なる共有秘密が必要です。<command>uuidgen</command>プログラムを使用して、他と重複しない共有秘密値を得ることができます。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.resname">
+       <para>
+       <literal>on</literal>セクションでは、この設定文が適用されるホストを記述します。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+     <para>
+      それぞれのノードのローカルIPアドレスとポート番号。各DRBDリソースは個別のポートを必要とします。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+  <example xml:id="ex.ha.geo.drbd.cfg.cross-site">
+   <title>サイト間接続用のDRBD設定断片</title>
+<screen>resource nfs-upper <co xml:id="co.geo.drbd.config.rsc.cross"/> {
+         disk        /dev/drbd0; <co xml:id="co.geo.drbd.config.disk.cross"/>
+         meta-disk   internal; 
+         device      /dev/drbd10; <co xml:id="co.geo.drbd.config.device.cross"/>
+         protocol    A;  <co xml:id="co.geo.drbd.config.protocol.cross"/>
+         net {
+                      shared-secret  "3105dd88-8747-11e3-a7fd-782bcbd0c11c";  <co xml:id="co.geo.drbd.config.shared-secret.cross"/>
+                      ping-timeout   20; <co xml:id="co.geo.drbd.config.ping-timeout"/>
+         }
+
+         stacked-on-top-of           nfs-lower-amsterdam { <co xml:id="co.geo.drbd.config.stackedontopof"/>
+                      address        192.168.201.151:7910; <co xml:id="co.geo.drbd.config.address.cross"/>
+         }
+         stacked-on-top-of           nfs-lower-berlin { <xref linkend="co.geo.drbd.config.stackedontopof" xrefstyle="select:nopage"/>
+                      address        192.168.202.151:7910; <xref linkend="co.geo.drbd.config.address.cross" xrefstyle="select:nopage"/>
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc.cross">
+     <para>
+      それぞれのサービス(ここではNFS)への関連付けを可能にするリソース名。これは上位層DRBDの設定です。上位層DRBDは、Geoクラスタのもう一方のサイトにデータを複製します。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk.cross">
+     <para>
+      複製するストレージディスクは、DRBDデバイス<filename>/dev/drbd0</filename>です。<filename>/dev/drbd/by-res/<replaceable>nfs-lower-site-N</replaceable>/0</filename>を代わりに使用できますが、これはサイト固有となるため、サイトごとの設定内に移動する必要があります。すなわち、それぞれの<literal>stacked-on-top-of</literal>キーワードの下に移動する必要があります。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device.cross">
+     <para>
+       DRBD用デバイス名とそのマイナー番号。ローカルレプリケーション用の下位層DRBDと、Geoクラスタサイト間のレプリケーション用の上位層DRBDを区別するために、デバイスマイナー番号として<literal>0</literal>と<literal>10</literal>が使用されています。
+   </para>
+  </callout>
+    <callout arearefs="co.geo.drbd.config.protocol.cross">
+     <para>
+      DRBDは、長距離レプリケーション用に使用される非同期レプリケーションプロトコルであるプロトコル<literal>A</literal>で実行されています。プライマリノード上のローカル書き込み操作が完了したと見なされるタイミングは、ローカルディスク書き込みが完了して、レプリケーションパケットがローカルTCP送信バッファに配置されたときです。強制フェールオーバーが実行された場合は、データが失われる可能性があります。スタンバイノード上のデータはフェールオーバー後も同じままです。ただし、クラッシュ前に実行された最新の更新の内容は失われる可能性があります。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.ping-timeout">
+     <para>
+      待ち時間が長くなるため、pingタイムアウトを<literal>20</literal>に設定してください。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+    <para>
+       共有秘密を使用して接続ペアが検証されます。接続ペアごとに異なる共有秘密が必要です。<command>uuidgen</command>プログラムを使用して、他と重複しない共有秘密値を得ることができます。
+      </para>
+  </callout>
+    <callout arearefs="co.geo.drbd.config.stackedontopof">
+     <para>
+      ホスト名を渡す代わりに、ここでは下位デバイスの上にスタックするようにDRBDに指示しています。これは、下位デバイスが<literal>Primary</literal>である必要があることを示しています。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+     <para>
+      どのクラスタノードに下位DRBDデバイス<literal>Primary</literal>があるのか不明な状態で、Geoクラスタのもう一方のサイトへのTCP/IP接続を可能にするために、NFS向けに設定されたサービスIPアドレスを使用します。サービスIPアドレスの設定方法については、<xref linkend="pro.ha.geo.rsc.drbd"/>を参照してください。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect2>
+</sect1>
