@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_drbd_i.xml" version="5.0" xml:id="sec.ha.geo.drbd">
+ <title>設定 DRBD</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  如需整體案例的描述，請參閱<xref linkend="sec.ha.geo.oview"/>。假設您的兩個叢集網站使用路由式 IPv4 或 IPv6 連接，其傳輸速度為幾 Mb/秒至 10 Gb/秒不等，並且由於延遲較高，無法在這些網站上使用叢集檔案系統。但是，您可以使用 DRBD 來複製資料，以便在其中一個網站關閉時，可以快速容錯移轉 (主動/被動設定)。DRBD 軟體透過在不同網站上的主機之間鏡像區塊裝置 (硬碟、分割區、邏輯磁碟區等) 的內容來複製儲存資料。容錯移轉透過 booth 服務進行管理，詳情請參閱<xref linkend="vle.ha.geo.components.booth"/>。
+ </para>
+
+ <sect2 xml:id="sec.ha.geo.drbd.scenario">
+  <title>DRBD 案例和基本步驟</title>
+  <para>
+   <xref linkend="fig.ha.geo.drbd.setup"/>以圖形方式在下方顯示了我們要設定的設定和資源。
+  </para>
+  <figure xml:id="fig.ha.geo.drbd.setup">
+   <title>DRBD 設定和資源堆疊</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geo_drbd.png" width="80%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geo_drbd.png" width="80%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <itemizedlist xml:id="il.ha.geo.drbd.scenario">
+   <title>案例 - 詳細資料</title>
+   <listitem>
+    <para>
+     透過 NFS 在整個地理叢集上提供檔案系統。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LVM 用做 DRBD 下面的儲存層。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     一個<quote>堆疊式</quote> DRBD 資源：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       上層 DRDB 在每個網站的一個節點上執行，負責將資料複製到地理叢集的另一個網站。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       下層 DRBD 負責資料的本地複製 (在一個叢集網站的多個節點之間)。在每個網站的一個節點上啟動某個下層 DRBD 裝置後，將會啟動服務 IP (將設定為叢集資源)。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     在 amsterdam 網站上，DRBD 在通訊協定 <literal>C</literal> (一種同步複製通訊協定) 中執行。它使用 LAN 中的本地 IP 位址。 </para>
+   </listitem>
+   <listitem>
+    <para>
+     服務 IP 不僅如此用於服務，而且還用做上層 DRBD 裝置 (在次要狀態下執行) 在複製時存取的固定點。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     在應該執行檔案系統服務的網站上，<systemitem>ocf:linbit:drbd</systemitem> 資源代辦將上層 DRBD 設定為 <literal>primary</literal> 模式。這表示應用程式可以掛接和使用其中的檔案系統。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     與地理叢集的另一個網站建立的 DRBD 連接可以選擇性地在兩者之間使用 DRBD 代理。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   對於這種設定案例，需要執行以下基本步驟：
+  </para>
+  <procedure>
+   <step>
+    <para>
+     編輯 DRBD 組態檔案，以包含每個地理叢集和網站間 DRBD 連接的組態程式碼片段。如需詳細資料，請參閱<xref linkend="sec.ha.geo.drbd.cfg"/>中的範例。
+    </para>
+   </step>
+   <step>
+    <para>
+     依<xref linkend="sec.ha.geo.rsc.drbd"/>中所述設定叢集資源。
+    </para>
+   </step>
+   <step>
+    <para>
+     依<xref linkend="sec.ha.geo.booth"/>中所述設定 booth。
+    </para>
+   </step>
+   <step>
+    <para>
+     設定每個本地叢集內部以及地理叢集網站之間的 DRBD 和 booth 組態檔案同步。如需詳細資訊，請參閱<xref linkend="sec.ha.geo.sync"/>。
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.drbd.cfg">
+  <title>DRBD 組態</title>
+  <para>
+   從 DRBD 8.3 開始，DRBD 組態檔案分為多個不同的檔案。這些檔案必須位於 <filename>/etc/drbd.d/</filename> 目錄中。以下 DRBD 組態程式碼片段顯示<xref linkend="il.ha.geo.drbd.scenario"/>中所述案例的基本 DRBD 組態。可將所有程式碼片段新增至一個 DRBD 資源組態檔案，例如 <filename>/etc/drbd.d/nfs.res</filename>。然後，可依<xref linkend="sec.ha.geo.booth.sync.csync2.setup"/>中所述，使用 Csync2 同步此檔案。請注意，下面的 DRBD 組態程式碼片段十分精簡 — 不包括任何效能調整選項或類似程式碼。如需如何調整 DRBD 的詳細資料，請參閱 <link xlink:href="http://www.suse.com/documentation/"/> 上提供的《<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 管理指南》中的「<citetitle>DRBD</citetitle>」一章。
+  </para>
+  <example xml:id="ex.ha.geo.drbd.cfg.site1">
+   <title>網站 1 (amsterdam) 的 DRBD 組態程式碼片段</title>
+<screen>resource nfs-lower-amsterdam <co xml:id="co.geo.drbd.config.rsc"/>{
+         disk        /dev/volgroup/lv-nfs; <co xml:id="co.geo.drbd.config.disk"/>
+         meta-disk   internal; <co xml:id="co.geo.drbd.config.meta-disk"/>
+         device      /dev/drbd0; <co xml:id="co.geo.drbd.config.device"/>
+         protocol    C;  <co xml:id="co.geo.drbd.config.protocol"/>
+         net {
+                      shared-secret  "2a9702a6-8747-11e3-9ebb-782bcbd0c11c"; <co xml:id="co.geo.drbd.config.shared-secret"/>
+         }
+
+         on alice { <co xml:id="co.geo.drbd.config.resname"/>
+                      address         192.168.201.111:7900; <co xml:id="co.geo.drbd.config.address"/>
+                      node-id 0; <co xml:id="co.geo.drbd.config.node-id"/>
+         }
+         on bob { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.201.112:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>
+                      node-id 1; <xref linkend="co.geo.drbd.config.node-id" xrefstyle="select:nopage"/>
+         }
+         connection-mesh { <co xml:id="co.geo.drbd.config.connection-mesh"/>
+                      hosts alice bob;
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc">
+      <para>
+      用來與相應服務 (本例中為 NFS) 建立某種關聯的資源名稱。如果同時包含網站名稱，則可以在網站之間同步整個 DRBD 組態，且不會造成名稱衝突。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk">
+      <para>
+       在節點之間複製的裝置。在本範例中，LVM 用做 DRBD 下面的儲存層，磁碟區群組名稱為 <literal>volgroup</literal>。
+      </para></callout>
+    <callout arearefs="co.geo.drbd.config.meta-disk">
+     <para>
+      meta-disk 參數通常包含值 <literal>internal</literal>，但您也可以指定具體的裝置來儲存中繼資料。如需相關資訊，請參閱<link xlink:href="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/>。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device">
+     <para>
+       DRBD 的設備名稱及其次要編號。為了將用於本地複製的下層 DRBD 與用於地理叢集網站之間複製的上層 DRBD 區分開來，這裡使用了裝置次要編號 <literal>0</literal> 和 <literal>10</literal>。
+   </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.protocol">
+      <para>
+       DRBD 在通訊協定 <literal>C</literal> (一種同步複製通訊協定) 中執行。只有在同時確認了本地和遠端磁碟寫入之後，才將主要節點上的本地寫入操作視為已完成。因此，可以保證一個節點遺失不會導致任何資料遺失。當然，如果兩個節點 (或其儲存子系統) 同時發生了不可復原的損壞，則即使採用這種複製通訊協定，也會不可避免地發生資料遺失。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+     <para>
+       共用密碼用於驗證連接組合。需要為每個連接組合使用不同的共用密碼。可以使用 <command>uuidgen</command> 程式取得唯一值。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.resname">
+    <para>
+       <literal>On</literal> 區段指定要對其套用此組態陳述式的主機。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+      <para>
+      相應節點的本地 IP 位址和埠號。每個 DRBD 資源需要有各自的埠。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.node-id">
+      <para>
+        設定兩個以上的節點時，需要節點 ID。該 ID 是用於區分不同節點的唯一非負整數。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.connection-mesh">
+     <para>
+       定義網格的所有節點。<option>hosts</option> 參數包含共用相同 DRBD 設定的所有主機名稱。
+    </para>
+    </callout>
+   </calloutlist>
+  </example>
+  <example xml:id="ex.ha.geo.drbd.cfg.site2">
+   <title>網站 2 (berlin) 的 DRBD 組態程式碼片段</title>
+   <para>
+    網站 2 (berlin) 的組態與網站 1 大致相同：您可以保留大多數參數的值，包括磁碟區群組和邏輯磁碟區的名稱。但是，需要變更以下參數的值：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      DRBD 資源的名稱 (<xref linkend="co.geo.drbd.config.rsc" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      節點的名稱和本地 IP 位址 (<xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/> 和 <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>)。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      共用密碼 (<xref linkend="co.geo.drbd.config.shared-secret" xrefstyle="select:nopage"/>)
+     </para>
+    </listitem>
+   </itemizedlist>
+<screen>resource nfs-lower-berlin <xref linkend="co.geo.drbd.config.rsc" xrefstyle="select:nopage"/>{
+         disk        /dev/volgroup/lv-nfs; <xref linkend="co.geo.drbd.config.disk" xrefstyle="select:nopage"/>
+         meta-disk   internal; <xref linkend="co.geo.drbd.config.meta-disk" xrefstyle="select:nopage"/>
+         device      /dev/drbd0; <xref linkend="co.geo.drbd.config.device" xrefstyle="select:nopage"/>
+         protocol    C;  <xref linkend="co.geo.drbd.config.protocol" xrefstyle="select:nopage"/>
+         net {
+                      shared-secret "2e9290a0-8747-11e3-a28c-782bcbd0c11c"; <xref linkend="co.geo.drbd.config.shared-secret" xrefstyle="select:nopage"/>
+         }
+
+         on charly { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.202.111:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="select:nopage"/>
+                      node-id 0;
+         }
+         on doro { <xref linkend="co.geo.drbd.config.resname" xrefstyle="select:nopage"/>
+                      address         192.168.202.112:7900; <xref linkend="co.geo.drbd.config.address" xrefstyle="selec:nopage"/>
+                      node-id 1;
+         }
+         connection-mesh {
+                      hosts charly doro;
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc">
+      <para>
+      用來與相應服務 (本例中為 NFS) 建立某種關聯的資源名稱。如果同時包含網站名稱，則可以在網站之間同步整個 DRBD 組態，且不會造成名稱衝突。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk">
+       <para>
+       在節點之間複製的裝置。在本範例中，LVM 用做 DRBD 下面的儲存層，磁碟區群組名稱為 <literal>volgroup</literal>。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.meta-disk">
+     <para>
+      meta-disk 參數通常包含值 <literal>internal</literal>，但您也可以指定具體的裝置來儲存中繼資料。如需相關資訊，請參閱<link xlink:href="http://www.drbd.org/users-guide-emb/ch-internals.html#s-metadata"/>。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device">
+       <para>
+       DRBD 的設備名稱及其次要編號。為了將用於本地複製的下層 DRBD 與用於地理叢集網站之間複製的上層 DRBD 區分開來，這裡使用了裝置次要編號 <literal>0</literal> 和 <literal>10</literal>。
+   </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.protocol">
+     <para>
+       DRBD 在通訊協定 <literal>C</literal> (一種同步複製通訊協定) 中執行。只有在同時確認了本地和遠端磁碟寫入之後，才將主要節點上的本地寫入操作視為已完成。因此，可以保證一個節點遺失不會導致任何資料遺失。當然，如果兩個節點 (或其儲存子系統) 同時發生了不可復原的損壞，則即使採用這種複製通訊協定，也會不可避免地發生資料遺失。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+       <para>
+       共用密碼用於驗證連接組合。需要為每個連接組合使用不同的共用密碼。可以使用 <command>uuidgen</command> 程式取得唯一值。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.resname">
+       <para>
+       <literal>On</literal> 區段指定要對其套用此組態陳述式的主機。
+      </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+     <para>
+      相應節點的本地 IP 位址和埠號。每個 DRBD 資源需要有各自的埠。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+  <example xml:id="ex.ha.geo.drbd.cfg.cross-site">
+   <title>跨網站連接的 DRBD 組態程式碼片段</title>
+<screen>resource nfs-upper <co xml:id="co.geo.drbd.config.rsc.cross"/> {
+         disk        /dev/drbd0; <co xml:id="co.geo.drbd.config.disk.cross"/>
+         meta-disk   internal; 
+         device      /dev/drbd10; <co xml:id="co.geo.drbd.config.device.cross"/>
+         protocol    A;  <co xml:id="co.geo.drbd.config.protocol.cross"/>
+         net {
+                      shared-secret  "3105dd88-8747-11e3-a7fd-782bcbd0c11c";  <co xml:id="co.geo.drbd.config.shared-secret.cross"/>
+                      ping-timeout   20; <co xml:id="co.geo.drbd.config.ping-timeout"/>
+         }
+
+         stacked-on-top-of           nfs-lower-amsterdam { <co xml:id="co.geo.drbd.config.stackedontopof"/>
+                      address        192.168.201.151:7910; <co xml:id="co.geo.drbd.config.address.cross"/>
+         }
+         stacked-on-top-of           nfs-lower-berlin { <xref linkend="co.geo.drbd.config.stackedontopof" xrefstyle="select:nopage"/>
+                      address        192.168.202.151:7910; <xref linkend="co.geo.drbd.config.address.cross" xrefstyle="select:nopage"/>
+         }
+}</screen>
+   <calloutlist>
+    <callout arearefs="co.geo.drbd.config.rsc.cross">
+     <para>
+      用來與相應服務 (本例中為 NFS) 建立某種關聯的資源名稱。這是上層 DRBD (負責將資料複製到地理叢集的另一個網站) 的組態。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.disk.cross">
+     <para>
+      用於複製的儲存磁碟為 DRBD 裝置 <filename>/dev/drbd0</filename>。您可以改用 <filename>/dev/drbd/by-res/<replaceable>nfs-lower-site-N</replaceable>/0</filename>，但這種用法與具體的網站相關，因此需要將它移入每個網站的組態，也就是說，需要移至相應 <literal>stacked-on-top-of</literal> 關鍵字的下面。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.device.cross">
+     <para>
+       DRBD 的設備名稱及其次要編號。為了將用於本地複製的下層 DRBD 與用於地理叢集網站之間複製的上層 DRBD 區分開來，這裡使用了裝置次要編號 <literal>0</literal> 和 <literal>10</literal>。
+   </para>
+  </callout>
+    <callout arearefs="co.geo.drbd.config.protocol.cross">
+     <para>
+      DRBD 在通訊協定 <literal>A</literal> (用於遠距離複製的非同步複製通訊協定) 中執行。完成本地磁碟寫入並將複製封包放入本地 TCP 傳送緩衝區後，即將主要節點上的本地寫入操作視為已完成。如果出現強制容錯移轉，可能會發生資料遺失。容錯移轉後，待命節點上的資料會保持一致。但是，最近在當機之前執行的更新可能會遺失。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.ping-timeout">
+     <para>
+      由於延遲較高，這裡將 ping 逾時設定為 <literal>20</literal>。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.shared-secret">
+    <para>
+       共用密碼用於驗證連接組合。需要為每個連接組合使用不同的共用密碼。可以使用 <command>uuidgen</command> 程式取得唯一值。
+      </para>
+  </callout>
+    <callout arearefs="co.geo.drbd.config.stackedontopof">
+     <para>
+      無需傳遞任何主機名稱，我們可以告知 DRBD 要堆疊在其下層裝置上。這意味著，下層裝置必須是<literal>主要</literal>裝置。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.drbd.config.address">
+     <para>
+      在不知道哪個叢集節點包含<literal>主要</literal>下層 DRBD 裝置的情況下，若要允許與地理叢集的另一個網站建立 TCP/IP 連接，可以使用針對 NFS 設定的服務 IP 位址。如需如何設定服務 IP 的資訊，請參閱<xref linkend="pro.ha.geo.rsc.drbd"/>。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect2>
+</sect1>

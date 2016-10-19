@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_concept_i.xml" version="5.0" xml:id="sec.ha.geo.concept">
+ <title>概念綜覽</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  以 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 為基礎的地理叢集可視為一個<quote>重疊</quote>叢集，其中的每個叢集網站相當於傳統叢集中的一個叢集節點。重疊叢集採用 booth 機制進行管理。該機制能夠保證所有不同叢集站台間以高可用模式使用叢集資源。該目的透過叢集物件 (稱做「票證」) 實現，這些票證會被視為叢集網站之間的容錯移轉網域，以防網站發生故障。Booth 可保證每個票證每次只能由一個網站擁有。
+ </para>
+
+ <para>
+  以下清單更詳細說明了為地理叢集引入的各元件和機制。
+ </para>
+
+ <variablelist xml:id="vl.ha.geo.components">
+  <title>元件和票證管理</title>
+  <varlistentry xml:id="vle.ha.geo.components.ticket">
+   <term>票證</term>
+   <listitem>
+    <para>
+     票證可授予在特定叢集站台上執行特定資源的權限。一張票證同一時刻只能由一個站台擁有。最初，所有站台都沒有票證，每張票證只能由叢集管理員授予一次。之後，這些票證交由 booth 管理，以便自動進行資源容錯移轉。不過，管理員還可以進行干預，並手動授予或撤銷票證。
+    </para>
+    <para>
+     出於管理目的撤銷某個票證後，該票證不再由 booth 管理。若要使 booth 再次開始管理該票證，必須再次將該票證授予給網站。
+    </para>
+    <para>
+     資源可以依相依性繫結到特定票證。僅當站台上有定義的票證時，相關資源才會啟動。反之亦然，如果移除了票證，依賴於該票證的資源便會自動停止。
+    </para>
+    <para>
+     站台的票證存在與否會做為叢集狀態儲存在 CIB 中。對於一個特定票證而言，網站的狀態只有兩種︰<literal>true</literal> (網站有票證) 或 <literal>false</literal> (網站沒有票證)。系統對沒有特定票證 (在地理叢集的初始狀態期間) 及票證被撤銷了這兩種情況的處理方式沒有任何不同。這兩種狀態都是用值 <literal>false</literal> 來反映。
+    </para>
+    <para>
+     重疊叢集中的票證類似於傳統叢集中的資源。但與傳統叢集的不同是，票證是重疊叢集中唯一的一種資源類型。它們是不需要設定或複製的基本資源。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.booth">
+   <term>Booth 叢集票證管理員</term>
+   <listitem>
+    <para>
+     Booth 是管理票證配送，進而管理地理叢集的各網站之間容錯移轉程序的例項。每個參與的叢集與仲裁者都會執行服務 <systemitem class="daemon">boothd</systemitem>。該服務會與其他站台上執行的 booth 精靈連接並交換連接詳細資料。票證授予網站後，booth 機制可自動管理該票證︰如果持有票證的網站停止服務，這些 booth 精靈將會進行投票，選出應由其他網站中的哪個網站獲得該票證。為了避免出現短暫的連接故障，未獲得投票 (明確或因與投票主體中斷默式) 的站台需要在逾時後放棄該票證。如此可以確保票證只有在被之前的網站放棄以後才會重新配送。另請參閱<xref linkend="vle.ha.geo.components.deadman"/>。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.arbitrator">
+   <term>仲裁者</term>
+   <listitem>
+    <para>
+     每個站台都會執行一個負責與其他站台通訊的 booth 例項。如果您的環境有偶數個站台，您將需要一個額外的例項，以便在各站台間關於資源容錯移轉等決策方面達成共識。在此情況下，請新增一或多個在額外的站台上執行的仲裁者。仲裁者是以特殊模式執行 booth 例項的單部機器。由於所有 booth 例項都會相互通訊，因此仲裁者可協助制定更為可靠的授予或撤銷票證決策。仲裁方無法保留任何票證。
+    </para>
+    <para>
+     仲裁者對兩個站台的叢集而言尤為重要︰例如，如果站台 <literal>A</literal> 無法再與站台 <literal>B</literal> 通訊，可能的原因有兩個︰
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <literal>A</literal> 與 <literal>B</literal> 之間發生網路故障。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       站台 <literal>B</literal> 已關閉。
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     但是，如果站台 <literal>C</literal> (即仲裁者) 仍然能夠與站台 <literal>B</literal> 通訊，則說明站台 <literal>B</literal> 一定仍處於正常執行狀態。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>票證容錯移轉</term>
+   <listitem>
+    <para>
+     如果票證遺失 (意味著其他 booth 例項在相當長的時間內無法與票證擁有者通訊)，剩餘的一個網站將會取得票證。這稱為票證容錯移轉。如果剩餘的成員不足以構成大多數，則票證無法容錯移轉。
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.deadman">
+   <term>失效資源相依性 (<literal>loss-policy="fence"</literal>)</term>
+   <listitem>
+    <para>
+     票證撤銷後，可能需要一段很長的時間，依賴於該票證的所有資源才會停止，串聯資源更是如此。若要縮短該程序，叢集管理員可以針對站台的票證被撤銷的情況設定一個 <literal>loss-policy</literal> (以及票證相依性)。如果 loss-policy 設為 <literal>fence</literal>，則會圍籬區隔代管相依資源的節點。
+    </para>
+    <warning>
+     <title>潛在的資料遺失</title>
+     <para>
+      一方面，<literal>loss-policy="fence"</literal> 可以大幅加快叢集復原速度，並可保證資源能夠更快地移轉。
+     </para>
+     <para>
+      但另一方面，可能會導致遺失所有未寫入的資料，例如：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        相依於共用儲存 (例如 DRBD) 的資料。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        位於複製資料庫 (例如 MariaDB 或 PostgreSQL) 中，由於網路連結速度緩慢而尚未進入另一網站的資料。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </warning>
+   </listitem>
+  </varlistentry>
+ </variablelist>
+
+ <figure xml:id="fig.ha.geo.example1">
+  <title>雙網站叢集 (4 個節點 + 仲裁方) </title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+
+ <para>
+  最常見的個案可能是︰包含兩個網站，而第三個網站上有一個仲裁方的地理叢集。這就需要三個 booth 例項，請參閱<xref linkend="fig.ha.geo.example1"/>。(目前的) 上限為 16 個 booth 例項。
+ </para>
+
+ <para>
+  照例，CIB 在每個叢集內同步，但在地理叢集的各網站間則不自動同步。但是，從 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 12 開始，將資源組態傳輸到其他叢集網站的程序比以往更為方便。如需詳細資料，請參閱<xref linkend="sec.ha.geo.rsc.sync.cib"/>。
+ </para>
+</sect1>

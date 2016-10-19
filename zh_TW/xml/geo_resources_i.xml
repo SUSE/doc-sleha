@@ -1,0 +1,586 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_resources_i.xml" version="5.0" xml:id="sec.ha.geo.rsc">
+ <title>設定叢集資源與條件約束</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  除了需要為特定叢集環境定義的資源與條件約束之外，地理叢集還需要下面所述的其他資源與條件約束。可依以下範例中所示使用 crm 外圍程序 (crmsh) 或者使用 HA Web Konsole (Hawk2) 來設定這些資源和條件約束。
+ </para>
+
+ <para>
+  本節重點介紹專屬於地理叢集的任務。如需偏好的叢集管理工具的介紹，以及如何使用該工具設定資源和條件約束的一般指示，請參閱 <link xlink:href="http://www.suse.com/documentation/"/> 上的《<citetitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 管理指南</citetitle>》中的下列其中一個章節：
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    Hawk2：「<citetitle>設定和管理叢集資源 (Web 介面)</citetitle>」一章
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    crmsh：「<citetitle>設定和管理叢集資源 (指令行)</citetitle>」一章
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <important>
+  <title>不跨網站進行 CIB 同步</title>
+  <para>
+   CIB <emphasis>不會</emphasis>跨地理叢集的叢集網站自動同步。這意味著，需要相應地為每個網站設定必須在整個地理叢集中高度可用的所有資源。
+  </para>
+  <para>
+   若要簡化將組態傳輸到其他叢集網站的程序，可依以下方式設定具有網站特定參數的所有資源：使參數的值相依於執行資源的叢集網站名稱。
+  </para>
+  <para>
+   為了實現此目的，必須在相應 <filename>/etc/corosync/corosync.conf</filename> 檔案中定義每個網站的叢集名稱。例如，網站 1 (<literal>amsterdam</literal>) 的 <filename>/etc/corosync/corosync.conf</filename> 必須包含以下項目：
+  </para>
+<screen>totem {
+   [...]
+   cluster_name: amsterdam
+   }</screen>
+  <para>
+   在一個網站上設定資源後，可以標記所有叢集網站上所需的資源，從目前 CIB 輸出這些資源，然後將其輸入另一個網站的 CIB。如需詳細資料，請參閱<xref linkend="sec.ha.geo.rsc.sync.cib"/>。
+  </para>
+ </important>
+
+ <sect2 xml:id="sec.ha.geo.rsc.drbd">
+  <title>DRBD 的資源和條件約束</title>
+  <para>
+   若要完成 DRBD 設定，需要依<xref linkend="pro.ha.geo.rsc.drbd" xrefstyle="select:label"/>中所示設定某些資源和條件約束，然後依<xref linkend="sec.ha.geo.rsc.sync.cib"/>中所述將其傳輸到其他叢集網站。
+  </para>
+  <procedure xml:id="pro.ha.geo.rsc.drbd">
+   <title>設定 DRBD 設定的資源</title>
+   <step>
+    <para>
+     在叢集 <literal>amsterdam</literal> 的其中一個節點上，啟動外圍程序並以 <systemitem class="username">root</systemitem> 或同等身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入 <command>crm configure</command> 切換至互動式 crm 外圍程序。
+    </para>
+   </step>
+   <step>
+    <para>
+     將 NFS 的 (網站相關) 服務 IP 設定為基本資源：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip_nfs ocf:heartbeat:IPaddr2 \
+  params iflabel="nfs" nic="eth1" cidr_netmask="24"
+  params rule #cluster-name eq amsterdam ip="192.168.201.151" \
+  params rule #cluster-name eq berlin ip="192.168.202.151" \
+  op monitor interval=10</screen>
+   </step>
+   <step>
+    <para>
+     設定檔案系統資源以及 NFS 伺服器的資源：
+    </para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> nfs_fs ocf:heartbeat:Filesystem \
+  params device="/dev/drbd/by-res/nfs/0" directory="/mnt/nfs" \
+  fstype="ext4"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> nfs_service systemd:nfs-server</screen>
+   </step>
+   <step>
+    <para>
+     為 DRBD 設定以下基本資源和多狀態資源：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> drbd_nfs ocf:linbit:drbd \
+  params drbd_resource="nfs-upper" \
+  op monitor interval="31" role="Slave" \
+  op monitor interval="30" role="Master"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> drbd_nfs_lower ocf:linbit:drbd \
+  params rule #cluster-name eq amsterdam \
+  drbd_resource="nfs-lower-amsterdam" \
+  params rule #cluster-name eq berlin \
+  drbd_resource="nfs-lower-berlin" \                                
+  op monitor interval="31" role="Slave" \
+  op monitor interval="30" role="Master"
+<prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms_drbd_nfs drbd_nfs \
+  meta master-max="1" master-node-max="1" \
+  clone-max="1" clone-node-max="1" notify="true"
+<prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms_drbd_nfs_lower drbd_nfs_lower \
+  meta master-max="1" master-node-max="1" \
+  clone-max="2" clone-node-max="1" notify="true"</screen>
+   </step>
+   <step>
+    <para>
+     新增具有以下並存條件約束和順序條件約束的群組：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> g_nfs nfs_fs nfs_service
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_ip_with_lower \
+   inf: ip_nfs:Started  ms_drbd_nfs_lower:Master
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_g_with_upper \
+   inf: g_nfs:Started  ms_drbd_nfs:Master
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col_nfs_upper_with_ip \
+   inf: ms_drbd_nfs:Master  ip_nfs:Started
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_lower_drbd_before_ip_nfs \
+   inf: ms_drbd_nfs_lower:promote  ip_nfs:start
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_ip_nfs_before_drbd \
+   inf: ip_nfs:start  ms_drbd_nfs:promote
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o_drbd_nfs_before_svc \
+   inf: ms_drbd_nfs:promote  g_nfs:start</screen>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 檢閱所做的變更。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有設定都正確，請使用 <command>commit</command> 提交變更，然後使用 <command>exit</command> 離開 crm 即時組態。
+    </para>
+    <para>
+     組態將儲存至 CIB。
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.rsc.booth">
+  <title>booth 的票證相依性、條件約束和資源</title>
+  <para>
+   若要完成 booth 設定，需要執行以下步驟來設定 booth 和資源容錯移轉所需的資源及條件約束：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.constraints" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.boothd" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+
+     <xref linkend="pro.ha.geo.setup.rsc.order" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   需要在每個叢集網站上提供資源組態。依<xref linkend="sec.ha.geo.rsc.sync.cib"/>中所述，將組態傳輸至其他網站。
+  </para>
+  <procedure xml:id="pro.ha.geo.setup.rsc.constraints">
+   <title>設定資源的票證相依性</title>
+   <para>
+     對於地理叢集，可以指定哪些資源相依於特定票證。連同此特殊類型的條件約束在內，您可以設定用於定義票證撤銷後應如何處理相關資源的 <literal>loss-policy</literal>。屬性 <literal>loss-policy</literal> 的有效值如下︰
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <literal>fence</literal>︰圍籬區隔執行相關資源的節點。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>stop</literal>︰停止相關資源。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>freeze</literal>︰不對相關資源執行任何操作。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>demote</literal>︰將在 <literal>master</literal> 模式下執行的相關資源降級為 <literal>slave</literal> 模式。
+      </para>
+     </listitem>
+    </itemizedlist> 
+   <step>
+    <para>
+     在叢集 amsterdam 的其中一個節點上，啟動外圍程序並以 <systemitem class="username">root</systemitem> 或同等身分登入。
+
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入 <command>crm configure</command> 切換至互動式 crm 外圍程序。
+    </para>
+   </step>
+   <step xml:id="step.ha.geo.setup.rsc.constraints">
+    <para>
+     設定條件約束，用於定義哪些資源相依於特定票證。例如，需要為<xref linkend="sec.ha.geo.drbd.scenario"/>中所述的 DRBD 案例設定以下條件約束：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> nfs-req-ticket-nfs ticket-nfs: \ 
+   ms_drbd_nfs:Master loss-policy=demote</screen>
+    <para>
+     此指令將會建立 ID 為 <literal>nfs-req-ticket-nfs</literal> 的條件約束。該條件約束定義多狀態資源 <literal>ms_drbd_nfs</literal> 相依於 <literal>ticket-nfs</literal>。但是，只有資源的主模式相依於該票證。如果已撤銷 <literal>ticket-nfs</literal>，<literal>ms_drbd_nfs</literal> 將會自動降級為<literal>從屬</literal>模式，從而將 DRBD 置於<literal>次要</literal>模式。這樣，即使網站沒有票證，也能確定 DRBD 複製仍可執行。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果要讓其他資源依賴於其他票證，請使用 <command>rsc_ticket</command> 建立所需數量的條件約束。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 檢閱所做的變更。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有設定都正確，請使用 <command>commit</command> 提交變更，然後使用 <command>exit</command> 離開 crm 即時組態。
+    </para>
+    <para>
+     組態將儲存至 CIB。
+    </para>
+   </step>
+  </procedure>
+  <example xml:id="ex.ha.geo.setup.rsc.ticket.dep">
+   <title>基本資源的票證相依性</title>
+   <para>
+    下面是使基本資源 <literal>rsc1</literal> 相依於 <literal>ticketA</literal> 的另一個條件約束範例：
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> rsc1-req-ticketA ticketA: \
+   rsc1 loss-policy="fence"</screen>
+   <para>
+    如果已撤銷 <literal>ticketA</literal>，應該圍籬區隔執行資源的節點。
+   </para>
+  </example>
+  <procedure xml:id="pro.ha.geo.setup.rsc.boothd">
+   <title>設定 <systemitem class="daemon">boothd</systemitem> 的資源群組</title> 
+   <para>
+      每個站台都需要執行 <systemitem class="daemon">boothd</systemitem> 的其中一個例項，以與其他 booth 精靈通訊。該精靈可以在任何節點上啟動，因此應將其設為基本資源。若要讓 <systemitem>boothd</systemitem> 資源保留在同一個節點上 (若有可能)，請將資源粘性新增至組態。每個精靈都需要一個永久的 IP 位址，因此請再設定一個具有虛擬 IP 位址的基本資源。將兩個基本資源分組：</para> 
+   <step>
+    <para>
+     在叢集 <literal>amsterdam</literal> 的其中一個節點上，啟動外圍程序並以 <systemitem class="username">root</systemitem> 或同等身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入 <command>crm configure</command> 切換至互動式 crm 外圍程序。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入以下指令建立兩個基本資源，並將其新增至一個群組 (<literal>g-booth</literal>)：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip-booth ocf:heartbeat:IPaddr2 \
+  params iflabel="ha" nic="eth1" cidr_netmask="24"
+  params rule #cluster-name eq amsterdam ip="192.168.201.151" \
+  params rule #cluster-name eq berlin ip="192.168.202.151" 
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> booth ocf:pacemaker:booth-site \
+  meta resource-stickiness="INFINITY" \
+  params config="nfs" op monitor interval="10s"
+<prompt role="custom">crm(live)configure# </prompt><command>group</command> g-booth ip-booth booth</screen>
+    <para>
+     如此設定後，便可透過每個 booth 精靈的 IP 位址來使用該精靈，而無需考慮執行精靈的節點為何。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 檢閱所做的變更。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有設定都正確，請使用 <command>commit</command> 提交變更，然後使用 <command>exit</command> 離開 crm 即時組態。
+    </para>
+    <para>
+     組態將儲存至 CIB。
+    </para>
+   </step>
+  </procedure>
+
+  <procedure xml:id="pro.ha.geo.setup.rsc.order">
+   <title>新增順序條件約束</title> 
+   <para>
+      如果已將票證授予某一網站，但是出於某個原因，該網站的所有節點均無法代管 <systemitem class="daemon">boothd</systemitem> 資源群組，那麼這些地理位置分散的網站可能會發生<quote>電腦分裂</quote>狀況。在這種情況下，將沒有一個 <systemitem class="daemon">boothd</systemitem> 例項可以安全地處理票證容錯移轉至另一個網站的工作。為了避免潛在的票證並行違規 (即一個票證同時授予給多個站台)，請新增順序條件約束： 
+     </para>  
+   <step>
+    <para>
+     在叢集 amsterdam 的其中一個節點上，啟動外圍程序並以 <systemitem class="username">root</systemitem> 或同等身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入 <command>crm configure</command> 切換至互動式 crm 外圍程序。
+    </para>
+   </step>
+   <step>
+    <para>
+     建立順序條件約束：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-booth-before-nfs inf: g-booth ms_drbd_nfs:promote</screen>
+    <para>
+     順序條件約束 <literal>o-booth-before-nfs</literal> 定義只有在啟動 <literal>g-booth</literal> 資源群組後，才能將資源 <literal>ms_drbd_nfs</literal> 升級至主模式。
+    </para>
+   </step>
+   <step>
+    <para>
+     對於相依於特定票證的任何其他資源，請定義其他順序條件約束。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 檢閱所做的變更。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有設定都正確，請使用 <command>commit</command> 提交變更，然後使用 <command>exit</command> 離開 crm 即時組態。
+    </para>
+    <para>
+     組態將儲存至 CIB。
+    </para>
+   </step>
+  </procedure>
+  <example xml:id="ex.ha.geo.rsc.order">
+   <title>基本資源的順序條件約束</title>
+   <para>
+    如果相依於特定票證的資源不是多狀態資源而是基本資源，則順序條件約束如下所示：
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-booth-before-rsc1 inf: g-booth rsc1</screen>
+   <para>
+    該條件約束定義 <literal>rsc1</literal> (相依於 <literal>ticketA</literal>) 只能在 <literal>g-booth</literal> 資源群組後面啟動。
+   </para>
+  </example>
+ </sect2>
+
+ <sect2 xml:id="sec.ha.geo.rsc.sync.cib">
+
+  <title>將資源組態傳輸至其他叢集網站</title>
+  <para>
+   僅僅是依據<xref linkend="sec.ha.geo.rsc.drbd" xrefstyle="select:label"/>和<xref linkend="sec.ha.geo.rsc.booth" xrefstyle="select:label"/>中所述為某個叢集網站設定資源並不足夠。還需要將資源組態傳輸至地理叢集的其他網站。
+  </para>
+  <para>
+   為了簡化傳輸，可以標記<emphasis>所有</emphasis>叢集網站上所需的任何資源，從目前 CIB 輸出這些資源，然後將其輸入另一網站的 CIB。<xref linkend="pro.ha.geo.rsc.sync.cib"/>中提供了操作方法的範例。完成此程序必須滿足以下必要條件：
+  </para>
+  <itemizedlist>
+   <title>必要條件</title>
+   <listitem>
+    <para>
+     有一個包含兩個網站的地理叢集：叢集 <literal>amsterdam</literal> 和叢集 <literal>berlin</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     已在相應 <filename>/etc/corosync/corosync.conf</filename> 檔案中定義每個網站的叢集名稱。
+    </para>
+<screen>totem {
+     [...]
+     cluster_name: amsterdam
+     }</screen>
+    <para>
+     可以手動完成此項定義 (透過編輯 <filename>/etc/corosync/corosync.conf</filename>)，也可以依據 <link xlink:href="http://www.suse.com/documentation/"/> 上的《<citetitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP2</phrase></phrase> 管理指南</citetitle>》中所述，使用 YaST 叢集模組完成此項定義。請參閱「<citetitle>安裝和基本設定</citetitle>」一章中的程序「<citetitle>定義第一個通訊通道</citetitle>」。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     已依<xref linkend="sec.ha.geo.rsc.drbd"/>和<xref linkend="sec.ha.geo.rsc.booth"/>中所述，為 DRBD 與 booth 設定了所需的資源。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <procedure xml:id="pro.ha.geo.rsc.sync.cib">
+   <title>將資源組態傳輸至其他叢集網站</title>
+   <step>
+    <para>
+     登入叢集 <literal>amsterdam</literal> 的其中一個節點。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用以下指令啟動叢集：
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+   </step>
+   <step>
+    <para>
+     輸入 <command>crm configure</command> 切換至互動式 crm 外圍程序。
+    </para>
+   </step>
+   <step>
+    <para>
+     標記整個地理叢集上所需的資源和條件約束：
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       檢閱目前的 CIB 組態：
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt>show</screen>
+     </step>
+     <step>
+      <para>
+       輸入以下指令，使用標記 <literal>geo_resources</literal> 來分組地理叢集相關的資源：
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>tag</command> geo_resources: \
+  ip_nfs nfs_fs nfs_service drbd_nfs drbd_nfs_lower ms_drbd_nfs \
+  ms_drbd_nfs_lower g_nfs <co xml:id="co.geo.rsc.drbd"/>\
+  col_nfs_ip_with_lower  col_nfs_g_with_upper col_nfs_upper_with_ip <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
+  o_lower_drbd_before_ip_nfs o_ip_nfs_before_drbd \
+  o_drbd_nfs_before_svc <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
+  nfs-req-ticket-nfs ip-booth booth g-booth o-booth-before-nfs <co xml:id="co.geo.rsc.booth"/>
+  [...] <co xml:id="co.geo.rsc.any"/></screen>
+      <para>
+       標記不會在資源之間建立任何並存關係或順序關係。
+      </para>
+      <calloutlist>
+       <callout arearefs="co.geo.rsc.drbd">
+        <para>
+         DRBD 的資源和條件約束，詳情請參閱<xref linkend="sec.ha.geo.rsc.drbd"/>。
+        </para>
+       </callout>
+       <callout arearefs="co.geo.rsc.booth">
+        <para>
+         boothd 的資源和條件約束，詳情請參閱<xref linkend="sec.ha.geo.rsc.booth"/>。
+        </para>
+       </callout>
+       <callout arearefs="co.geo.rsc.any">
+        <para>
+         需要在地理叢集所有網站上使用之特定設定的其他任何資源。
+        </para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step>
+      <para>
+       使用 <command>show</command> 檢閱所做的變更。
+      </para>
+     </step>
+     <step>
+      <para>
+       如果組態符合需求，請使用 <command>submit</command> 提交變更，然後使用 <command>exit</command> 離開 crm 線上外圍程序。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st.ha.geo.rsc.sync.cib.export.start">
+    <para>
+     將標記的資源和條件約束輸出至名為 <filename>exported.cib</filename> 的檔案：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command> tag:geo_resources geo_resources &gt; exported.cib</screen>
+    <para>
+     指令 <command>crm configure show tag:</command><replaceable>標記名稱</replaceable>將顯示屬於標記<replaceable>標記名稱</replaceable>的所有資源。
+    </para>
+   </step>
+   <step>
+    <para>
+     登入叢集 <literal>berlin</literal> 的其中一個節點並執行以下步驟：
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       使用以下指令啟動叢集：
+      </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+     </step>
+     <step>
+      <para>
+       將叢集 <literal>amsterdam</literal> 中的檔案 <filename>exported.cib</filename> 複製到此節點。<remark>taroth
+        2014-11-26: alternatively, the CIB can be loaded from an URL - consider
+        if to mention this, too</remark>
+      </para>
+     </step>
+     <step>
+      <para>
+       將檔案 <filename>exported.cib</filename> 中標記的資源和條件約束輸入叢集 <literal>berlin</literal> 的 CIB：
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm configure load</command> update <replaceable>PATH_TO_FILE/exported.cib</replaceable></screen>
+      <para>
+       為 <command>crm configure load</command> 指令使用 <option>update</option> 參數時，crmsh 會嘗試將檔案內容整合至目前的 CIB 組態 (而不是用檔案內容取代目前的 CIB)。
+      </para>
+     </step>
+     <step xml:id="st.ha.geo.rsc.sync.cib.import.stop">
+      <para>
+       使用以下指令檢視更新的 CIB 組態：
+      </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command></screen>
+      <para>
+       輸入的資源和條件約束將顯示在 CIB 中。
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  <para>
+   使用此組態時，會發生以下情況：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     向叢集 <literal>amsterdam</literal> 授予 <literal>ticket-nfs</literal> 時，代管資源 <literal>ip_nfs</literal> 的節點將取得 IP 位址 <literal>192.168.201.151</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     向叢集 <literal>berlin</literal> 授予 <literal>ticket-nfs</literal> 時，代管資源 <literal>ip_nfs</literal> 的節點將取得 IP 位址 <literal>192.168.202.151</literal>。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <example xml:id="ex.ha.geo.rsc.refer.params">
+   <title>在資源中參考網站相關的參數</title>
+   <para>
+    根據<xref linkend="pro.ha.geo.rsc.drbd" xrefstyle="select:label"/>中的範例，您也可以建立參考其他資源之網站特定參數 (例如 <literal>ip_nfs</literal> 的 IP 參數) 的資源。請執行下列步驟：
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      在叢集 <literal>amsterdam</literal> 上建立一個虛構資源，該資源參考 <literal>ip_nfs</literal> 的 IP 參數，並使用這些參數做為其 <literal>state</literal> 參數的值：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dummy1 ocf:pacemaker:Dummy \
+  params rule #cluster-name eq amsterdam \
+  @ip_nfs-instance_attributes-0-ip:state \
+  params rule #cluster-name eq berlin \
+  @ip_nfs-instance_attributes-1-ip:state \
+  op monitor interval=10</screen>
+    </listitem>
+    <listitem>
+     <para>
+      新增一個條件約束，使 <literal>dummy1</literal> 資源也相依於 <literal>ticket-nfs</literal>：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> dummy1-dep-ticket-nfs \
+  ticket-nfs: dummy1 loss-policy=stop</screen>
+    </listitem>
+    <listitem>
+     <para>
+      標記資源和條件約束：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>tag</command> geo_resources_2: dummy1 \
+  dummy1-dep-ticket-nfs</screen>
+    </listitem>
+    <listitem>
+     <para>
+      使用 <command>show</command> 檢閱變更，使用 <command>submit</command> 提交變更，然後使用 <command>exit</command> 離開 crm 線上外圍程序。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      從叢集 <literal>amsterdam</literal> 輸出帶有 <literal>geo_resources_2</literal> 標記的資源，然後將其輸入叢集 <literal>berlin</literal> 的 CIB，類似於<xref linkend="pro.ha.geo.rsc.sync.cib" xrefstyle="select:label"/> 中<xref linkend="st.ha.geo.rsc.sync.cib.export.start"/> 到<xref linkend="st.ha.geo.rsc.sync.cib.import.stop"/> 的操作。
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    使用此組態時，會發生以下情況：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      向叢集 <literal>amsterdam</literal> 授予 <literal>ticket-nfs</literal> 時，將在代管<literal>虛構</literal>資源的節點上建立以下檔案：<filename>/var/lib/heartbeat/cores/192.168.201.151</filename>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      向叢集 <literal>berlin</literal> 授予 <literal>ticket-nfs</literal> 時，將在代管<literal>虛構</literal>資源的節點上建立以下檔案：<filename>/var/lib/heartbeat/cores/192.168.202.151</filename>。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </example>
+ </sect2>
+</sect1>
