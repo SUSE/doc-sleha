@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_ip_i.xml" version="5.0" xml:id="sec.ha.geo.ip.relocation">
+
+
+ <title>Configurando a relocação de IP por meio da atualização do DNS</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editando</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes (sim)</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Se um site do cluster Geo estiver desativado e aparecer o failover de um ticket, normalmente será necessário ajustar o roteamento da rede de acordo (ou você já deve ter configurado um failover de rede para cada ticket). Dependendo do tipo de serviço que está vinculado a um ticket, há uma solução alternativa para reconfigurar o roteamento: É possível usar a atualização do DNS dinâmico e, em vez disso, mudar o endereço IP de um serviço.
+ </para>
+
+ <para>
+  Os pré-requisitos a seguir devem ser atendidos para este cenário:
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    O serviço que precisa de failover está vinculado a um nome de host.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    O servidor DNS deve estar configurado para atualizações do DNS dinâmico. Para obter informações sobre como fazer isso com o BIND/named, consulte a documentação do <literal>named</literal> ou acesse <link xlink:href="http://www.semicomplete.com/articles/dynamic-dns-with-dhcp/"/>. <remark>taroth 2014-11-21: lmb, would you consider the aforementioned link appropriate (WRT to
+     our customers and the kind of setup that is needed here)?</remark> Há mais informações sobre como configurar o DNS, incluindo a atualização dinâmica dos dados da zona, no capítulo <citetitle>Domain Name System (Sistema de Nomes de Domínio)</citetitle> do Guia de Administração do SUSE Linux Enterprise. Ele está disponível em <link xlink:href="http://www.suse.com/documentation/"/>.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    O exemplo a seguir considera que as atualizações do DNS estejam protegidas por uma chave compartilhada (chave TSIG) na zona que será atualizada. A chave pode ser criada usando <command>dnssec-keygen</command>:
+   </para>
+<screen><prompt role="root">root # </prompt><command>dnssec-keygen</command> -a hmac-md5 -b 128 -n USER geo-update</screen>
+   <para>
+    Para obter mais informações, consulte a página de manual do <command>dnssec-keygen</command> ou o Guia de Administração do SUSE Linux Enterprise, disponível em <link xlink:href="http://www.suse.com/documentation/"/>. Consulte o capítulo <citetitle>Domain Name System (Sistema de Nomes de Domínio)</citetitle>, seção <citetitle>Transações seguras</citetitle>.
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <para>
+  O <xref linkend="ex.ha.geo.dyn.dns.rsc.config"/> ilustra como usar o agente de recurso <systemitem>ocf:heartbeat:dnsupdate</systemitem> para gerenciar o comando <command>nsupdate</command>. <remark>taroth 2014-11-21: lmb, is the following correct? it
+   is mentioned in the description of fate#316112, however, your example in c#9 mentions focuses on
+   IPv4 only...</remark> O agente de recurso suporta tanto o IPv4 quanto o IPv6.
+ </para>
+
+ <example xml:id="ex.ha.geo.dyn.dns.rsc.config">
+  <title>Configuração de recursos para atualização do DNS dinâmico</title>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dns-update-ip ocf:heartbeat:dnsupdate params \
+  hostname="www.domain.com"<co xml:id="co.dyn.dns.hostname"/> ip="192.168.3.4"<co xml:id="co.dyn.dns.ip"/>\
+  keyfile="<replaceable>/etc/whereever/Kgeo-update*</replaceable>.key"<co xml:id="co.dyn.dns.key"/>\
+  server="192.168.1.1"<co xml:id="co.dyn.dns.srv"/> serverport="53"<co xml:id="co.dyn.dns.srv.port"/></screen>
+  <calloutlist>
+   <callout arearefs="co.dyn.dns.hostname">
+    <para>
+     Nome de host vinculado ao serviço que precisa de failover juntamente com o ticket. O endereço IP desse nome de host precisa ser atualizado por meio de um DNS dinâmico.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.ip">
+    <para>
+     Endereço IP do servidor que hospeda o serviço que será migrado. <remark>taroth 2014-11-21:
+     lmb, this description taken from fate c#9 is IMHO a bit misleading as it seems to imply that
+     this param is about the *current* IP address. However, from the description in
+     /usr/lib/ocf/resource.d/heartbeat/dnsupdate, I think this needs to be the IP address that
+     will be used for the hostname *after* failover - is that correct?</remark> O endereço IP especificado aqui também pode estar sob controle do cluster. Esse procedimento não manipula o failover local, mas garante que partes externas sejam direcionadas ao site correto após um failover de ticket.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.key">
+    <para>
+     Caminho para o arquivo de chave pública gerado com <command>dnssec-keygen</command>.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.srv">
+    <para>
+     Endereço IP do servidor DNS ao qual enviar as atualizações. Se nenhum servidor for especificado, será assumido como padrão o servidor master da zona correta.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.srv.port">
+    <para>
+     Porta que será usada para comunicação com o servidor DNS. Essa opção apenas terá efeito se for especificado um servidor DNS.
+    </para>
+   </callout>
+  </calloutlist>
+  <para>
+   Com a configuração do recurso acima, o agente de recurso se encarrega de remover o site do cluster Geo com falha do registro DNS e de mudar o IP de um serviço por meio da atualização do DNS dinâmico.
+  </para>
+ </example>
+</sect1>

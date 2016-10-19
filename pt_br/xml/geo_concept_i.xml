@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_concept_i.xml" version="5.0" xml:id="sec.ha.geo.concept">
+ <title>Visão geral conceitual</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editando</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes (sim)</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  Os clusters Geo baseados na <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> podem ser considerados clusters <quote>sobrepostos</quote>, em que cada site do cluster corresponde a um nó em um cluster tradicional. O cluster sobreposto é gerenciado pelo mecanismo de booth. Ele garante que os recursos do cluster estejam altamente disponíveis nos diferentes sites. Isso pode ser feito utilizando os objetos de cluster denominados tickets, que são tratados como domínio de failover entre os sites do cluster, no caso de um site ter que ser desativado. O booth garante que cada ticket pertença apenas a um site de cada vez.
+ </para>
+
+ <para>
+  A lista a seguir explica mais detalhadamente os componentes e mecanismos individuais que foram introduzidos para os clusters Geo.
+ </para>
+
+ <variablelist xml:id="vl.ha.geo.components">
+  <title>Gerenciamento de componentes e tickets</title>
+  <varlistentry xml:id="vle.ha.geo.components.ticket">
+   <term>Ticket</term>
+   <listitem>
+    <para>
+     Um ticket concede o direito de executar determinados recursos em um site de cluster específico. Um ticket apenas pode pertencer a um site de cada vez. Inicialmente, nenhum dos sites tem um ticket, cada ticket deve ser concedido uma vez pelo administrador do cluster. Depois disso, os tickets serão gerenciados pelo booth para failover automático de recursos. Porém, os administradores também podem intervir e conceder ou revogar os tickets manualmente.
+    </para>
+    <para>
+     Após a revogação administrativa de um ticket, ele não será mais gerenciado pelo booth. Para o booth começar a gerenciar o ticket novamente, o ticket deve ser concedido outra vez a um site.
+    </para>
+    <para>
+     Os recursos podem ser vinculados a determinado ticket por dependências. Apenas se o ticket definido estiver disponível em um site, os respectivos recursos serão iniciados. Se o ticket for removido, os recursos dependentes dele serão automaticamente interrompidos.
+    </para>
+    <para>
+     A presença ou ausência de tickets em um site é armazenada no CIB como um status do cluster. Em relação a um determinado ticket, há apenas dois estados de site: <literal>true</literal> (o site tem o ticket) ou <literal>false</literal> (o site não tem o ticket). A ausência de determinado ticket (durante o estado inicial do cluster Geo) não é tratada de forma diferente de quando o ticket já foi revogado. Os dois casos são refletidos pelo valor <literal>false</literal>.
+    </para>
+    <para>
+     Um ticket em um cluster sobreposto é semelhante a um recurso em um cluster tradicional. No entanto, ao contrário dos clusters tradicionais, os tickets são o único tipo de recurso em um cluster sobreposto. Eles são recursos primitivos que não precisam ser configurados nem clonados.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.booth">
+   <term>Gerenciador de tickets de cluster de booth</term>
+   <listitem>
+    <para>
+     Booth é a instância que gerencia a distribuição de tickets e, portanto, o processo de failover entre os sites de um cluster Geo. Cada um dos clusters e arbitradores participantes executa um serviço, o <systemitem class="daemon">boothd</systemitem>. Ele se conecta aos daemons de booth executados em outros sites e troca detalhes de conectividade. Depois que um ticket é concedido a um site, o mecanismo de booth poderá gerenciar o ticket automaticamente: Se o site que armazena o ticket estiver fora do ar, os daemons de booth votarão para definir qual dos outros sites receberá o ticket. Para se proteger contra falhas rápidas de conexão, os sites que perderem a votação (explícita ou implicitamente ao serem desconectados do corpo de votação) precisarão abandonar o ticket após um tempo de espera. Dessa forma, há uma garantia de que um ticket apenas será redistribuído depois que ele for abandonado pelo site anterior. Consulte também <xref linkend="vle.ha.geo.components.deadman"/>.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.arbitrator">
+   <term>Arbitrador</term>
+   <listitem>
+    <para>
+     Cada site é executado em uma instância de booth, que é responsável pela comunicação com os outros sites. Se você tiver uma configuração com um número par de sites, precisará de uma instância adicional para chegar a um consenso nas decisões, como failover de recursos nos sites. Nesse caso, adicione um ou mais arbitradores para execução em sites adicionais. Arbitradores são máquinas únicas que executam uma instância de booth em um modo especial. Como todas as instâncias de booth se comunicam entre si, os arbitradores ajudam a tomar decisões mais confiáveis sobre a concessão ou revogação de tickets. Os arbitradores não podem armazenar tickets.
+    </para>
+    <para>
+     Um arbitrador é importante principalmente em um cenário de dois sites: Por exemplo, se o site <literal>A</literal> não pode mais se comunicar com o site <literal>B</literal>, há duas causas possíveis para isso:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Uma falha de rede entre <literal>A</literal> e <literal>B</literal>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       O site <literal>B</literal> está desativado.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     No entanto, se o site <literal>C</literal> (o arbitrador) ainda pode se comunicar com o site <literal>B</literal>, o site<literal>B</literal> ainda deve estar em execução.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>Failover de ticket</term>
+   <listitem>
+    <para>
+     Se o ticket é perdido, o que significa que as outras instâncias de booth não detectam o proprietário do ticket durante um período longo o suficiente, um dos sites restantes vai adquirir o ticket. Isso é denominado failover de ticket. Se os membros restantes não formarem a maioria, o ticket não poderá executar o failover.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry xml:id="vle.ha.geo.components.deadman">
+   <term>Dependência de Dead Man (<literal>loss-policy="fence"</literal>)</term>
+   <listitem>
+    <para>
+     Após a revogação de um ticket, poderá levar muito tempo até que todos os recursos dependentes dele sejam interrompidos, sobretudo no caso de recursos em cascata. Para acelerar esse processo, o administrador do cluster pode configurar uma <literal>loss-policy</literal> (juntamente com as dependências de ticket) nos casos em que um ticket é revogado de um site. Se a loss-policy for definida como <literal>fence</literal>, os nós que hospedam os recursos dependentes serão limitados.
+    </para>
+    <warning>
+     <title>Perda potencial de dados</title>
+     <para>
+      Por um lado, a <literal>loss-policy="fence"</literal> acelera consideravelmente o processo de recuperação do cluster e garante que os recursos possam ser migrados mais rapidamente.
+     </para>
+     <para>
+      Por outro lado, ela pode provocar a perda de todos os dados não gravados, como:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Dados em um armazenamento compartilhado (por exemplo, DRBD).
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Dados em um banco de dados de replicação (por exemplo, MariaDB ou PostgreSQL) que ainda não acessou o outro site devido a um link de rede lento.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </warning>
+   </listitem>
+  </varlistentry>
+ </variablelist>
+
+ <figure xml:id="fig.ha.geo.example1">
+  <title>Cluster de Dois Sites (4 Nós + Arbitrador)</title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="ha_geocluster.png" width="80%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+
+ <para>
+  Provavelmente, o cenário mais comum é um cluster Geo com dois sites e um único arbitrador em um site de terceiro. Isso requer três instâncias de booth. Consulte a <xref linkend="fig.ha.geo.example1"/>. O limite superior é de 16 instâncias de booth (atualmente).
+ </para>
+
+ <para>
+  Como de costume, o CIB é sincronizado em cada cluster, mas não é sincronizado automaticamente nos sites de um cluster Geo. No entanto, a partir da <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 12, a transferência de configurações de recursos para outros sites de cluster está mais fácil do que nunca. Para saber os detalhes, consulte a <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+ </para>
+</sect1>
