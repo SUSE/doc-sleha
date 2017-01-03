@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_crmreport_passl.xml" xml:id="app.crmreport.nonroot" version="5.0">
+ <title>在没有 <systemitem class="username">root</systemitem> 访问权的情况下运行群集报告</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  所有群集节点都必须能通过 SSH 相互访问。<command>crm report</command>（用于查错）等工具和 Hawk2 的<guimenu>历史记录浏览器</guimenu>要求节点之间采用无口令 SSH 访问方式，否则它们只能从当前节点收集数据。
+ </para>
+ <para>
+  如果无口令 SSH <systemitem class="username">root</systemitem> 访问不符合法规要求，可以使用一种变通方法来运行群集报告。该变通方法主要包括以下几个步骤：
+ </para>
+ <orderedlist>
+  <listitem>
+   <para>
+    创建专用的本地用户帐户（用于运行 <command>crm report</command>）。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    为该用户帐户配置无口令 SSH 访问（最好是使用非标准 SSH 端口）。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    为该用户配置 <command>sudo</command>。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    以该用户的身份运行 <command>crm report</command>。
+   </para>
+  </listitem>
+ </orderedlist>
+ <para>
+  默认情况下，<command>crm report</command> 在运行时会先以 <systemitem class="username">root</systemitem> 身份尝试登录远程节点，如果无法登录，则以 <systemitem class="username">hacluster</systemitem> 用户身份登录。但是，如果您的本地安全策略阻止使用 SSH 进行 <systemitem class="username">root</systemitem> 登录，则对所有远程节点执行脚本将会失败。即使尝试以 <systemitem class="username">hacluster</systemitem> 用户身份运行脚本也会失败，因为这是一个服务帐户，其外壳设置为 <filename>/bin/false</filename>，因此会阻止登录。创建专用的本地用户是对高可用性群集中的所有节点成功运行 <command>crm report</command> 脚本的唯一可行做法。
+ </para>
+ <sect1 xml:id="sec.crmreport.nonroot.user">
+  <title>创建本地用户帐户</title>
+
+  <para>
+   在下面的示例中，我们将通过命令行创建名为 <systemitem class="username">hareport</systemitem> 的本地用户。口令可以是符合安全要求的任何值。或者，您也可以使用 YaST 创建用户帐户并设置口令。
+  </para>
+
+  <procedure>
+   <title>创建用于运行群集报告的专用用户帐户</title>
+   <step>
+    <para>
+     启动外壳，然后创建主目录为 <filename>/home/hareport</filename> 的用户 <systemitem class="username">hareport</systemitem>：
+    </para>
+<screen><prompt role="root">root # </prompt><command>useradd</command> -m -d /home/hareport -c "HA Report" hareport</screen>
+   </step>
+   <step>
+    <para>
+     为该用户设置口令：
+    </para>
+<screen><prompt role="root">root # </prompt>passwd hareport</screen>
+   </step>
+   <step>
+    <para>
+     根据提示输入该用户的口令两次。
+    </para>
+   </step>
+  </procedure>
+
+  <important>
+   <title>需要在每个群集节点上使用同一个用户</title>
+   <para>
+    要在所有节点上创建相同的用户帐户，请在每个群集节点上重复上述步骤。
+   </para>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec.crmreport.nonroot.ssh">
+  <title>配置无口令 SSH 帐户</title>
+
+    <procedure>
+   <title>为非标准端口配置 SSH 守护程序</title>
+   <para>
+    默认情况下，SSH 守护程序与 SSH 客户端将在端口 <literal>22</literal> 上通讯和侦听。如果您的网络安全方针要求将默认 SSH 端口更改为编号较高的备用端口，您需要修改守护程序的配置文件 <filename>/etc/ssh/sshd_config</filename>。
+   </para>
+   <step>
+    <para>
+     要修改默认端口，请在该文件中搜索 <literal>Port</literal> 一行，取消注释该行，然后根据需要进行编辑。例如，可将该行设置为：
+    </para>
+<screen>Port 5022</screen>
+   </step>
+   <step>
+    <para>
+     如果您的组织不允许 <systemitem class="username">root</systemitem> 用户访问其他服务器，请在该文件中搜索 <literal>PermitRootLogin</literal> 项，取消注释该项，然后将它设置为 <literal>no</literal>：
+    </para>
+<screen>PermitRootLogin no</screen>
+   </step>
+   <step>
+    <para>
+     或者，通过执行以下命令，在该文件的末尾添加相应的行：
+    </para>
+<screen><prompt role="root">root # </prompt>echo “PermitRootLogin no” &gt;&gt; /etc/ssh/sshd_config
+<prompt role="root">root # </prompt>echo “Port 5022” &gt;&gt; /etc/ssh/sshd_config</screen>
+   </step>
+   <step>
+    <para>
+     修改 <filename>/etc/ssh/sshd_config</filename> 后，重启动 SSH 守护程序以使新设置生效：
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl restart sshd</screen>
+   </step>
+  </procedure>
+
+  <important>
+   <title>需要在每个群集节点上使用相同的设置</title>
+   <para>
+    在每个群集节点上重复上述 SSH 守护程序配置。
+   </para>
+  </important>
+
+  <procedure>
+   <title>为非标准端口配置 SSH 客户端</title>
+   <para>
+    如果要在群集中的所有节点上进行 SSH 端口更改，一种有效的做法是修改 SSH 配置文件 <filename>/etc/ssh/sshd_config</filename>。 
+    </para>
+   <step>
+    <para>
+     要修改默认端口，请在该文件中搜索 <literal>Port</literal> 一行，取消注释该行，然后根据需要进行编辑。例如，可将该行设置为：
+    </para>
+<screen>Port 5022</screen>
+   </step>
+   <step>
+    <para>
+     或者，通过执行以下命令，在该文件的末尾添加相应的行：
+    </para>
+<screen><prompt role="root">root # </prompt>echo “Port 5022” &gt;&gt; /etc/ssh/ssh_config</screen>
+   </step>
+  </procedure>
+
+  <note>
+   <title>只需在一个节点上进行设置</title>
+   <para>
+    只需在要运行群集报告的节点上进行上述 SSH 客户端配置。</para>
+   <para>或者，您可以使用 <option>-X</option> 选项并结合自定义 SSH 端口来运行 <command>crm report</command>，甚至可以将 <command>crm report</command> 指定为默认使用自定义 SSH 端口。有关细节，请参见<xref linkend="pro.crmreport.custom.ssh"/>。</para>
+  </note>
+
+  <procedure>
+   <title>配置 SSH 共享密钥</title>
+   <para>
+    您可以使用 SSH 访问其他服务器，系统不会要求您输入口令。这种访问方法乍看之下似乎并不安全，但其实是非常安全的，因为用户只能访问共享了其公共密钥的服务器。共享密钥必须以使用该密钥的用户身份来创建。
+   </para>
+   <step>
+    <para>
+     使用您为了运行群集报告而创建的用户帐户登录某个节点（在上面的示例中，该用户帐户为 <systemitem class="username">hareport</systemitem>）。
+    </para>
+   </step>
+   <step>
+    <para>
+     生成新密钥：
+    </para>
+<screen><prompt role="user">hareport &gt; </prompt>ssh-keygen –t rsa</screen>
+    <para>
+     默认情况下，此命令将生成 2048 位密钥。密钥的默认位置为 <filename>~/.ssh/</filename>。系统会提示您对该该密钥设置一个通行口令。但请勿输入通行口令，因为要进行无口令登录，就不能对密钥设置通行口令。
+     </para>
+   </step>
+   <step>
+    <para>
+     生成密钥后，将公共密钥复制到其他<emphasis>每个</emphasis>节点（<emphasis>包括</emphasis>您在其中创建了该密钥的节点）：
+    </para>
+<screen><prompt role="user">hareport &gt; </prompt>ssh-copy-id -i ~/.ssh/id_rsa.pub <replaceable>HOSTNAME_OR_IP</replaceable></screen>
+    <para>
+     在该命令中，您可以使用每个服务器的 DNS 名称、别名或 IP 地址。在复制过程中，系统会要求您接受每个节点的主机密钥，并且您需要提供 <systemitem class="username">hareport</systemitem> 用户帐户的口令（只需要输入这一次）。
+    </para>
+   </step>
+   <step>
+    <para>
+     在所有群集节点上共享密钥后，使用无口令 SSH 来测试您是否能够以 <systemitem class="username">hareport</systemitem> 用户的身份登录其他节点：
+     </para>
+<screen><prompt role="user">hareport &gt; </prompt>ssh <replaceable>HOSTNAME_OR_IP</replaceable></screen>
+    <para>
+     您应该会自动连接到远程服务器，系统不会要求您接受证书或输入口令。
+    </para>
+   </step>
+  </procedure>
+
+  <note>
+   <title>只需在一个节点上进行设置</title>
+   <para>
+    如果您打算每次都从同一个节点运行群集报告，则在这个节点上执行上述过程便已足够。否则，您需要在每个节点上重复上述过程。
+   </para>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec.crmreport.nonroot.sudo">
+  <title>配置 <command>sudo</command></title>
+
+  <para>
+   使用 <command>sudo</command> 命令可让普通用户在提供或不提供口令的情况下快速变成 <systemitem class="username">root</systemitem> 并发出命令。可向所有 root 级命令或者特定的命令授予 sudo 访问权限。Sudo 通常使用别名来定义整个命令字符串。
+  </para>
+
+  <para>
+   要配置 sudo，请使用 <command>visudo</command>（<emphasis>不是</emphasis> vi）或 YaST。
+  </para>
+
+  <warning>
+   <title>不要使用 vi</title>
+   <para>
+    要从命令行配置 sudo，必须以 <systemitem class="username">root</systemitem> 身份使用 <command>visudo</command> 编辑 sudoers 文件。使用任何其他编辑器可能会导致语法或文件权限错误，进而阻止 sudo 运行。
+   </para>
+  </warning>
+
+  <procedure>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     要打开 <filename>/etc/sudoers</filename> 文件，请输入 <command>visudo</command>。
+    </para>
+   </step>
+   <step>
+    <para> 查找以下类别：<literal>Host alias specification</literal>、<literal>User alias specification</literal>、<literal>Cmnd alias specification</literal> 和 <literal>Runas alias specification</literal>。 </para>
+   </step>
+   <step>
+    <para>
+     将以下几项添加到 <filename>/etc/sudoers</filename> 中的相应类别：
+    </para>
+<screen>Host_Alias	CLUSTER = alice,bob,charly <co xml:id="ha.sudoers.host.alias"/>
+User_Alias HA = hareport <co xml:id="ha.sudoers.user.alias"/>
+Cmnd_Alias HA_ALLOWED = /bin/su, /usr/sbin/crm report *<co xml:id="ha.sudoers.cmd.alias"/>
+Runas_Alias R = root <co xml:id="ha.sudoers.runas.alias"/></screen>
+    <calloutlist>
+     <callout arearefs="ha.sudoers.host.alias">
+      <para>
+       主机别名定义 sudo 用户有权在哪个服务器（或特定范围内的服务器）上发出命令。在主机别名中，可以使用 DNS 名称或 IP 地址，或者指定整个网络范围（例如 <literal>172.17.12.0/24</literal>）。要限制访问范围，应该仅指定群集节点的主机名。
+      </para>
+     </callout>
+     <callout arearefs="ha.sudoers.user.alias">
+      <para>
+       使用用户别名可将多个本地用户帐户添加到单个别名。但是，在这种情况下，您可以避开创建别名步骤，因为系统只会使用一个帐户。在上例中，我们添加了为运行群集报告而创建的 <systemitem class="username">hareport</systemitem> 用户。
+      </para>
+     </callout>
+     <callout arearefs="ha.sudoers.cmd.alias">
+      <para>
+       命令别名定义该用户可执行的命令。如果您要限制非 root 用户在使用 <command>sudo</command> 时可以访问的项目，命令别名将十分有用。在这种情况下，<systemitem class="username">hareport</systemitem> 用户帐户需要对 <command>crm report</command> 和 <command>su</command> 命令拥有访问权限。
+      </para>
+     </callout>
+     <callout arearefs="ha.sudoers.runas.alias">
+      <para>
+       runas 别名指定命令的运行帐户。在本例中为 <systemitem class="username">root</systemitem>。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>搜索以下两行：</para>
+    <screen>Defaults targetpw
+ALL     ALL=(ALL) ALL
+    </screen>
+    <para>由于这两行与我们要创建的设置相冲突，因此请将其禁用：</para>
+    <screen>#Defaults targetpw
+#ALL     ALL=(ALL) ALL</screen>
+   </step>
+   <step>
+    <para>查找 <literal>User privilege specification</literal>。</para>
+   </step>
+   <step>
+    <para>定义上述别名后，现在可以添加以下规则：</para>
+    <screen>HA	CLUSTER = (R) NOPASSWD:HA_ALLOWED</screen>
+    <para><literal>NOPASSWORD</literal> 选项确保用户 <systemitem class="username">hareport</systemitem> 无需提供口令就能执行群集报告。</para>
+   </step>
+  </procedure>
+
+  <important>
+   <title>需要在每个群集节点上使用相同的 sudo 配置</title>
+   <para>
+    必须在群集中的所有节点上指定这项 sudo 配置。无需为 sudo 做出其他更改，并且无需重启动任何服务。
+   </para>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec.crmreport.nonroot.execute">
+  <title>生成群集报告</title>
+  <para>要使用上面配置的设置运行群集报告，需要以 <systemitem class="username">hareport</systemitem> 用户的身份登录某个节点。要启动群集报告，请使用 <command>crm report</command> 命令。例如： </para>
+  <screen><prompt role="root">root # </prompt><command>crm report</command> -f 0:00 -n "alice bob charly"</screen>
+  <para>此命令将在指定的节点上提取从<literal>凌晨 0 点</literal>开始的所有信息，并在当前目录中创建名为 <filename>pcmk-<replaceable>日期</replaceable>.tar.bz2</filename> 的 <literal>*.tar.bz2</literal> 存档。</para>
+  <procedure xml:id="pro.crmreport.custom.ssh">
+   <title>使用自定义 SSH 端口生成群集报告</title>
+   <step>
+    <para>使用自定义 SSH 端口时，请结合使用 <option>-X</option> 和 <command>crm report</command> 来修改客户端的 SSH 端口。例如，如果自定义 SSH 端口为 <literal>5022</literal>，则使用以下命令：</para>
+    
+    <screen><prompt role="root">root # </prompt>crm report -X "-p 5022" [...]</screen>
+   </step>
+   <step>
+    <para>要为 <command>crm report</command> 永久设置自定义 SSH 端口，请启动交互式 crm 外壳：</para>
+     <screen>crm options</screen>
+   </step>
+   <step>
+    <para>
+     输入以下内容：
+    </para>
+    <screen><prompt role="custom">crm(live)options# </prompt> set core.report_tool_options "-X -oPort=5022"</screen>
+   </step>
+  </procedure>
+   </sect1>
+</appendix>
