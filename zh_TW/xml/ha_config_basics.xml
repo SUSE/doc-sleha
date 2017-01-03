@@ -1,0 +1,2146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_basics.xml" version="5.0" xml:id="cha.ha.config.basics">
+
+ <title>組態與管理基礎</title>
+ <info>
+      <abstract>
+        <para>
+    HA 叢集的主要目的是管理使用者服務。Apache Web 伺服器或資料庫便是使用者服務的典型範例。從使用者的角度來看，命令這些服務執某些特定操作，它們就會按要求執行。不過，對於叢集而言，它們只是可以啟動或停止的資源 — 服務的性質與叢集無關。
+   </para>
+        <para>
+    本章介紹一些設定資源和管理叢集時需瞭解的基本概念。後續章節將介紹如何使用 High Availability Extension 提供的各種管理工具執行主要的組態與管理任務。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.config.basics.global">
+  <title>全域叢集選項</title>
+
+  <para>
+   全域叢集選項控制叢集在遇到特定情況時的運作方式。它們分為不同的組，可透過 Hawk2 和 <command>crm</command> 外圍程序等叢集管理工具來檢視和修改。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.global.all">
+   <title>綜覽</title>
+   <para>
+    若想瞭解所有全域叢集選項及其預設值，請參閱 <link xlink:href="http://www.clusterlabs.org/doc/"/> 上的《<citetitle>Pacemaker Explained</citetitle>》(Pacemaker 說明)。詳情位於「<citetitle>Available Cluster Options</citetitle>」(可用的叢集選項) 一節。
+   </para>
+   <para>
+    一般情況下，可以保留預先定義的值。但是，為了讓叢集的關鍵功能正常運作，還需要在執行基本叢集設定後調整以下參數：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <xref linkend="sec.ha.config.basics.global.quorum" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="sec.ha.config.basics.global.stonith" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    瞭解如何使用所選的叢集管理工具調整這些參數：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2︰<xref linkend="pro.conf.hawk2.global"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh︰<xref linkend="sec.ha.config.crm.global"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.global.quorum">
+   <title><literal>no-quorum-policy</literal> 選項</title>
+   <para>
+    此全域選項定義在叢集分割區沒有達到最低節點數 (節點多數不是該分割區的一部分) 時如何運作。
+   </para>
+   <para>
+    允許的值：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>ignore</literal>
+     </term>
+     <listitem>
+      <para>
+       最低節點數狀態不會影響叢集的行為；資源管理將繼續。
+      </para>
+      <para>
+       此設定適合以下情境：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         資源導向叢集：對於使用備援通訊通道的本地叢集，只有在特定情況下才會發生電腦分裂。因此，與一個節點通訊中斷很可能表示該節點當機，還在運作的節點應復原並重新為資源提供服務。
+        </para>
+        <para>
+         如果 <literal>no-quorum-policy</literal> 設定為 <literal>ignore</literal>，則對於一個 4 節點的叢集而言，即使有三個節點同時失敗，服務仍能保持運作。如果使用另一個設定，則當兩個節點同時失敗後，就達不到最低節點數。對雙節點叢集不得設定此選項和值。
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>freeze</literal>
+     </term>
+     <listitem>
+      <para>
+       如果達不到最低節點數，叢集分割區便會凍結。資源管理將繼續：執行中的資源不會停止 (但是可能會重新啟動，以便監控事件)，但是受影響的分割區內不會再啟動其他資源。
+      </para>
+      <para>
+       此設定適合某些資源依賴與其他節點之通訊的叢集 (例如，OCFS2 掛接)。在這種情況下，預設設定 <literal>no-quorum-policy=stop</literal> 不起作用，因為它會造成既無法停止資源，又無法連接對等節點的狀況。相反，任何停止這些資源的嘗試最終都會逾時，並會造成<literal>停止失敗</literal>，同時觸發升級復原與圍籬區隔。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>stop</literal> (預設值)</term>
+     <listitem>
+      <para>
+       如果不滿足最低節點數規則，受影響的叢集分割區中的所有資源都會依序停止。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>suicide</literal>
+     </term>
+     <listitem>
+      <para>
+       如果達不到最低節點數，受影響叢集分割區中的所有節點都會被圍籬區隔。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.global.stonith">
+   <title><literal>stonith-enabled</literal> 選項</title>
+   <para>
+    此全域選項定義是否套用圍籬區隔，以允許 STONITH 裝置關閉失敗的節點以及其上資源無法停止的節點。此全域選項預設為 <literal>true</literal>，因為正常的叢集運作需要使用 STONITH 裝置。依據預設值，如果未定義 STONITH 資源，叢集將拒絕啟動任何資源。
+   </para>
+   <para>
+    如果出於某種原因需要停用圍籬區隔，請將 <literal>stonith-enabled</literal> 設定為 <literal>false</literal>，但請注意，這樣做會影響您產品的支援狀態。此外，使用 <literal>stonith-enabled="false"</literal> 設定時，分散式鎖定管理員 (DLM) 等資源以及依存於 DLM 的所有服務 (例如 cLVM2、GFS2 和 OCFS2) 都將無法啟動。
+
+   </para>
+   <important>
+    <title>沒有 STONITH 則不提供支援</title>
+    <para>
+     系統不支援沒有 STONITH 的叢集。
+    </para>
+   </important>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.resources">
+  <title>叢集資源</title>
+
+  <para>
+   做為叢集管理員，您需要為您叢集中的伺服器上執行的所有資源或應用程式建立叢集資源。叢集資源可包括網站、電子郵件伺服器、資料庫、檔案系統、虛擬機器，以及其他您希望使用者隨時都可以存取的伺服器型應用程式或服務。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.management">
+   <title>資源管理</title>
+
+   <para>
+    若想在叢集中使用某項資源，必須先對其進行設定。例如，如果想要使用 Apache 伺服器做為叢集資源，請先設定 Apache 伺服器並完成 Apache 組態設定，然後在叢集中啟動各個資源。
+   </para>
+   <para>
+    如果資源具有特定的環境要求，請確保這些要求在所有叢集節點上均得到滿足並且一致。此類組態並非由 High Availability Extension 管理。您必須自行管理。
+   </para>
+   <note>
+    <title>不要對叢集管理的服務執行任何操作</title>
+    <para>
+     當您正透過 High Availability Extension 管理某個資源時，就不能再啟動或停止該資源 (例如，不能在叢集之外手動啟動或停止，或者在開機或重新開機時啟動或停止)。High Availability Extension 軟體負責所有服務的啟動或停止動作。
+    </para>
+    <para>
+     如果服務已在叢集控制下執行，而您需要執行測試或維護任務，請務必先將資源、節點或整個叢集置於維護模式，然後再對其進行任何手動處理。如需詳細資料，請參閱<xref linkend="sec.ha.config.basics.maint.mode"/>。
+    </para>
+   </note>
+   <para>
+    在叢集中設定資源之後，可以使用叢集管理工具手動啟動、停止、清理、移除或移轉資源。以下為如何使用偏好的叢集管理工具執行這些操作的詳細資料：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2︰<xref linkend="cha.conf.hawk2"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh︰<xref linkend="cha.ha.manual_config"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.raclasses">
+   <title>受支援的資源代辦類別</title>
+   <para>
+    對於每個新增的叢集資源，都需要定義資源代辦所遵循的標準。資源代辦會提取它們所提供的服務並向叢集提供準確的狀態，這樣叢集便可不理會其所管理的資源。當接收到啟動、停止或監控指令時，叢集會依賴資源代辦來做出恰當的反應。
+   </para>
+   <para>
+    通常，資源代辦採用的是外圍程序檔的形式。High Availability Extension 支援以下類別的資源代辦：
+   </para>
+
+   <variablelist>
+    <varlistentry xml:id="vle.ha.resources.ocf.ra">
+     <term>Open Cluster Framework (OCF) 資源代辦</term>
+     <listitem>
+      <para>
+       OCF RA 代辦最適合與高可用性搭配使用，特別是在您需要多狀態資源或特殊監控功能的情況下。代辦通常位於 <filename>/usr/lib/ocf/resource.d/<replaceable>提供者</replaceable>/</filename> 內。它們的功能類似於 LSB 程序檔。但是，組態始終使用環境變數進行設定，因此它們更容易接受並處理參數。OCF 規格 (與資源代辦相關時) 位於 <link xlink:href="http://www.opencf.org/cgi-bin/viewcvs.cgi/specs/ra/resource-agent-api.txt?rev=HEAD&amp;content-type=text/vnd.viewcvs-markup"/>。OCF 規格對於動作必須傳回的離開碼有著嚴格的定義，請參閱<xref linkend="sec.ha.errorcodes"/>。叢集完全遵循這些規格。
+      </para>
+      <para>
+       所有 OCF 資源代辦都必須至少含有動作 <literal>start</literal>、<literal>stop</literal>、<literal>status</literal>、<literal>monitor</literal> 和 <literal>meta-data</literal>。<literal>meta-data</literal> 動作可取回有關如何設定代辦的資訊。例如，如果您要詳細瞭解提供者 <literal>heartbeat</literal> 的 <literal>IPaddr</literal> 代辦，可以使用以下指令：
+      </para>
+<screen>OCF_ROOT=/usr/lib/ocf /usr/lib/ocf/resource.d/heartbeat/IPaddr meta-data</screen>
+      <para>
+       輸出的是 XML 格式的資訊，分為多個區段，包括代辦的一般描述、可用參數和可用動作。
+      </para>
+      <para>
+       您也可以使用 crmsh 來檢視關於 OCF 資源代辦的資訊。如需詳細資料，請參閱<xref linkend="sec.ha.manual_config.ocf"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Linux Standards Base (LSB) 程序檔</term>
+     <listitem>
+      <para>
+       LSB 資源代辦通常由作業系統/套裝作業系統提供，位於 <filename>/etc/init.d</filename>。若要與叢集一起使用，它們必須符合 LSB init 程序檔規格。例如，它們必須執行幾個動作，至少包含 <literal>start</literal>、<literal>stop</literal>、<literal>restart</literal>、<literal>reload</literal>、<literal>force-reload</literal> 和 <literal>status</literal>。如需詳細資訊，請參閱<link xlink:href="http://refspecs.linuxbase.org/LSB_4.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html"/>。
+      </para>
+      <para>
+       這些服務的組態尚未標準化。如果要將 LSB 程序檔與 High Availability 搭配使用，請確定您瞭解如何設定相關程序檔。相關資訊通常可以在 <filename>/usr/share/doc/packages/<replaceable>套件名稱</replaceable></filename>目錄中相關套件的文件內找到。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Systemd</term>
+     <listitem>
+      <para>
+       從 SUSE Linux Enterprise 12 起，systemd 取代了常用的 System V init 精靈。Pacemaker 可以管理 systemd 服務 (如果這些服務存在)。systemd 不使用 init 程序檔，而是使用單位檔案。一般情況下，服務 (或單位檔案) 由作業系統提供。如果您要轉換現有的 init 程序檔，請造訪 <link xlink:href="http://0pointer.de/blog/projects/systemd-for-admins-3.html"/> 獲取詳細資訊。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>服務</term>
+     <listitem>
+      <para>
+       目前有許多<quote>通用</quote>類型的系統服務同時存在：<literal>LSB</literal> (屬於 System V init)、<literal>systemd</literal> 和 (在某些套裝作業系統中提供的) <literal>upstart</literal>。因此，Pacemaker 支援使用特殊別名，這樣可以輕鬆地確定哪個服務適用於指定的叢集節點。當叢集中混合使用了 systemd、upstart 和 LSB 服務時，此功能特別有用。Pacemaker 將嘗試依照以下順序尋找指定服務：LSB (SYS-V) init 程序檔、Systemd 單位檔案或 Upstart 工作。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Nagios</term>
+     <listitem>
+      <para>
+       使用監控外掛程式 (以前稱為 Nagios 外掛程式) 可以監控遠端主機上的服務。Pacemaker 可以使用監控外掛程式 (如果有) 來執行遠端監控。如需詳細資訊，請參閱<xref linkend="sec.ha.config.basics.remote.nagios"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>STONITH (圍籬區隔) 資源代辦</term>
+     <listitem>
+      <para>
+       此類別專用於圍籬區隔相關資源。如需詳細資訊，請參閱<xref linkend="cha.ha.fencing"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    High Availability Extension 隨附的代辦將寫入 OCF 規格。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.types">
+   <title>資源類型</title>
+   <para>
+    以下是可建立的資源類型：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>基本資源</term>
+     <listitem>
+      <para>
+       基本資源，是最基本的資源類型。
+      </para>
+      <para>
+       瞭解如何使用偏好的叢集管理工具建立基本資源：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         Hawk2︰<xref linkend="pro.conf.hawk2.primitive.add"/>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         crmsh︰<xref linkend="sec.ha.manual_config.create"/>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>群組</term>
+     <listitem>
+      <para>
+       群組包含一組需放置在一起的資源，這些資源按順序啟動並以相反順序停止。若需更多資訊，請參閱<xref linkend="sec.ha.config.basics.resources.advanced.groups"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>複製品</term>
+     <listitem>
+      <para>
+       複製品是可在多個主機上處於使用中狀態的資源。任何資源都可複製，只要相應的資源代辦支援複製功能。若需更多資訊，請參閱 <xref linkend="sec.ha.config.basics.resources.advanced.clones"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>多狀態資源 (以前稱為主要/從屬資源)</term>
+     <listitem>
+      <para>
+       多狀態資源是複製品資源的一種特殊類型，可以擁有多個模式。若需更多資訊，請參閱<xref linkend="sec.ha.config.basics.resources.advanced.masters"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.templates">
+   <title>資源樣板</title>
+   <para>
+    如果您要建立大量具有相似組態的資源，定義資源樣板是最輕鬆的方法。定義資源樣板後，便可在基本資源或某些類型的條件約束中參考該樣板，如<xref linkend="sec.ha.config.basics.constraints.templates"/>所述。
+   </para>
+   <para>
+    如果某個基本資源中參考了某個樣板，該基本資源將會繼承樣板中定義的所有操作、例項屬性 (參數)、中繼屬性和使用率屬性。此外，您也可以為基本資源定義特定的操作或屬性。如果在樣板和基本資源兩者中都定義了上述其中任何一項，則基本資源中定義的值會優先於樣板中定義的值。
+   </para>
+   <para>
+    瞭解如何使用偏好的叢集組態工具定義資源樣板：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2︰<xref linkend="pro.conf.hawk2.template.add"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh︰<xref linkend="sec.ha.manual_config.rsc_template"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.advanced">
+   <title>進階資源類型</title>
+   <para>
+    基本資源是最簡單的資源類型，因此設定很簡單，不過您的叢集組態可能還需要更進階的資源類型，例如群組、複製品或多狀態資源。
+   </para>
+   <sect3 xml:id="sec.ha.config.basics.resources.advanced.groups">
+    <title>群組</title>
+    <para>
+     有些叢集資源依存於其他元件或資源，它們要求每個元件或資源以特定順序啟動並與其相依的資源在同一伺服器上執行。若要簡化此組態，您可以使用叢集資源群組。
+    </para>
+    <example xml:id="ex.ha.config.resource.group">
+     <title>Web 伺服器的資源群組</title>
+     <para>
+      需要 IP 位址與檔案系統的 Web 伺服器就是資源群組的一個範例。在此範例中，每個元件都是組合成一個叢集資源群組中的獨立資源。資源群組將在一或多個伺服器上執行。若軟體或硬體出現異常，群組會容錯移轉至叢集中的另一個伺服器，這一點與個別叢集資源類似。
+     </para>
+    </example>
+    <figure pgwide="0">
+     <title>群組資源</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="webserver_groupresource_a.svg" width="70%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="webserver_groupresource_a.png" width="63%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+
+
+    <para>
+     群組具有以下內容：
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>啟動和停止</term>
+      <listitem>
+       <para>
+        資源以顯示的順序依次啟動，並以相反順序停止。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>相依性</term>
+      <listitem>
+       <para>
+        若群組中的某個資源在任何地方都無法執行，則群組中位於該資源之後的所有資源均不允許執行。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>內容</term>
+      <listitem>
+       <para>
+        群組僅會包含基本叢集資源的集合。群組至少須包含一個資源，否則組態視為無效。若要引用群組資源的子代，請使用子代 ID，而不要使用群組 ID。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>條件約束</term>
+      <listitem>
+       <para>
+        儘管您可以在條件約束中參考群組的子代，但一般最好使用群組的名稱。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>粘性</term>
+      <listitem>
+       <para>
+        粘性在群組中屬於加法類內容。群組中每個<emphasis>使用中</emphasis>成員的粘性值都會影響群組的總值。因此，若 <literal>resource-stickiness</literal> 的預設值為 <literal>100</literal>，並且群組有七個成員，其中五個處於使用中狀態，則整個群組偏向於其目前位置 (分數為 <literal>500</literal>)。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>資源監控</term>
+      <listitem>
+       <para>
+        若要對群組啟用資源監控，您必須為要監控的群組中的每個資源分別設定監控。
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     瞭解如何使用偏好的叢集管理工具建立群組：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Hawk2︰<xref linkend="pro.conf.hawk2.group"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       crmsh︰<xref linkend="sec.ha.manual_config.group"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+   <sect3 xml:id="sec.ha.config.basics.resources.advanced.clones">
+    <title>複製品</title>
+    <para>
+     您可能要讓某些資源同時在叢集的多個節點上執行。若要實現此目的，您必須將資源設定為複製品。可以設定為複製品的資源範例包括叢集檔案系統，如 OCFS2。您可以複製所提供的任何資源。相關資源的資源代辦會為此操作提供支援。您甚至可以對複製品資源進行不同的設定，具體視代管它們的節點而定。
+    </para>
+    <para>
+     資源複製品分為三種類型：
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>匿名複製品</term>
+      <listitem>
+       <para>
+        這是最簡單的一種複製品。無論在何處執行，它們的行為都相同。因此，每部機器上只能有一個匿名複製品例項處於使用中狀態。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>全域唯一複製品</term>
+      <listitem>
+       <para>
+        這些資源是不同的實體。在一個節點上執行的複製品例項與在另一個節點上執行的另一個例項不同；在相同節點上的任何兩個例項也不相同。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>狀態複製品 (多狀態資源)</term>
+      <listitem>
+       <para>
+        這些資源的使用中例項分為兩種狀態：主動與被動。這兩種狀態有時也稱為主要與次要，或主要與從屬。狀態複製品可以是匿名複製品，也可以是全域唯一複製品。並請參閱 <xref linkend="sec.ha.config.basics.resources.advanced.masters"/>。
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     複製品只能包含一個群組或一個一般資源。
+    </para>
+    <para>
+     設定資源監控或條件約束時，複製品的要求與簡單資源不同。如需詳細資料，請參閱 <link xlink:href="http://www.clusterlabs.org/doc/"/> 上的《<citetitle>Pacemaker Explained</citetitle>》(Pacemaker 說明)。詳情位於「<citetitle>Clones - Resources That Should be Active on Multiple Hosts</citetitle>」(複製品 - 應在多個主機上啟動的資源) 一節。
+    </para>
+    <para>
+     瞭解如何使用偏好的叢集管理工具建立複製品：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Hawk2︰<xref linkend="pro.conf.hawk2.clone"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       crmsh︰<xref linkend="sec.ha.manual_config.clone"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+   <sect3 xml:id="sec.ha.config.basics.resources.advanced.masters">
+    <title>多狀態資源</title>
+    <para>
+     多狀態資源是一種特殊的複製品。它們允許例項處於兩種中的其中一種操作模式 (稱為<literal>主要</literal>或<literal>從屬</literal>，不過您也可以依照自己的想法來命名這些模式)。多狀態資源只能包含一個群組或一個一般資源。
+    </para>
+    <para>
+     設定資源監控或條件約束時，多狀態資源的要求與簡單資源不同。如需詳細資料，請參閱 <link xlink:href="http://www.clusterlabs.org/doc/"/> 上的《<citetitle>Pacemaker Explained</citetitle>》(Pacemaker 說明)。詳情位於「<citetitle>Multi-state - Resources That Have Multiple Modes</citetitle>」(多狀態 - 有多種模式的資源) 一節。
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.meta.attr">
+   <title>資源選項 (中繼屬性)</title>
+   <para>
+    對於新增的每個資源，您都可以定義選項。叢集使用選項來決定資源的行為方式 — 它們會告知 CRM 如何處理特定資源。資源選項可透過 <command>crm_resource --meta</command> 指令或者依<xref linkend="pro.conf.hawk2.primitive.add"/>所述使用 Hawk2 來設定。
+   </para>
+   <table xml:id="tab.ha.basics.meta">
+    <title>基本資源選項</title>
+    <tgroup cols="3">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         選項
+        </para>
+       </entry>
+       <entry>
+        <para>
+         描述
+        </para>
+       </entry>
+       <entry>
+        <para>
+         預設值
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         <literal>priority</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         如果並非所有資源都可處於使用中狀態，叢集將停止優先程度較低的資源，以便讓優先程度較高的資源保持使用中狀態。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>0</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>target-role</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         叢集應嘗試讓此資源保持什麼狀態？允許的值：<literal>stopped</literal>、<literal>started</literal>、 <literal>master</literal>。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>started</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>is-managed</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         叢集是否允許啟動及停止資源？允許的值：<literal>true</literal>、<literal>false</literal>。如果該值設定為 <literal>false</literal>，則資源狀態仍受到監控，並且會報告所有失敗事件 (這不同于將資源設定為 <literal>maintenance="true"</literal>)。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>true</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>maintenance</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         是否可以手動處理資源？允許的值：<literal>true</literal>、<literal>false</literal>。如果設定為 <literal>true</literal>，則所有資源將會變為不受管理狀態：叢集將停止監控這些資源，因此將會忽視這些資源的狀態。您可以視需要停止或重新啟動叢集資源，不必等待叢集嘗試重新啟動它們。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>false</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>resource-stickiness</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         資源希望留在原處的程度如何？
+
+        </para>
+       </entry>
+       <entry>
+        <para>
+         calculated
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>migration-threshold</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         此資源在節點上的失敗次數達到多少次才會取消該節點代管此資源的資格？
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>INFINITY</literal> (已停用)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>multiple-active</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         如果叢集發現資源在多個節點上處於使用中狀態，應如何處理？允許的值：<literal>block</literal> (將資源標示為不受管理)、<literal>stop_only</literal>、 <literal>stop_start</literal>。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>stop_start</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>failure-timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         等待多少秒之後才會當做失敗未發生 (潛在含義為允許資源回到其失敗的節點上)？
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>0</literal> (已停用)
+        </para>
+       </entry>
+      </row>
+
+      <row>
+       <entry>
+        <para>
+         <literal>allow-migrate</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         允許對支援 <literal>migrate_to</literal>/<literal>migrate_from</literal> 動作的資源執行資源移轉。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>false</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-node</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         此資源定義之遠端節點的名稱。這會使資源變成一個遠端節點，並且定義唯一的名稱以用於識別該遠端節點。如果未設定任何其他參數，則此值還將做為要在 
+         <varname>remote-port</varname> 連接埠上連接到的主機名稱。
+        </para>
+        <warning>
+         <title>使用唯一的 ID</title>
+         <para>
+          此值不得與任何現有資源 ID 或節點 ID 重複。
+         </para>
+        </warning>
+       </entry>
+       <entry>
+        <para>
+         none (已停用)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-port</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         訪客與 pacemaker_remote 建立連接時使用的自訂連接埠。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>3121</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-addr</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         當遠端節點的名稱不是訪客的主機名稱時，要連接到的 IP 位址或主機名稱。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>remote-node</literal> (用做主機名稱的值)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-connect-timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         等待中訪客連接在逾時之前所要經過的時間。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>60s</literal>
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.inst.attr">
+   <title>例項屬性 (參數)</title>
+
+
+   <para>
+    所有資源類別的程序檔均可接收參數，參數決定了資源的行為及其控制的服務例項。如果您的資源代辦支援參數，您可以使用 <command>crm_resource</command> 指令或 Hawk2 (如<xref linkend="pro.conf.hawk2.primitive.add"/>所述) 新增參數。在 <command>crm</command> 指令行公用程式和 Hawk2 中，例項屬性分別稱為 <literal>params</literal> 和 <literal>Parameter</literal>。您可用 <systemitem class="username">root</systemitem> 身分執行如下指令來獲取受 OCF 程序檔支援的例項屬性清單：
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info <replaceable>[class:[provider:]]resource_agent</replaceable></screen>
+   <para>
+    或 (不含選擇性的部分)：
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info <replaceable>resource_agent</replaceable></screen>
+   <para>
+    輸出會列出所有受支援的屬性、其用途與預設值。
+   </para>
+   <para>
+    例如，指令
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info IPaddr</screen>
+   <para>
+    傳回下列輸出：
+   </para>
+<screen>Manages virtual IPv4 addresses (portable version) (ocf:heartbeat:IPaddr)
+    
+This script manages IP alias IP addresses
+It can add an IP alias, or remove one.   
+    
+Parameters (* denotes required, [] the default):
+    
+ip* (string): IPv4 address
+The IPv4 address to be configured in dotted quad notation, for example
+"192.168.1.1".                                                        
+    
+nic (string, [eth0]): Network interface
+The base network interface on which the IP address will be brought
+online.                                                           
+    
+If left empty, the script will try and determine this from the    
+routing table.                                                    
+    
+Do NOT specify an alias interface in the form eth0:1 or anything here;
+rather, specify the base interface only.                              
+    
+cidr_netmask (string): Netmask
+The netmask for the interface in CIDR format. (ie, 24), or in
+dotted quad notation  255.255.255.0).                        
+    
+If unspecified, the script will also try to determine this from the
+routing table.                                                     
+    
+broadcast (string): Broadcast address
+Broadcast address associated with the IP. If left empty, the script will
+determine this from the netmask.                                        
+    
+iflabel (string): Interface label
+You can specify an additional label for your IP address here.
+    
+lvs_support (boolean, [false]): Enable support for LVS DR
+Enable support for LVS Direct Routing configurations. In case a IP
+address is stopped, only move it to the loopback device to allow the
+local node to continue to service requests, but no longer advertise it
+on the network.                                                       
+    
+local_stop_script (string): 
+Script called when the IP is released
+    
+local_start_script (string): 
+Script called when the IP is added
+    
+ARP_INTERVAL_MS (integer, [500]): milliseconds between gratuitous ARPs
+milliseconds between ARPs                                         
+    
+ARP_REPEAT (integer, [10]): repeat count
+How many gratuitous ARPs to send out when bringing up a new address
+    
+ARP_BACKGROUND (boolean, [yes]): run in background
+run in background (no longer any reason to do this)
+    
+ARP_NETMASK (string, [ffffffffffff]): netmask for ARP
+netmask for ARP - in nonstandard hexadecimal format.
+    
+Operations' defaults (advisory minimum):
+    
+start         timeout=90
+stop          timeout=100
+monitor_0     interval=5s timeout=20s</screen>
+   <note>
+    <title>群組、複製品或多狀態資源的例項屬性</title>
+    <para>
+     請注意，群組、複製品和多狀態資源沒有例項屬性。但是，群組、複製品或多狀態資源的子代會繼承任何例項屬性集。
+    </para>
+   </note>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.operations">
+   <title>資源操作</title>
+   <para>
+    叢集預設不會確保資源仍正常。若要指示叢集確保資源能正常運作，您需要在資源定義中新增監控操作。可為所有類別或資源代辦新增監控操作。若需更多資訊，請參閱<xref linkend="sec.ha.config.basics.monitoring"/>。
+   </para>
+   <table>
+    <title>資源操作內容</title>
+    <tgroup cols="2">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         操作
+        </para>
+       </entry>
+       <entry>
+        <para>
+         描述
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         <literal>id</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         動作執行人名稱。必須唯一。(ID 不顯示)。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>name</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         執行的動作。通用值：<literal>monitor</literal>、<literal>start</literal>、<literal>stop</literal>。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>interval</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         執行操作的頻率。單位：秒
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         宣告動作失敗之前等待多長時間？
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>requires</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         需滿足什麼條件才會執行此動作。允許的值：<literal>nothing</literal>、<literal>quorum</literal>、<literal>fencing</literal>。預設值取決於圍籬區隔是否啟用及資源類別是否為 <literal>stonith</literal>。對於 STONITH 資源，預設值為 <literal>nothing</literal>。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>on-fail</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         此動作失敗時所採取的動作。允許的值：
+        </para>
+        <itemizedlist>
+         <listitem>
+          <para>
+           <literal>ignore</literal>：當做資源未失敗。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>block</literal>：在資源上不執行任何進一步操作。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>stop</literal>：停止資源且不在其他任何地方啟動。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>restart</literal>：停止資源並再次啟動 (可能在其他節點上)。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>fence</literal>：將發生資源故障的節點關閉 (STONITH)。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>standby</literal>：將發生資源失敗之節點上的<emphasis>所有</emphasis>資源移出。
+          </para>
+         </listitem>
+        </itemizedlist>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>enabled</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         如果為 <literal>false</literal>，則會將操作視做不存在。允許的值：<literal>true</literal>、<literal>false</literal>。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>role</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         只有在資源具有此角色時，才執行操作。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>record-pending</literal>
+        </para>
+       </entry>
+       <entry>
+
+        <para>
+         可以全域設定，也可以針對個別資源設定。讓 CIB 反映對資源執行之 <quote>in-flight</quote> 操作的狀態。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>description</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         操作的描述。
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.timeouts">
+   <title>逾時值</title>
+   <para>
+    以下參數可能會影響資源的逾時值：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <varname>op_defaults</varname>  (操作的全域逾時)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      資源樣板中定義的特定逾時值
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      為資源定義的特定逾時值
+     </para>
+    </listitem>
+   </itemizedlist>
+   <note>
+    <title>值的優先程度</title>
+    <para>
+     如果為資源定義了<emphasis>特定</emphasis>值，則該值將優先於全域預設值。資源的特定值也優先于資源樣板中定義的值。
+    </para>
+   </note>
+
+
+   <para>
+    設定合適的逾時值非常重要。將逾時值設定得太小，會因以下緣故產生許多 (不必要的) 圍籬區隔操作：
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      如果某個資源發生逾時，該資源將會失敗，並且叢集會嘗試將其停止。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果停止資源操作同樣失敗 (例如，因為停止操作的逾時值設定得太小)，叢集將會圍籬區隔該節點。叢集認為發生此問題的節點失去控制。
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    您可以使用 crmsh 和 Hawk2 調整操作的全域預設值並設定任何特定的逾時值。確定及設定逾時值的最佳實務如下：
+   </para>
+   <procedure>
+    <title>確定逾時值</title>
+    <step>
+     <para>
+      檢查啟動和停止資源所需的時間 (負載狀態下)。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果需要，請新增  <varname>op_defaults</varname>  參數並相應地設定 (預設) 逾時值：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        例如，將 <literal>op_defaults</literal> 設定為 <literal>60</literal> 秒：
+       </para>
+<screen><prompt role="custom">crm(live)configure# </prompt> op_defaults timeout=60</screen>
+      </step>
+      <step>
+       <para>
+        對於需要較長時間的資源，請單獨定義每個逾時值。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      為資源設定操作時，請新增獨立的 <literal>start</literal> 和 <literal>stop</literal> 操作。使用 Hawk2 設定操作時，它將為這些操作提供有用的逾時建議。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.monitoring">
+  <title>資源監控</title>
+
+  <para>
+   若要確定資源是否正在執行，必須設定針對該資源的資源監控。
+  </para>
+
+  <para>
+   若資源監控偵測到失敗，系統將執行以下動作：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     根據 <filename>/etc/corosync/corosync.conf</filename> 的 <literal>logging</literal> 區段中指定的組態產生記錄檔案訊息。
+
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     失敗狀況會反映在叢集管理工具 (Hawk2、<command>crm status</command>) 及 CIB 狀態區段中。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     叢集會啟動重要的復原動作，其中可能包括停止資源以修複失敗狀態，以及在本地或在其他節點上重新啟動資源。也可能不重新啟動資源，具體視組態及叢集狀態而定。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+
+
+  <para>
+   若不設定資源監控，則不會向您通知資源成功啟動後發生的失敗，並且叢集會始終將資源顯示為處於正常狀態。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>監控已停止的資源</term>
+    <listitem>
+     <para>
+      通常，叢集只會在資源執行時對其進行監控。但是，若要偵測並行存取違規，還需針對停止的資源設定監控。例如：
+     </para>
+<screen>primitive dummy1 ocf:heartbeat:Dummy \
+    op monitor interval="300s" role="Stopped" timeout="10s" \
+    op monitor interval="30s" timeout="10s"</screen>
+     <para>
+      只要資源 <literal>dummy1</literal> 狀態為 <literal>role="Stopped"</literal>，此組態就會每隔 <literal>300</literal> 秒觸發一次對該資源的監控操作。當該資源執行時，將每隔 <literal>30</literal> 秒對其監控一次。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>查探</term>
+
+    <listitem>
+     <para>
+      CRM 會針對每個節點上的每個資源執行初始監控，即所謂的<literal>查探</literal>。在清理資源後也會執行查探。如果為某個資源定義了多個監控操作，CRM 將會選取間隔最短的監控操作，並使用它的逾時值做為查探的預設逾時。如果沒有設定任何監控操作，則會套用針對整個叢集的預設值。預設值為 <literal>20</literal> 秒 (如果未透過設定  <varname>op_defaults</varname>
+       參數指定)。如果您不想依賴自動計算結果或 <systemitem>op_defaults</systemitem> 值，請為此資源的<emphasis>查探</emphasis>定義特定的監控操作。為此，可以新增一個監控操作並將 <literal>interval</literal> 設定為 <literal>0</literal>，例如：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> rsc1 ocf:pacemaker:Dummy \
+    op monitor interval="0" timeout="60"</screen>
+     <para>
+      <systemitem>rsc1</systemitem> 查探將在 <literal>60 秒</literal>後逾時，而不論 
+      <varname>op_defaults</varname> 中定義的全域逾時或設定的任何其他操作逾時為何。如果在指定相應資源的查探時未設定 <literal>interval="0"</literal>，CRM 會自動檢查是否為該資源定義了其他任何監控操作，並依如上所述計算查探的逾時值。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   瞭解如何使用偏好的叢集管理工具為資源新增監控操作：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Hawk2︰<xref linkend="pro.hawk2.operations"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     crmsh︰<xref linkend="sec.ha.manual_config.monitor"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.constraints">
+  <title>資源條件約束</title>
+
+  <para>
+   設定所有資源只是工作的一部分。即使叢集瞭解所有必需的資源，可能仍然無法正確地對其進行處理。資源條件約束可讓您指定資源可在哪些叢集節點上執行，載入資源的順序以及特定資源所依賴的其他資源。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.constraints.types">
+   <title>條件約束類型</title>
+   <para>
+    系統中的條件約束分為三種類型：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>資源位置
+    </term>
+     <listitem>
+      <para>
+       位置條件約束，定義資源可在、不可在或偏好在哪些節點上執行。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>資源並存</term>
+     <listitem>
+      <para>
+       並存條件約束，告訴叢集哪些資源可以或不可以同時在節點上執行。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>資源順序</term>
+     <listitem>
+      <para>
+       順序條件約束，定義動作執行的順序。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   
+   <important>
+    <title>條件約束與特定資源類型的限制</title>
+    <itemizedlist>
+     <listitem>
+      <para>不要為資源群組的<emphasis>成員</emphasis>建立並存條件約束。應該建立指向整個資源群組的並存條件約束。其他所有類型的條件約束可安全地用於資源群組的成員。</para>
+     </listitem>
+     <listitem>
+      <para>不要對包含複製品資源或者已套用多狀態資源的資源使用任何條件約束。條件約束必須套用於複製品資源或多狀態資源，而不能套用於子資源。</para>
+     </listitem>
+    </itemizedlist>
+   </important>
+   
+   
+   <sect3 xml:id="sec.ha.config.basics.constraints.rscset">
+    <title>資源組</title>
+
+    <para/>
+    <sect4 xml:id="sec.ha.config.basics.constraints.rscset.constraints">
+     <title>使用資源集定義條件約束</title>
+     <para>
+      您可以使用另一種形式來定義位置、並存或順序條件約束，即<literal>資源集</literal>，使用此方式，基本資源會全部歸到一個集中。以前，為了實現此目的，需要定義一個資源群組 (並不總是能準確反映出設計目的)，或者將每種關係定義為個別的條件約束。隨著資源和組合數量的增長，後一種方法會導致條件約束劇增。透過資源集進行設定不一定會降低繁瑣性，但更易於理解和維護，如以下範例中所示。
+     </para>
+     <example xml:id="ex.config.basic.resourceset.loc">
+      <title>用於位置條件約束的資源集</title>
+      <para>
+       例如，可以在 crmsh 中使用資源集 (<varname>loc-alice</varname>) 的以下組態，將兩個虛擬 IP (<varname>vip1</varname>  和  <varname>vip2</varname>) 置於同一個節點  <varname>alice</varname> 上︰
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=192.168.1.5
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=192.168.1.6
+<prompt role="custom">crm(live)configure# </prompt><command>location</command> loc-alice { vip1 vip2 } inf: alice </screen>
+     </example>
+     <para>
+      如果想要使用資源集來取代並存條件約束的組態，請參考以下兩個範例：
+     </para>
+     <example>
+      <title>並存資源鏈結</title>
+<screen>&lt;constraints&gt;
+     &lt;rsc_colocation id="coloc-1" rsc="B" with-rsc="A" score="INFINITY"/&gt;
+     &lt;rsc_colocation id="coloc-2" rsc="C" with-rsc="B" score="INFINITY"/&gt;
+     &lt;rsc_colocation id="coloc-3" rsc="D" with-rsc="C" score="INFINITY"/&gt;
+&lt;/constraints&gt;</screen>
+     </example>
+     <para>
+      資源集表達的相同組態：
+     </para>
+<screen>&lt;constraints&gt;
+    &lt;rsc_colocation id="coloc-1" score="INFINITY" &gt;
+     &lt;resource_set id="colocated-set-example" sequential="true"&gt;
+      &lt;resource_ref id="A"/&gt;
+      &lt;resource_ref id="B"/&gt;
+      &lt;resource_ref id="C"/&gt;
+      &lt;resource_ref id="D"/&gt;
+     &lt;/resource_set&gt;
+    &lt;/rsc_colocation&gt;
+&lt;/constraints&gt;</screen>
+     <para>
+      如果您要使用資源集來取代順序條件約束的組態，請參考以下兩個範例：
+     </para>
+     <example>
+      <title>排序資源鏈結</title>
+<screen>&lt;constraints&gt;
+     &lt;rsc_order id="order-1" first="A" then="B" /&gt;
+     &lt;rsc_order id="order-2" first="B" then="C" /&gt;
+     &lt;rsc_order id="order-3" first="C" then="D" /&gt;
+&lt;/constraints&gt;</screen>
+     </example>
+     <para>
+      可以使用包含排序資源的資源集來實現相同目的：
+     </para>
+     <example>
+      <title>表達為資源集的排序資源鏈結</title>
+<screen>&lt;constraints&gt;
+     &lt;rsc_order id="order-1"&gt;
+     &lt;resource_set id="ordered-set-example" sequential="true"&gt;
+     &lt;resource_ref id="A"/&gt;
+     &lt;resource_ref id="B"/&gt;
+     &lt;resource_ref id="C"/&gt;
+     &lt;resource_ref id="D"/&gt;
+     &lt;/resource_set&gt;
+     &lt;/rsc_order&gt;
+&lt;/constraints&gt;</screen>
+     </example>
+     <para>
+      資源集可以是排序的 (<literal>sequential=true</literal>)，也可以是未排序的 (<literal>sequential=false</literal>)。此外，您可以使用 <literal>require-all</literal> 屬性在 <literal>AND</literal> 與 <literal>OR</literal> 邏輯之間切換。
+     </para>
+    </sect4>
+    <sect4 xml:id="sec.ha.config.basics.constraints.rscset.constraints.dep">
+     <title>用於無相依性之並存條件約束的資源集</title>
+
+     <para>
+      有時，將一組資源放置在同一個節點上 (定義並存條件約束) 會很有用，但前提是這些資源之間不存在硬性相依性。例如，您要在同一個節點上放置兩個資源，但<emphasis>不</emphasis>希望叢集在其中一個資源失敗時重新啟動另一個資源。可以在 crm 外圍程序中使用 <command>weak bond</command> 指令來實現此目的。
+     </para>
+     <para>
+      瞭解如何使用偏好的叢集管理工具設定這些<quote>弱鍵</quote>：
+     </para>
+     <itemizedlist>
+
+
+      <listitem>
+       <para>
+        crmsh：<xref linkend="sec.ha.manual_config.constraints.weak-bond"/>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </sect4>
+   </sect3>
+   <sect3 xml:id="sec.ha.config.basics.constraints.more">
+    <title>更多資訊</title>
+    <para>
+     瞭解如何使用偏好的叢集管理工具建立各種條件約束。
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Hawk2︰<xref linkend="sec.conf.hawk2.cons"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       crmsh︰<xref linkend="sec.ha.manual_config.constraints"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     如需設定條件約束的詳細資訊，以及有關順序與並存基本概念的詳細背景資訊，請參閱以下文件。您可以從 <link xlink:href="http://www.clusterlabs.org/doc/"/> 上取得這些文件：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+        《<citetitle>Pacemaker Explained</citetitle>》(Pacemaker 說明) 的「<citetitle>Resource Constraints</citetitle>」(資源條件約束) 一章
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       《<citetitle>Colocation Explained</citetitle>》(並存說明)
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       《<citetitle>Ordering Explained</citetitle>》(順序說明)
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.constraints.scores">
+   <title>分數與無限大</title>
+   <para>
+    定義條件約束時，還需要處理分數。所有類型的分數對於叢集的工作方式而言都是不可或缺的。實際上，從移轉資源到決定要將降級叢集中哪個資源停止的所有操作，都是透過某種方式對分數進行操作來實現。系統會對每個資源都計算分數，針對某個資源分數為負數的所有節點都不能執行該資源。計算完針對資源的分數之後，叢集會選擇分數最高的節點。
+   </para>
+   <para>
+    <literal>INFINITY</literal> 目前定義為 <literal>1,000,000</literal>。與其相關的加法或減法計算遵循以下三項基本規則：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      任何值 + INFINITY = INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      任何值 - INFINITY = -INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      INFINITY - INFINITY = -INFINITY
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    定義資源條件約束時，您還要指定每個條件約束的分數。分數表示您要指定給此資源條件約束的值。系統會先套用分數較高的條件約束，然後再套用分數較低的條件約束。透過為指定資源建立不同分數的其他位置條件約束，即可指定資源將容錯移轉至之目標節點的順序。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.constraints.templates">
+   <title>資源樣板和條件約束</title>
+   <para>
+    如果您定義了一個資源樣板 (請參閱<xref linkend="sec.ha.config.basics.resources.templates"/>)，則可以在以下類型的條件約束中參考該樣板：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      順序條件約束
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      並存條件約束
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      rsc_ticket 條件約束 (適用於地理叢集)
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    不過，並存條件約束不得包含對同個樣板的多個參考。資源集不得包含對樣板的參考。
+   </para>
+
+   <para>
+    條件約束中參考的資源樣板代表由該樣板衍生的所有基本資源。也就是說，這些條件約束將適用於所有參考了資源樣板的基本資源。在條件約束中參考資源樣板是另外一種使用資源集的方式，這種方式能夠大大簡化叢集設定。如需有關資源集的詳細資料，請參閱<xref linkend="pro.hawk2.constraints.sets"/>。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.failover">
+   <title>容錯移轉節點</title>
+   <para>
+    若資源失敗，系統會自動將其重新啟動。若無法在目前節點上重新啟動，或資源已在目前節點上失敗 <literal>N</literal> 次，則會嘗試容錯移轉至其他節點。每次資源失敗，其 failcount 值都會增加。您可以定義一個數值，讓資源在失敗該次數 (<literal>migration-threshold</literal>) 之後移轉至新節點。若叢集中有兩個以上的節點，則特定資源容錯移轉所至的節點由 High Availability 軟體來選擇。
+   </para>
+   <para>
+    但是，您可以透過為該資源設定一或多個位置條件約束以及一個 <literal>migration-threshold</literal>，指定資源容錯移轉所至的節點。
+   </para>
+   <para>
+    瞭解如何使用偏好的叢集管理工具指定容錯移轉節點：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2︰<xref linkend="sec.conf.hawk2.failover"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh︰<xref linkend="sec.ha.manual_config.failover"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <example xml:id="ex.ha.config.basics.failover">
+    <title>移轉限定值 — 程序流程</title>
+    <para>
+     例如，假設您已為資源 <literal>rsc1</literal> 設定位置條件約束，讓其偏向於在 <literal>alice</literal> 上執行。若資源在該節點上失敗，系統會檢查 <literal>migration-threshold</literal>，並將其與 failcount 進行比較。若 failcount &gt;= migration-threshold，則將資源移轉至優先設定次佳的節點。
+    </para>
+    <para>
+     達到限定值後，便不再允許該節點執行失敗的資源，除非資源的 failcount 被重設。此操作可由叢集管理員手動執行，也可透過設定資源的 <literal>failure-timeout</literal> 選項來完成。
+    </para>
+    <para>
+     例如，設定 <literal>migration-threshold=2</literal> 及 <literal>failure-timeout=60s</literal> 會在資源失敗兩次後將其移轉至新節點。一分鐘過後，允許該資源移回原節點 (視粘性與條件約束的分數而定)。
+    </para>
+   </example>
+   <para>
+    移轉限定值概念有兩種例外情況，發生於資源無法啟動或無法停止之時：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      啟動失敗會將 failcount 設定為 <literal>INFINITY</literal>，因此一旦發生便會立即移轉資源。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      停止失敗會導致圍籬區隔 (當 <literal>stonith-enabled</literal> 設定為預設值 <literal>true</literal> 時)。
+     </para>
+     <para>
+      若未定義任何 STONITH 資源 (或 <literal>stonith-enabled</literal> 設定為 <literal>false</literal>)，則資源將不會移轉。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    以下章節詳細介紹了如何使用移轉限定值以及如何使用偏好的叢集管理工具重設失敗計數的信息：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2︰<xref linkend="sec.conf.hawk2.failover"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh︰<xref linkend="sec.ha.manual_config.failover"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.failback">
+   <title>錯誤回復節點</title>
+   <para>
+    當原始節點恢復連接且位於叢集中時，資源可以錯誤回復至該節點。為防止資源錯誤回復到之前執行它的節點，或者要指定讓該資源錯誤回復到其他節點，請變更其資源粘性值。您可以在建立資源時或建立之後指定資源粘性。
+   </para>
+   <para>
+    指定資源粘性的值時，請考慮以下事項：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>值為 <literal>0</literal>：</term>
+     <listitem>
+      <para>
+       此為預設值。資源處於系統中的最佳位置。這表示當有<quote>更佳</quote>的或負載更低的節點可用時，則移動資源。此選項幾乎等同於自動錯誤回復，除了資源可能會移至原先節點 (資源之前於其上處於使用中狀態) 之外的節點這種情況。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值大於 <literal>0</literal>：</term>
+     <listitem>
+      <para>
+       資源偏向於保留在其目前的位置，但當有更合適的節點時，則可能會移動。值越高表示越偏向於將資源保留在目前的位置。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值小於 <literal>0</literal>：</term>
+     <listitem>
+      <para>
+       資源偏向於從其目前位置移開。絕對值越高表示越偏向於移動資源。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值為 <literal>INFINITY</literal>：</term>
+     <listitem>
+      <para>
+       資源始終保留在其目前的位置，除非由於此節點不再符合執行該資源的條件 (節點關機、節點待命、達到 <literal>migration-threshold</literal>，或組態變更) 而強制關閉此選項。此選項幾乎等同於完全停用自動錯誤回復。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值為 <literal>-INFINITY</literal>：</term>
+     <listitem>
+      <para>
+       資源始終從其目前位置移開。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.utilization">
+   <title>依據負載影響放置資源</title>
+   <para>
+    並非所有資源都相同。有些資源 (例如 Xen 客體作業系統) 要求代管它們的節點滿足其容量要求。如果放置資源後其所需的容量之和超過了提供的容量，資源效能便會下降 (甚至無法執行)。
+   </para>
+   <para>
+    鑒於此，High Availability Extension 允許您指定以下參數：
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      特定節點<emphasis>提供</emphasis>的容量。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      特定資源<emphasis>要求</emphasis>的容量。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      配置資源的整體策略。
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    瞭解如何使用偏好的叢集管理工具設定這些設定：
+   </para>
+   <itemizedlist>
+
+    <listitem>
+     <para>
+      crmsh︰<xref linkend="sec.ha.manual_config.utilization"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    如果一個節點有足夠的可用容量來滿足資源的要求，則認為該節點符合資源要求。容量實際上與 High Availability Extension 完全無關，這只是為了確定在將資源移至某個節點前，該節點滿足此資源的全部容量要求。
+   </para>
+   <para>
+    若要手動設定資源的要求以及節點提供的容量，可以利用使用率屬性。您可以依據自己的偏好命名使用率屬性，依據組態需要定義任意數量的名稱/值對。但是，屬性的值必須是整數。
+   </para>
+
+   <para>
+    如果具有使用率屬性的多個資源已分組或具有並存條件約束，High Availability Extension 會將這種情況考慮在內。可能的話，系統會將資源放置在可以滿足<emphasis>全部</emphasis>容量要求的節點上。
+   </para>
+   <note>
+    <title>群組的使用率屬性</title>
+    <para>
+     使用者無法直接為資源群組設定使用率屬性。不過，若要簡化群組的組態設定，您可以新增具有群組中所有資源所需總容量的使用率屬性。
+    </para>
+   </note>
+   <para>
+    High Availability Extension 現在還提供了用於自動偵測和設定節點容量及資源要求的方法：
+   </para>
+
+   <para>
+    <systemitem>NodeUtilization</systemitem> 資源代辦可檢查節點的容量 (與 CPU 和 RAM 相關)。若要設定自動偵測，請建立類別、提供者和類型如下的複製品資源：<literal>ocf:pacemaker:NodeUtilization</literal>。每個節點上都應該執行一個該複製品例項。該例項啟動後，一個使用率區段會新增至 CIB 中的節點組態。
+   </para>
+
+   <para>
+    為了自動偵測資源的最低要求 (與 RAM 和 CPU 相關)，我們改進了 <systemitem>Xen</systemitem> 資源代辦。<systemitem>Xen</systemitem> 資源啟動後會反映 RAM 和 CPU 的使用情況。使用率屬性將會自動新增至資源組態。
+   </para>
+
+   <para>
+    除了偵測最低要求外，High Availability Extension 還允許透過 <systemitem>VirtualDomain</systemitem> 資源代辦監控目前使用率。它可以偵測虛擬機器的 CPU 和 RAM 使用情況。若要使用此功能，請設定類別、提供者和類型如下的資源：<literal>ocf:heartbeat:VirtualDomain</literal>。可以使用以下例項屬性： <varname>autoset_utilization_cpu</varname>  和 
+    <varname>autoset_utilization_hv_memory</varname>。兩者都預設為 <literal>true</literal>。如此，每個監控週期都會更新 CIB 中的使用率值。
+   </para>
+   <para>
+    無論是手動還是自動設定容量與要求，都必須使用 <literal>placement-strategy</literal> 內容 (在全域叢集選項中) 指定配置策略。可用的值如下：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>default</literal> (預設值)</term>
+     <listitem>
+      <para>
+       不考量使用率值。資源依據位置分數配置。如果分數相同，則在各節點上平均分配資源。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>utilization</literal>
+     </term>
+     <listitem>
+      <para>
+       判斷節點的可用容量是否足夠滿足資源的要求時，會參考使用率值。但是，依舊會依據配置給節點的資源數量完成負載平衡。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>minimal</literal>
+     </term>
+     <listitem>
+      <para>
+       判斷節點是否有足夠的可用容量來滿足資源的要求時，會考量使用率值。系統會儘可能將資源集中到少量節點上，以節省其餘節點上的能耗。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>balanced</literal>
+     </term>
+     <listitem>
+      <para>
+       判斷節點是否有足夠的可用容量來滿足資源的要求時，會考量使用率值。系統會嘗試將資源平均分配，以便最佳化資源效能。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <note>
+    <title>設定資源優先程度</title>
+    <para>
+     提供的配置策略效能最佳，它們雖然沒有使用複雜的啟發式解析程式，卻總能獲得最佳的配置效果。請確保資源的優先程度已正確設定，以便先排程最重要的資源。
+    </para>
+   </note>
+   <example xml:id="ex.ha.config.basics.utilization">
+    <title>負載平衡放置的範例組態</title>
+    <para>
+     以下範例中說明了一個含四台虛擬機器的三節點叢集 (每個節點相同)。
+    </para>
+<screen>node alice utilization memory="4000"
+node bob utilization memory="4000"
+node  charly utilization memory="4000"
+primitive xenA ocf:heartbeat:Xen utilization hv_memory="3500" \
+     params xmfile="/etc/xen/shared-vm/vm1"
+     meta priority="10" 
+primitive xenB ocf:heartbeat:Xen utilization hv_memory="2000" \
+     params xmfile="/etc/xen/shared-vm/vm2"
+     meta priority="1"
+primitive xenC ocf:heartbeat:Xen utilization hv_memory="2000" \
+     params xmfile="/etc/xen/shared-vm/vm3"
+     meta priority="1"
+primitive xenD ocf:heartbeat:Xen utilization hv_memory="1000" \
+     params xmfile="/etc/xen/shared-vm/vm4"
+     meta priority="5"
+property placement-strategy="minimal"</screen>
+    <para>
+     三個節點都開啟時，資源 <literal>xenA</literal> 將首先放置到一個節點上，然後是 <literal>xenD</literal>。<literal>xenB</literal> 與 <literal>xenC</literal> 會同時隨 <literal>xenD</literal> 一起配置，或是其中一項隨 xenD 一起配置。
+    </para>
+    <para>
+     如果一個節點失敗，表示可用的總記憶體太少，無法代管全部資源。<literal>xenA</literal> 與 <literal>xenD</literal> 會保證得到配置。但剩餘的兩個資源 <literal>xenB</literal> 與 <literal>xenC</literal> 中僅有一個會予以放置。由於他們的優先程度相同，因此結果會有多種。若要解決這種不確定的狀況，您需要為其中一個設定較高的優先程度。
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.tags">
+   <title>使用標記對資源分組</title>
+
+   <para>
+    標記是最近新增至 Pacemaker 中的功能。使用標記可以一次參考多個資源，而無需在這些資源之間建立任何並存或順序關係。這個功能在把概念上相關的資源分組在一起時將十分實用。例如，如果有多個資源與某個資料庫相關，您可以建立名為 <literal>databases</literal> 的標記，並將與該資料庫相關的所有資源新增至此標記。這樣，只需使用一個指令就能停止或啟動所有這些資源。
+   </para>
+   <para>
+    在條件約束中也可以使用標記。例如，以下位置條件約束 <literal>loc-db-prefer</literal> 會套用至標記為 <literal>databases</literal> 的資源集：
+   </para>
+<screen>location loc-db-prefer databases 100: alice</screen>
+   <para>
+    瞭解如何使用偏好的叢集管理工具建立標記：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+       Hawk2︰<xref linkend="pro.conf.hawk2.tag"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh︰<xref linkend="sec.ha.manual_config.tag"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.remote">
+  <title>管理遠端主機上的服務</title>
+
+
+
+  <para>
+   在過去幾年中，監控和管理遠端主機上的服務已變得日益重要。<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 11 SP3 透過監控外掛程式提供了細緻的監控遠端主機上之服務的功能。最近新增的 <literal>pacemaker_remote</literal> 服務現在允許 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>
+   <phrase role="productnumber"><phrase os="sles"> 12 SP2</phrase></phrase> 全面管理和監控遠端主機上的資源，就如同這些資源是真實的叢集節點一般，並且無需在遠端機器上安裝叢集堆疊。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.remote.nagios">
+   <title>使用監控外掛程式監控遠端主機上的服務</title>
+   <para>
+    監控虛擬機器的操作可以借助 VM 代辦來執行 (該代辦僅檢查客體作業系統是否出現在 hypervisor 中)，也可以透過從 VirtualDomain 或 Xen 代辦中呼叫的外部程序檔執行。到目前為止，較精細的監控只能透過在虛擬機器中安裝整個 High Availability 堆疊來實現。
+   </para>
+   <para>
+    透過提供對監控外掛程式 (以前稱為 Nagios 外掛程式) 的支援，High Availability Extension 現在還允許您監控遠端主機上的服務。您可以收集關於客體作業系統的外部狀態，而不必修改客體作業系統影像。例如，VM 客體作業系統可以執行 Web 服務或簡單網路資源，不過這些服務或資源必須位於可以存取的位置。借助 Nagios 資源代辦，您現在可以監控客體作業系統上的 Web 服務或網路資源。如果這些服務不再可存取，High Availability Extension 便會觸發對相應客體作業系統的重新啟動或移轉操作。
+   </para>
+   <para>
+    如果客體依存於某項服務 (例如，客體要使用的 NFS 伺服器) 運作，則該服務可能是由叢集管理的一般資源，也可能是使用 Nagios 資源監控的外部服務。
+   </para>
+   <para>
+    若要設定 Nagios 資源，必須在主機上安裝下列套件：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <systemitem class="resource">monitoring-plugins</systemitem>
+
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <systemitem class="resource">monitoring-plugins-metadata</systemitem>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    必要時，YaST 或 Zypper 將會解析對其他套件的任何相依性。
+   </para>
+   <para>
+    將監控外掛程式設定為屬於資源容器 (一般是 VM) 的資源，就是一個典型的使用案例。如果容器的任何資源發生故障，容器將會重新啟動。如需組態設定範例，請參閱<xref linkend="ex.ha.nagios.config"/>。此外，如果您要使用 Nagios 資源代辦來透過網路監控主機或服務，也可以將其設定為一般資源。
+   </para>
+   <example xml:id="ex.ha.nagios.config">
+    <title>設定監控外掛程式的資源</title>
+<screen>primitive vm1 ocf:heartbeat:VirtualDomain \
+    params hypervisor="qemu:///system" config="/etc/libvirt/qemu/vm1.xml" \
+    op start interval="0" timeout="90" \
+    op stop interval="0" timeout="90" \
+    op monitor interval="10" timeout="30"
+primitive vm1-sshd nagios:check_tcp \
+    params hostname="vm1" port="22" \ <co xml:id="co.nagios.hostname"/>
+    op start interval="0" timeout="120" \ <co xml:id="co.nagios.startinterval"/>
+    op monitor interval="10"
+group g-vm1-and-services vm1 vm1-sshd \
+    meta container="vm1" <co xml:id="co.nagios.container"/></screen>
+    <calloutlist>
+     <callout arearefs="co.nagios.hostname">
+      <para>
+       受支援的參數與監控外掛程式的長選項相同。監控外掛程式使用參數 <literal>hostname</literal> 連接至服務。因此，屬性的值必須是可解析的主機名稱或 IP 位址。
+      </para>
+     </callout>
+     <callout arearefs="co.nagios.startinterval">
+      <para>
+       因為要啟動客體作業系統並執行其服務需要一段時間，所以監控資源的啟動逾時必須足夠長。
+      </para>
+     </callout>
+     <callout arearefs="co.nagios.container">
+      <para>
+       類型為 <literal>ocf:heartbeat:Xen</literal>、<literal>ocf:heartbeat:VirtualDomain</literal> 或 <literal>ocf:heartbeat:lxc</literal> 的叢集資源容器。它可以是一個 VM，也可以是一個 Linux 容器。
+      </para>
+     </callout>
+    </calloutlist>
+    <para>
+     上方範例中，<literal>check_tcp</literal> 外掛程式僅有一個 資源，但您可為不同的外掛程式類型 (例如，<literal>check_http</literal> 或 <literal>check_udp</literal>) 設定多個資源。
+    </para>
+    <para>
+     如果各服務的主機名稱相同，也可為群組指定 <literal>hostname</literal> 參數，而不必將它新增至各個基本資源。例如：
+    </para>
+<screen>group g-vm1-and-services vm1 vm1-sshd vm1-httpd \ 
+     meta container="vm1" \ 
+     params hostname="vm1" </screen>
+    <para>
+     如有任一受監控外掛程式監控的服務在 VM 中執行失敗，叢集將會偵測到該情況，並重新啟動容器資源 (VM)。發生這種情況所需執行的動作可透過指定服務監控操作的 <literal>on-fail</literal> 屬性來設定。該屬性預設為 <literal>restart-container</literal>。
+    </para>
+    <para>
+     系統考慮 VM 的移轉限定值時，會將服務的失敗計數考慮在內。
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.remote.pace.remote">
+   <title>使用 <literal>pacemaker_remote</literal> 管理遠端節點上的服務</title>
+   <para>
+    使用 <literal>pacemaker_remote</literal> 服務可將高可用性叢集延伸到虛擬節點或遠端裸機。這些虛擬節點或遠端裸機無需執行叢集堆疊就能成為叢集的成員。
+   </para>
+   <para>
+    High Availability Extension 現在可以啟動虛擬環境 (KVM 和 LXC) 以及這些虛擬環境中存在的資源，而無需虛擬環境執行 Pacemaker 或 Corosync。
+   </para>
+   <para>
+    對於同時要管理做為叢集資源的虛擬機器以及這些虛擬機器中存在之資源的使用案例，您現在可以使用以下設定：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <quote>正常</quote>(裸機) 叢集節點執行 High Availability Extension。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      虛擬機器執行 <literal>pacemaker_remote</literal> 服務 (幾乎不需要在 VM 端進行任何組態設定)。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <quote>正常</quote>叢集節點上的叢集堆疊啟動 VM，並連接至 VM 上執行的 <literal>pacemaker_remote</literal> 服務，以將 VM 做為遠端節點整合到叢集中。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    由於遠端節點上未安裝叢集堆疊，這意味著：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      遠端節點不計入最低節點數。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      遠端節點無法成為 DC。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      遠端節點不受延展性限制的約束 (Corosync 存在 16 個節點的成員數量限制)。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    <link xlink:href="http://www.clusterlabs.org/doc/"/> 上的《<citetitle>Pacemaker Remote—Extending High Availability into Virtual Nodes</citetitle>》(Pacemaker 遠端操作 — 將高可用性延伸至虛擬節點) 中介紹了關於 <literal>remote_pacemaker</literal> 服務的詳細資訊，包括多個使用案例和詳細的設定指示。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.monitor.health">
+  <title>監控系統狀態</title>
+
+
+
+  <para>
+   為了避免發生節點因用完磁碟空間而無法管理指定給它的任何資源的情況，High Availability Extension 提供了資源代辦 <systemitem>ocf:pacemaker:SysInfo</systemitem>。使用該代辦可以監控節點的磁碟分割區狀態。SysInfo 資源代辦會建立節點屬性 <literal>#health_disk</literal>；如果受監控磁碟的可用空間低於指定限制，代辦會將該屬性設為 <literal>red</literal>。
+  </para>
+
+
+
+  <para>
+   若要定義當節點狀態達到嚴重狀況時 CRM 應如何應對，可使用全域叢集選項 <systemitem>node-health-strategy</systemitem>。
+
+  </para>
+
+
+
+  <procedure xml:id="pro.ha.health.monitor">
+   <title>設定系統狀態監控</title>
+   <para>
+    若要在節點用完磁碟空間時將資源從該節點中移走，請執行以下步驟：
+   </para>
+   <step>
+    <para>
+     設定 <systemitem>ocf:pacemaker:SysInfo</systemitem> 資源：
+    </para>
+<screen><?dbsuse-fo font-size="0.71em"?>
+
+primitive sysinfo ocf:pacemaker:SysInfo \ 
+     params disks="/tmp /var"<co xml:id="co.disks"/> min_disk_free="100M"<co xml:id="co.min_disk_free"/> disk_unit="M"<co xml:id="co.disk_unit"/> \ 
+     op monitor interval="15s"</screen>
+    <calloutlist>
+     <callout arearefs="co.disks">
+      <para>
+       要監控的磁碟分割區。例如，<filename>/tmp</filename>、<filename>/usr</filename>、<filename>/var</filename> 與 <filename>/dev</filename>。若要指定多個分割區做為屬性值，請用空格分隔這些分割區。
+      </para>
+      <note>
+       <title><filename>/</filename> 檔案系統總是會受到監控</title>
+       <para>
+        不需要在 <literal>disks</literal> 中指定根分割區 (<filename>/</filename>)。預設總是會對其進行監控。
+       </para>
+      </note>
+     </callout>
+     <callout arearefs="co.min_disk_free">
+      <para>
+       這些分割區需要的最小可用磁碟空間。(選擇性) 您可以指定用於度量的單位 (在上方的範例中使用的是 <literal>M</literal>，表示百萬位元組)。如果未指定，<systemitem>min_disk_free</systemitem> 預設採用 <systemitem>disk_unit</systemitem> 參數中定義的單位。
+      </para>
+     </callout>
+     <callout arearefs="co.disk_unit">
+      <para>
+       用於報告磁碟空間的單位。
+      </para>
+     </callout>
+
+    </calloutlist>
+   </step>
+   <step>
+    <para>
+     為完成資源組態設定，建立一個 <systemitem>ocf:pacemaker:SysInfo</systemitem> 複製品並在叢集的每個節點上將其啟動。
+    </para>
+   </step>
+   <step>
+    <para>
+     將 <systemitem>node-health-strategy</systemitem> 設為 <literal>migrate-on-red</literal>：
+    </para>
+<screen>property node-health-strategy="migrate-on-red"</screen>
+
+    <para>
+     當 <systemitem>#health_disk</systemitem> 屬性設為 <literal>red</literal> 時，規則引擎會將 <literal>-INF</literal> 新增至該節點的資源分數。如此，所有資源都將從此節點中移走。STONITH 資源將是最後一個停止的資源，不過，即使 STONITH 資源不再執行，節點仍可處於圍籬區隔模式。圍籬區隔的節點可以直接存取 CIB 並將繼續工作。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   在節點的系統狀態變成 <literal>red</literal> 之後，解決導致問題發生的根源。然後清除 <literal>red</literal> 狀態，讓節點再次具備執行資源的資格。登入叢集節點，並使用下列其中一種方法：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     執行下列指令︰
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> node status-attr <replaceable>NODE</replaceable> delete #health_disk</screen>
+   </listitem>
+   <listitem>
+    <para>
+     在該節點上重新啟動 Pacemaker 和 Corosync。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     將節點重新開機。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   節點將恢復正常狀態，並且可以重新執行資源。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.maint.mode">
+  <title>維護模式</title>
+
+
+  
+   <para>
+   您可能不時地需要對個別叢集元件或整個叢集執行測試或維護任務 — 變更叢集組態、更新個別節點的軟體套件，或者將叢集升級到更高的產品版本。
+  </para>
+  
+   <para>
+   為此，High Availability Extension 提供了針對多個層級的 <literal>maintenance</literal> 選項：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     針對資源
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     針對節點
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     針對整個叢集
+    </para>
+   </listitem>
+  </itemizedlist>
+  
+  <warning>
+   <title>資料遺失的風險</title>
+   <para>當服務在叢集控制下執行時，如果您需要執行任何測試或維護任務，請務必遵循以下指南：</para>
+   <orderedlist>
+    <listitem>
+     <para>在開始之前，請將個別資源、節點或整個叢集設定為維護模式。這有助於避免一些不利的負面影響，例如，資源不按順序啟動、出現叢集節點間 CIB 不同步或資料遺失的風險。 </para>
+    </listitem>
+    <listitem>
+     <para>執行維護任務或測試。</para>
+    </listitem>
+    <listitem>
+     <para>完成後，請解除維護模式以開始正常的叢集操作。</para>
+    </listitem>
+   </orderedlist>
+  </warning>
+  
+  <para>
+   在維護模式下，您可以視需要停止或重新啟動叢集資源 — High Availability Extension 不會嘗試重新啟動它們。所有資源將自動變得不受管理：High Availability Extension 將停止監控它們，因此將會忽視它們的狀態。您甚至可以停止節點上的所有 Pacemaker 服務，最初做為受 Pacemaker 管理之叢集資源啟動的所有精靈和程序將會繼續執行。如果您在叢集處於維護模式的情況下嘗試啟動節點上的 Pacemaker 服務，Pacemaker 會針對每個資源啟動一次性的監控操作 (<quote>查探</quote>)，以評估哪些資源目前正在該節點上執行。但是，它只會確定資源的狀態，而不執行進一步的動作。
+  </para>
+
+  <para>
+   如需使用偏好的叢集管理工具設定或取消設定維護模式的詳細資料，請參閱：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Hawk2︰<xref linkend="sec.conf.hawk2.maintenance"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     crmsh︰<xref linkend="sec.ha.manual_config.cli.maint.mode"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.config.basics.more">
+  <title>更多資訊</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/"/>
+    </term>
+    <listitem>
+     <para>
+      用於高可用性叢集管理的進階指令行介面 crm 外圍程序 (crmsh) 的主頁。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/documentation"/>
+    </term>
+    <listitem>
+     <para>
+      提供關於 crm 外圍程序的多個文件，包括使用 crmsh 完成基本叢集設定的<citetitle>入門</citetitle>教學課程，以及 crm 外圍程序的綜合<citetitle>手冊</citetitle>。後者的網址為 <link xlink:href="http://crmsh.github.io/man-2.0/"/>。<link xlink:href="http://crmsh.github.io/start-guide/"/> 上提供了教學課程。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://clusterlabs.org/"/>
+    </term>
+    <listitem>
+     <para>
+      Pacemaker 首頁，High Availability Extension 隨附的叢集資源管理員。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://www.clusterlabs.org/doc/"/> 
+    </term>
+    <listitem>
+     <para>
+      提供一些綜合手冊，以及一些解釋一般概念的簡短文件。例如：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+         <citetitle>Pacemaker Explained</citetitle> (Pacemaker 說明)：包含全面詳盡的資訊，以供參考。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        《<citetitle>Configuring Fencing with crmsh</citetitle>》(使用 crmsh 設定圍籬區隔)：如何設定和使用 STONITH 裝置。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        《<citetitle>Colocation Explained</citetitle>》(並存說明)
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        《<citetitle>Ordering Explained</citetitle>》(順序說明)
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://linux-ha.org"/>
+    </term>
+    <listitem>
+     <para>
+      The High Availability Linux Project 首頁。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>
