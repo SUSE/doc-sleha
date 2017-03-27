@@ -35,14 +35,14 @@
    </para>
       </abstract>
       <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
-        <dm:maintainer></dm:maintainer>
+        <dm:maintainer/>
         <dm:status>editing</dm:status>
-        <dm:deadline></dm:deadline>
-        <dm:priority></dm:priority>
-        <dm:translation></dm:translation>
-        <dm:languages></dm:languages>
-        <dm:release></dm:release>
-        <dm:repository></dm:repository>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
       </dm:docmanager>
     </info>
     <!-- http://hg.clusterlabs.org/pacemaker/stable-1.0/file/tip/doc/crm_fencing.txt -->
@@ -270,7 +270,7 @@
   <itemizedlist>
    <listitem>
     <para>
-     &hawk;: <xref linkend="sec.ha.config.hawk.stonith"/>
+     &hawk2;: <xref linkend="sec.conf.hawk2.rsc.stonith"/>
     </para>
    </listitem>
    <listitem>
@@ -404,6 +404,11 @@ hostlist</screen>
    </example>
    <example xml:id="ex.ha.fencing.kdump">
     <title>Configuration of a Kdump Device</title>
+    <para>Kdump belongs to the <xref linkend="sec.ha.fencing.special"
+    xrefstyle="select:title"/> and is in fact the opposite of a fencing device.
+     The plug-in checks if a Kernel dump is in progress on a node. If so, it
+     returns true, and acts <emphasis>as if</emphasis> the node has been fenced.
+    </para>
     <para>
      Use the <literal>stonith:fence_kdump</literal> resource agent (provided
      by the package <systemitem class="resource">fence-agents</systemitem>)
@@ -411,18 +416,18 @@ hostlist</screen>
      configuration example for the resource below:
     </para>
 <screen>configure
-     primitive st-kdump stonith:fence_kdump \
-     params nodename="&node1; "\ <co xml:id="co.ha.fenc.kdump.nodename"/>
-     params pcmk_host_check="dynamic-list" \
-     params pcmk_reboot_action="off" \
-     params pcmk_monitor_action="metadata" \
-     params pcmk_reboot_retries="1" \
-     params timeout="60"
-     commit</screen>
+  primitive st-kdump stonith:fence_kdump \
+  params nodename="&node1; "\ <co xml:id="co.ha.fenc.kdump.nodename"/>
+  pcmk_host_check="static-list" \
+  pcmk_reboot_action="off" \
+  pcmk_monitor_action="metadata" \
+  pcmk_reboot_retries="1" \
+  timeout="60"
+  commit</screen>
     <calloutlist>
      <callout arearefs="co.ha.fenc.kdump.nodename">
       <para>
-       Name of the node to be fenced. If you need to monitor more than one
+       Name of the node to be monitored. If you need to monitor more than one
        node, configure more &stonith; resources. To prevent a specific node
        from using a fencing device, add location constraints.
       </para>
@@ -436,13 +441,25 @@ hostlist</screen>
      <literal>KDUMP_POSTSCRIPT</literal> to send a notification to all nodes
      when the Kdump process is finished. For example:
     </para>
-<screen> /usr/lib64/fence_kdump_send -i <replaceable>INTERVAL</replaceable> -p <replaceable>PORT</replaceable> -c 1 &node1; &node2; &node3; [...]</screen>
+<screen>/usr/lib64/fence_kdump_send -i <replaceable>INTERVAL</replaceable> -p <replaceable>PORT</replaceable> -c 1 &node1; &node2; &node3; [...]</screen>
     <para>
      The node that does a Kdump will restart automatically after Kdump has
      finished. Do not forget to open a port in the firewall for the
      <literal>fence_kdump</literal> resource. The default port is
      <literal>7410</literal>.
     </para>
+    <para>The kdump plug-in must be used in concert with another, real &stonith;
+     device, for example, <literal>external/ipmi</literal>.
+     The order of the fencing devices must be specified by <command>crm configure
+     fencing_topology</command>. To achieve that kdump is checked before
+     triggering a real fencing mechanism (like <literal>external/ipmi</literal>),
+     use a configuration similar to the following:</para>
+    <screen>fencing_topology \
+  &node1;: kdump-node1 ipmi-node1 \
+  &node2;: kdump-node2 ipmi-node2</screen>
+    <para>For more details on <option>fencing_topology</option>:
+    </para>
+   <screen>crm configure help fencing_topology</screen>
    </example>
   </sect2>
  </sect1>
@@ -525,7 +542,7 @@ hostlist</screen>
 
   <variablelist>
 <!--Fate#317135-->
-   <varlistentry>
+   <varlistentry xml:id="vle.fence.kdump">
     <term><literal>fence_kdump</literal>
     </term>
     <listitem>
@@ -541,22 +558,6 @@ hostlist</screen>
       For configuration details, see <xref linkend="ex.ha.fencing.kdump"/>.
      </para>
     </listitem>
-<!--Challenge:
-     <p>The <tt>kdumpcheck</tt> STONITH plugin did not work as expected. This
-     plug-in checks if a kernel dump is in progress on a node. If so, it
-     returns <tt>true</tt>, and acts as if the node has been fenced. This
-     avoids fencing a node that is already down but doing a dump, which
-     takes some time.</p>
-     
-     Solution:
-     <p>Use the <tt>stonith:fence_kdump</tt> resource agent (provided by the
-     package <tt>fence-agents</tt>) to monitor all nodes with the kdump
-     function enabled. In <tt>/etc/sysconfig/kdump</tt>, configure
-     KDUMP_POSTSCRIPT to send a notification to all nodes when the kdump
-     process is finished. The node that does a kdump will restart
-     automatically after kdump has finished.</p> <p>Do not forget to open a
-     port in the firewall for the <tt>fence_kdump</tt> resource. The default
-     port is <tt>7410</tt>.</p>-->
    </varlistentry>
    <varlistentry>
     <term><literal>external/sbd</literal>
@@ -677,7 +678,7 @@ hostlist</screen>
    </listitem>
    <listitem>
     <para>
-     Configure one ore more &stonith; resources. By default, the global
+     Configure one or more &stonith; resources. By default, the global
      cluster option <literal>stonith-enabled</literal> is set to
      <literal>true</literal>. If no &stonith; resources have been defined,
      the cluster will refuse to start any resources.

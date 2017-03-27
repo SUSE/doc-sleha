@@ -1,0 +1,868 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<!DOCTYPE article
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+
+<?provo dirname="install_quick/"?>
+<article version="5.0" xml:lang="en" xml:id="art.ha.install.quick"
+  xmlns="http://docbook.org/ns/docbook"
+  xmlns:dm="urn:x-suse:ns:docmanager"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink">
+  <!--https://fate.suse.com/320823: [DOC] HA quick start document-->
+  <title>&instquick;</title>
+ <subtitle>&productname; &productnumber;</subtitle>
+ <info>
+  <productnumber>&productnumber;</productnumber>
+  <productname>&productname;</productname>
+  <date><?dbtimestamp?></date>
+  <abstract>
+   <para>
+    &abstract-instquick;
+   </para>
+  </abstract>
+  <!-- fs 2016-11-04:
+       Does not get correctly convertes to NovDoc when generating online-docs
+       Commenting until thios is solved
+<xi:include href="ha_authors.xml"/> -->
+  <dm:docmanager>
+   <dm:bugtracker>
+    <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+    <dm:product>SUSE Linux Enterprise High Availability Extension 12
+     SP2</dm:product>
+    <dm:component>Documentation</dm:component>
+   </dm:bugtracker>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+  <sect1 xml:id="sec.ha.inst.quick.usage-scenario">
+   <title>Usage Scenario</title>
+   <para>
+    The procedures in this document will lead to a minimal setup of a two-node
+    cluster with the following properties:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Two nodes: <systemitem class="server">&node1;</systemitem> (IP: <systemitem
+       class="ipaddress">&subnetI;.1</systemitem>)
+      and <systemitem class="server">&node2;</systemitem> (IP: <systemitem
+       class="ipaddress">&subnetI;.2</systemitem>),
+      connected to each other via network.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      A floating, virtual IP address (<systemitem class="ipaddress"
+       >&subnetII;.1</systemitem>) which
+      allows clients to connect to the service no matter which physical node it
+      is running on.
+     </para>
+    </listitem>
+    <listitem>
+     <para>A shared storage device, used as SBD fencing mechanism.
+      This avoids split brain scenarios.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Failover of resources from one node to the other if the active host breaks
+      down (<emphasis>active/passive</emphasis> setup).
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    After setup of the cluster with the bootstrap scripts, we will monitor
+    the cluster with the graphical &haweb; (&hawk;), one of the cluster management
+    tools included with &productnamereg;. As a basic test of whether failover of resources
+    works, we will put one of the nodes into standby mode and check if the
+    virtual IP address is migrated to the second node.
+   </para>
+   <para>
+    You can use the two-node cluster for testing purposes or as a minimal
+    cluster configuration that you can extend later on. Before using the
+    cluster in a production environment, modify it according to your
+    requirements.
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.req">
+   <title>System Requirements</title>
+   <para>
+    This section informs you about the key system requirements for the
+    scenario described in <xref linkend="sec.ha.inst.quick.usage-scenario"/>.
+    If you want to adjust the cluster for use in a production environment,
+    read the full list of <citetitle>System Requirements and
+    Recommendations</citetitle> in the <citetitle>&admin;</citetitle>
+    for &productnamereg;: <link
+    xlink:href="https://www.suse.com/documentation/sle-ha-12/book_sleha/data/cha_ha_requirements.html"/>.
+   </para>
+  <variablelist xml:id="vl.ha.inst.quick.req.hw">
+   <title>Hardware Requirements</title>
+   <varlistentry>
+    <term>Servers</term>
+    <listitem>
+    <para>
+     Two servers with software as specified in <xref
+     linkend="il.ha.inst.quick.req.sw"/>.
+     </para>
+     &sys-req-hw-nodes;
+     <!--<para>
+     The servers can be bare metal or virtual machines. They do not require
+     identical hardware (memory, disk space, etc.), but they must have the
+     same architecture. Cross-platform clusters are not supported.
+     </para>-->
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Communication Channels</term>
+   <listitem>
+    &sys-req-hw-comm-channels;
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Node Fencing/&stonith;</term>
+   <listitem>
+    &sys-req-hw-stonith;
+   </listitem>
+   </varlistentry>
+  </variablelist>
+
+   <para>
+    On all nodes that will be part of the cluster the following software
+    must be installed:
+   </para>
+
+  <itemizedlist xml:id="il.ha.inst.quick.req.sw">
+   <title>Software Requirements</title>
+    <listitem>
+     &sys-req-sw-sles;
+    </listitem>
+    <listitem>
+     &sys-req-sw-sleha;
+    </listitem>
+   </itemizedlist>
+
+  <variablelist xml:id="vl.ha.inst.quick.req.other">
+   <title>Other Requirements and Recommendations</title>
+   <varlistentry>
+    <term>Time Synchronization</term>
+    &sys-req-other-ntp;
+   </varlistentry>
+   <varlistentry>
+    <term>Host Name and IP Address</term>
+    <listitem>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Use static IP addresses.
+       </para>
+      </listitem>
+      <listitem>
+       &sys-req-other-etc-hosts;
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.req.ssh">
+    <term>SSH</term>
+    <listitem>
+     &sys-req-other-ssh;
+     <para>
+      If you use the bootstrap scripts for setting up the cluster, the SSH keys
+      will automatically be created and copied.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.bootstrap">
+  <title>Overview of the Bootstrap Scripts</title>
+  <para>
+   All commands from the <package>ha-cluster-bootstrap</package> package
+   execute bootstrap scripts that require only a minimum of time and manual
+   intervention.
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     With <command>ha-cluster-init</command>, define the basic parameters needed
+     for cluster communication. This leaves you with a running one-node cluster.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     With <command>ha-cluster-join</command>, add more nodes to your cluster.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     With <command>ha-cluster-remove</command>, remove nodes from your cluster.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   All bootstrap scripts log to <filename>/var/log/ha-cluster-bootstrap.log</filename>.
+   Check this file for any details of the bootstrap process. Any options set
+   during the bootstrap process can be modified later with the
+   &yast; cluster module. See
+   <link xlink:href="https://www.suse.com/documentation/sle-ha-12/book_sleha/data/sec_ha_installation_setup_manual.html"/>
+   for details.
+  </para>
+  <para>Each script comes with a man page covering the range of functions, the
+   script's options, and an overview of the files the script can create and modify.
+  </para>
+  <para>
+   The bootstrap script <command>ha-cluster-init</command> checks and
+   configures the following components:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>NTP</term>
+    <listitem>
+     <para>
+      If NTP has not been configured to start at boot time, a message appears.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SSH</term>
+    <listitem>
+     <para>It creates SSH keys for passwordless login between cluster nodes.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>&csync;</term>
+    <listitem>
+     <para>
+      It configures &csync; to replicate configuration files across all nodes
+      in a cluster.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>&corosync;</term>
+    <listitem>
+     <para>It configures the cluster communication system.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SBD/Watchdog</term>
+    <listitem>
+     <para>It checks if a watchdog exists and asks you whether to configure SBD
+      as node fencing mechanism.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Virtual Floating IP</term>
+    <listitem>
+     <para>It asks you whether to configure a virtual IP address for cluster
+      administration with &hawk2;.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Firewall</term>
+    <listitem>
+     <para>It opens the ports in the firewall that are needed for cluster communication.</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.installation">
+    <title>Installing &sls; and &ha; Extension</title>
+    <para>
+      The packages for configuring and managing a cluster with the
+      &hasi; are included in the <literal>&ha;</literal> installation
+      pattern. This pattern is only available after &productname; has been
+      installed as an extension to &slsreg;.
+    </para>
+    <para>
+      For information on how to install
+      extensions, see the <citetitle>&sle; &productnumber;
+      &deploy;</citetitle>:
+     <link
+      xlink:href="https://www.suse.com/documentation/sles-12/book_sle_deployment/data/cha_add-ons.html"/>.
+    </para>
+
+    <procedure xml:id="pro.ha.inst.quick.pattern">
+      <title>Installing the &ha; Pattern</title>
+     <para>If the pattern is not installed yet, proceed as follows:</para>
+      <step>
+        <para>
+          Start &yast; and select <menuchoice>
+            <guimenu>Software</guimenu> <guimenu>Software Management</guimenu>
+          </menuchoice>.
+        </para>
+      </step>
+      <step>
+        <para>
+         Click the <guimenu>Patterns</guimenu> tab and activate the <guimenu>High
+            Availability</guimenu> pattern in the pattern list.
+          <!--SLE HA GEO: <guimenu>GEO Clustering for High Availability</guimenu>-->
+        </para>
+      </step>
+      <step>
+        <para>
+          Click <guimenu>Accept</guimenu> to start installing the packages.
+        </para>
+      </step>
+      <step>
+       <para>
+          Install the &ha; pattern on <emphasis>all</emphasis> machines that
+          will be part of your cluster.
+       </para>
+       <note>
+        <title>Installing Software Packages on All Parties</title>
+        <para>
+         For an automated installation of &sls; &productnumber; and &productname;
+         &productnumber; use &ay; to clone existing nodes. For more information
+         see <link
+          xlink:href="https://www.suse.com/documentation/sle-ha-12/book_sleha/data/sec_ha_installation_autoyast.html"/>.
+        </para>
+       </note>
+      </step>
+     <step>
+      <para>
+       Register the machines at &scc;. Find more information at
+       <link xlink:href="https://www.suse.com/doc/sles-12/book_sle_deployment/data/sec_update_registersystem.html"/>.
+      </para>
+     </step>
+    </procedure>
+  </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.sbd">
+  <title>Using SBD as Fencing Mechanism</title>
+  <!-- For more information, see:
+   * https://trello.com/c/rclDZHPR
+   * http://www.linux-ha.org/wiki/SBD_Fencing
+  -->
+   <!--taroth 2016-07-21: the following is copied from
+    /usr/sbin/ha-cluster-init: If you have shared storage, for example a SAN or
+    iSCSI target, you can use it to avoid split brain scenarios-->
+   <para>
+    If you have shared storage, for example, a SAN (Storage Area Network),
+    you can use it to avoid split brain scenarios by configuring SBD
+    as node fencing mechanism. SBD uses watchdog support
+    and the <literal>external/sbd</literal> &stonith; resource agent.
+   </para>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.req">
+   <title>Requirements for SBD</title>
+   <para>
+    During setup of the first node with <command>ha-cluster-init</command>, you
+    can decide whether to use SBD. If yes, you need to enter the path to the shared
+    storage device. By default, <command>ha-cluster-init</command> will automatically
+    create a small partition on the device to be used for SBD.
+   </para>
+   <para>To use SBD, the following requirements must be met:</para>
+
+   <itemizedlist>
+    <listitem>
+     <para>The path to the shared storage device must be persistent and
+      consistent across all nodes in the cluster. Use stable device names
+      such as <filename>/dev/disk/by-id/dm-uuid-part1-mpath-abcedf12345</filename>.
+     </para>
+    </listitem>
+    <listitem>
+     <para> The SBD device <emphasis>must not</emphasis>
+      use host-based RAID, cLVM2, nor reside on a DRBD* instance.
+     </para>
+    </listitem>
+   </itemizedlist>
+
+  <para>
+   For details of how to set up shared storage, refer to the <citetitle>&storage;</citetitle>
+   for &sls; &productnumber;: <link
+    xlink:href="https://www.suse.com/documentation/sles-12/stor_admin/data/stor_admin.html"/>.
+  </para>
+  <!--<remark>toms, 2016-07-30: (kai) miss a link to set up FC storage</remark>
+  <remark>toms 2016-08-01: we don't have yet doc for FC storage.</remark>
+  <variablelist>
+   <varlistentry>
+    <term>iSCSI</term>
+    <listitem>
+     <para><link xlink:href="https://www.suse.com/doc/sles-12/stor_admin/data/cha_iscsi.html"/></para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>FCoE</term>
+   <listitem>
+    <para><link xlink:href="https://www.suse.com/doc/sles-12/stor_admin/data/cha_fcoe.html"/></para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>FC</term>
+    <listitem>
+     <para><remark>taroth 2016-08-04: the following was based a proposal by kdupke,
+     replace with something more appropriate in the future (as soon as we have
+     covered this in the storage guide)</remark>
+      No special configuration needed, configure it as other FC storage.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>-->
+  </sect2>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.setup">
+   <title>Setting Up Softdog Watchdog and SBD</title>
+   <!--Taken from ha_storage_protection.xml (pro.ha.storage.protect.watchdog)?-->
+   <para>
+    In &sls;, watchdog support in the kernel is enabled by default: It ships
+    with several kernel modules that provide hardware-specific
+    watchdog drivers. The &hasi; uses the SBD daemon as the software component
+    that <quote>feeds</quote> the watchdog.
+   </para>
+   <para>
+    The following procedure uses the <systemitem>softdog</systemitem>
+    watchdog.
+   </para>
+   <important>
+    <title>Softdog Limitations</title>
+    <para>
+     The softdog driver assumes that at least one CPU is still running. If
+     all CPUs are stuck, the code in the softdog driver that should reboot the
+     system will never be executed. In contrast, hardware watchdogs keep
+     working even if all CPUs are stuck.
+    </para>
+    <para>Before using the cluster in a production environment, it is highly
+     recommended to replace the <systemitem>softdog</systemitem> module with the
+     respective hardware module that best fits your hardware.
+    </para>
+    <para>However, if no watchdog matches your hardware,
+     <systemitem class="resource">softdog</systemitem> can be used as kernel
+     watchdog module.</para>
+   </important>
+   <procedure xml:id="pro.ha.inst.quick.sbd.setup">
+    <step>
+     <para>
+      Create a persistent, shared storage as described in <xref
+       linkend="sec.ha.inst.quick.sbd.req"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enable the softdog watchdog:
+     </para>
+     <!-- See /usr/lib/ha-cluster-functions -->
+     <screen>&prompt.root;<command>echo</command> softdog > /etc/modules-load.d/watchdog.conf
+&prompt.root;<command>systemctl</command> restart systemd-modules-load</screen>
+    </step>
+    <step>
+      <!--for the records: <remark>toms 2016-08-09: krig: "The script uses wdctl to check for the
+      watchdog, so it should catch the case where the node is created but no
+      module is loaded. However, I am not sure it'll be able to spot the case
+      where the wrong module is loaded." (ha-devel, 2016-08-08)</remark>-->
+     <para>Test if the softdog module is loaded correctly:
+     </para>
+     <screen>&prompt.root;<command>lsmod</command> | grep dog
+softdog                16384  1</screen>
+    </step>
+    <step>
+     <para>
+      On <systemitem class="server">&node2;</systemitem>, start SBD to listen
+      on the SBD device:
+     </para>
+     <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBDDEVICE</replaceable> watch</screen>
+    </step>
+    <step>
+     <para>
+      On <systemitem class="server">&node1;</systemitem>, send a test message:
+     </para>
+     <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBDDEVICE</replaceable> message &node2; test<!--
+Sep 22 17:01:00 &node1; sbd: [13412]: info: Received command test from &node1;--></screen>
+     <remark>toms 2016-07-22: What to do when the test message fails? How to debug?</remark>
+    </step>
+    <step>
+     <para>
+      On <systemitem class="server">&node2;</systemitem>, check the status with
+      <command>systemctl</command> and you should see the received message:
+     </para>
+     <screen>&prompt.root;<command>systemctl</command> status sbd
+[...]
+info: Received command test from &node1; on disk <replaceable>SBDDEVICE</replaceable></screen>
+    </step>
+    <step>
+     <para>
+      Stop watching the SBD device on <systemitem class="server">&node2;</systemitem> with:
+     </para>
+     <screen>&prompt.root;<command>systemctl</command> stop sbd</screen>
+    </step>
+   </procedure>
+
+   <para>
+    Testing the SBD fencing mechanism for proper function in case of a split brain
+    situation is highly recommended. Such a test can be done by blocking the &corosync;
+    cluster communication.
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.setup.1st-node">
+  <title>Setting Up the First Node</title>
+   <para>
+   Set up the first node with the <command>ha-cluster-init</command> script.
+   This requires only a minimum of time and manual intervention.
+  </para>
+
+  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-init">
+   <title>Setting Up the First Node (<systemitem class="server">&node1;</systemitem>) with
+    <command>ha-cluster-init</command></title>
+   <step>
+    <para>
+     Log in as &rootuser; to the physical or virtual machine you want to
+     use as cluster node.
+    </para>
+   </step>
+   <step>
+    <para>
+     Start the bootstrap script by executing:
+    </para>
+    <screen>&prompt.root;<command>ha-cluster-init</command></screen>
+    <remark>toms 2016-08-11: the following para relates to
+     (a) FATE#320604 allow unicast,
+     (b) FATE#320605 identify AWS and use unicast</remark>
+    <para>
+     If you need unicast instead of multicast (the default) for your cluster
+     communication, use the option <option>-u</option>. After installation,
+     find the value <literal>udpu</literal> in the file
+     <filename>/etc/corosync/corosync.conf</filename>.
+     If <command>ha-cluster-init</command> detects a node running on
+     Amazon Web Services (AWS), the script will use unicast automatically as
+     default for cluster communication.
+    </para>
+    <para>
+     The scripts checks for NTP configuration and a hardware watchdog service.
+     It generates the public and private SSH keys used for SSH access and
+     &csync; synchronization and starts the respective services.
+    </para>
+    <!--<itemizedlist>
+     <listitem>
+      <para>Checks for a hardware watchdog device.</para>
+     </listitem>
+     <listitem>
+      <para>
+       Generate the public and private SSH keys, used for SSH access and
+       &csync; syncronization.
+      </para>
+     </listitem>
+     <listitem>
+      <para>Start the SSH and &csync; services.</para>
+     </listitem>
+    </itemizedlist>-->
+   </step>
+   <step>
+    <para>
+     Configure the cluster communication layer (&corosync;):
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Enter a network address to bind to. By default, the script will
+       propose the network address of <systemitem>eth0</systemitem>.
+       Alternatively, enter a different network address, for example the
+       address of <literal>bond0</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Enter a multicast address. The script proposes a random address that
+       you can use as default. Of course, your particular network needs to
+       support this multicast address.
+      </para>
+     </step>
+     <step>
+      <para>
+       Enter a multicast port. The script proposes <literal>5405</literal>
+       as default.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Finally, the script will start the &pace; service to bring the
+     one-node cluster online and enable &hawk2;.
+     The URL to use for &hawk2; is displayed on the screen.
+    </para>
+   </step>
+   <step>
+    <para>
+    Set up SBD as node fencing mechanism:</para>
+    <substeps>
+     <step>
+      <para>Confirm with <literal>y</literal> that you want to use SBD.</para>
+     </step>
+     <step>
+      <para>Enter a persistent path to the partition of your block device that
+       you want to use for SBD, see <xref linkend="sec.ha.inst.quick.sbd"/>.
+       The path must be consistent across all nodes in the cluster.</para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st.ha-cluster-init.ip">
+    <!-- taroth 2015-09-22: fate#318549: cluster-init: configure virtual IP for HAWK  -->
+    <para>Configure a virtual IP address for cluster administration with
+    &hawk2;. (We will use this virtual IP resource for testing successful
+    failover later on).</para>
+    <substeps>
+     <step>
+      <para>Confirm with <literal>y</literal> that you want to configure a
+      virtual IP address.</para></step>
+     <step>
+      <para>Enter an unused IP address that you want to use as administration IP
+       for &hawk2;: <literal>&subnetII;.1</literal>
+      </para>
+      <para>Instead of logging in to an individual cluster node with &hawk2;,
+       you can connect to the virtual IP address.</para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+
+  <para>
+   You now have a running one-node cluster. To view its status, proceed as follows:
+  </para>
+
+  <procedure xml:id="pro.ha.inst.quick.hawk2.login">
+   <title>Logging In to the &hawk2; Web Interface</title>
+   <step>
+    <para> On any machine, start a Web browser and make sure that JavaScript and
+     cookies are enabled. </para>
+   </step>
+   <step>
+    <para> As URL, enter the IP address or host name of any cluster node running
+     the &hawk; Web service. Alternatively, enter the address of the virtual
+     IP address that you configured in <xref linkend="st.ha-cluster-init.ip"/>
+     of <xref linkend="pro.ha.inst.quick.setup.ha-cluster-init"/>: </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    <note>
+     <title>Certificate Warning</title>
+     <para> If a certificate warning appears when you try to access the URL for
+      the first time, a self-signed certificate is in use. Self-signed
+      certificates are not considered trustworthy by default. </para>
+     <para> Ask your cluster operator for the certificate details to verify the
+      certificate. </para>
+     <para> To proceed anyway, you can add an exception in the browser to bypass
+      the warning. </para>
+     <!--FIXME: HAWK1 - see https://bugzilla.suse.com/show_bug.cgi?id=979095
+      <para> For information on how to replace the self-signed certificate with a
+      certificate signed by an official Certificate Authority, refer to
+      <xref linkend="vle.ha.hawk.certificate"/>.</para>-->
+    </note>
+   </step>
+   <step>
+    <para> On the &hawk2; login screen, enter the
+      <guimenu>Username</guimenu> and <guimenu>Password</guimenu> of the
+       user that has been created during the bootstrap procedure (user <systemitem
+       class="username">hacluster</systemitem>, password
+      <literal>linux</literal>).</para>
+    <important>
+     <title>Secure Password</title>
+     <para>Replace the default password with a secure one as soon as possible:
+     </para>
+     <screen>&prompt.root;<command>passwd</command> hacluster</screen>
+    </important>
+   </step>
+   <step>
+    <para>
+     Click <guimenu>Log In</guimenu>. After login, the &hawk2; Web interface
+     shows the Status screen by default, displaying the current cluster
+     status at a glance:
+    </para>
+    <figure xml:id="fig.ha.inst.quick.one-node-status">
+     <title>Status of the One-Node Cluster in &hawk2;</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata width="80%" fileref="installquick-one-nodecluster.png"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.setup.2nd-node">
+  <title>Adding the Second Node</title>
+  <para>
+    If you have a one-node cluster up and running, add the second cluster
+    node with the <command>ha-cluster-join</command> bootstrap
+    script, as described in <xref linkend="pro.ha.inst.quick.setup.ha-cluster-join"
+    xrefstyle="select:label nopage"/>.
+    The script only needs access to an existing cluster node and
+    will complete the basic setup on the current machine automatically.
+    For details, refer to the <command>ha-cluster-join</command> man page.
+  </para>
+  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-join">
+   <title>Adding the Second Node (<systemitem class="server">&node2;</systemitem>) with
+    <command>ha-cluster-join</command></title>
+   <step>
+    <para>
+     Log in as &rootuser; to the physical or virtual machine supposed to
+     join the cluster.
+    </para>
+   </step>
+   <step>
+    <para>
+     Start the bootstrap script by executing:
+    </para>
+<screen>&prompt.root;<command>ha-cluster-join</command></screen>
+    <para>
+     If NTP has not been configured to start at boot time, a message
+     appears. The script also checks for a hardware watchdog device (which
+     is important in case you want to configure SBD) and warns you if none
+     is present.
+    </para>
+   </step>
+   <step>
+    <para>
+     If you decide to continue anyway, you will be prompted for the IP
+     address of an existing node. Enter the IP address of the first node
+     (<systemitem class="server">&node1;</systemitem>, <systemitem
+      class="ipaddress">&subnetI;.1</systemitem>).
+    </para>
+   </step>
+   <step>
+    <para>
+     If you have not already configured a passwordless SSH access between
+     both machines, you will also be prompted for the &rootuser; password
+     of the existing node.
+    </para>
+    <para>
+     After logging in to the specified node, the script will copy the
+     &corosync; configuration, configure SSH and &csync;, and will
+     bring the current machine online as new cluster node. Apart from that,
+     it will start the service needed for &hawk2;. <!--
+     If you have configured shared storage with OCFS2, it will also
+     automatically create the mount point directory for the OCFS2 file system.
+     -->
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   Check the cluster status in &hawk2;. Under <menuchoice>
+    <guimenu>Status</guimenu>
+    <guimenu>Nodes</guimenu>
+   </menuchoice> you should see two nodes with a green status (see
+   <xref linkend="fig.ha.inst.quick.two-node-cluster"/>).
+  </para>
+
+  <figure xml:id="fig.ha.inst.quick.two-node-cluster">
+   <title>Status of the Two-Node Cluster</title>
+   <mediaobject>
+    <imageobject>
+     <imagedata width="80%" fileref="installquick-two-nodecluster-status.png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.test">
+   <title>Testing the Cluster</title>
+   <para>
+    <xref linkend="pro.ha.inst.quick.test"/> is a simple test to check if the
+    cluster moves the virtual IP address to the other node in case the node
+    that currently runs the resource is set to <literal>standby</literal>.
+   </para>
+   <para>However, a realistic test involves specific use cases and scenarios,
+    including testing of your fencing mechanism to avoid a split brain
+    situation. If you have not set up your fencing mechanism correctly, the cluster
+    will not work  properly.</para>
+   <para>Before using the cluster in a production environment, test it thoroughly
+    according to your use cases.
+    <!-- toms 2016-08-01: For SP3, refer to the "Testing Cluster Guide" or
+     to Lars Pinnes iptable rules
+    -->
+   </para>
+    <remark>toms 2016-07-27: Fate#321073
+    Tool for Standardize Testing of Basic Cluster Functionality</remark>
+   <procedure xml:id="pro.ha.inst.quick.test">
+    <title>Testing Resource Failover</title>
+    <step>
+     <para>
+      Open a terminal and ping <systemitem>&subnetII;.1</systemitem>,
+      your virtual IP address:
+     </para>
+     <screen>&prompt.root;<command>ping</command> &subnetII;.1</screen>
+    </step>
+    <step>
+     <para>
+      Log in to your cluster as described in <xref
+       linkend="pro.ha.inst.quick.hawk2.login"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      In &hawk2; <menuchoice>
+       <guimenu>Status</guimenu>
+       <guimenu>Resources</guimenu>
+      </menuchoice>,
+      check which node the virtual IP address (resource
+      <systemitem>admin_addr</systemitem>) is running on. <!--As we did not
+      configure any preferences, it will be an arbitrary node.-->
+      We assume the resource is running on <systemitem class="server">&node1;</systemitem>.
+      </para>
+    </step>
+    <step>
+     <para>
+      Put <systemitem class="server">&node1;</systemitem> into
+      <guimenu>Standby</guimenu> mode (see <xref linkend="fig.ha.inst.quick.standby"/>).
+     </para>
+     <figure xml:id="fig.ha.inst.quick.standby">
+      <title>Node <systemitem class="server">&node1;</systemitem> in Standby Mode</title>
+      <mediaobject>
+       <imageobject>
+        <imagedata width="60%" fileref="installquick-standby-node.png"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+     <!--
+     <remark>toms 2016-07-18: Should we add an alternative method? I've tested
+      it with "crm node standby NODE" to put the node "offline" temporarily.
+      Sometimes an administrator doesn't want to go to a server room, so it
+      could be more convenient.
+     </remark>
+     <remark>taroth 2016-07-20: good idea, need to discuss it with krig</remark>-->
+    </step>
+    <step>
+     <para>
+      Click <menuchoice>
+       <guimenu>Status</guimenu>
+       <guimenu>Resources</guimenu>
+      </menuchoice>. The resource <systemitem>admin_addr</systemitem>
+      has been migrated to <systemitem class="server">&node2;</systemitem>.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    During the migration, you should see an uninterrupted flow of pings to
+    the virtual IP address. This shows that the cluster setup and the floating
+    IP work correctly. Cancel the <command>ping</command> command with
+    <keycombo>
+       <keycap function="control"/><keycap>C</keycap>
+      </keycombo>.
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.moreinfo">
+   <title>For More Information</title>
+   <para>
+    Find more documentation for this product at <link
+     xlink:href="http://www.suse.com/documentation/sle-ha-12"/>. The
+    documentation also includes a comprehensive &admin; for
+    &productname;. Refer to it for further configuration and administration
+    tasks.
+   </para>
+  </sect1>
+ <xi:include href="common_legal.xml"/>
+</article>
