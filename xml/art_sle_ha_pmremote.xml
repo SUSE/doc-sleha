@@ -27,7 +27,7 @@ FATE#320599: Pacemaker Remote
      This document guides you through the setup of a cluster with virtual
      guest nodes, managed by &pace; and &pmremote;.
      <emphasis>Remote</emphasis> in this context does not mean physical
-     proximity, but <quote>non-membership</quote> of a cluster.
+     distance, but <quote>non-membership</quote> of a cluster.
     </para>
    </abstract>
   </info>
@@ -43,7 +43,7 @@ FATE#320599: Pacemaker Remote
     <remark>toms 2017-03-23: Is this supported from 12 GA, SP1, or SP2?
     According to aspiers, since &sls; 12 at least</remark>
     <para>A cluster node running &productname; &productnumber;. In this guide, its host name is
-     <systemitem class="domainname">&wsI;</systemitem>.</para>
+     <systemitem class="domainname">&node5;</systemitem>.</para>
    </listitem>
    <listitem>
     <para>Failover of resources from one node to the other if the active host
@@ -68,7 +68,13 @@ FATE#320599: Pacemaker Remote
    <para>
     A regular cluster may contain up to 32 nodes. With the &pmremote; service,
     &ha; clusters can be extended to include additional nodes beyond this
-    limit. Remote nodes do not need to have the full cluster stack installed,
+    limit by using guest nodes. Unlike remote nodes, a guest node is a
+    resource managed by the cluster. As such, they are not bond to the
+    32&nbsp;node limitation of the cluster stack. However, they behave
+    as regular cluster nodes.
+   </para>
+   <para>
+    Remote nodes do not need to have the full cluster stack installed,
     they only run the &pmremote; service. The service acts as a proxy,
     allowing the cluster stack on the “regular” cluster nodes to connect to
     the service (see <xref linkend="tab.ha.pmremote.comparison"/>).
@@ -76,6 +82,47 @@ FATE#320599: Pacemaker Remote
     effectively integrated into the cluster as a remote node (see <xref
      linkend="vl.ha.pmremote.terminology"/>).
    </para>
+   <variablelist xml:id="vl.ha.pmremote.terminology">
+    <title>Terminology</title>
+    <varlistentry>
+     <term>Cluster Node</term>
+     <listitem>
+      <para>
+       A node that runs the complete cluster stack components along with the complete
+       high-availability &corosync; stack. </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Pacemaker Remote (&pmremote;)</term>
+     <listitem>
+      <para>
+       A service daemon that makes it possible to use a node as a &pace; node
+       without deploying the full cluster stack. Note that &pmremote; is the
+       name of the systemd service. However, the name or the process/daemon
+       is &pmrm_daemon; (with a trailing d after its name).
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Remote Node</term>
+     <listitem>
+      <para>
+       A physical machine that runs the &pmremote; daemon.
+       A remote node runs a special resource (<systemitem
+        >ocf:pacemaker:remote</systemitem>) that
+       manages communication with the cluster.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Guest Node</term>
+     <listitem>
+      <para>
+       A virtual machine that runs the &pmremote; daemon.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
    <table xml:id="tab.ha.pmremote.comparison">
     <title>Comparison of Regular HA Stack with and without &pmremote;</title>
     <tgroup cols="2">
@@ -105,8 +152,9 @@ FATE#320599: Pacemaker Remote
      </tbody>
     </tgroup>
    </table>
-   <para>Assuming the physical host contains several virtual guest nodes,
-    the standard sequence of &pace; with &pmremote; will be as follows:
+   <para>
+    For a physical machine that contains several virtual guest nodes, the
+    process is as follows:
    </para>
    <orderedlist>
     <listitem>
@@ -121,114 +169,83 @@ FATE#320599: Pacemaker Remote
      </para>
     </listitem>
    </orderedlist>
-
    <para>
-    It is important to understand the several distinctive
-    roles a virtual machine can serve in clusters:
-    <!--
-    In &pace; clusters, a virtual machine can serve in several distinctive
-    roles:-->
+    A regular cluster node may perform the following tasks:
    </para>
    <itemizedlist>
     <listitem>
      <para>
-      A virtual machine can run a full cluster stack. In this case, a cluster
-      node is not managed by the cluster.
+      Run cluster resources.
+     </para>
+    </listitem>
+    <listitem>
+     <para>Run all command-line tools, such as <command>crm</command>,
+      <command>crm_mon</command>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>Execute fencing actions.</para>
+    </listitem>
+    <listitem>
+     <para>
+      Count toward cluster quorum.
      </para>
     </listitem>
     <listitem>
      <para>
-      The cluster can manage a virtual machine as a resource without being
-      aware of the services running inside the virtual machine. In this
-      scenario, the virtual machine is opaque to the cluster.
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      A virtual machine can act as a cluster resource and run the
-      &pmremote; service daemon.
-      This allows the cluster to manage services running on the virtual
-      machine. In this situation, the virtual machine is transparent to
-      the cluster.
+      Serve as the cluster's designated coordinator (DC).
      </para>
     </listitem>
    </itemizedlist>
 
-   <variablelist xml:id="vl.ha.pmremote.terminology">
-    <title>Terminology</title>
-    <varlistentry>
-     <term>Pacemaker Remote (&pmremote;)</term>
-     <listitem>
-      <para>
-       A service daemon that makes it possible to use a node as a &pace;
-       node without deploying the full cluster stack. While nodes that run
-       this service may run cluster resources and most
-       commandline tools, they do not support other functions of full cluster
-       nodes. This includes fencing execution, quorum voting, and DC
-       eligibility.
-      </para>
-      <note>
-       <title>Different Naming for Service and Daemon</title>
-       <para>The systemd service of Pacemaker Remote is named &pmremote;
-        whereas the name or the process/daemon is &pmrm_daemon;
-        (a trailing <quote>d</quote> after its name).
-       </para>
-      </note>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term>Cluster Node</term>
-     <listitem>
-      <para>
-       A node that runs all &pace; components along with the complete
-       high-availability &corosync; stack. Cluster nodes may perform the
-       following tasks:
-      </para>
-      <itemizedlist>
-       <listitem>
-        <para>Run cluster resources.</para>
-       </listitem>
-       <listitem>
-        <para>Run all command-line tools, such as <command>crm</command>,
-         <command>crm_mon</command>, and others.</para>
-       </listitem>
-       <listitem>
-        <para>Count toward cluster quorum.</para>
-       </listitem>
-       <listitem>
-        <para>Serve as the cluster's designated coordinator (DC).</para>
-       </listitem>
-      </itemizedlist>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term>Remote Node</term>
-     <listitem>
-      <para>
-       A special resource (ocf:pacemaker:remote) is required to be running on
-       a cluster node for managing communication with the baremetal remote
-       node in that case.
-       <remark>toms 2017-03-29: According to gao-yan: The scenario of baremetal
-        remote node deserves a separate chapter I think.
-       </remark>
-       A physical machine that runs the &pmremote; daemon. Remote nodes
-       includes a special resource (often called <quote>baremetal case</quote>)
-       for managing communication with the cluster.
-      </para>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term>Guest Node</term>
-     <listitem>
-      <para>
-       A virtual host that runs &pmremote;. Unlike remote nodes,
-       a guest node is a resource managed by the cluster. As such, they are
-       not bond to the 32 node limitation of the cluster stack. However, they
-       they behave as regular cluster nodes.
-      </para>
-     </listitem>
-    </varlistentry>
-   </variablelist>
+   <para>
+    Remote nodes and guest nodes can run cluster resources and most command
+    line tools. However, they have the following limitations:</para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      They cannot execute fencing actions.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      They do not affect quorum.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      They cannot serve as Designated Coordinator (DC).
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    It is important to distinguish between several roles that a virtual
+    machine can take in the &ha; cluster:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      A virtual machine can run a full cluster stack. In this case, the
+      virtual machine is a regular cluster node and is not itself managed
+      by the cluster.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      A virtual machine can be managed by the cluster as a resource, without
+      the cluster being aware of the services that run inside the virtual
+      machine. In this case, the virtual machine is opaque to the cluster.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      A virtual machine can be a cluster resource, and run &pmremote;,
+      which allows the cluster to manage services inside the virtual machine.
+      In this case, the virtual machine is a guest node and is transparent
+      to the cluster.
+     </para>
+    </listitem>
+   </itemizedlist>
   </sect1>
 
  <sect1 xml:id="sec.ha.pmremote.install">
@@ -249,7 +266,7 @@ FATE#320599: Pacemaker Remote
   <sect2 xml:id="sec.ha.pmremote.config.phys.host">
    <title>Setting up a Corosync Cluster with Physical Hosts</title>
    <para>
-    On the physical host <systemitem class="domainname">&wsI;</systemitem>
+    On the physical host <systemitem class="domainname">&node5;</systemitem>
     proceed as follows:
    </para>
    <procedure>
@@ -301,12 +318,12 @@ FATE#320599: Pacemaker Remote
    <para>
     The following procedure creates a KVM guest node <systemitem
       class="domainname">&wsII;</systemitem> on your physical host
-    <systemitem class="domainname">&wsI;</systemitem>:
+    <systemitem class="domainname">&node5;</systemitem>:
    </para>
    <procedure>
     <step>
      <para>Create a KVM guest on <systemitem class="domainname"
-      >&wsI;</systemitem>. For details refer to <citetitle>&deploy;</citetitle>.
+      >&node5;</systemitem>. For details refer to <citetitle>&deploy;</citetitle>.
       Make sure to configure the guest with a host name and a static IP address. </para>
     </step>
     <step>
@@ -364,7 +381,7 @@ ssh: connect to host &wsII; port 3121: Connection refused</screen>
   <sect2 xml:id="sec.ha.pmremote.integrate.guestsintocluster">
    <title>Integrating KVM Guests into Cluster</title>
    <para>To integrate the KVM guests into the cluster, perform the following
-    steps on the physical host <systemitem class="domainname">&wsI;</systemitem>:</para>
+    steps on the physical host <systemitem class="domainname">&node5;</systemitem>:</para>
    <procedure>
     <step>
      <para>Start &pace;:</para>
