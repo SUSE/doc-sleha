@@ -289,14 +289,10 @@ FATE#320599: Pacemaker Remote
    <procedure>
     <!--<title>Configuring the Physical Host</title>-->
     <step>
-     <para>On two physical hosts, set up a basic two-node as described in
-      <citetitle>&instquick;</citetitle>.
-     <!--<xref linkend="art.ha.install.quick"/>-->.</para>
+     <para>On two physical hosts, set up a basic two-node cluster as
+      described in <citetitle>&instquick;</citetitle>.
+     <!--<xref linkend="art.ha.install.quick"/>--></para>
     </step>
-    <!--<step> TODO:
-     <para>Add a third physical node (called &node5;) by using the
-      <command>ha-cluster-join</command> command.</para>
-    </step>-->
     <step>
      <para>On &node1;, proceed as follows:</para>
      <substeps>
@@ -343,28 +339,41 @@ FATE#320599: Pacemaker Remote
    <procedure>
     <step>
      <para>Create a KVM guest on <systemitem class="domainname"
-      >&node5;</systemitem>. For details refer to the
+      >&node1;</systemitem>. For details refer to the
       <citetitle>&virtual;</citetitle>, chapter <citetitle>Guest Installation</citetitle>
       available from <link xlink:href="https://www.suse.com/doc"/>.
      </para>
     </step>
     <step>
-     <para>In the firewall settings, open the TCP port 3121 for &pmremote;.</para>
-    </step>
-    <step>
-     <para>Install the <package>pacemaker-remote</package> package and
-      enable the &pmremote; service:</para>
-     <screen>&prompt.root;<command>zypper</command> in pacemaker-remote
-&prompt.root;<command>systemctl</command> enable pacemaker_remote</screen>
-    </step>
-    <step>
-     <para>Create the <filename>/etc/pacemaker</filename> directory and change
-      its group:</para>
-     <screen>&prompt.root;<command>mkdir</command> -p --mode=0750 /etc/pacemaker
+     <para>On <systemitem class="domainname"
+      >&wsII;</systemitem>, proceed as follows:</para>
+     <substeps>
+      <step>
+       <para>In the firewall settings, open the TCP port 3121 for
+        &pmremote;.</para>
+      </step>
+      <step>
+       <para>Install the <package>pacemaker-remote</package> and
+         <package>crmsh</package> packages: </para>
+       <screen>&prompt.root;<command>zypper</command> in pacemaker-remote crmsh</screen>
+      </step>
+      <step>
+       <para>Enable and start the &pmremote; service on <systemitem
+         class="domainname">&node1;</systemitem>:</para>
+       <screen>&prompt.root;<command>systemctl</command> enable pacemaker_remote
+&prompt.root;<command>systemctl</command> start pacemaker_remote</screen>
+      </step>
+      <step>
+       <para>Create the <filename>/etc/pacemaker</filename> directory and
+        change its group:</para>
+       <screen>&prompt.root;<command>mkdir</command> -p --mode=0750 /etc/pacemaker
 &prompt.root;<command>chgrp</command> haclient /etc/pacemaker</screen>
+      </step>
+     </substeps>
     </step>
     <step>
-     <para>Run <command>csync2</command> to copy the authentication key from
+     <para>On <systemitem class="domainname">&node1;</systemitem>,
+      run <command>csync2</command> to copy the authentication key from
       your physical host to your guest node:</para>
      <screen>&prompt.root;<command>csync</command> -xv</screen>
     </step>
@@ -440,7 +449,7 @@ ssh: connect to host &wsII; port 3121: Connection refused</screen>
        linkend="st.ha.pmremote.integrate.guestsintocluster.virsh-dump"/>:
      </para>
      <screen>&prompt.root;<command>crm</command> configure
-&prompt.crm.conf;<command>primitive</command> vm.&wsII; ocf:heartbeat:VirtualDomain \
+&prompt.crm.conf;<command>primitive</command> &wsII; ocf:heartbeat:VirtualDomain \
   params hypervisor="qemu:///system" \
          config="/etc/pacemaker/&wsII;.xml" \
   meta remote-node=&wsII;</screen>
@@ -450,6 +459,9 @@ ssh: connect to host &wsII; port 3121: Connection refused</screen>
       <command>crm status</command>. It
       should contain a running cluster with nodes that are all accessible.
      </para>
+     <remark>toms 2017-04-18: Is there a step missing? Anything like a final
+      crm configure primitive venus ocf:pacemaker:remote
+     </remark>
     </step>
    </procedure>
   </sect2>
@@ -489,7 +501,8 @@ fake4           (ocf::pacemaker:Dummy): Started &node1;</screen>
     <para>The status will change to this:</para>
     <screen>&prompt.root;<command>crm</command> status
 [...]
-Online: [ &node1; &node2; ]
+Online: [ &node2; ]
+Offline: [ &node1; ]
 
 Full list of resources:
 fake1           (ocf::pacemaker:Dummy): Started &node2;
@@ -497,12 +510,14 @@ fake2           (ocf::pacemaker:Dummy): Started &node1;
 fake3           (ocf::pacemaker:Dummy): Started &node1;
 fake4           (ocf::pacemaker:Dummy): Started &node1;</screen>
    </step>
-  </procedure>
-
-  <para> To test whether fencing works, kill the <systemitem class="daemon"
-    >pacemaker_remoted</systemitem> daemon, and check how &pace; reacts: </para>
-  <screen>&prompt.root;<command>kill</command> -9 $(pidof pacemaker_remoted)</screen>
-  <para>After a few seconds, the status of the cluster should look like this:</para>
+   <step>
+    <para> To test whether fencing works, kill the <systemitem class="daemon"
+    >pacemaker_remoted</systemitem> daemon: </para>
+    <screen>&prompt.root;<command>kill</command> -9 $(pidof pacemaker_remoted)</screen>
+   </step>
+   <step>
+    <para>After a few seconds, check the status of the cluster again. It
+     should look like this:</para>
   <screen>&prompt.root;<command>crm</command> status
 [...]
 Online: [ &node1; &node2; ]
@@ -512,6 +527,8 @@ fake1           (ocf::pacemaker:Dummy): Started &node2;
 fake2           (ocf::pacemaker:Dummy): Started &node2;
 fake3           (ocf::pacemaker:Dummy): Started &node2;
 fake4           (ocf::pacemaker:Dummy): Started &node2;</screen>
+   </step>
+  </procedure>
  </sect1>
 
  <xi:include href="common_legal.xml"/>
