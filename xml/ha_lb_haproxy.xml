@@ -70,16 +70,14 @@
  <itemizedlist>
   <listitem>
    <para>
-    Two load balancers, with the IP addresses &node1; (IP:
-    <systemitem class="ipaddress">&subnetI;.100</systemitem>) and
-    &node2; (IP:
-    <systemitem class="ipaddress">&subnetI;.101</systemitem>)
+    A load balancer, with the IP address
+    <systemitem class="ipaddress">&subnetI;.99</systemitem>.
    </para>
   </listitem>
   <listitem>
    <para>
     A virtual, floating IP address
-    <systemitem class="ipaddress">&subnetI;.99</systemitem>
+    <systemitem class="ipaddress">&subnetI;.99</systemitem>.
    </para>
   </listitem>
   <listitem>
@@ -141,18 +139,25 @@ defaults <co xml:id="co.ha.lb.defaults"/>
   timeout client    50s   <co xml:id="co.ha.lb.timeout.client"/>
   timeout server    50000 <co xml:id="co.ha.lb.timeout.server"/>
 
+frontend LB
   bind &subnetI;.99:80 <co xml:id="co.ha.lb.listen"/>
+  reqadd X-Forwarded-Proto:\ http
+  default_backend LB
+
+backend LB
   mode http
   stats enable
-  stats uri /haproxy?stats
-  stats auth someuser:somepassword
-  balance leastconn
-  cookie JSESSIONID prefix
-  option httpclose
+  stats hide-version
+  stats uri /stats
+  stats realm Haproxy\ Statistics
+  stats auth haproxy:password	<co xml:id="co.ha.lb.stats.auth"/>
+  balance roundrobin	<co xml:id="co.ha.lb.balance"/>
+  option  httpclose
   option forwardfor
+  cookie LB insert
   option httpchk GET /robots.txt HTTP/1.0
-  server webA &subnetI;.200:80 cookie A check
-  server webB &subnetI;.201:80 cookie B check</screen>
+  server web1-srv &subnetI;.200:80 cookie web1-srv check
+  server web2-srv &subnetI;.201:80 cookie web2-srv check</screen>
    <calloutlist>
     <callout arearefs="co.ha.lb.global">
      <para>
@@ -269,6 +274,16 @@ defaults <co xml:id="co.ha.lb.defaults"/>
       </varlistentry>
      </variablelist>
     </callout>
+    <callout arearefs="co.ha.lb.stats.auth">
+      <para>
+       Credentials for HAProxy Statistic report page.
+      </para>
+     </callout>
+    <callout arearefs="co.ha.lb.balance">
+      <para>
+       Load balancing will work in a round-robin process.
+      </para>
+    </callout>
    </calloutlist>
   </step>
   <step>
@@ -312,17 +327,20 @@ defaults <co xml:id="co.ha.lb.defaults"/>
    <para>
     Configure a new CIB:
    </para>
-   <remark>toms 2014-09-16: According to Kristoffer: "This is the crmsh
-    configuration (edited using crm configure). It is possible to do a
-    similar configuration in hawk, but with the graphical interface.
-    I think it can be improved, I will get back to you with more details
-    :)"</remark>
    <screen>&prompt.root;<command>crm</command> configure
 &prompt.crm;<command>cib</command> new haproxy-config
-&prompt.crmhp;<command>primitive</command> haproxy systemd:haproxy op monitor interval=10s
-&prompt.crmhp;<command>primitive</command> vip-www1 IPaddr2 params ip=&subnetI;.100
-&prompt.crmhp;<command>primitive</command> vip-www2 IPaddr2 params ip=&subnetI;.101
-&prompt.crmhp;<command>group</command> g-haproxy vip-www1 vip-www2 haproxy</screen>
+&prompt.crmhp;<command>primitive</command> primitive haproxy systemd:haproxy \
+    op start timeout=120 interval=0 \
+    op stop timeout=120 interval=0 \
+    op monitor timeout=100 interval=5s \
+    meta target-role=Started
+&prompt.crmhp;<command>primitive</command> vip IPaddr2 \
+    params ip=&subnetI;.99 nic=eth0 cidr_netmask=23 broadcast=&subnetI;.255 \
+    op monitor interval=5s timeout=120 on-fail=restart \
+    meta target-role=Started
+&prompt.crmhp;<command>order</command> haproxy-after-IP Mandatory: vip haproxy
+&prompt.crmhp;<command>colocation</command> haproxy-with-public-IPs inf: haproxy vip
+&prompt.crmhp;<command>group</command> g-haproxy vip haproxy-after-IP</screen>
   </step>
   <step>
    <para>
