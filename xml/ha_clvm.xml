@@ -78,9 +78,8 @@ cLVM) for more information and details to integrate here - really helpful-->
    <varlistentry>
     <term>Distributed Lock Manager (DLM)</term>
     <listitem>
-     <para>
-      Coordinates disk access for cLVM.
-     </para>
+     <para> Coordinates disk access for cLVM and mediates metadata access
+      through locking.</para>
     </listitem>
    </varlistentry>
    <varlistentry>
@@ -190,16 +189,14 @@ cLVM) for more information and details to integrate here - really helpful-->
     <systemitem class="daemon">cmirrord</systemitem> daemon is used. Cluster
     mirrors are not possible without this daemon running.
    </para>
-   <para>
-    We assume that <filename>/dev/sda</filename> and
-    <filename>/dev/sdb</filename> are the shared storage devices. Replace
-    these with your own device name(s), if necessary. Proceed as follows:
-   </para>
+   <para> We assume that <filename>/dev/sda</filename> and
+     <filename>/dev/sdb</filename> are the shared storage devices like with
+    DRBD, iSCSI, or others. Replace these with your own device name(s), if
+    necessary. Proceed as follows: </para>
    <procedure>
     <step>
-     <para>
-      Create a cluster with at least two nodes.
-     </para>
+     <para> Create a cluster with at least two nodes as described in
+       <citetitle>&instquick;</citetitle>.</para>
     </step>
     <step>
      <para>
@@ -209,18 +206,18 @@ cLVM) for more information and details to integrate here - really helpful-->
 <screen>&prompt.root;<command>crm</command> configure
 &prompt.crm.conf;<command>primitive</command> clvmd ocf::heartbeat:clvm \
         params with_cmirrord=true \
-        op start interval="0" timeout="90" \
-        op stop interval="0" timeout="100" \
+        op start timeout="90" \
+        op stop timeout="100" \
         op monitor interval="20" timeout="60"
 &prompt.crm.conf;<command>primitive</command> dlm ocf:pacemaker:controld \
-        op start interval="0" timeout="90" \
-        op stop interval="0" timeout="100" \
+        op start timeout="90" \
+        op stop timeout="100" \
         op monitor interval="60" timeout="60"
 &prompt.crm.conf;<command>primitive</command> sbd_stonith stonith:external/sbd \
         params pcmk_delay_max=30
 &prompt.crm.conf;<command>group</command> g-clvm dlm clvmd
-        meta interleave="true"</screen>
 &prompt.crm.conf;<command>clone</command> c-clvm g-clvm \
+        meta interleave="true" ordered=true</screen>
     </step>
     <step>
      <para>
@@ -254,7 +251,7 @@ cLVM) for more information and details to integrate here - really helpful-->
       To test the clustered volume <filename>/dev/vg1/lv1</filename>, use the
       following steps:
      </para>
-     <substeps performance="required">
+     <substeps>
       <step>
        <para>
         Read or write to <filename>/dev/vg1/lv1</filename>.
@@ -346,6 +343,139 @@ cLVM) for more information and details to integrate here - really helpful-->
 <screen>  PV         VG     PV Tags
   /dev/sda vgtest a
   /dev/sdb vgtest b</screen>
+    </step>
+   </procedure>
+   <para>To test your clustered mirror device, proceed as follows:</para>
+   <remark>toms 2017-06-26: Fate#312248#comment14</remark>
+   <procedure>
+    <step>
+     <para>Prepare your test setup with loop devices:</para>
+     <substeps>
+      <step>
+       <para>Create four 100M loop devices:</para>
+       <screen>&prompt.root;<command>dd</command> if=/dev/zero of=block1 bs=1M seek=100 count=0
+&prompt.root;<command>dd</command> if=/dev/zero of=block2 bs=1M seek=100 count=0
+&prompt.root;<command>dd</command> if=/dev/zero of=block3 bs=1M seek=100 count=0
+&prompt.root;<command>dd</command> if=/dev/zero of=block4 bs=1M seek=100 count=0</screen>
+      </step>
+      <step>
+       <para>Attach the loop devices:</para>
+       <screen>&prompt.root;<command>losetup</command> /dev/loop1 block1
+&prompt.root;<command>losetup</command> /dev/loop2 block2
+&prompt.root;<command>losetup</command> /dev/loop3 block3
+&prompt.root;<command>losetup</command> /dev/loop4 block4</screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>Create your PVs and LVs on your loop devices:</para>
+     <substeps>
+      <step>
+       <para>Create the physical volumes:</para>
+       <screen>&prompt.root;<command>pvcreate</command> /dev/loop{1,2,3,4}
+  Physical volume "/dev/loop1" successfully created
+  Physical volume "/dev/loop2" successfully created
+  Physical volume "/dev/loop3" successfully created
+  Physical volume "/dev/loop4" successfully created</screen>
+      </step>
+      <step>
+       <para>Create the volumes:</para>
+       <screen>&prompt.root;<command>vgcreate</command> vgtest /dev/loop{1,2,3,4}
+  Volume group "vgtest" successfully created</screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>Add tags:</para>
+     <screen>&prompt.root;<command>pvchange</command> --addtag @a /dev/loop{1,2}
+  Physical volume "/dev/loop1" changed
+  Physical volume "/dev/loop2" changed
+  2 physical volume changed / 0 physical volumes not changed
+&prompt.root;<command>pvchange</command> --addtag @b /dev/loop{3,4}
+  Physical volume "/dev/loop3" changed
+  Physical volume "/dev/loop4" changed
+  2 physical volume changed / 0 physical volumes not changed</screen>
+    </step>
+    <step>
+     <para>Show the tags:</para>
+     <screen>&prompt.root;<command>pvs</command> -o pv_name,vg_name,pv_tags /dev/loop{1,2,3,4}
+  PV         VG     PV Tags
+  /dev/loop1 vgtest a
+  /dev/loop2 vgtest a
+  /dev/loop3 vgtest b
+  /dev/loop4 vgtest b</screen>
+    </step>
+    <step>
+     <para>Create logical volumes:</para>
+     <screen>&prompt.root;<command>lvcreate</command> -nlvtest -m1 -L100M vgtest
+  Logical volume "lvtest" created.</screen>
+    </step>
+    <step>
+     <para>Show all the logical volumes:</para>
+     <screen>&prompt.root;<command>dmsetup</command> ls --tree
+vgtest-lvtest (254:4)
+ ├─vgtest-lvtest_rimage_1 (254:3)
+ │  ├─ (7:4)
+ │  └─ (7:2)
+ ├─vgtest-lvtest_rmeta_1 (254:2)
+ │  └─ (7:2)
+ ├─vgtest-lvtest_rimage_0 (254:1)
+ │  ├─ (7:3)
+ │  └─ (7:1)
+ └─vgtest-lvtest_rmeta_0 (254:0)
+    └─ (7:1)</screen>
+    </step>
+    <step>
+     <para>Assert the <filename>/dev/loop{1,2}</filename></para>
+     <remark>toms 2017-06-26: How?</remark>
+     <screen>#assert
+#loop{1,2} should in a same leg
+#while loop{3,4} in another leg</screen>
+    </step>
+    <step>
+     <para>Remove your test setup:</para>
+     <substeps>
+      <step>
+       <para>Remove the logical volume:</para>
+       <screen>&prompt.root;<command>lvremove</command> -f vgtest/lvtest
+  Logical volume "lvtest" successfully removed</screen>
+      </step>
+      <step>
+       <para>Remove the tags:</para>
+       <screen>&prompt.root;<command>pvchange</command> --deltag @a /dev/loop{1,2}
+  Physical volume "/dev/loop1" changed
+  Physical volume "/dev/loop2" changed
+  2 physical volume changed / 0 physical volumes not changed
+&prompt.root;<command>pvchange</command> --deltag @b /dev/loop{3,4}
+  Physical volume "/dev/loop3" changed
+  Physical volume "/dev/loop4" changed
+  2 physical volume changed / 0 physical volumes not changed</screen>
+      </step>
+      <step>
+       <para>Remove your volume group:</para>
+       <screen>&prompt.root;<command>vgremove</command> vgtest
+  Volume group "vgtest" successfully removed</screen>
+      </step>
+      <step>
+       <para>Remove your physical volume:</para>
+       <screen>&prompt.root;<command>pvremove</command> /dev/loop{1,2,3,4}
+  Labels on physical volume "/dev/loop1" successfully wiped
+  Labels on physical volume "/dev/loop2" successfully wiped
+  Labels on physical volume "/dev/loop3" successfully wiped
+  Labels on physical volume "/dev/loop4" successfully wiped</screen>
+      </step>
+      <step>
+       <para>Remove your loop devices:</para>
+       <screen>&prompt.root;<command>losetup</command> -d /dev/loop1
+&prompt.root;<command>losetup</command> -d /dev/loop2
+&prompt.root;<command>losetup</command> -d /dev/loop3
+&prompt.root;<command>losetup</command> -d /dev/loop4</screen>
+      </step>
+      <step>
+       <para>Remove your block files:</para>
+       <screen>&prompt.root;<command>rm</command> block{1,2,3,4}</screen>
+      </step>
+     </substeps>
     </step>
    </procedure>
    <para>
