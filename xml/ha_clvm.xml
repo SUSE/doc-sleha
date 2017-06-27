@@ -78,9 +78,8 @@ cLVM) for more information and details to integrate here - really helpful-->
    <varlistentry>
     <term>Distributed Lock Manager (DLM)</term>
     <listitem>
-     <para>
-      Coordinates disk access for cLVM.
-     </para>
+     <para> Coordinates disk access for cLVM and mediates metadata access
+      through locking.</para>
     </listitem>
    </varlistentry>
    <varlistentry>
@@ -190,16 +189,14 @@ cLVM) for more information and details to integrate here - really helpful-->
     <systemitem class="daemon">cmirrord</systemitem> daemon is used. Cluster
     mirrors are not possible without this daemon running.
    </para>
-   <para>
-    We assume that <filename>/dev/sda</filename> and
-    <filename>/dev/sdb</filename> are the shared storage devices. Replace
-    these with your own device name(s), if necessary. Proceed as follows:
-   </para>
-   <procedure>
+   <para> We assume that <filename>/dev/sda</filename> and
+     <filename>/dev/sdb</filename> are the shared storage devices like with
+    DRBD, iSCSI, or others. Replace these with your own device name(s), if
+    necessary. Proceed as follows: </para>
+   <procedure xml:id="pro.ha.clvm.config.cmirrord">
     <step>
-     <para>
-      Create a cluster with at least two nodes.
-     </para>
+     <para> Create a cluster with at least two nodes as described in
+       <citetitle>&instquick;</citetitle>.</para>
     </step>
     <step>
      <para>
@@ -209,19 +206,18 @@ cLVM) for more information and details to integrate here - really helpful-->
 <screen>&prompt.root;<command>crm</command> configure
 &prompt.crm.conf;<command>primitive</command> clvmd ocf:heartbeat:clvm \
         params with_cmirrord=true \
-        op start interval="0" timeout="90" \
-        op stop interval="0" timeout="100" \
+        op start timeout="90" \
+        op stop timeout="100" \
         op monitor interval="20" timeout="60"
 &prompt.crm.conf;<command>primitive</command> dlm ocf:pacemaker:controld \
-        op start interval="0" timeout="90" \
-        op stop interval="0" timeout="100" \
+        op start timeout="90" \
+        op stop timeout="100" \
         op monitor interval="60" timeout="60"
 &prompt.crm.conf;<command>primitive</command> sbd_stonith stonith:external/sbd \
         params pcmk_delay_max=30
 &prompt.crm.conf;<command>group</command> g-clvm dlm clvmd
-        meta interleave="true"
 &prompt.crm.conf;<command>clone</command> c-clvm g-clvm \
-        meta interleave="true"</screen>
+        meta interleave="true" ordered=true</screen>
     </step>
     <step>
      <para>
@@ -255,7 +251,7 @@ cLVM) for more information and details to integrate here - really helpful-->
       To test the clustered volume <filename>/dev/vg1/lv1</filename>, use the
       following steps:
      </para>
-     <substeps performance="required">
+     <substeps>
       <step>
        <para>
         Read or write to <filename>/dev/vg1/lv1</filename>.
@@ -300,10 +296,11 @@ cLVM) for more information and details to integrate here - really helpful-->
    </para>
    <para>
     To support RAID10 for <systemitem class="daemon">cmirrord</systemitem>,
-    use the following procedure (assuming that <filename>/dev/sda</filename>
-    and <filename>/dev/sdb</filename> are the shared storage devices):
+    use the following procedure (assuming that <filename>/dev/sda</filename>,
+    <filename>/dev/sdb</filename>, <filename>/dev/sdc</filename>, and
+    <filename>/dev/sdd</filename> are the shared storage devices):
    </para>
-   <procedure>
+   <procedure xml:id="pro.ha.clvm.config.raid10">
 <!--<step>
         <para>Create a cluster with at least two nodes.</para>
       </step>
@@ -312,8 +309,13 @@ cLVM) for more information and details to integrate here - really helpful-->
      <para>
       Create a volume group (VG):
      </para>
-<screen>&prompt.root;<command>pvcreate</command> /dev/sda /dev/sdb
-&prompt.root;<command>vgcreate</command> vg /dev/sda /dev/sdb</screen>
+<screen>&prompt.root;<command>pvcreate</command> /dev/sda /dev/sdb /dev/sdc /dev/sdd
+  Physical volume "/dev/sda" successfully created
+  Physical volume "/dev/sdb" successfully created
+  Physical volume "/dev/sdc" successfully created
+  Physical volume "/dev/sdd" successfully created
+&prompt.root;<command>vgcreate</command> vgtest /dev/sda /dev/sdb /dev/sdc /dev/sdd
+  Clustered volume group "vgtest" successfully created</screen>
     </step>
     <step>
      <para>
@@ -321,14 +323,18 @@ cLVM) for more information and details to integrate here - really helpful-->
       section <literal>allocation</literal>. Set the following line and save
       the file:
      </para>
-<screen>mirror_legs_require_separate_pvs = 1</screen>
+<screen>mirror_logs_require_separate_pvs = 1</screen>
     </step>
     <step>
      <para>
       Add your tags to your PVs:
      </para>
-<screen>&prompt.root;<command>pvchange</command> --addtag @a /dev/sda
-&prompt.root;<command>pvchange</command> --addtag @b /dev/sdb</screen>
+<screen>&prompt.root;<command>pvchange</command> --addtag @a /dev/sda /dev/sdb
+  Physical volume "/dev/sda" changed
+  Physical volume "/dev/sdb" changed
+&prompt.root;<command>pvchange</command> --addtag @b /dev/sdc /dev/sdd
+  Physical volume "/dev/sdd" changed
+  Physical volume "/dev/sdd" changed</screen>
      <para>
       A tag is an unordered keyword or term assigned to the metadata of a
       storage object. Tagging allows you to classify collections of LVM
@@ -340,13 +346,15 @@ cLVM) for more information and details to integrate here - really helpful-->
      <para>
       List your tags:
      </para>
-<screen>&prompt.root;<command>pvs</command> -o pv_name,vg_name,pv_tags /dev/sd{a,b}</screen>
+<screen>&prompt.root;<command>pvs</command> -o pv_name,vg_name,pv_tags /dev/sd{a,b,c,d}</screen>
      <para>
       You should receive this output:
      </para>
-<screen>  PV         VG     PV Tags
-  /dev/sda vgtest a
-  /dev/sdb vgtest b</screen>
+<screen>PV        VG   PV Tags
+/dev/sda  vgtest   a
+/dev/sdb  vgtest   a
+/dev/sdc  vgtest   b
+/dev/sdd  vgtest   b</screen>
     </step>
    </procedure>
    <para>
