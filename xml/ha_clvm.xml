@@ -300,7 +300,7 @@ cLVM) for more information and details to integrate here - really helpful-->
     <filename>/dev/sdb</filename>, <filename>/dev/sdc</filename>, and
     <filename>/dev/sdd</filename> are the shared storage devices):
    </para>
-   <procedure>
+   <procedure xml:id="pro.ha.clvm.config.raid10">
 <!--<step>
         <para>Create a cluster with at least two nodes.</para>
       </step>
@@ -310,12 +310,12 @@ cLVM) for more information and details to integrate here - really helpful-->
       Create a volume group (VG):
      </para>
 <screen>&prompt.root;<command>pvcreate</command> /dev/sda /dev/sdb /dev/sdc /dev/sdd
-  Physical volume "/dev/sdb1" successfully created
-  Physical volume "/dev/sdb2" successfully created
-  Physical volume "/dev/sdb3" successfully created
-  Physical volume "/dev/sdb4" successfully created
-&prompt.root;<command>vgcreate</command> vg /dev/sda /dev/sdb /dev/sdc /dev/sdd
-  Clustered volume group "vg" successfully created</screen>
+  Physical volume "/dev/sda" successfully created
+  Physical volume "/dev/sdb" successfully created
+  Physical volume "/dev/sdc" successfully created
+  Physical volume "/dev/sdd" successfully created
+&prompt.root;<command>vgcreate</command> vgtest /dev/sda /dev/sdb /dev/sdc /dev/sdd
+  Clustered volume group "vgtest" successfully created</screen>
     </step>
     <step>
      <para>
@@ -351,143 +351,10 @@ cLVM) for more information and details to integrate here - really helpful-->
       You should receive this output:
      </para>
 <screen>PV        VG   PV Tags
-/dev/sda  vg   a
-/dev/sdb  vg   a
-/dev/sdc  vg   b
-/dev/sdd  vg   b</screen>
-    </step>
-   </procedure>
-   <para>To test your clustered mirror device, proceed as follows:</para>
-   <remark>toms 2017-06-26: Fate#312248#comment14</remark>
-   <procedure xml:id="pro.ha.clvm.config.test">
-    <step>
-     <para>Prepare your test setup with loop devices:</para>
-     <substeps>
-      <step>
-       <para>Create four 100M loop devices:</para>
-       <screen>&prompt.root;<command>dd</command> if=/dev/zero of=block1 bs=1M seek=100 count=0
-&prompt.root;<command>dd</command> if=/dev/zero of=block2 bs=1M seek=100 count=0
-&prompt.root;<command>dd</command> if=/dev/zero of=block3 bs=1M seek=100 count=0
-&prompt.root;<command>dd</command> if=/dev/zero of=block4 bs=1M seek=100 count=0</screen>
-      </step>
-      <step>
-       <para>Attach the loop devices:</para>
-       <screen>&prompt.root;<command>losetup</command> /dev/loop1 block1
-&prompt.root;<command>losetup</command> /dev/loop2 block2
-&prompt.root;<command>losetup</command> /dev/loop3 block3
-&prompt.root;<command>losetup</command> /dev/loop4 block4</screen>
-      </step>
-     </substeps>
-    </step>
-    <step>
-     <para>Create your PVs and LVs on your loop devices:</para>
-     <substeps>
-      <step>
-       <para>Create the physical volumes:</para>
-       <screen>&prompt.root;<command>pvcreate</command> /dev/loop{1,2,3,4}
-  Physical volume "/dev/loop1" successfully created
-  Physical volume "/dev/loop2" successfully created
-  Physical volume "/dev/loop3" successfully created
-  Physical volume "/dev/loop4" successfully created</screen>
-      </step>
-      <step>
-       <para>Create the volumes:</para>
-       <screen>&prompt.root;<command>vgcreate</command> vgtest /dev/loop{1,2,3,4}
-  Volume group "vgtest" successfully created</screen>
-      </step>
-     </substeps>
-    </step>
-    <step>
-     <para>Add tags:</para>
-     <screen>&prompt.root;<command>pvchange</command> --addtag @a /dev/loop{1,2}
-  Physical volume "/dev/loop1" changed
-  Physical volume "/dev/loop2" changed
-  2 physical volume changed / 0 physical volumes not changed
-&prompt.root;<command>pvchange</command> --addtag @b /dev/loop{3,4}
-  Physical volume "/dev/loop3" changed
-  Physical volume "/dev/loop4" changed
-  2 physical volume changed / 0 physical volumes not changed</screen>
-    </step>
-    <step>
-     <para>Show the tags:</para>
-     <screen>&prompt.root;<command>pvs</command> -o pv_name,vg_name,pv_tags /dev/loop{1,2,3,4}
-  PV         VG     PV Tags
-  /dev/loop1 vgtest a
-  /dev/loop2 vgtest a
-  /dev/loop3 vgtest b
-  /dev/loop4 vgtest b</screen>
-    </step>
-    <step>
-     <para>Create logical volumes:</para>
-     <screen>&prompt.root;<command>lvcreate</command> -nlvtest -m1 -L100M vgtest
-  Logical volume "lvtest" created.</screen>
-    </step>
-    <step>
-     <para>Show all the logical volumes:</para>
-     <screen>&prompt.root;<command>dmsetup</command> ls --tree
-vgtest-lvtest (254:4)
- ├─vgtest-lvtest_rimage_1 (254:3)
- │  ├─ (7:4)
- │  └─ (7:2)
- ├─vgtest-lvtest_rmeta_1 (254:2)
- │  └─ (7:2)
- ├─vgtest-lvtest_rimage_0 (254:1)
- │  ├─ (7:3)
- │  └─ (7:1)
- └─vgtest-lvtest_rmeta_0 (254:0)
-    └─ (7:1)</screen>
-    </step>
-    <step>
-     <para>Assert the <filename>/dev/loop{1,2}</filename></para>
-     <remark>toms 2017-06-26: How?</remark>
-     <screen>#assert
-#loop{1,2} should in a same leg
-#while loop{3,4} in another leg</screen>
-    </step>
-    <step>
-     <para>Remove your test setup:</para>
-     <substeps>
-      <step>
-       <para>Remove the logical volume:</para>
-       <screen>&prompt.root;<command>lvremove</command> -f vgtest/lvtest
-  Logical volume "lvtest" successfully removed</screen>
-      </step>
-      <step>
-       <para>Remove the tags:</para>
-       <screen>&prompt.root;<command>pvchange</command> --deltag @a /dev/loop{1,2}
-  Physical volume "/dev/loop1" changed
-  Physical volume "/dev/loop2" changed
-  2 physical volume changed / 0 physical volumes not changed
-&prompt.root;<command>pvchange</command> --deltag @b /dev/loop{3,4}
-  Physical volume "/dev/loop3" changed
-  Physical volume "/dev/loop4" changed
-  2 physical volume changed / 0 physical volumes not changed</screen>
-      </step>
-      <step>
-       <para>Remove your volume group:</para>
-       <screen>&prompt.root;<command>vgremove</command> vgtest
-  Volume group "vgtest" successfully removed</screen>
-      </step>
-      <step>
-       <para>Remove your physical volume:</para>
-       <screen>&prompt.root;<command>pvremove</command> /dev/loop{1,2,3,4}
-  Labels on physical volume "/dev/loop1" successfully wiped
-  Labels on physical volume "/dev/loop2" successfully wiped
-  Labels on physical volume "/dev/loop3" successfully wiped
-  Labels on physical volume "/dev/loop4" successfully wiped</screen>
-      </step>
-      <step>
-       <para>Remove your loop devices:</para>
-       <screen>&prompt.root;<command>losetup</command> -d /dev/loop1
-&prompt.root;<command>losetup</command> -d /dev/loop2
-&prompt.root;<command>losetup</command> -d /dev/loop3
-&prompt.root;<command>losetup</command> -d /dev/loop4</screen>
-      </step>
-      <step>
-       <para>Remove your block files:</para>
-       <screen>&prompt.root;<command>rm</command> block{1,2,3,4}</screen>
-      </step>
-     </substeps>
+/dev/sda  vgtest   a
+/dev/sdb  vgtest   a
+/dev/sdc  vgtest   b
+/dev/sdd  vgtest   b</screen>
     </step>
    </procedure>
    <para>
