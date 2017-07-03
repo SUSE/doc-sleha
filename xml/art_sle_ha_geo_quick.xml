@@ -231,8 +231,9 @@
         <para>
           With <command>ha-cluster-geo-init</command>, turn a cluster into the first
           site of a &geo; cluster. The script creates &booth.conf; (by taking
-          several parameters like the names of the clusters, an arbitrator, and one or
-          more tickets). It also configures the following cluster resources needed
+          some parameters like the names of the clusters, an arbitrator, and a
+          ticket) and synchronizes the booth configuration file across the cluster
+          sites. It also configures the following cluster resources needed
           for booth:</para>
         <itemizedlist>
           <listitem>
@@ -379,7 +380,8 @@
            <remark>taroth 2017-06-29: krig, is the following still true?</remark>
             However, the &geo; clustering extension must be installed
            <emphasis>manually</emphasis> on all machines
-            that will be part of the &geo; cluster. &ay; support for &hageo; is not yet available.
+            that will be part of the &geo; cluster. &ay; support for &hageo; is
+            not yet available.
           </para>
         </listitem>
       </itemizedlist>
@@ -389,10 +391,10 @@
   <title>Setting Up the First Site of a &geo; Cluster</title>
   <para>
    Use the <command>ha-cluster-geo-init</command> script to turn an existing
-   cluster into the first site of a &geo; cluster.</para>
-
-   <itemizedlist>
-    <title>Requirements</title>
+   cluster into the first site of a &geo; cluster.
+  </para>
+  <itemizedlist>
+   <title>Requirements</title>
    <listitem>
     <para>You have at least two existing clusters that you want to combine into
      a &geo; cluster.
@@ -402,21 +404,105 @@
     <para>Each cluster has a meaningful <literal>cluster_name</literal> set in
      &corosync.conf;.</para>
    </listitem>
-    <listitem>
-     <para>You have installed a third machine outside of the existing clusters
-      that you can use as arbitrator. You know its IP address or host name.</para>
-    </listitem>
-   </itemizedlist>
-   <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init">
+   <listitem>
+    <para>You have installed a third machine outside of the existing clusters
+     to be used as arbitrator.</para>
+   </listitem>
+  </itemizedlist>
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init">
    <title>Setting Up the First Site (<systemitem>&cluster1;</systemitem>) with
     <command>ha-cluster-geo-init</command></title>
    <step>
-    <para>Log in to a node of an existing cluster, for example [...] </para>
+    <para>
+     Define a virtual IP per cluster site that can be used to access the
+     site. You do not need to configure the virtual IP as cluster resource yet.
+     This will be done by the bootstrap scripts.</para>
    </step>
-    </procedure>
-   <!-- http://pastebin.suse.de/21531 (crm configure show)
+   <step>
+    <para>
+     Define the name of at least one ticket that will grant the right to run
+     certain resources on a cluster site. The bootstrap scripts only need the
+     ticket name&mdash;you can define the remaining details (ticket dependencies
+     of the resources) later on. <!--FIXME: add link-->
+    </para>
+   </step>
+   <step>
+    <para>
+     Log in to a node of an existing cluster, for example, on <literal>&node1;</literal>,
+     belonging to <literal>&cluster1;</literal>.
+    </para>
+   </step>
+   <step xml:id="step.ha-cluster-geo-init">
+    <para>
+     Run the following command with the parameters <option>--clusters</option>,
+     <option>--tickets</option>, and <option>--arbitrator</option>:
+    </para>
+    <screen>ha-cluster-geo-init \
+  --clusters<co xml:id="co.geo.init.cluster"/> "amsterdam=10.161.13.176 berlin=10.160.4.81" \
+  --tickets<co xml:id="co.geo.init.ticket"/> ticket-nfs \
+  --arbitrator<co xml:id="co.geo.init.arbitrator"/> cynthia</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.cluster">
+      <para>
+       The names of the cluster sites (as defined in &corosync.conf;) and the virtual
+       IP addresses you want to use for each cluster site. In this case, we have
+       two cluster sites (&cluster1; and &cluster2; with a virtual IP address each).
+      </para>
+     </callout>
+     <callout arearefs="co.geo.init.ticket">
+      <para>
+       The name of one or multiple tickets. In this case, the ticket's name is
+       <literal>ticket-nfs</literal>.
+      </para>
+     </callout>
+     <callout arearefs="co.geo.init.arbitrator">
+     <para>
+       The host name or IP address of a machine outside of the clusters. In this
+       case, the arbitrator's host name is <literal>cynthia</literal>.
+       </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+  <para>The command creates the booth configuration file and synchronizes it
+   across the cluster sites. It also creates the basic cluster
+   resources needed for booth (see <xref linkend="sec.ha.geo.scripts"/>).
+  For example, <xref linkend="step.ha-cluster-geo-init" xrefstyle="seletc:label"/>
+   of <xref linkend="pro.ha.geo.quick.ha-cluster-geo-init" xrefstyle="select:label"/>
+   results in the following:</para>
+  <example>
+   <title>Booth Configuration Created By <command>ha-cluster-geo-init</command></title>
+   <screen># The booth configuration file is "/etc/booth/booth.conf". You need to
+# prepare the same booth configuration file on each arbitrator and
+# each node in the cluster sites where the booth daemon can be launched.
+
+# "transport" means which transport layer booth daemon will use.
+# Currently only "UDP" is supported.
+transport="UDP"
+port="9929"
+
+arbitrator="cynthia"
+site="10.161.13.176"
+site="10.160.4.81"
+authfile="/etc/booth/authkey"
+ticket="ticket-nfs"
+expire="600"</screen>
+  </example>
+  <example>
+   <title>Cluster Resources Created By <command>ha-cluster-geo-init</command></title>
+   <screen>primitive booth-ip IPaddr2 \
+  params rule #cluster-name eq amsterdam ip=10.161.13.176\
+  params rule #cluster-name eq berlin ip=10.160.4.81
+primitive booth-site ocf:pacemaker:booth-site \
+  meta resource-stickiness=INFINITY \
+  params config=booth \
+  op monitor interval=10s
+group g-booth booth-ip booth-site \
+  meta target-role=Stopped</screen>
+  </example>
+  <!-- http://pastebin.suse.de/21531 (crm configure show)
    http://pastebin.suse.de/21527 (booth.conf)-->
-   <!--cluster-join: http://pastebin.suse.de/21539
+  <!--cluster-join: http://pastebin.suse.de/21539
    on kemter-2: ha-cluster-geo-init -/-cluster "amsterdam=10.161.13.176 berlin=10.160.4.81" -/-ticket ticket-nfs -/-arbitrator edisonvm2
    on edisonvm1: ha-cluster-geo-join -/-cluster-node 10.161.13.176 -/-clusters "amsterdam=10.161.13.176 berlin=10.160.4.81"
    on edisonvm2 (arbitrator): ha-cluster-geo-init-arbitrator -c 10.161.13.176
