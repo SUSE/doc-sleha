@@ -105,7 +105,8 @@
     Unlike normal cluster nodes, both remote and guest nodes are managed by
     the cluster as resources.
     As such, they are not bound to the 32&nbsp;node limitation of the cluster
-    stack. However, they behave as regular cluster nodes.
+    stack. However, from the resource management point of view, they behave
+    as regular cluster nodes.
    </para>
    <para>
     Remote nodes do not need to have the full cluster stack installed, as
@@ -351,6 +352,11 @@
         authentication key that you create in the &yast; cluster module.</para>
       </step>
       <step>
+       <para>In <filename>/etc/csync2/csync2.cfg</filename>, add the
+        following line:</para>
+       <screen>include /etc/pacemaker/authkey</screen>
+      </step>
+      <step>
        <para>
         List all cluster and remote nodes in the &csync; configuration file.
        </para>
@@ -360,8 +366,7 @@
   <sect2 xml:id="sec.ha.pmremote.config.uc1.remote.nodes">
    <title>Configuring Remote Nodes</title>
    <para>
-    The following procedure creates a guest node <systemitem
-      class="domainname">&node4;</systemitem> on your cluster node
+    The following procedure prepares your cluster node
     <systemitem class="domainname">&node3;</systemitem>:
    </para>
    <procedure>
@@ -396,7 +401,7 @@
      <para>On <systemitem class="domainname">&node1;</systemitem>,
       run <command>csync2</command> to copy the authentication key from
       your cluster node to your guest node:</para>
-     <screen>&prompt.root;<command>csync</command> -xv</screen>
+     <screen>&prompt.root;<command>csync2</command> -xv</screen>
     </step>
     <step>
      <para>
@@ -454,13 +459,22 @@ ssh: connect to host &node3; port 3121: Connection refused</screen>
 &prompt.crm.conf;<command>primitive</command> &node3; ocf:pacemaker:remote \
      params server=&node3; reconnect_interval=15m \
      op monitor interval=30s
-&prompt.crm.conf;<command>commit</command></screen>
+&prompt.crm.conf;<command>commit</command>
+&prompt.crm.conf;<command>exit</command></screen>
     </step>
     <step>
      <para>Check the status of the cluster with the command
       <command>crm status</command>. It
-      should contain a running cluster with nodes that are all accessible.
+      should contain a running cluster with nodes that are all accessible:
      </para>
+     <screen>&prompt.root;<command>crm</command> status
+[...]
+Online: [ alice bob ]
+RemoteOnline: [ charlie ]
+
+Full list of resources:
+&node3; (ocf:pacemaker:remote): Started &node1;
+ [...]</screen>
     </step>
    </procedure>
   </sect2>
@@ -485,7 +499,7 @@ ssh: connect to host &node3; port 3121: Connection refused</screen>
     </para>
    </formalpara>
    <para>
-    Note, however, that remote nodes can never <quote>initiate</quote> a
+    Note, however, remote nodes does not take part in initiating a
     fencing action. Only cluster nodes are capable of actually executing a
     fencing operation against another node.
    </para>
@@ -533,7 +547,8 @@ ssh: connect to host &node3; port 3121: Connection refused</screen>
         service: </para>
        <screen>&prompt.root;<command>mkdir</command> -p --mode=0755 /etc/pacemaker
 &prompt.root;<command>dd</command> if=/dev/urandom of=/etc/pacemaker/authkey bs=4k count=1</screen>
-       <para>It needs to be synchronized across all cluster nodes with &csync;.
+       <para>It needs to be synchronized across all cluster nodes and guest nodes
+        with &csync;.
         The key for the &pmremote; service is different from the cluster
         authentication key that you create in the &yast; cluster module.</para>
       </step>
@@ -542,13 +557,17 @@ ssh: connect to host &node3; port 3121: Connection refused</screen>
         following line:</para>
        <screen>include /etc/pacemaker/authkey</screen>
       </step>
+      <step>
+       <para>List all cluster and guest nodes in the &csync; configuration
+        file.</para>
+      </step>
    </procedure>
   </sect2>
 
   <sect2 xml:id="sec.ha.pmremote.config.uc2.guest">
    <title>Configuring the Guest Node</title>
    <para>
-    The following procedure creates a guest node <systemitem
+    The following procedure prepares a guest node <systemitem
       class="domainname">&node4;</systemitem> on your cluster node
     <systemitem class="domainname">&node1;</systemitem>:
    </para>
@@ -591,7 +610,7 @@ ssh: connect to host &node3; port 3121: Connection refused</screen>
      <para>On <systemitem class="domainname">&node1;</systemitem>,
       run <command>csync2</command> to copy the authentication key from
       your physical host to your guest node:</para>
-     <screen>&prompt.root;<command>csync</command> -xv</screen>
+     <screen>&prompt.root;<command>csync2</command> -xv</screen>
     </step>
     <step>
      <para>
@@ -655,7 +674,7 @@ ssh: connect to host &node4; port 3121: Connection refused</screen>
  Id    Name         State
 -----------------------------------
  -     &node4;       shut off
-&prompt.root;<command>virsh</command> dump &node4; > /etc/pacemaker/&node4;.xml</screen>
+&prompt.root;<command>virsh</command> dumpxml &node4; > /etc/pacemaker/&node4;.xml</screen>
     </step>
     <step>
      <para>
@@ -667,8 +686,7 @@ ssh: connect to host &node4; port 3121: Connection refused</screen>
 &prompt.crm.conf;<command>primitive</command> vm-&node4; ocf:heartbeat:VirtualDomain \
   params hypervisor="qemu:///system" \
          config="/etc/pacemaker/&node4;.xml" \
-  meta remote-node=&node4; \
-  op monitor interval=10</screen>
+  meta remote-node=&node4;</screen>
      <para>
       &pace; will automatically monitor &pmrm; connections for failure,
       so it is not necessary to create a recurring monitor on the
@@ -707,9 +725,9 @@ GuestOnline: [ &node4;@&node1; ]
 
 Full list of resources:
 vm-doro (ocf:heartbeat:VirtualDomain): Started &node1;
-fake1           (ocf:pacemaker:Dummy): Started &node4;
-fake2           (ocf:pacemaker:Dummy): Started &node2;
-fake3           (ocf:pacemaker:Dummy): Started &node1;
+fake1           (ocf:pacemaker:Dummy): Started &node1;
+fake2           (ocf:pacemaker:Dummy): Started &node1;
+fake3           (ocf:pacemaker:Dummy): Started &node2;
 fake4           (ocf:pacemaker:Dummy): Started &node2;</screen>
     </step>
     <step>
@@ -723,10 +741,11 @@ Online: [ &node1; &node2; ]
 GuestOnline: [ &node4;@&node1; ]
 
 Full list of resources:
-fake1           (ocf:pacemaker:Dummy): Started &node2;
+vm-doro (ocf:heartbeat:VirtualDomain): Started &node1;
+fake1           (ocf:pacemaker:Dummy): Started &node4;
 fake2           (ocf:pacemaker:Dummy): Started &node1;
-fake3           (ocf:pacemaker:Dummy): Started &node1;
-fake4           (ocf:pacemaker:Dummy): Started &node1;</screen>
+fake3           (ocf:pacemaker:Dummy): Started &node2;
+fake4           (ocf:pacemaker:Dummy): Started &node2;</screen>
     </step>
     <step>
      <para> To test whether fencing works, kill the <systemitem class="daemon"
@@ -741,10 +760,15 @@ fake4           (ocf:pacemaker:Dummy): Started &node1;</screen>
 Online: [ &node1; &node2; ]
 
 Full list of resources:
-fake1           (ocf:pacemaker:Dummy): Started &node2;
+vm-&node4; (ocf::heartbeat:VirtualDomain): Started &node1;
+fake1           (ocf:pacemaker:Dummy): Stopped
 fake2           (ocf:pacemaker:Dummy): Started &node2;
-fake3           (ocf:pacemaker:Dummy): Started &node2;
-fake4           (ocf:pacemaker:Dummy): Started &node2;</screen>
+fake3           (ocf:pacemaker:Dummy): Started &node1;
+fake4           (ocf:pacemaker:Dummy): Started &node2;
+
+Failed Actions:
+* &node4;_monitor_30000 on alice 'unknown error' (1): call=8, status=Error, exitreason='none',
+    last-rc-change='Tue Jul 18 13:11:51 2017', queued=0ms, exec=0ms</screen>
     </step>
    </procedure>
   </sect2>
@@ -786,7 +810,7 @@ fake4           (ocf:pacemaker:Dummy): Started &node2;</screen>
    </step>
    <step>
     <para>
-     Upgrade all &pmrm; nodes &sle; &productnumber; one by one.
+     Upgrade all &pmrm; nodes to &sle; &productnumber; one by one.
     </para>
    </step>
   </procedure>
