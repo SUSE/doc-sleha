@@ -32,7 +32,7 @@
  </para>
 
  <para>
-  This section focuses on tasks specific to &geo; clusters. For an introduction
+  This chapter focuses on tasks specific to &geo; clusters. For an introduction
   to your preferred cluster management tool and general instructions on how to
   configure resources and constraints with it, refer to one of the following
   chapters in the <citetitle>&haguide;</citetitle> for &productname;, available
@@ -54,29 +54,61 @@
   </listitem>
  </itemizedlist>
 
+ <para>
+  If you have set up your &geo; cluster with the bootstrap scripts, the cluster
+  resources needed for booth have been configured already (including a resource
+  group for boothd). In this case, you can skip <xref
+  linkend="sec.ha.geo.rsc.boothd" xrefstyle="select:label"/> and only need to
+  execute the remaining steps to complete the cluster resource configuration.
+ </para>
+ <para>
+  If you are setting up your &geo; cluster manually, you need to execute all of
+  the following steps.
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    <!--Configuring Ticket Dependencies-->
+    <xref linkend="sec.ha.geo.rsc.ticket-dep"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <!--Configuring a Resource Group for <systemitem class="daemon"
+     >boothd</systemitem>-->
+    <xref linkend="sec.ha.geo.rsc.boothd"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <!--Adding an Ordering Constraint for <systemitem class="daemon"
+     >boothd</systemitem> and the Resource Group-->
+    <xref linkend="sec.ha.geo.rsc.order"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <!--Transferring the Resource Configuration to Other Cluster Sites-->
+    <xref linkend="sec.ha.geo.rsc.sync.cib"/>
+   </para>
+  </listitem>
+ </itemizedlist>
+
  <important>
   <title>No CIB Synchronization Across Sites</title>
   <para>
    The CIB is <emphasis>not</emphasis> automatically synchronized across
-   cluster sites of a &geo; cluster. This means you need to configure all
-   resources that must be highly available across the &geo; cluster for each
-   site accordingly.
+   cluster sites of a &geo; cluster. All resources that must be highly available
+   across the &geo; cluster need to be configured for each site accordingly
+   or need to be transferred to the other site or sites.
   </para>
   <para>
-   To simplify transfer of the configuration to other cluster sites, any
-   resources with site-specific parameters can be configured in such a way that
-   the parameters' values depend on the name of the cluster site where the
-   resource is running.
+   To simplify transfer, any resources with site-specific parameters can be
+   configured in such a way that the parameters' values depend on the name of
+   the cluster site where the resource is running (see also <xref
+    linkend="cha.ha.geo.req"/>, <citetitle>Other Requirements and
+     Recommendations</citetitle>).
   </para>
-  <para>
-   To make this work, the cluster names for each site must be defined in the
-   respective &corosync.conf; files. For example, &corosync.conf; of site 1
-   (<literal>&cluster1;</literal>) must contain the following entry:
-  </para>
-<screen>totem {
-   [...]
-   cluster_name: &cluster1;
-   }</screen>
   <para>
    After you have configured the resources on one site, you can tag the
    resources that are needed on all cluster sites, export them from the current
@@ -85,7 +117,9 @@
   </para>
  </important>
 
- <sect1 xml:id="sec.ha.geo.rsc.drbd">
+ <!-- taroth 2017-07-31: commenting as now covered in SBP
+  (https://www.suse.com/documentation/suse-best-practices/sbp-drbd/data/sbp-drbd.html
+  <sect1 xml:id="sec.ha.geo.rsc.drbd">
   <title>Resources and Constraints for DRBD</title>
   <para>
    To complete the DRBD setup, you need to configure some resources and
@@ -183,45 +217,13 @@
     </para>
    </step>
   </procedure>
- </sect1>
+ </sect1>-->
 
- <sect1 xml:id="sec.ha.geo.rsc.booth">
-  <title>Ticket Dependencies, Constraints and Resources for booth</title>
-  <para>
-   To complete the booth setup, you need to execute the following steps to
-   configure the resources and constraints needed for booth and failover of
-   resources:
-  </para>
-  <itemizedlist>
-   <listitem>
-    <para>
-<!--Configuring Ticket Dependencies-->
-     <xref linkend="pro.ha.geo.setup.rsc.constraints" xrefstyle="select:title"/>
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-<!--Configuring a Resource Group for <systemitem class="daemon"
-      >boothd</systemitem>-->
-     <xref linkend="pro.ha.geo.setup.rsc.boothd" xrefstyle="select:title"/>
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-<!--Adding an Ordering Constraint for <systemitem class="daemon"
-       >boothd</systemitem> and the Resource Group-->
-     <xref linkend="pro.ha.geo.setup.rsc.order" xrefstyle="select:title"/>
-    </para>
-   </listitem>
-  </itemizedlist>
-  <para>
-   The resource configurations need to be available on each of the cluster
-   sites. Transfer them to the other sites as described in
-   <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
-  </para>
+ <sect1 xml:id="sec.ha.geo.rsc.ticket-dep">
+  <title>Configuring Ticket Dependencies of Resources</title>
+  &ticket-dependency-loss-policy;
   <procedure xml:id="pro.ha.geo.setup.rsc.constraints">
-   <title>Configuring Ticket Dependencies of Resources</title>
-   &ticket-dependency-loss-policy; 
+   <title>Configuring Ticket Dependencies of Resources with crmsh</title>
    <step>
     <para>
      On one of the nodes of cluster &cluster1;, start a shell and log in as
@@ -242,23 +244,14 @@
    <step xml:id="step.ha.geo.setup.rsc.constraints">
     <para>
      Configure constraints that define which resources depend on a certain
-     ticket. For example, we need the following constraint for the DRBD
-     scenario outlined in
-<!--FIXME<xref linkend="sec.ha.geo.drbd.scenario"/>-->
-     :
+     ticket. For example, to make a primitive resource <literal>rsc1</literal>
+     depend on <literal>&ticket1;</literal>:
     </para>
-<screen>&prompt.crm.conf;<command>rsc_ticket</command> nfs-req-ticket-nfs ticket-nfs: \ 
-   ms_drbd_nfs:Master loss-policy=demote</screen>
+    <screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-&ticket1; &ticket1;: \
+  rsc1 loss-policy="fence"</screen>
     <para>
-     This command creates a constraint with the ID
-     <literal>nfs-req-ticket-nfs</literal>. It defines that the multi-state
-     resource <literal>ms_drbd_nfs</literal> depends on
-     <literal>ticket-nfs</literal>. However, only the resource's master mode
-     depends on the ticket. In case <literal>ticket-nfs</literal> is revoked,
-     <literal>ms_drbd_nfs</literal> is automatically demoted to
-     <literal>slave</literal> mode, which in return will put DRBD into
-     <literal>Secondary</literal> mode. That way, it is ensured that DRBD
-     replication is still running, even if a site does not have the ticket.
+     In case <literal>&ticket1;</literal> is revoked, the node running the
+     resource should be fenced.
     </para>
    </step>
    <step>
@@ -283,21 +276,16 @@
     </para>
    </step>
   </procedure>
-  <example xml:id="ex.ha.geo.setup.rsc.ticket.dep">
-   <title>Ticket Dependency for Primitives</title>
-   <para>
-    Here is another example for a constraint that makes a primitive resource
-    <literal>rsc1</literal> depend on <literal>&ticket1;</literal>:
-   </para>
-<screen>&prompt.crm.conf;<command>rsc_ticket</command> rsc1-req-&ticket1; &ticket1;: \
-   rsc1 loss-policy="fence"</screen>
-   <para>
-    In case <literal>&ticket1;</literal> is revoked, the node running the
-    resource should be fenced.
-   </para>
-  </example>
-  <procedure xml:id="pro.ha.geo.setup.rsc.boothd">
-   <title>Configuring a Resource Group for <systemitem class="daemon">boothd</systemitem></title> 
+ </sect1>
+
+ <sect1 xml:id="sec.ha.geo.rsc.boothd">
+  <title>Configuring a Resource Group for <systemitem class="daemon">boothd</systemitem></title>
+  <para>If you have set up your &geo; cluster with the
+   <systemitem>ha-cluster-init</systemitem> bootstrap scripts, you can skip the
+   following procedure as the resources and the resource group for boothd have
+   already been configured in this case.
+  </para>
+ <procedure>
    &boothd-resource-group; 
    <step>
     <para>
@@ -320,7 +308,7 @@
   params iflabel="ha" nic="eth1" cidr_netmask="24"
   params rule #cluster-name eq &cluster1; ip="192.168.201.151" \
   params rule #cluster-name eq &cluster2; ip="192.168.202.151" 
-&prompt.crm.conf;<command>primitive</command> booth ocf:pacemaker:booth-site \
+&prompt.crm.conf;<command>primitive</command> booth-site ocf:pacemaker:booth-site \
   meta resource-stickiness="INFINITY" \
   params config="nfs" op monitor interval="10s"
 &prompt.crm.conf;<command>group</command> g-booth ip-booth booth</screen>
@@ -344,11 +332,15 @@
      The configuration is saved to the CIB.
     </para>
    </step>
-  </procedure>
+ </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.geo.rsc.order">
+  <title>Adding an Ordering Constraint</title>
 <!--taroth 2012-02-14: fix for bnc#746863-->
-  <procedure xml:id="pro.ha.geo.setup.rsc.order">
-   <title>Adding an Ordering Constraint</title> 
-   &booth-order-constraint; 
+
+  &booth-order-constraint;
+  <procedure>
    <step>
     <para>
      On one of the nodes of cluster &cluster1;, start a shell and log in as
@@ -363,13 +355,13 @@
    </step>
    <step>
     <para>
-     Create an ordering constraint:
+     Create an ordering constraint, for example:
     </para>
-<screen>&prompt.crm.conf;<command>order</command> o-booth-before-nfs inf: g-booth ms_drbd_nfs:promote</screen>
+<screen>&prompt.crm.conf;<command>order</command> o-booth-before-rsc1 inf: g-booth rsc1</screen>
     <para>
-     The ordering constraint <literal>o-booth-before-nfs</literal> defines that
-     the resource <literal>ms_drbd_nfs</literal> can only be promoted to master
-     mode after the <literal>g-booth</literal> resource group has started.
+     It defines that <literal>rsc1</literal> (which depends on
+     <literal>&ticket1;</literal>) can only be started after the
+     <literal>g-booth</literal> resource group.
     </para>
    </step>
    <step>
@@ -394,31 +386,15 @@
     </para>
    </step>
   </procedure>
-  <example xml:id="ex.ha.geo.rsc.order">
-   <title>Ordering Constraint for Primitives</title>
-   <para>
-    If the resource that depends on a certain ticket is not a multi-state
-    resource, but a primitive, the ordering constraint would look like the
-    following:
-   </para>
-<screen>&prompt.crm.conf;<command>order</command> o-booth-before-rsc1 inf: g-booth rsc1</screen>
-   <para>
-    It defines that <literal>rsc1</literal> (which depends on
-    <literal>&ticket1;</literal>) can only be started after the
-    <literal>g-booth</literal> resource group.
-   </para>
-  </example>
  </sect1>
 
  <sect1 xml:id="sec.ha.geo.rsc.sync.cib">
 <!--taroth 2014-11-25: fate#316118: [BETA 7] CIB replication between sites-->
   <title>Transferring the Resource Configuration to Other Cluster Sites</title>
   <para>
-   If you have configured resources for one cluster site as described in
-   <xref linkend="sec.ha.geo.rsc.drbd" xrefstyle="select:label"/> and
-   <xref linkend="sec.ha.geo.rsc.booth" xrefstyle="select:label"/>, you are not
-   done yet. You need to transfer the resource configuration to the other sites
-   of your &geo; cluster.
+   After having completed your resource configuration for one cluster site (or
+   after any adjustments that are also needed for the other cluster sites), transfer
+   the resource configuration to the other sites of your &geo; cluster.
   </para>
   <para>
    To simplify the transfer, you can tag any resources that are needed on
@@ -444,22 +420,21 @@
      [...]
      cluster_name: &cluster1;
      }</screen>
-    <para>
-     This can either be done manually (by editing &corosync.conf;) or with the
-     &yast; cluster module as described in the <citetitle>&admin;</citetitle>
-     for &productname; &productnumber;, available at
-     <link xlink:href="http://www.suse.com/documentation/"/>. Refer to the
-     chapter <citetitle>Installation and Basic Setup</citetitle>, procedure
-     <citetitle>Defining the First Communication Channel</citetitle>.
-    </para>
+     <para>
+      This can either be done manually (by editing &corosync.conf;) or with the
+      &yast; cluster module (by switching to the <guimenu>Communication
+       Channels</guimenu> category and defining a <guimenu>Cluster
+        Name</guimenu>). Afterward, restart the &pace; service for the changes to
+      take effect.
+      </para>
    </listitem>
-   <listitem>
+   <!--<listitem>
     <para>
      You have configured the necessary resources for DRBD and booth as
      described in <xref linkend="sec.ha.geo.rsc.drbd"/> and
      <xref linkend="sec.ha.geo.rsc.booth"/>.
     </para>
-   </listitem>
+   </listitem>-->
   </itemizedlist>
   <procedure xml:id="pro.ha.geo.rsc.sync.cib">
    <title>Transferring the Resource Configuration to Other Cluster Sites</title>
@@ -510,16 +485,16 @@
        the resources.
       </para>
       <calloutlist>
-       <callout arearefs="co.geo.rsc.drbd">
+      <!-- <callout arearefs="co.geo.rsc.drbd">
         <para>
          Resources and constraints for DRBD, see
          <xref linkend="sec.ha.geo.rsc.drbd"/>.
         </para>
-       </callout>
+       </callout>-->
        <callout arearefs="co.geo.rsc.booth">
         <para>
          Resources and constraints for boothd, see
-         <xref linkend="sec.ha.geo.rsc.booth"/>.
+         <xref linkend="sec.ha.geo.rsc.boothd"/>.
         </para>
        </callout>
        <callout arearefs="co.geo.rsc.any">
@@ -627,8 +602,8 @@
   <example xml:id="ex.ha.geo.rsc.refer.params">
    <title>Referencing Site-Dependent Parameters in Resources</title>
    <para>
-    Based on the example in
-    <xref linkend="pro.ha.geo.rsc.drbd" xrefstyle="select:label"/>, you can
+    Based on the example in<!--
+    <xref linkend="sec.ha.geo.rsc.drbd" xrefstyle="select:label"/>-->, you can
     also create resources that reference site-specific parameters of another
     resource, for example, the IP parameters of <literal>ip_nfs</literal>.
     Proceed as follows:
