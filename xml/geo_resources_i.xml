@@ -311,7 +311,7 @@
 &prompt.crm.conf;<command>primitive</command> booth-site ocf:pacemaker:booth-site \
   meta resource-stickiness="INFINITY" \
   params config="nfs" op monitor interval="10s"
-&prompt.crm.conf;<command>group</command> g-booth ip-booth booth</screen>
+&prompt.crm.conf;<command>group</command> g-booth ip-booth booth-site</screen>
     <para>
      With this configuration, each booth daemon will be available at its
      individual IP address, independent of the node the daemon is running on.
@@ -399,9 +399,13 @@
   <para>
    To simplify the transfer, you can tag any resources that are needed on
    <emphasis>all</emphasis> cluster sites, export them from the current CIB,
-   and import them into the CIB of another cluster site.
-   <xref linkend="pro.ha.geo.rsc.sync.cib"/> gives an example of how to do so.
-   It is based on the following prerequisites:
+   and import them into the CIB of another cluster site. Tagging does not create
+   any colocation or ordering relationship between the resources.
+  </para>
+  <para>
+   <xref linkend="pro.ha.geo.rsc.sync.cib.export"/> and <xref
+    linkend="pro.ha.geo.rsc.sync.cib.import"/> give an example of how to do so.
+   They are based on the following prerequisites:
   </para>
   <itemizedlist>
    <title>Prerequisites</title>
@@ -428,16 +432,16 @@
       take effect.
       </para>
    </listitem>
-   <!--<listitem>
+   <listitem>
     <para>
-     You have configured the necessary resources for DRBD and booth as
-     described in <xref linkend="sec.ha.geo.rsc.drbd"/> and
-     <xref linkend="sec.ha.geo.rsc.booth"/>.
+     The necessary resources for booth and for all services that should be highly
+     available across your &geo; cluster have been configured in the CIB on site
+     &cluster1;. They will be imported to the CIB on site &cluster2;.
     </para>
-   </listitem>-->
+   </listitem>
   </itemizedlist>
-  <procedure xml:id="pro.ha.geo.rsc.sync.cib">
-   <title>Transferring the Resource Configuration to Other Cluster Sites</title>
+  <procedure xml:id="pro.ha.geo.rsc.sync.cib.export">
+   <title>Tagging and Exporting a Resource Configuration</title>
    <step>
     <para>
      Log in to one of the nodes of cluster <literal>&cluster1;</literal>.
@@ -456,12 +460,6 @@
     </para>
    </step>
    <step>
-    <para>
-     Tag the resources and constraints that are needed across the &geo;
-     cluster:
-    </para>
-    <substeps performance="required">
-     <step>
       <para>
        Review the current CIB configuration:
       </para>
@@ -469,38 +467,27 @@
      </step>
      <step>
       <para>
-       Enter the following command to group the &geo; cluster-related resources
+       Mark the resources and constraints that are needed across the &geo; cluster
        with the tag <literal>geo_resources</literal>:
       </para>
 <screen>&prompt.crm.conf;<command>tag</command> geo_resources: \
-  ip_nfs nfs_fs nfs_service drbd_nfs drbd_nfs_lower ms_drbd_nfs \
-  ms_drbd_nfs_lower g_nfs <co xml:id="co.geo.rsc.drbd"/>\
-  col_nfs_ip_with_lower  col_nfs_g_with_upper col_nfs_upper_with_ip <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
-  o_lower_drbd_before_ip_nfs o_ip_nfs_before_drbd \
-  o_drbd_nfs_before_svc <xref linkend="co.geo.rsc.drbd" xrefstyle="select:label"/>\
-  nfs-req-ticket-nfs ip-booth booth g-booth o-booth-before-nfs <co xml:id="co.geo.rsc.booth"/>
-  [...] <co xml:id="co.geo.rsc.any"/></screen>
-      <para>
-       Tagging does not create any colocation or ordering relationship between
-       the resources.
-      </para>
-      <calloutlist>
-      <!-- <callout arearefs="co.geo.rsc.drbd">
+  <replaceable>LIST_OF_RESOURCES_and_CONSTRAINTS_FOR_REQUIRED_SERVICES</replaceable> <co xml:id="co.geo.rsc.any"/>\
+  rsc1-req-&ticket1; ip-booth booth-site g-booth o-booth-before-rsc1 <co xml:id="co.geo.rsc.booth"/></screen>
+     <calloutlist>
+      <callout arearefs="co.geo.rsc.any">
         <para>
-         Resources and constraints for DRBD, see
-         <xref linkend="sec.ha.geo.rsc.drbd"/>.
+         Any resources and constraints of your specific setup that you need on all sites
+         of the &geo; cluster (for example, resources for DRBD as described in
+         <link
+          xlink:href="https://www.suse.com/documentation/suse-best-practices/sbp-drbd/data/sbp-drbd.html"/>.
         </para>
-       </callout>-->
+      </callout>
        <callout arearefs="co.geo.rsc.booth">
         <para>
-         Resources and constraints for boothd, see
-         <xref linkend="sec.ha.geo.rsc.boothd"/>.
-        </para>
-       </callout>
-       <callout arearefs="co.geo.rsc.any">
-        <para>
-         Any other resources of your specific setup that you need on all sites
-         of the &geo; cluster.
+         Resources and constraints for boothd (primitives, booth resource group, ticket
+         dependency, additional ordering constraint), see <xref
+          linkend="sec.ha.geo.rsc.ticket-dep" xrefstyle="select:label"/> to
+         <xref linkend="sec.ha.geo.rsc.order" xrefstyle="select:label"/>.
         </para>
        </callout>
       </calloutlist>
@@ -517,9 +504,7 @@
        <command>exit</command>.
       </para>
      </step>
-    </substeps>
-   </step>
-   <step xml:id="st.ha.geo.rsc.sync.cib.export.start">
+    <step xml:id="st.ha.geo.rsc.sync.cib.export.start">
     <para>
      Export the tagged resources and constraints to a file named
      <filename>exported.cib</filename>:
@@ -530,14 +515,19 @@
      tag:</command><replaceable>TAGNAME</replaceable> shows all resources that
      belong to the tag <replaceable>TAGNAME</replaceable>.
     </para>
-   </step>
+    </step>
+  </procedure>
+
+  <procedure xml:id="pro.ha.geo.rsc.sync.cib.import">
+   <title>Importing a Tagged Resource Configuration</title>
+   <para>To import the saved configuration file into the CIB of the second
+    cluster site, proceed as follows:</para>
    <step>
     <para>
-     Log in to one of the nodes of cluster <literal>&cluster2;</literal> and
-     proceed as follows:
+     Log in to one of the nodes of cluster <literal>&cluster2;</literal>.
     </para>
-    <substeps performance="required">
-     <step>
+    </step>
+    <step>
       <para>
        Start the cluster with:
       </para>
@@ -575,35 +565,14 @@
        The imported resources and constraints will appear in the CIB.
       </para>
      </step>
-    </substeps>
-   </step>
-  </procedure>
-  <para>
-   This configuration will result in the following:
-  </para>
-  <itemizedlist>
-   <listitem>
-    <para>
-     When granting <literal>ticket-nfs</literal> to cluster
-     <literal>&cluster1;</literal>, the node hosting the resource
-     <literal>ip_nfs</literal> will get the IP address
-     <literal>192.168.201.151</literal>.
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-     When granting <literal>ticket-nfs</literal> to cluster
-     <literal>&cluster2;</literal>, the node hosting the resource
-     <literal>ip_nfs</literal> will get the IP address
-     <literal>192.168.202.151</literal>.
-    </para>
-   </listitem>
-  </itemizedlist>
+   </procedure>
+  <!--taroth 2017-07-31: commenting because the basis for this is no longer
+      included in this document:
   <example xml:id="ex.ha.geo.rsc.refer.params">
    <title>Referencing Site-Dependent Parameters in Resources</title>
    <para>
-    Based on the example in<!--
-    <xref linkend="sec.ha.geo.rsc.drbd" xrefstyle="select:label"/>-->, you can
+    Based on the example in<!-\-
+    <xref linkend="sec.ha.geo.rsc.drbd" xrefstyle="select:label"/>-\->, you can
     also create resources that reference site-specific parameters of another
     resource, for example, the IP parameters of <literal>ip_nfs</literal>.
     Proceed as follows:
@@ -676,6 +645,6 @@
      </para>
     </listitem>
    </itemizedlist>
-  </example>
+  </example>-->
  </sect1>
 </chapter>
