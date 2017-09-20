@@ -1,0 +1,723 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<?provo dirname="geo_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_geo_quick.xml" version="5.0" xml:lang="zh-cn" xml:id="art.ha.geo.quick">
+ <title>Geo 群集快速入门</title>
+ <subtitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase></productnumber><productname><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname><date>
+<?dbtimestamp format="Y"?>
+
+ 年 <?dbtimestamp format="B"?>
+
+ 月 <?dbtimestamp format="d"?>
+
+ 日 
+</date>
+  <authorgroup>
+   <author><personname><firstname>Tanja</firstname><surname>Roth</surname></personname>
+   </author>
+   <author><personname><firstname>Thomas</firstname><surname>Schraitle</surname></personname>
+   </author>
+  </authorgroup>
+  <abstract>
+   <para>
+     使用 Geo 群集，您可以拥有多个地理位置分散的站点并且在每个站点部署一个本地群集。这些群集之间的故障转移由更高级别的实体进行协调，即投票间群集票据管理器。本文档会指导您使用 <systemitem class="resource">ha-cluster-bootstrap</systemitem> 包提供的 Geo 引导脚本完成 Geo 群集的基本设置。
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:bugtracker>
+    <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+    <dm:product>SUSE Linux Enterprise High Availability Extension 12 SP3</dm:product>
+    <dm:component>GEO 群集</dm:component>
+   </dm:bugtracker>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec.ha.geo.quick.concept">
+  <title>概念概述</title>
+
+  <para>
+   基于 <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> 的 Geo 群集可视为<quote>覆盖</quote>群集，其中每个群集站点对应传统群集中的一个群集节点。覆盖群集由投票间群集票据管理器（以下简称“投票间”）管理。Geo 群集中的各方都会运行一个服务，即 <systemitem class="daemon">boothd</systemitem>。它连接到其余站点上运行的投票间守护程序，并交换连接性细节。投票间依靠称为“票据”的群集对象来确保群集资源在各站点之间的高度可用性。票据授予在特定群集站点上运行某些资源的权限。投票间可保证每个票据一次只会授予给一个站点。
+  </para>
+  <para>
+   如果两个投票间实例之间的通讯断开，则可能是因为群集站点之间的网络发生故障<emphasis>或</emphasis>其中一个群集站点中断。在此情况下，您需要使用一个额外的实例（第三个群集站点或<literal>仲裁方</literal>）来就各决策（例如在站点间进行资源的故障转移）达成一致意见。仲裁方是一台以特殊模式运行投票间实例的计算机（不属于群集）。每个 Geo 群集都可以有一个或多个仲裁方。
+  </para>
+
+  <para>
+   <remark>toms 2017-07-04: for the future: maybe also add example IP addresses
+    to graphic (node IPs, VIPs for cluster sites)
+    </remark>
+  </para>
+
+  <figure xml:id="fig.ha.geo.quick.example.geosetup">
+   <title>双站点群集（2x2 个节点 + 仲裁方）</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geocluster.svg" width="100%" format="SVG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   有关用于 Geo 群集的概念、组件和票据管理的更多细节，请参见《<literal>Geo Clustering Guide</literal>》（Geo 群集指南）中的“<citetitle>Conceptual Overview</citetitle>”（概念概述）一章。<link xlink:href="https://www.suse.com/documentation"/> 上提供了该文档。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.scenario">
+  <title>使用案例</title>
+
+  <para>
+   下面，我们将会设置一个包含两个群集站点和一个仲裁方的基本 Geo 群集：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     我们假设群集站点名为 <literal>amsterdam</literal> 和 <literal>berlin</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     我们假设每个站点分别包含两个节点。节点 <literal>alice</literal> 和 <literal>bob</literal> 属于群集 <literal>amsterdam</literal>。节点 <literal>charlie</literal> 和 <literal>doro</literal> 属于群集 <literal>berlin</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     站点 <literal>amsterdam</literal> 将分配到以下虚拟 IP 地址：<literal>192.168.201.100</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     站点 <literal>berlin</literal> 将分配到以下虚拟 IP 地址：<literal>192.168.202.100</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     我们假设仲裁方的 IP 地址为 <literal>192.168.203.100</literal>。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   继续操作前，请确保已满足以下要求：
+  </para>
+
+  <variablelist>
+   <title>要求</title>
+   <varlistentry>
+    <term>两个现有的群集</term>
+    <listitem>
+     <para>
+      您至少拥有两个要合并到 Geo 群集中的现有群集（如果需要先设置两个群集，请按照《<citetitle>安装和设置快速入门</citetitle>》中的指导操作。该文档可从 <link xlink:href="https://www.suse.com/documentation"/> 获得）。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>有意义的群集名称</term>
+    <listitem>
+     <para>
+      每个群集都有一个有意义的名称，该名称可反映其位置，定义于 <filename>/etc/corosync/corosync.conf</filename> 中。
+     </para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>仲裁方</term>
+    <listitem>
+     <para>
+      您已安装不属于任何现有群集且将用作仲裁方的第三台计算机。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   有关各项的详细要求，另请参见<xref linkend="sec.ha.geo.quick.req"/>。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.req">
+  <title>要求</title>
+
+  <itemizedlist>
+  <title>软件要求</title>
+  <listitem>
+   <para>
+    要加入 Geo 群集的所有计算机（群集节点和仲裁方）上都已安装以下软件：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      SUSE® Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Geo Clustering for SUSE Linux Enterprise High Availability Extension <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase>
+      
+     </para>
+    </listitem>
+   </itemizedlist>
+  </listitem>
+ </itemizedlist>
+
+  <itemizedlist>
+   <title>网络要求</title>
+   <listitem>
+   <para>
+    要用于每个群集站点的虚拟 IP 在 Geo 群集中必须可访问。
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+     必须可以通过每个投票间实例上的一个 UDP 和 TCP 端口访问站点。这意味着，必须相应地配置通讯双方之间的所有防火墙和 IPsec 隧道。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     可能需要做出其他有关打开更多端口的设置决策（例如，为 DRBD 或数据库复制打开端口）。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <itemizedlist>
+  <title>其他要求和建议</title>
+  <listitem>
+   <para>
+    所有站点上的所有群集节点应同步到群集外部的 NTP 服务器。有关详细信息，请参见《<citetitle>SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase> 管理指南</citetitle>》：<link xlink:href="http://www.suse.com/documentation/"/>。请参见<citetitle>“使用 NTP 同步时间”</citetitle>一章。
+   </para>
+   <para>
+    如果节点未同步，将难以分析日志文件和群集报告。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    在 Geo 群集中使用<emphasis>奇数</emphasis>数量的成员。这样可确保在网络连接断开时仍存有大部分站点（从而避免出现节点分裂情形）。如果群集站点的数量为偶数，请使用一个仲裁方。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    每个站点上的群集都有一个有意义的名称，例如 <literal>amsterdam</literal> 和 <literal>berlin</literal>。
+   </para>
+   <para>
+    已在相应的 <filename>/etc/corosync/corosync.conf</filename> 文件中定义每个站点的群集名称。
+   </para>
+<screen>totem {
+    [...]
+    cluster_name: amsterdam
+    }
+</screen>
+   <para>
+    您可以手动完成此操作（即编辑 <filename>/etc/corosync/corosync.conf</filename>），也可以通过 YaST 群集模块进行（即切换到<guimenu>通讯通道</guimenu>类别，然后定义<guimenu>群集名称</guimenu>）。随后，请停止 <systemitem class="service">pacemaker</systemitem> 服务然后再将其启动，以使更改生效：
+   </para> <screen><prompt role="root">root # </prompt><command>systemctl</command> stop pacemaker
+<prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+  </listitem>
+ </itemizedlist>
+
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.scripts">
+  <title>Geo 引导脚本概述</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     使用 <command>ha-cluster-geo-init</command> 可将一个群集变为 Geo 群集的第一个站点。该脚本会获取某些参数（例如群集的名称、仲裁方，以及一个或多个票据）并基于它们创建 <filename>/etc/booth/booth.conf</filename>。它会将投票间配置复制到当前群集站点上的所有节点。它还会为当前群集站点上的投票间配置所需的群集资源。
+    </para>
+    <para>
+     有关细节，请参见<xref linkend="sec.ha.geo.quick.ha-cluster-geo-init"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用 <command>ha-cluster-geo-join</command> 可将当前群集添加到现有的 Geo 群集中。该脚本会从现有群集站点复制投票间配置，并将其写入到当前群集站点上所有节点的 <filename>/etc/booth/booth.conf</filename> 中。它还会为当前群集站点上的投票间配置所需的群集资源。
+    </para>
+    <para>
+     有关细节，请参见<xref linkend="sec.ha.geo.quick.ha-cluster-geo-join"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用 <command>ha-cluster-geo-init-arbitrator</command> 可将当前计算机变为 Geo 群集的仲裁方。该脚本会从现有群集站点复制投票间配置，并将其写入 <filename>/etc/booth/booth.conf</filename>。
+    </para>
+    <para>
+     有关细节，请参见<xref linkend="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator"/>。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   所有引导脚本都会记录到 <filename>/var/log/ha-cluster-bootstrap.log</filename> 中。如需引导过程的任何细节，请查看日志文件。在引导过程中设置的任何选项都可在稍后加以修改（通过修改投票间设置、修改资源等）。有关细节，请参见《<literal>Geo Clustering Guide</literal>》(Geo 群集指南）。<link xlink:href="https://www.suse.com/documentation"/> 上提供了该文档。
+  </para>
+
+
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.inst">
+  <title>作为扩展安装</title>
+
+  <para>
+   安装单独的扩展 Geo Clustering for SUSE Linux Enterprise High Availability Extension，即可不受距离限制使用高可用性群集。
+  </para>
+  <para>
+   要设置 Geo 群集，您需要包含在以下安装模式中的包：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <literal>High Availability</literal>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <literal>Geo Clustering for High Availability</literal>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   仅当您已在 SUSE Customer Center（或本地注册服务器）中注册了系统，并且已添加相应的产品通道或安装媒体作为扩展时，这两个模式才可用。有关如何安装扩展的信息，请参见《<citetitle>SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase> 部署指南</citetitle>》：<link xlink:href="http://www.suse.com/documentation/"/>请参考“<citetitle>安装模块、扩展和第三方外接式附件</citetitle>”一章。
+
+  </para>
+
+  <procedure xml:id="pro.ha.geo.inst">
+   <title>安装包</title>
+   <step>
+    <para>
+     要通过命令行从这两个模式安装包，请使用 Zypper：
+    </para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> install -t pattern ha_sles ha_geo</screen>
+   </step>
+   <step xml:id="st.ha.geo.inst.yast">
+    <para>
+     或者，使用 YaST 在图形界面中安装：
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       以 <systemitem class="username">root</systemitem> 用户身份启动 YaST 并选择<menuchoice>
+       <guimenu>软件</guimenu> <guimenu> 软件管理</guimenu>
+       </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       单击<menuchoice> <guimenu> 视图</guimenu> <guimenu> 模式</guimenu>
+       </menuchoice> ，然后激活以下模式：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         <literal>High Availability</literal>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <literal>Geo Clustering for High Availability</literal>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </step>
+     <step>
+      <para>
+       单击<guimenu>接受</guimenu>开始安装包。
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+
+  <important>
+   <title>在所有参与方上安装软件包</title>
+   <para>
+    高可用性和 Geo 群集所需的软件包<emphasis>不</emphasis>会自动复制到群集节点。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      请在要加入地域群集的<phrase role="productnumber"><phrase os="sles">所有</phrase></phrase>计算机上安装 SUSE Linux Enterprise Server <literal>12 SP3</literal> 以及 <literal>High Availability</literal> 和 <emphasis>Geo Clustering for High Availability</emphasis> 模式。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      您不必在要加入群集的所有计算机上手动安装这些包，而应使用 AutoYaST 克隆现有节点。<link xlink:href="http://www.suse.com/documentation/"/> 上的《<citetitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>
+      <phrase role="productnumber"><phrase os="sles"> 12 SP3</phrase></phrase> 管理指南</citetitle>》中提供了详细信息。请参见“<citetitle>Installing the High Availability Extension</citetitle>”（安装 High Availability Extension）一章中的“<citetitle>Mass Installation and Deployment with AutoYaST</citetitle>”（使用 AutoYaST 进行批量安装和部署）部分。
+     </para>
+     <para>
+      <remark>taroth 2017-06-29: @DEV/QA, is the following still true?</remark>不过，必须<emphasis>手动</emphasis>将 Geo 群集扩展安装到要加入 Geo 群集的所有计算机上。目前尚不支持使用 AutoYaST 安装 Geo Clustering for SUSE Linux Enterprise High Availability Extension。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init">
+  <title>设置 Geo 群集的第一个站点</title>
+
+  <para>
+   使用 <command>ha-cluster-geo-init</command> 脚本可将现有群集变为 Geo 群集的第一个站点。
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init">
+   <title>使用 <command>ha-cluster-geo-init</command> 设置第一个站点 (<systemitem>amsterdam</systemitem>)</title>
+   <step>
+    <para>
+     为每个群集站点定义一个虚拟 IP，以便访问该站点。在此，我们假设使用 <literal>192.168.201.100</literal> 和 <literal>192.168.202.100</literal>。您并不需要将虚拟 IP 配置为群集资源。此工作将由引导脚本完成。
+    </para>
+   </step>
+   <step>
+    <para>
+     至少定义一个票据的名称，该票据用于授予在群集站点上运行特定资源的权限。使用一个有意义的名称来反映将依赖于该票据的资源，例如 <literal>ticket-nfs</literal>。引导脚本只需要票据名称，您可以稍后再按<xref linkend="sec.ha.geo.quick.next"/>中所述定义其余的细节（资源的票据依赖项）。
+    </para>
+   </step>
+   <step>
+    <para>
+     登录现有群集的节点（例如，群集 <literal>amsterdam</literal> 的节点 <literal>alice</literal>）。
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-init">
+    <para>
+     运行 <command>ha-cluster-geo-init</command>。例如，使用以下选项：
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init</command> \
+  --clusters<co xml:id="co.geo.init.clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100" \
+  --tickets<co xml:id="co.geo.init.ticket"/> ticket-nfs \
+  --arbitrator<co xml:id="co.geo.init.arbitrator"/> 192.168.203.100</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.clusters">
+       <para>
+    群集站点的名称（定义于 <filename>/etc/corosync/corosync.conf</filename> 中）和您想要为每个群集站点使用的虚拟 IP 地址。在本例中，我们有两个群集站点（<literal>amsterdam</literal> 和 <literal>berlin</literal>），每个站点各有一个虚拟 IP 地址。
+   </para>
+     </callout>
+     <callout arearefs="co.geo.init.ticket">
+      <para>
+       一个或多个票据的名称。
+      </para>
+     </callout>
+     <callout arearefs="co.geo.init.arbitrator">
+      <para>
+       不属于群集的计算机的主机名或 IP 地址。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   该引导脚本会创建投票间配置文件，并在群集站点间同步该文件。它还会创建投票间所需的的基本群集资源。执行<xref linkend="pro.ha.geo.quick.ha-cluster-geo-init" xrefstyle="select:label"/> 的<xref linkend="st.ha-cluster-geo-init" xrefstyle="seletc:label"/> 将创建以下投票间配置和群集资源：
+  </para>
+
+  <example xml:id="ex.geo.init.booth.conf">
+   <title><command>ha-cluster-geo-init</command> 创建的投票间配置</title>
+<screen># The booth configuration file is "/etc/booth/booth.conf". You need to
+# prepare the same booth configuration file on each arbitrator and
+# each node in the cluster sites where the booth daemon can be launched.
+
+# "transport" means which transport layer booth daemon will use.
+# Currently only "UDP" is supported.
+transport="UDP"
+port="9929"
+
+arbitrator="192.168.203.100"
+site="192.168.201.100"
+site="192.168.202.100"
+authfile="/etc/booth/authkey"
+ticket="ticket-nfs"
+expire="600"</screen>
+  </example>
+
+  <example xml:id="ex.geo.init.rsc.conf">
+   <title><command>ha-cluster-geo-init</command> 创建的群集资源</title>
+<screen>primitive<co xml:id="co.geo.quick.rsc.booth-ip"/> booth-ip IPaddr2 \
+  params rule #cluster-name eq amsterdam ip=192.168.201.100 \
+  params rule #cluster-name eq berlin ip=192.168.202.100 \
+primitive<co xml:id="co.geo.quick.rsc.booth-site"/> booth-site ocf:pacemaker:booth-site \
+  meta resource-stickiness=INFINITY \
+  params config=booth \
+  op monitor interval=10s
+group<co xml:id="co.geo.quick.rsc.g-booth"/> g-booth booth-ip booth-site \
+meta target-role=Stopped<co xml:id="co.geo.quick.rsc.stopped"/></screen>
+   <calloutlist>
+    <callout arearefs="co.geo.quick.rsc.booth-ip">
+     <para>
+      每个群集站点的虚拟 IP 地址。必须为投票间守护程序提供该虚拟 IP 地址，因为其需要每个群集站点上都有永久的 IP 地址。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.booth-site">
+     <para>
+      投票间守护程序的原始资源。它会与其余群集站点上的投票间守护程序通讯。在站点的任何节点上均可启动该守护程序，但若要使资源位于同一个节点上（如果可行），则需将资源粘性设置为 <literal>INFINITY</literal>。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.g-booth">
+     <para>
+      两个原始资源的群集资源组。通过这种配置，每个投票间守护程序都将在各自的 IP 地址处可用，独立于运行守护程序的节点。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.stopped">
+     <para>
+      该群集资源组默认不会启动。校验群集资源的配置（并添加完成设置所需的资源）后，您需要启动该资源组。有关详细信息，请参见 <xref linkend="vl.ha.geo.quick.next.req"/>。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-join">
+  <title>向 Geo 群集添加另一个站点</title>
+
+  <para>
+   初始化 Geo 群集的第一个站点后，请按<xref linkend="pro.ha.geo.quick.ha-cluster-geo-join" xrefstyle="select:label"/> 中所述使用 <literal>ha-cluster-geo-join</literal> 添加第二个群集。该脚本需要通过 SSH 访问已配置的群集站点，并且会将当前的群集添加到 Geo 群集。
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-join">
+   <title>使用 <command>ha-cluster-geo-join</command> 添加第二个站点 (<literal>berlin</literal>)</title>
+   <step>
+    <para>
+     登录要添加的群集站点的某个节点（例如，群集 <literal>berlin</literal> 的节点 <literal>charlie</literal>）。
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-join">
+    <para>
+     运行 <command>ha-cluster-geo-join</command> 命令。例如：
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-join</command> \
+  --cluster-node<co xml:id="co.geo.join.cluster-node"/> 192.168.201.100\
+  --clusters<co xml:id="co.geo.join.clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100"
+     </screen>
+    <calloutlist>
+     <callout arearefs="co.geo.join.cluster-node">
+      <para>
+       指定要从何处复制投票间配置。请使用已配置的 Geo 群集站点中某节点的 IP 地址或主机名。也可以使用现有群集站点的虚拟 IP 地址（如本示例中所示）。或者，使用已为 Geo 群集配置的仲裁方的 IP 地址或主机名。
+      </para>
+     </callout>
+     <callout arearefs="co.geo.join.clusters">
+       <para>
+    群集站点的名称（定义于 <filename>/etc/corosync/corosync.conf</filename> 中）和您想要为每个群集站点使用的虚拟 IP 地址。在本例中，我们有两个群集站点（<literal>amsterdam</literal> 和 <literal>berlin</literal>），每个站点各有一个虚拟 IP 地址。
+   </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   <command>ha-cluster-geo-join</command> 脚本会从 <xref linkend="co.geo.join.cluster-node" xrefstyle="select:label"/> 复制投票间配置，请参见<xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/>。此外，它还会创建投票间所需的群集资源（请参见<xref linkend="ex.geo.init.rsc.conf" xrefstyle="select:label"/>）。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+  <title>添加仲裁方</title>
+
+  <para>
+   使用 <command>ha-cluster-geo-init</command> 和 <command>ha-cluster-geo-join</command> 设置 Geo 群集的所有站点后，请使用 <command>ha-cluster-geo-init-arbitrator</command> 设置仲裁方。
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+   <title>使用 <command>ha-cluster-geo-init-arbitrator</command> 设置仲裁方</title>
+   <step>
+    <para>
+     登录要用作仲裁方的计算机。
+    </para>
+   </step>
+   <step>
+    <para>
+     运行以下命令。例如：
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init-arbitrator</command> --cluster-node<co xml:id="co.geo.init.arbitrator.cluster-node"/> 192.168.201.100</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.arbitrator.cluster-node">
+      <para>
+       指定要从何处复制投票间配置。请使用已配置的 Geo 群集站点中某节点的 IP 地址或主机名。或者，使用现有群集站点的虚拟 IP 地址（如本示例中所示）。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   <command>ha-cluster-geo-init-arbitrator</command> 脚本会从 <xref linkend="co.geo.init.arbitrator.cluster-node"/> 复制投票间配置，如<xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/> 所示。它还会在仲裁方上启用并启动投票间服务。因此，一旦群集站点上也在运行投票间服务，仲裁方便会立即与这些群集站点上的投票间实例通讯。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.monitor">
+  <title>监视群集站点</title>
+
+  <para>
+   要查看您已在引导过程中创建的群集站点及资源与票据，请使用 Hawk2。通过 Hawk2 Web 界面，您可以监视和管理多个（不相关的）群集和 Geo 群集。
+  </para>
+
+  <itemizedlist>
+   <title>先决条件</title>
+   <listitem>
+    <para>
+     要通过 Hawk3 的<guimenu>仪表板</guimenu>监视的所有群集必须运行 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles"> 12 SP2</phrase></phrase>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     如果您之前未在每个群集节点上用自己的证书（或官方证书颁发机构签名的证书）替换 Hawk2 的自我签名证书，请执行以下操作：在<emphasis>每个</emphasis>群集的<emphasis>每个</emphasis>节点上至少登录 Hawk2 一次。验证证书（或在浏览器中添加例外以绕过警告）。否则，Hawk2 将无法连接到群集。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.geo.quick.hawk2.dashboard">
+   <title>使用 Hawk2 仪表板</title>
+   <step>
+    <para>
+     启动 Web 浏览器并输入第一个群集站点 <literal>amsterdam</literal> 的虚拟 IP。
+    </para>
+<screen>https://192.168.201.100:7630/</screen>
+    <para>
+     或者，使用 <literal>alice</literal> 或 <literal>bob</literal> 的 IP 地址或主机名。如果您已使用引导脚本设置两个节点，则 <literal>hawk</literal> 服务在这两个节点上应当都会运行。
+    </para>
+   </step>
+   <step>
+    <para>
+     登录到 Hawk2 Web 界面。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中，选择<guimenu>仪表板</guimenu>。
+    </para>
+    <para>
+     Hawk2 会显示当前群集站点的资源和节点的概述。此外，它还会显示已为 Geo 群集配置的所有<guimenu>票据</guimenu>。如需有关此视图中所用图标的信息，请单击<guimenu>图例</guimenu>。
+    </para>
+    <figure>
+     <title>包含一个群集站点 (<literal>amsterdam</literal>) 的 Hawk2 仪表板</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="95%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     要添加第二个群集站点的仪表板，请单击<guimenu>添加群集</guimenu>。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       输入用于在<guimenu>仪表板</guimenu>中标识该群集的<guimenu>群集名称</guimenu>。在本例中为 <literal>berlin</literal>。
+      </para>
+     </step>
+     <step>
+      <para>
+       输入其中一个群集节点（在本例中为 <literal>charlie</literal> 或 <literal>doro</literal>）的完全限定的主机名。
+      </para>
+     </step>
+     <step>
+      <para>
+       单击<guimenu>添加</guimenu>。Hawk2 会为新添加的群集站点显示另一个选项卡，其中会列出该群集站点的节点和资源的概述。
+      </para>
+      <figure>
+       <title>包含两个群集站点的 Hawk2 仪表板</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="95%" format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     要查看群集站点的更多细节或管理群集站点，请切换到站点的选项卡并单击锁链图标。
+    </para>
+    <para>
+     Hawk2 会在新的浏览器窗口或选项卡中打开此站点的<guimenu>状态</guimenu>视图。在此视图中，您可以管理 Geo 群集的这部分内容。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.next">
+  <title>后续步骤</title>
+
+  <para>
+   使用 Geo 群集引导脚本，您可以快速地设置可用于测试用途的基本 Geo 群集。不过，要将创建的 Geo 群集迁移到正常工作的可用于生产环境的 Geo 群集，则需执行更多步骤（请参见<xref linkend="vl.ha.geo.quick.next.req"/>）。
+  </para>
+
+  <variablelist xml:id="vl.ha.geo.quick.next.req">
+   <title>完成 Geo 群集设置所需的步骤</title>
+   <varlistentry xml:id="vle.ha.geo.quick.booth.service.sites">
+    <term>在群集站点上启动投票间服务</term>
+    <listitem>
+     <para>
+      引导过程完成后，仲裁方投票间服务还不能与群集站点上的投票间服务通讯，因为这些服务默认不会启动。
+     </para>
+     <para>
+      每个群集站点的投票间服务都由投票间资源组 <literal>g-booth</literal> 管理（请参见<xref linkend="ex.geo.init.rsc.conf"/>）。要为每个站点启动一个投票间服务实例，请在每个群集站点上启动相应的投票间资源组。这样可让所有投票间实例互相通讯。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>配置票据依赖项和顺序约束</term>
+    <listitem>
+     <para>
+      要使资源依赖您已在 Geo 群集引导过程中创建的票据，请配置约束。请为每个约束设置 <literal>loss-policy</literal>，它用于定义当从群集站点撤消票据时相应资源应发生的情况。
+     </para>
+     <para>
+      有关细节，请参见《<literal>Geo Clustering Guide</literal>》（Geo 群集指南）的“<citetitle>Configuring Cluster Resources and Constraints</citetitle>”（配置群集资源和约束）一章。其网址为：<link xlink:href="https://www.suse.com/documentation"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>在开始时向站点授予票据</term>
+    <listitem>
+     <para>
+      在投票间可以管理 Geo 群集中的特定票据前，您首先需要手动将该票据<emphasis>授予</emphasis>给站点。您可以使用投票间客户端命令行工具或 Hawk2 授予票据。
+     </para>
+     <para>
+      有关细节，请参见《<literal>Geo Clustering Guide</literal>》（Geo 群集指南）中的“<citetitle>Managing Geo Clusters</citetitle>”（管理 Geo 群集）一章。<link xlink:href="https://www.suse.com/documentation"/> 上提供了该文档。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   引导脚本会在两个群集站点上创建相同的投票间资源，并在所有站点（包括仲裁方）上创建相同的投票间配置文件。如果您扩展 Geo 群集设置（以便迁移到生产环境），可能需要调整投票间配置并更改与投票间有关的群集资源的配置。之后，您需要将更改同步到 Geo 群集的其余站点才能使其生效。
+  </para>
+
+  <note>
+   <title>跨群集站点同步更改</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      要将投票间配置中的更改同步到所有群集站点（包括仲裁方），请使用 Csync2。《<literal>Geo Clustering Guide</literal>》（Geo 群集指南）中的“<citetitle>Synchronizing Configuration Files Across All Sites and Arbitrators</citetitle>”（跨所有站点和仲裁方同步配置文件）一章中提供了详细信息。<link xlink:href="https://www.suse.com/documentation"/> 中提供了该指南。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      CIB（群集信息数据库）不会跨 Geo 群集的群集站点自动同步。这意味着需要将所有群集站点上必需的资源配置中的所有更改手动传输到其余站点。要执行此操作，请标记相应资源，从当前 CIB 导出这些资源并将其导入到其余群集站点上的 CIB。有关细节，请参见《<literal>Geo Clustering Guide</literal>》（Geo 群集指南）的“<citetitle>Transferring the Resource Configuration to Other Cluster Sites</citetitle>”（将资源配置传输到其他群集站点）。<link xlink:href="https://www.suse.com/documentation"/> 中提供了该指南。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.more">
+  <title>更多信息</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <link xlink:href="https://www.suse.com/documentation/sle-ha-geo-12/"/> 上提供了更多有关此产品的文档。其中包括完整的《<literal>Geo Clustering Guide</literal>》（Geo 群集指南）。更多配置和管理任务，敬请参考该文档。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     “<literal>SUSE Best Practices</literal>”（SUSE 最佳实践）系列中已发布了包含有关如何通过 DRBD 跨 Geo 群集进行数据复制的详细信息的文档：<link xlink:href="https://www.suse.com/documentation/suse-best-practices/sbp-drbd/data/sbp-drbd.html"/>。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>

@@ -1,0 +1,539 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_acl.xml" version="5.0" xml:id="cha.ha.acl">
+ <title>访问控制列表</title>
+ <info>
+      <abstract>
+        <para>
+    crm 外壳 (crmsh) 或 Hawk2 等群集管理工具可由 <systemitem class="username">root</systemitem> 用户或 <systemitem class="groupname">haclient</systemitem> 组内的任何用户使用。默认情况下，这些用户具有完全读/写访问权。要限制访问权或指派更加细化的访问权限，可以使用<emphasis>访问控制列表</emphasis> (ACL)。
+   </para>
+        <para>
+    访问控制列表由一组有序的访问规则构成。每个规则针对一部分群集配置赋予用户读取或写入访问权限，或拒绝其访问。规则通常会组合在一起产生特定角色，然后可以为用户指派与其任务匹配的角色。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+
+ </para>
+ <note>
+  <title>CIB 语法验证版本和 ACL 的差异</title>
+  <para>
+   仅当您的 CIB 是使用 <literal>pacemaker-2.0</literal> 或更高 CIB 语法版本验证的情况下，此 ACL 文档才适用。有关如何查验这一点以及升级 CIB 版本的细节，请参见<xref linkend="note.ha.cib.upgrade"/>。
+  </para>
+  <para>
+   如果您已从 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 11 SPx 升级并保留了以前的 CIB 版本，请参见 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 11 SP3 或更低版本的《管理指南》中的“<citetitle>访问控制列表</citetitle>”一章。网址：<link xlink:href="http://www.suse.com/documentation/"/>。
+  </para>
+ </note>
+ <sect1 xml:id="sec.ha.acl.require">
+  <title>要求和先决条件</title>
+
+  <para>
+   开始对群集使用 ACL 之前，确保满足了以下条件：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     请使用 NIS、Active Directory 或者通过手动方式将相同用户添加到所有节点，来确保群集中所有节点上的用户一致。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     您要使用 ACL 修改其访问权限的所有用户都必须属于 <systemitem class="groupname">haclient</systemitem> 组。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     所有用户都需要使用 crmsh 的绝对路径 <filename>/usr/sbin/crm</filename> 运行 crmsh。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     如果非特权用户想要运行 crmsh，则需要使用 <filename>/usr/sbin</filename> 扩展其 <envar>PATH</envar> 变量。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <important>
+   <title>默认访问权限</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      ACL 是可选功能。默认情况下，ACL 处于禁用状态。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果未启用 ACL，则 <systemitem class="username">root</systemitem> 用户以及属于 <systemitem class="groupname">haclient</systemitem> 组的所有用户都将拥有对群集配置的完全读/写访问权。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      即使启用并配置了 ACL，<systemitem class="username">root</systemitem> 和默认 CRM 拥有者 <systemitem class="username">hacluster</systemitem>
+      <emphasis> 也始终</emphasis>对群集配置拥有完全访问权。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </important>
+
+  <para>
+   要使用 ACL，需要具备一些关于 XPath 的知识。XPath 是在 XML 文档中选择节点所用的语言。请参见 <link xlink:href="http://en.wikipedia.org/wiki/XPath"/> 或查找位于 <link xlink:href="http://www.w3.org/TR/xpath/"/> 的规范。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.acl.enable">
+  <title>在群集中启用 ACL</title>
+
+  <para>
+   在开始配置 ACL 之前，需要先<emphasis>启用</emphasis> ACL。要执行此操作，请在 crmsh 中使用以下命令：
+  </para>
+
+<screen><prompt role="root">root # </prompt><command>crm</command> configure property enable-acl=true</screen>
+    <para>
+   或者，按<xref linkend="pro.ha.acl.enable.hawk2"/>中所述使用 Hawk2。
+  </para>
+
+  <procedure xml:id="pro.ha.acl.enable.hawk2">
+   <title>使用 Hawk 启用 ACL</title>
+   <step>
+    <para>
+     登录 Hawk2：
+    </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中，选择<guimenu>群集配置</guimenu>显示全局群集选项及它们当前的值。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>群集配置</guimenu>下面，单击空下拉框并选择 <guimenu>enable-acl</guimenu> 以添加该参数。系统即会添加该参数，且将其设为默认值 <literal>No</literal>。
+    </para>
+   </step>
+   <step>
+    <para>
+     将其值设置为 <literal>Yes</literal>，然后应用更改。
+    </para>
+   </step>
+  </procedure>
+  
+ </sect1>
+ <sect1 xml:id="sec.ha.acl.basics">
+  <title>ACL 的基本原理</title>
+
+  <para>
+   访问控制列表由一组有序的访问规则构成。每个规则针对一部分群集配置赋予用户读取或写入访问权限，或拒绝其访问。规则通常会组合在一起产生特定角色，然后可以为用户指派与其任务匹配的角色。ACL 角色是用于描述对 CIB 访问权限的一组规则。规则包括以下组成部分：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     访问权限，例如<literal>读</literal>、<literal>写</literal>或<literal>拒绝</literal>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     规则应用位置的规范。此规范可以是类型、ID 参照或 XPath 表达式。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   通常，方便的做法是在角色中捆绑 ACL 并将特定角色指派给系统用户（ACL 目标）。创建 ACL 规则的方法有两种：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.acl.config.xpath"/>。需要知道基础 XML 的结构才能创建 ACL 规则。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.acl.config.tag"/>。创建速记语法和 ACL 规则以应用到匹配的对象。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <sect2 xml:id="sec.ha.acl.config.xpath">
+   <title>通过 XPath 表达式设置 ACL 规则</title>
+   <para>
+    要通过 XPath 管理 ACL 规则，需要知道基础 XML 的结构。可使用以下命令来检索结构（该命令将显示 XML 格式的群集配置，请参见<xref linkend="ex.ha.acl.excerpt" xrefstyle="select:label nopage"/>）：
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure show xml</screen>
+   <remark>taroth 2014-08-13: filed https://bugzilla.novell.com/show_bug.cgi?id=891695 for a future "Show CIB"
+    option in Hawk</remark>
+   <example xml:id="ex.ha.acl.excerpt">
+    <title>XML 格式群集配置摘录</title>
+<screen>&lt;num_updates="59" 
+      dc-uuid="175704363"
+      crm_feature_set="3.0.9"
+      validate-with="pacemaker-2.0"
+      epoch="96"
+      admin_epoch="0"
+      cib-last-written="Fri Aug  8 13:47:28 2014"
+      have-quorum="1"&gt;
+  &lt;configuration&gt;
+    &lt;crm_config&gt;
+       &lt;cluster_property_set id="cib-bootstrap-options"&gt;
+        &lt;nvpair name="stonith-enabled" value="true" id="cib-bootstrap-options-stonith-enabled"/&gt;
+       [...]
+      &lt;/cluster_property_set&gt;
+    &lt;/crm_config&gt;
+    &lt;nodes&gt;
+      &lt;node id="175704363" uname="alice"/&gt;
+      &lt;node id="175704619" uname="bob"/&gt;
+    &lt;/nodes&gt;
+    &lt;resources&gt; [...]  &lt;/resources&gt;
+    &lt;constraints/&gt;
+    &lt;rsc_defaults&gt; [...] &lt;/rsc_defaults&gt;
+    &lt;op_defaults&gt; [...] &lt;/op_defaults&gt;
+  &lt;configuration&gt;
+&lt;/cib&gt;</screen>
+   </example>
+   <para>
+    使用 XPath 语言，您可在此 XML 文档中查找节点。例如，要选择 root 节点 (<literal>cib</literal>)，则使用 XPath 表达式 <literal>/cib</literal>。要查找全局群集配置，则使用 XPath 表达式 <literal>/cib/configuration/crm_config</literal>。
+   </para>
+   <para>
+    例如，<xref linkend="tab.ha.acl.operator"/>显示了用于创建<quote>操作员</quote>角色的参数（访问类型和 XPath 表达式）。具有此角色的用户只能执行第二列中所述的任务 - 他们既不能重新配置任何资源（例如，更改参数或操作），也不能更改共置约束或顺序约束的配置。
+   </para>
+   <table xml:id="tab.ha.acl.operator">
+    <title>Operator 角色 - 访问类型和 XPath 表达式</title>
+    <tgroup cols="2">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         类型
+        </para>
+       </entry>
+       <entry>
+        <para>
+         XPath/说明
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         写
+        </para>
+       </entry>
+       <entry>
+<screen>//crm_config//nvpair[@name='maintenance-mode']</screen>
+        <para>
+         打开或关闭群集维护模式。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         写
+        </para>
+       </entry>
+       <entry>
+<screen>//op_defaults//nvpair[@name='record-pending']</screen>
+        <para>
+         选择是否记录待发操作。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         写
+        </para>
+       </entry>
+       <entry>
+<screen>//nodes/node//nvpair[@name='standby']</screen>
+        <para>
+         将节点设置为联机或备用模式。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         写
+        </para>
+       </entry>
+       <entry>
+<screen>//resources//nvpair[@name='target-role']</screen>
+        <para>
+         启动、停止任何资源或使资源升级或降级。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         写
+        </para>
+       </entry>
+       <entry>
+<screen>//resources//nvpair[@name='maintenance']</screen>
+        <para>
+         选择是否应将资源置于维护模式。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         写
+        </para>
+       </entry>
+       <entry>
+<screen>//constraints/rsc_location</screen>
+        <para>
+         将资源从一个节点迁移/移动到另一个节点。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         读
+        </para>
+       </entry>
+       <entry>
+<screen>/cib</screen>
+        <para>
+         查看群集的状态。
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.acl.config.tag">
+   <title>通过缩写设置 ACL 规则</title>
+   <para>
+    对于不想使用 XML 结构的用户，有一种更简单的方法。
+
+   </para>
+   <para>
+    例如，请考虑以下 XPath：
+   </para>
+<screen>//*[@id='rsc1']</screen>
+   <para>
+    它会查找 ID 为 <literal>rsc1</literal> 的所有 XML 节点。
+   </para>
+   <para>
+    缩写语法与以下内容类似：
+   </para>
+<screen>ref:"rsc1"</screen>
+   <para>
+    这同样适用于约束。这是详细的 XPath：
+   </para>
+<screen>//constraints/rsc_location</screen>
+   <para>
+    缩写语法与以下内容类似：
+   </para>
+<screen>type:"rsc_location"</screen>
+   <para>
+    可以在 crmsh 和 Hawk2 中使用缩写语法。CIB 守护程序知道如何将 ACL 规则应用到匹配的对象。
+   </para>
+  </sect2>
+ </sect1>
+ 
+  <sect1 xml:id="sec.ha.acl.config.hawk2">
+  <title>使用 Hawk 配置 ACL2</title>
+  <para>
+   下面的过程说明如何通过定义 <literal>monitor</literal> 角色并将其指派给用户来配置对群集配置的只读访问权限。您也可以根据<xref linkend="pro.ha.acl.crm"/>中所述使用 crmsh 来实现此目的。
+  </para>
+
+  <procedure xml:id="pro.ha.acl.hawk2.role">
+   <title>使用 Hawk2 添加 Monitor 角色</title>
+   <step>
+    <para>
+     登录 Hawk2： </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中，选择<guimenu>角色</guimenu>。 
+    </para>
+   </step>
+   <step>
+    <para>
+      单击<guimenu>创建</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     输入唯一的<guimenu>角色 ID</guimenu>，例如 <literal>monitor</literal>。
+    </para>
+   </step>
+   <step>
+    <para>
+      为访问<guimenu>权限</guimenu>选择<literal>读取</literal>。
+    </para>
+   </step>
+   <step>
+    <para>
+     输入 Xpath 表达式 <literal>/cib</literal> 作为 <guimenu>Xpath</guimenu>。
+    </para>
+    <informalfigure>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-acl-role.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-acl-role.png" width="100%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </informalfigure>
+   </step>
+   <step>
+    <para>
+      单击<guimenu>创建</guimenu>。
+    </para>
+    <para>
+     如此即会创建名为 <literal>monitor</literal> 的新角色，为其设置<literal>读取</literal>权限，并通过使用 XPath 表达式 <literal>/cib</literal> 将其应用到 CIB 中的所有元素。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果需要，请通过单击加号图标并指定相应参数添加更多规则。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用向上或向下箭头按钮对各规则排序。
+    </para>
+   </step>
+  </procedure>
+
+  <procedure xml:id="pro.ha.acl.hawk2.target">
+    <title>使用 Hawk2 向目标指派角色</title>
+   <para>
+    要向系统用户（即目标）指派我们在<xref linkend="pro.ha.acl.hawk2.role" xrefstyle="select:label"/> 中创建的角色，请执行以下操作继续：
+   </para>
+   <step>
+    <para>
+     登录 Hawk2： </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中，选择<guimenu>目标</guimenu>。 
+    </para>
+   </step>
+   <step>
+    <para>
+     要创建系统用户（即 ACL 目标），请单击<guimenu>创建</guimenu>，然后输入一个唯一的<guimenu>目标 ID</guimenu>，例如 <literal>tux</literal>。确保此用户属于 <systemitem class="groupname">haclient</systemitem> 组。
+    </para>
+   </step>
+   <step>
+    <para>
+     要向目标指派角色，请选择一个或多个<guimenu>角色</guimenu>。
+    </para>
+    <para>
+     在本示例中，请选择您在<xref linkend="pro.ha.acl.hawk2.role" xrefstyle="select:label"/> 中创建的 <literal>monitor</literal> 角色。
+     </para>
+    <informalfigure>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-acl-user-assign.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-acl-user-assign.png" width="80%" format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </step>
+     <step>
+      <para>
+       确认您的选择。
+      </para>
+     </step>
+   </procedure>
+
+  <para>
+   要配置资源或约束的访问权限，还可使用<xref linkend="sec.ha.acl.config.tag"/>中所述的缩写语法。
+  </para>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.acl.config.crm">
+  <title>使用 crmsh 配置 ACL</title>
+
+  <para>
+   以下过程说明如何通过定义 <literal>monitor</literal> 角色并将其指派给用户，来配置对群集配置的只读访问权。
+  </para>
+
+  <procedure xml:id="pro.ha.acl.crm">
+   <title>使用 crmsh 添加 Monitor 角色并指派用户</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     启动 crmsh 的交互模式：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)configure# </prompt></screen>
+   </step>
+   <step>
+    <para>
+     定义 ACL 角色：
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       使用 <command>role</command> 命令定义新角色：
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>role</command> monitor read xpath:"/cib"</screen>
+      <para>
+       上面的命令会创建名为 <literal>monitor</literal> 的新角色，为其设置<literal>读</literal>权限并通过使用 XPath 表达式 <literal>/cib</literal> 将其应用到 CIB 中的所有元素。如有必要，可添加更多访问权限和 XPath 自变量。
+      </para>
+     </step>
+     <step>
+      <para>
+       根据需要添加其他角色。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     将角色指派给一个或多个 ACL 目标，即相应的系统用户。确保这些目标属于 <systemitem class="groupname">haclient</systemitem> 组。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>acl_target</command> tux monitor</screen>
+   </step>
+   <step>
+    <para>
+     检查更改：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>show</command></screen>
+   </step>
+   <step>
+    <para>
+     提交更改：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+   </step>
+  </procedure>
+
+  <para>
+   要配置资源或约束的访问权限，还可使用<xref linkend="sec.ha.acl.config.tag"/>中所述的缩写语法。
+  </para>
+ </sect1>
+
+</chapter>
