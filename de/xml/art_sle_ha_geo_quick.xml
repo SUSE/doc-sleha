@@ -1,0 +1,719 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<?provo dirname="geo_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_geo_quick.xml" version="5.0" xml:lang="de" xml:id="art.ha.geo.quick">
+ <title>Kurzanleitung zu Geo-Clustering</title>
+ <subtitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase></productnumber><productname><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname><date>
+<?dbtimestamp format="d. B Y"?>
+
+
+</date>
+  <authorgroup>
+   <author><personname><firstname>Tanja</firstname><surname>Roth</surname></personname>
+   </author>
+   <author><personname><firstname>Thomas</firstname><surname>Schraitle</surname></personname>
+   </author>
+  </authorgroup>
+  <abstract>
+   <para>
+     Mit Geo-Clustering können Sie mehrere geografisch verteilte Sites mit jeweils einem lokalen Cluster betreiben. Der Failover zwischen diesen Clustern wird von einer übergeordneten Entität koordiniert: dem Cluster-Ticket-Manager booth. Dieses Dokument führt Sie durch die grundlegende Einrichtung eines GeoClusters. Dabei werden Bootstrap-Skripte eingesetzt, die im Paket <systemitem class="resource">ha-cluster-bootstrap</systemitem> bereitgestellt werden.
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:bugtracker>
+    <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+    <dm:product>SUSE Linux Enterprise High Availability Extension 12 SP3</dm:product>
+    <dm:component>GEO-Clustering</dm:component>
+   </dm:bugtracker>
+   <dm:translation>Ja</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec.ha.geo.quick.concept">
+  <title>Konzeptüberblick</title>
+
+  <para>
+   GeoCluster, die auf <phrase role="roductnamereg"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> basieren, können als <quote>Overlay</quote>-Cluster betrachtet werden, wobei jede Cluster-Site einem Cluster-Knoten in einem traditionellen Cluster entspricht. Der Overlay-Cluster wird durch den Cluster-Ticket-Manager booth (im Folgenden booth) verwaltet. Alle in einen GeoCluster involvierten Parteien führen den Service <systemitem class="daemon">boothd</systemitem> aus. Dieser stellt eine Verbindung mit den booth-Daemons her, die auf den anderen Sites ausgeführt werden, und tauscht Konnektivitätsinformationen mit ihnen aus. Damit Cluster-Ressourcen über Sites hinweg hochverfügbar werden, verwendet booth als Tickets bezeichnete Cluster-Objekte. Mit einem Ticket wird das Recht zum Ausführen bestimmter Ressourcen auf einer bestimmten Cluster-Site gewährt. Booth garantiert, dass jedes Ticket jeweils nur einer Site erteilt wird.
+  </para>
+  <para>
+   Wenn die Kommunikation zwischen zwei booth-Instanzen ausfällt, kann dies an einem Ausfall des Netzwerks zwischen den Cluster-Sites <emphasis>oder</emphasis> an einem Ausfall einer Cluster-Site liegen. In diesem Fall wird eine zusätzliche Instanz benötigt (eine dritte Cluster-Site bzw. ein <literal>Vermittler</literal>), um einen Konsens über Entscheidungen (wie Failover von Ressourcen zwischen den Sites) zu erzielen. Vermittler sind einzelne Rechner (außerhalb der Cluster), auf denen eine booth-Instanz in einem speziellen Modus ausgeführt wird. Jeder GeoCluster kann einen oder mehrere Vermittler besitzen.
+  </para>
+
+  <para>
+   <remark>toms 2017-07-04: for the future: maybe also add example IP addresses
+    to graphic (node IPs, VIPs for cluster sites)
+    </remark>
+  </para>
+
+  <figure xml:id="fig.ha.geo.quick.example.geosetup">
+   <title>Cluster mit zwei Sites (2 x 2 Knoten + Vermittler)</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geocluster.svg" width="100%" format="SVG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   Weitere Einzelheiten zum Konzept, den Komponenten und der für GeoCluster verwendeten Ticketverwaltung finden Sie im <literal>Geo Clustering Guide</literal> (Geo-Clustering-Handbuch) im Kapitel <citetitle>Conceptual Overview</citetitle> (Konzeptüberblick). Dieses ist unter <link xlink:href="https://www.suse.com/documentation"/> verfügbar. 
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.scenario">
+  <title>Einsatzszenario</title>
+
+  <para>
+   Im Folgenden richten wir einen einfachen GeoCluster mit zwei Cluster-Sites und einem Vermittler ein:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Die Cluster-Sites erhalten die Namen <literal>amsterdam</literal> und <literal>berlin</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Jede Site besteht aus zwei Knoten. Die Knoten <literal>alice</literal> und <literal>bob</literal> gehören zum Cluster <literal>amsterdam</literal>. Die Knoten <literal>charlie</literal> und <literal>doro</literal> gehören zum Cluster <literal>berlin</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Die Site <literal>amsterdam</literal> erhält folgende virtuelle IP-Adresse: <literal>192.168.201.100</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Die Site <literal>berlin</literal> erhält folgende virtuelle IP-Adresse: <literal>192.168.202.100</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Der Vermittler besitzt folgende IP-Adresse: <literal>192.168.203.100</literal>.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Bevor Sie fortfahren, müssen Sie sicherstellen, dass folgende Voraussetzungen erfüllt sind:
+  </para>
+
+  <variablelist>
+   <title>Anforderungen</title>
+   <varlistentry>
+    <term>Zwei vorhandene Cluster</term>
+    <listitem>
+     <para>
+      Sie haben mindestens zwei vorhandene Cluster, die Sie in einem GeoCluster kombinieren möchten. (Falls Sie zuerst zwei Cluster einrichten müssen, folgen Sie der Anleitung in der <citetitle>Installation and Setup Quick Start</citetitle> (Schnellstartanleitung für Installation und Setup). Das Dokument ist unter <link xlink:href="https://www.suse.com/documentation"/> verfügbar).
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Aussagekräftige Cluster-Namen</term>
+    <listitem>
+     <para>
+      Für jeden Cluster wird in <filename>/etc/corosync/corosync.conf</filename> ein aussagekräftiger Cluster-Name definiert, der den Standort angibt.
+     </para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Vermittler</term>
+    <listitem>
+     <para>
+      Sie haben einen dritten Rechner installiert, der nicht Teil eines vorhandenen Clusters ist und als Vermittler verwendet werden kann.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   Detaillierte Informationen zu den einzelnen Anforderungen finden Sie auch in <xref linkend="sec.ha.geo.quick.req"/>.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.req">
+  <title>Anforderungen</title>
+
+  <itemizedlist>
+  <title>Softwareanforderungen</title>
+  <listitem>
+   <para>
+    Auf allen Rechnern (Cluster-Knoten und Vermittlern), die Teil des GeoClusters sein werden, muss folgende Software installiert sein:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Geo-Clustering für SUSE Linux Enterprise High Availability Extension <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase>
+      
+     </para>
+    </listitem>
+   </itemizedlist>
+  </listitem>
+ </itemizedlist>
+
+  <itemizedlist>
+   <title>Netzwerkvoraussetzungen</title>
+   <listitem>
+   <para>
+    Auf die virtuellen IPs, die für die einzelnen Cluster-Sites verwendet werden, muss ein Zugriff über den GeoCluster möglich sein.
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+     Die Sites müssen pro booth-Instanz über einen UDP- und einen TCP-Port erreichbar sein. Folglich müssen Firewalls oder IPSec-Tunnel zwischen ihnen entsprechend konfiguriert sein.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Weitere Entscheidungen bezüglich der Einrichtung machen es möglicherweise erforderlich, weitere Ports zu öffnen (z. B. für DRBD oder Datenbankreplikation).
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <itemizedlist>
+  <title>Sonstige Anforderungen und Empfehlungen</title>
+  <listitem>
+   <para>
+    Alle Cluster-Knoten auf allen Sites sollten mit einem NTP-Server außerhalb des Clusters synchronisiert werden. Sie finden weitere Informationen hierzu im <citetitle>Administrationshandbuch</citetitle> für SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase> unter <link xlink:href="http://www.suse.com/documentation/"/>. Lesen Sie das Kapitel <citetitle>Zeitsynchronisierung mit NTP</citetitle>.
+   </para>
+   <para>
+    Wenn Knoten nicht synchronisiert sind, ist es sehr schwierig, Protokolldateien und Cluster-Berichte zu analysieren.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Verwenden Sie in Ihrem GeoCluster eine <emphasis>ungerade</emphasis> Anzahl an Mitgliedern. Dadurch wird im Fall eines Ausfalls der Netzwerkverbindung sichergestellt, dass weiterhin eine Mehrheit von Sites gebildet werden kann (um das Szenario der Systemspaltung zu vermeiden). Falls Sie eine gerade Anzahl von Cluster-Sites haben, verwenden Sie einen Vermittler.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Der Cluster der einzelnen Sites besitzt einen aussagekräftigen Namen, z. B.: <literal>amsterdam</literal> und <literal>berlin</literal>.
+   </para>
+   <para>
+    Die Cluster-Namen für die einzelnen Sites sind jeweils in der Datei <filename>/etc/corosync/corosync.conf</filename> definiert:
+   </para>
+<screen>totem {
+    [...]
+    cluster_name: amsterdam
+    }
+</screen>
+   <para>
+    Dies kann manuell durchgeführt werden (indem Sie <filename>/etc/corosync/corosync.conf</filename> bearbeiten) oder mit dem Cluster-Modul YaST (indem Sie in der Kategorie <guimenu>Kommunikationskanäle</guimenu> einen <guimenu>Cluster-Namen</guimenu> definieren). Stoppen und starten Sie anschließend den Service <systemitem class="service">pacemaker</systemitem> neu, damit die Änderungen wirksam werden:
+   </para> <screen><prompt role="root">root # </prompt><command>systemctl</command> stop pacemaker
+<prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+  </listitem>
+ </itemizedlist>
+
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.scripts">
+  <title>Überblick über die Geo-Bootstrap-Skripte</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Mit <command>ha-cluster-geo-init</command> machen Sie einen Cluster zur ersten Site eines GeoClusters. Das Skript übernimmt einige Parameter, wie die Namen der Cluster, den Vermittler und eines oder mehrere Tickets und erstellt daraus <filename>/etc/booth/booth.conf</filename>. Es kopiert die booth-Konfiguration auf alle Knoten auf der aktuellen Cluster-Site. Außerdem konfiguriert es die Cluster-Ressourcen, die auf der aktuellen Cluster-Site für booth erforderlich sind.
+    </para>
+    <para>
+     Weitere Informationen finden Sie in <xref linkend="sec.ha.geo.quick.ha-cluster-geo-init"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Mit <command>ha-cluster-geo-join</command> fügen Sie den aktuellen Cluster zu einem vorhandenen GeoCluster hinzu. Das Skript kopiert die booth-Konfiguration von einer vorhandenen Cluster-Site und schreibt diese auf allen Knoten auf der aktuellen Cluster-Site in <filename>/etc/booth/booth.conf</filename>. Außerdem konfiguriert es die Cluster-Ressourcen, die auf der aktuellen Cluster-Site für booth erforderlich sind.
+    </para>
+    <para>
+     Weitere Informationen finden Sie in <xref linkend="sec.ha.geo.quick.ha-cluster-geo-join"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Mit <command>ha-cluster-geo-init-arbitrator</command> machen Sie den aktuellen Rechner zum Vermittler für den GeoCluster. Das Skript kopiert die booth-Konfiguration von einer vorhandenen Cluster-Site und schreibt diese in <filename>/etc/booth/booth.conf</filename>.
+    </para>
+    <para>
+     Weitere Informationen finden Sie in <xref linkend="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Alle Bootstrap-Skripte protokollieren die zugehörigen Daten in der Datei <filename>/var/log/ha-cluster-bootstrap.log</filename>. In der Protokolldatei finden Sie alle Details des Bootstrap-Prozesses. Alle während des Bootstrap-Prozesses festgelegten Optionen können später geändert werden (durch Änderung der booth-Einstellungen, der Ressourcen usw.). Weitere Einzelheiten finden Sie im <literal>Geo Clustering Guide</literal> (Geo-Clustering-Handbuch). Dieses ist unter <link xlink:href="https://www.suse.com/documentation"/> verfügbar. 
+  </para>
+
+
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.inst">
+  <title>Installation als Erweiterung</title>
+
+  <para>
+   Unterstützung für Hochverfügbarkeits-Cluster über unbegrenzte Entfernungen ist als separate Erweiterung mit dem Namen „Geo-Clustering für SUSE Linux Enterprise High Availability Extension“ verfügbar.
+  </para>
+  <para>
+   Um einen GeoCluster einzurichten, benötigen Sie die in den folgenden Installationsschemata enthaltenen Pakete:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <literal>Hohe Verfügbarkeit</literal>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <literal>GeoCluster-Bildung für hohe Verfügbarkeit</literal>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Beide Schemata sind nur verfügbar, wenn Sie Ihr System beim SUSE Customer Center (oder bei einem lokalen Registrierungsserver) registriert und die jeweiligen Produktkanäle oder Installationsmedien als Erweiterung hinzugefügt haben. Sie finden Informationen zur Installation von Erweiterungen im <citetitle>Bereitstellungshandbuch für SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase> </citetitle>unter <link xlink:href="http://www.suse.com/documentation/"/>. Lesen Sie das Kapitel <citetitle>Installieren von Modulen, Erweiterungen und Add-on-Produkten von Drittanbietern</citetitle>.
+
+  </para>
+
+  <procedure xml:id="pro.ha.geo.inst">
+   <title>Installieren der Pakete</title>
+   <step>
+    <para>
+     Verwenden Sie zum Installieren der Pakete beider Schemata über die Kommandozeile Zypper:
+    </para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> install -t pattern ha_sles ha_geo</screen>
+   </step>
+   <step xml:id="st.ha.geo.inst.yast">
+    <para>
+     Alternativ können Sie mit YaST eine grafische Installation ausfFühren:
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Starten Sie YaST als Benutzer <systemitem class="username">root</systemitem> und wählen Sie <menuchoice>
+       <guimenu>Software</guimenu> <guimenu>Software installieren oder löschen</guimenu>
+       </menuchoice> aus.
+      </para>
+     </step>
+     <step>
+      <para>
+       Klicken Sie auf <menuchoice> <guimenu>Ansicht</guimenu> <guimenu>Schemata</guimenu>
+       </menuchoice> und aktivieren Sie folgende Schemata:
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         <literal>Hohe Verfügbarkeit</literal>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <literal>GeoCluster-Bildung für hohe Verfügbarkeit</literal>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </step>
+     <step>
+      <para>
+       Klicken Sie auf <guimenu>Übernehmen</guimenu>, um mit der Installation der Pakete zu beginnen.
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+
+  <important>
+   <title>Installation der Softwarepakete bei allen Parteien</title>
+   <para>
+    Die für hohe Verfügbarkeit und GeoCluster benötigten Softwarepakete werden <emphasis>nicht</emphasis> automatisch auf die Cluster-Knoten kopiert.
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Installieren Sie SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase> und die Schemata <literal>Hohe Verfügbarkeit</literal> und <literal>GeoCluster-Bildung für hohe Verfügbarkeit</literal> auf <emphasis>allen</emphasis> Rechnern, die zu Ihrem GeoCluster gehören sollen.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Statt die Pakete manuell auf allen Rechnern zu installieren, die Teil Ihres Clusters sein werden, können Sie mit AutoYaST vorhandene Knoten klonen. Weitere Informationen finden Sie im <citetitle>Administration Guide</citetitle> (Administrationshandbuch) für <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>
+      <phrase role="productnumber"><phrase os="sles"> 12 SP3</phrase></phrase> unter <link xlink:href="http://www.suse.com/documentation/"/>. Lesen Sie im Kapitel <citetitle>Installing the High Availability Extension</citetitle> (Installation der High Availability Extension) den Abschnitt <citetitle>Mass Installation and Deployment with AutoYaST</citetitle> (Masseninstallation und Bereitstellung mit AutoYaST).
+     </para>
+     <para>
+      <remark>taroth 2017-06-29: @DEV/QA, is the following still true?</remark> Die Geo-Clustering-Erweiterung muss jedoch <emphasis>manuell</emphasis> auf allen Rechnern installiert werden, die zum GeoCluster gehören sollen. AutoYaST wird für Geo-Clustering für SUSE Linux Enterprise High Availability Extension noch nicht unterstützt.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init">
+  <title>Einrichten der ersten Site eines GeoClusters</title>
+
+  <para>
+   Verwenden Sie das Skript <command>ha-cluster-geo-init</command>, um einen vorhandenen Cluster zur ersten Site eines GeoClusters zu machen.
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init">
+   <title>Einrichten der ersten Site (<systemitem>amsterdam</systemitem>) mit <command>ha-cluster-geo-init</command></title>
+   <step>
+    <para>
+     Definieren Sie pro Cluster-Site eine virtuelle IP, über die auf die Site zugegriffen werden kann. Hierzu verwenden wir in diesem Beispiel <literal>192.168.201.100</literal> und <literal>192.168.202.100</literal>. Es ist jetzt noch nicht erforderlich, die virtuellen IPs als Cluster-Ressourcen zu konfigurieren. Das erledigen die Bootstrap-Skripte.
+    </para>
+   </step>
+   <step>
+    <para>
+     Definieren Sie einen Namen für mindestens ein Ticket, mit dem die Berechtigung erteilt wird, bestimmte Ressourcen auf einer Cluster-Site auszuführen. Verwenden Sie einen aussagekräftigen Namen, der auf die Ressourcen hinweist, die von dem Ticket abhängen (z. B. <literal>ticket-nfs</literal>). Die Bootstrap-Skripte benötigen nur den Ticketnamen. Die weiteren Einzelheiten (Ticketabhängigkeiten der Ressourcen) können Sie später, wie in <xref linkend="sec.ha.geo.quick.next"/> beschrieben, definieren.
+    </para>
+   </step>
+   <step>
+    <para>
+     Melden Sie sich bei einem Knoten eines vorhandenen Clusters an (z. B. beim Knoten <literal>alice</literal> des Clusters <literal>amsterdam</literal>).
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-init">
+    <para>
+     Führen Sie <command>ha-cluster-geo-init</command> aus. Verwenden Sie beispielsweise die folgenden Optionen:
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init</command> \
+  --clusters<co xml:id="co.geo.init.clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100" \
+  --tickets<co xml:id="co.geo.init.ticket"/> ticket-nfs \
+  --arbitrator<co xml:id="co.geo.init.arbitrator"/> 192.168.203.100</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.clusters">
+       <para>
+    Die Namen der Cluster-Sites (die in <filename>/etc/corosync/corosync.conf</filename> definiert sind) und die virtuellen IP-Adressen, die Sie für die einzelnen Cluster-Sites verwenden möchten. In diesem Fall haben wir zwei Cluster-Sites (<literal>amsterdam</literal> und <literal>berlin</literal>), die je eine virtuelle IP-Adresse besitzen.
+   </para>
+     </callout>
+     <callout arearefs="co.geo.init.ticket">
+      <para>
+       Den Namen eines oder mehrerer Tickets.
+      </para>
+     </callout>
+     <callout arearefs="co.geo.init.arbitrator">
+      <para>
+       Den Hostnamen oder die IP-Adresse eines Rechners außerhalb des Clusters.
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   Das Bootstrap-Skript erstellt die booth-Konfigurationsdatei und synchronisiert diese zwischen den Cluster-Sites. Es erstellt außerdem die für booth erforderlichen grundlegenden Cluster-Ressourcen. <xref linkend="st.ha-cluster-geo-init" xrefstyle="seletc:label"/> aus <xref linkend="pro.ha.geo.quick.ha-cluster-geo-init" xrefstyle="select:label"/> erzeugt folgende booth-Konfiguration und Cluster-Ressourcen:
+  </para>
+
+  <example xml:id="ex.geo.init.booth.conf">
+   <title>Durch <command>ha-cluster-geo-init</command> erstellte booth-Konfiguration</title>
+<screen># The booth configuration file is "/etc/booth/booth.conf". You need to
+# prepare the same booth configuration file on each arbitrator and
+# each node in the cluster sites where the booth daemon can be launched.
+
+# "transport" means which transport layer booth daemon will use.
+# Currently only "UDP" is supported.
+transport="UDP"
+port="9929"
+
+arbitrator="192.168.203.100"
+site="192.168.201.100"
+site="192.168.202.100"
+authfile="/etc/booth/authkey"
+ticket="ticket-nfs"
+expire="600"</screen>
+  </example>
+
+  <example xml:id="ex.geo.init.rsc.conf">
+   <title>Durch <command>ha-cluster-geo-init</command> erstellte Cluster-Ressourcen</title>
+<screen>primitive<co xml:id="co.geo.quick.rsc.booth-ip"/> booth-ip IPaddr2 \
+  params rule #cluster-name eq amsterdam ip=192.168.201.100 \
+  params rule #cluster-name eq berlin ip=192.168.202.100 \
+primitive<co xml:id="co.geo.quick.rsc.booth-site"/> booth-site ocf:pacemaker:booth-site \
+  meta resource-stickiness=INFINITY \
+  params config=booth \
+  op monitor interval=10s
+group<co xml:id="co.geo.quick.rsc.g-booth"/> g-booth booth-ip booth-site \
+meta target-role=Stopped<co xml:id="co.geo.quick.rsc.stopped"/></screen>
+   <calloutlist>
+    <callout arearefs="co.geo.quick.rsc.booth-ip">
+     <para>
+      Eine virtuelle IP-Adresse für jede Cluster-Site. Diese wird von den booth-Daemons benötigt, die für jede Cluster-Site eine persistente IP-Adresse voraussetzen.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.booth-site">
+     <para>
+      Eine primitive Ressource für den booth-Daemon. Er kommuniziert mit den booth-Daemons auf den anderen Cluster-Sites. Der Daemon kann in einem beliebigen Knoten der Site gestartet werden, damit die Ressource jedoch in demselben Knoten bleibt, muss für „resource-stickiness“ möglichst <literal>INFINITY</literal> festgelegt werden.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.g-booth">
+     <para>
+      Eine Cluster-Ressourcengruppe für beide Primitive. Mit dieser Konfiguration ist jeder booth-Daemon an der jeweiligen IP-Adresse verfügbar, und zwar unabhängig von dem Knoten, auf dem der Daemon ausgeführt wird.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.stopped">
+     <para>
+      Die Cluster-Ressourcengruppe wird standardmäßig nicht gestartet. Nachdem Sie die Konfiguration Ihrer Cluster-Ressourcen überprüft (und die für Ihr Setup erforderlichen Ressourcen hinzugefügt) haben, müssen Sie die Ressourcengruppe starten. Weitere Informationen finden Sie in <xref linkend="vl.ha.geo.quick.next.req"/>.
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-join">
+  <title>Hinzufügen einer weiteren Site zu einem GeoCluster</title>
+
+  <para>
+   Nachdem Sie die erste Site Ihres GeoClusters initialisiert haben, fügen Sie mit <literal>ha-cluster-geo-join</literal> einen zweiten Cluster hinzu (in <xref linkend="pro.ha.geo.quick.ha-cluster-geo-join" xrefstyle="select:label"/> beschrieben). Das Skript benötigt SSH-Zugriff auf eine bereits konfigurierte Cluster-Site und fügt dann den aktuellen Cluster zum GeoCluster hinzu.
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-join">
+   <title>Hinzufügen der zweiten Site (<literal>berlin</literal>) mit <command>ha-cluster-geo-join</command></title>
+   <step>
+    <para>
+     Melden Sie sich bei einem Knoten der Cluster-Site an, die Sie hinzufügen möchten (z. B. beim Knoten <literal>charlie</literal> des Clusters <literal>berlin</literal>).
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-join">
+    <para>
+     Führen Sie den Befehl <command>ha-cluster-geo-join</command> aus. Beispiel:
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-join</command> \
+  --cluster-node<co xml:id="co.geo.join.cluster-node"/> 192.168.201.100\
+  --clusters<co xml:id="co.geo.join.clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100"
+     </screen>
+    <calloutlist>
+     <callout arearefs="co.geo.join.cluster-node">
+      <para>
+       Legt fest, von wo die booth-Konfiguration kopiert werden soll. Verwenden Sie die IP-Adresse oder den Hostnamen eines Knotens in einer bereits konfigurierten GeoCluster-Site. Sie können auch (wie in diesem Beispiel) die virtuelle IP-Adresse einer bereits vorhandenen Cluster-Site verwenden. Alternativ können Sie die IP-Adresse oder den Hostnamen eines bereits für Ihren GeoCluster konfigurierten Vermittlers verwenden.
+      </para>
+     </callout>
+     <callout arearefs="co.geo.join.clusters">
+       <para>
+    Die Namen der Cluster-Sites (die in <filename>/etc/corosync/corosync.conf</filename> definiert sind) und die virtuellen IP-Adressen, die Sie für die einzelnen Cluster-Sites verwenden möchten. In diesem Fall haben wir zwei Cluster-Sites (<literal>amsterdam</literal> und <literal>berlin</literal>), die je eine virtuelle IP-Adresse besitzen.
+   </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   Das Skript <command>ha-cluster-geo-join</command> kopiert die booth-Konfiguration von <xref linkend="co.geo.join.cluster-node" xrefstyle="select:label"/>, siehe <xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/>. Außerdem erstellt es die für booth benötigten Cluster-Ressourcen (siehe <xref linkend="ex.geo.init.rsc.conf" xrefstyle="select:label"/>).
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+  <title>Hinzufügen des Vermittlers</title>
+
+  <para>
+   Nachdem Sie alle Sites Ihres GeoClusters mit <command>ha-cluster-geo-init</command> und <command>ha-cluster-geo-join</command> eingerichtet haben, richten Sie mit <command>ha-cluster-geo-init-arbitrator</command> den Vermittler ein.
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+   <title>Einrichten des Vermittlers mit <command>ha-cluster-geo-init-arbitrator</command></title>
+   <step>
+    <para>
+     Melden Sie sich bei dem Rechner an, den Sie als Vermittler verwenden möchten.
+    </para>
+   </step>
+   <step>
+    <para>
+     Führen Sie den folgenden Befehl aus. Beispiel:
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init-arbitrator</command> --cluster-node<co xml:id="co.geo.init.arbitrator.cluster-node"/> 192.168.201.100</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.arbitrator.cluster-node">
+      <para>
+       Legt fest, von wo die booth-Konfiguration kopiert werden soll. Verwenden Sie die IP-Adresse oder den Hostnamen eines Knotens in einer bereits konfigurierten GeoCluster-Site. Sie können alternativ (wie in diesem Beispiel) die virtuelle IP-Adresse einer bereits vorhandenen Cluster-Site verwenden.
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   Das Skript <command>ha-cluster-geo-init-arbitrator</command> kopiert die booth-Konfiguration von <xref linkend="co.geo.init.arbitrator.cluster-node"/>, siehe <xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/>. Außerdem aktiviert und startet es den booth-Service auf dem Vermittler. Der Vermittler ist damit bereit, mit den booth-Instanzen auf den Cluster-Sites zu kommunizieren, sobald auch dort der booth-Service ausgeführt wird.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.monitor">
+  <title>Überwachen der Cluster-Sites</title>
+
+  <para>
+   Verwenden Sie Hawk2, um beide Cluster-Sites mit den Ressourcen und dem Ticket anzuzeigen, die Sie während des Bootstrap-Prozesses erstellt haben. Über die Hawk2-Weboberfläche können Sie mehrere (nicht zugeordnete) Cluster und GeoCluster überwachen und verwalten.
+  </para>
+
+  <itemizedlist>
+   <title>Voraussetzungen</title>
+   <listitem>
+    <para>
+     Auf allen Clustern, die über das <guimenu>Dashboard</guimenu> von Hawk2 überwacht werden sollen, muss <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase> ausgeführt werden.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Wenn Sie das eigensignierte Zertifikat für Hawk2 noch nicht auf jedem Cluster-Knoten durch ein eigenes Zertifikat (oder ein von einer offiziellen Zertifizierungsstelle signiertes Zertifikat) ersetzt haben, gehen Sie wie folgt vor: Melden Sie sich auf <emphasis>jedem</emphasis> Knoten in <emphasis>jedem</emphasis> Cluster mindestens einmal bei Hawk2 an. Überprüfen Sie das Zertifikat (oder fügen Sie im Browser eine Ausnahme hinzu, um die Warnung zu umgehen). Andernfalls kann Hawk2 keine Verbindung mit dem Cluster herstellen.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.geo.quick.hawk2.dashboard">
+   <title>Verwendung des Hawk2-Dashboards</title>
+   <step>
+    <para>
+     Starten Sie einen Webbrowser und geben Sie die virtuelle IP-Adresse Ihrer ersten Cluster-Site <literal>amsterdam</literal> ein:
+    </para>
+<screen>https://192.168.201.100:7630/</screen>
+    <para>
+     Alternativ können Sie die IP-Adresse oder den Hostnamen von <literal>alice</literal> oder <literal>bob</literal> verwenden. Wenn Sie beide Knoten mit den Bootstrap-Skripten eingerichtet haben, sollte in beiden Knoten der Service <literal>hawk</literal> ausgeführt werden.
+    </para>
+   </step>
+   <step>
+    <para>
+     Melden Sie sich an der Hawk2-Weboberfläche an.
+    </para>
+   </step>
+   <step>
+    <para>
+     Wählen Sie auf der linken Navigationsleiste <guimenu>Dashboard</guimenu> aus.
+    </para>
+    <para>
+     Hawk2 zeigt eine Übersicht der Ressourcen und Knoten auf der aktuellen Cluster-Site an. Außerdem zeigt Hawk2 alle <guimenu>Tickets</guimenu> an, die für den GeoCluster konfiguriert wurden. Informationen zu den in dieser Ansicht verwendeten Symbolen erhalten Sie, indem Sie auf <guimenu>Legende</guimenu> klicken.
+    </para>
+    <figure>
+     <title>Hawk2-Dashboard mit einer Cluster-Site – (<literal>amsterdam</literal>)</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="95%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     Klicken Sie auf <guimenu>Cluster hinzufügen</guimenu>, um ein Dashboard für die zweite Cluster-Site hinzuzufügen.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Geben Sie den <guimenu>Clusternamen</guimenu> ein, der den Cluster im <guimenu>Dashboard</guimenu> identifiziert. In diesem Fall ist dies <literal>berlin</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Geben Sie den vollständigen Hostnamen einer der Cluster-Knoten ein (in diesem Fall <literal>charlie</literal> oder <literal>doro</literal>).
+      </para>
+     </step>
+     <step>
+      <para>
+       Klicken Sie auf <guimenu>Hinzufügen</guimenu>. Hawk2 zeigt für die neu hinzugefügte Cluster-Site eine zweite Registerkarte mit einer Übersicht der vorhandenen Knoten und Ressourcen an.
+      </para>
+      <figure>
+       <title>Hawk2-Dashboard mit beiden Cluster-Sites</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="95%" format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Um weitere Details anzuzeigen oder um eine Cluster-Site zu verwalten, wechseln Sie zur Registerkarte der Site und klicken Sie auf das Kettensymbol.
+    </para>
+    <para>
+     Hawk2 öffnet für die Site die <guimenu>Statusanzeige</guimenu> in einem neuen Browserfenster oder Tab. Dort können Sie diesen Teil des GeoClusters verwalten.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.next">
+  <title>Nächste Schritte</title>
+
+  <para>
+   Die Bootstrap-Skripte für das Geo-Clustering ermöglichen das schnelle Einrichten eines grundlegenden GeoClusters, der zu Testzwecken verwendet werden kann. Um einen solchen GeoCluster jedoch in einen funktionierenden GeoCluster zu überführen, der in einer Produktionsumgebung eingesetzt werden kann, sind weitere Schritte erforderlich. Siehe <xref linkend="vl.ha.geo.quick.next.req"/>.
+  </para>
+
+  <variablelist xml:id="vl.ha.geo.quick.next.req">
+   <title>Erforderliche Schritte für den Abschluss des GeoCluster-Setups</title>
+   <varlistentry xml:id="vle.ha.geo.quick.booth.service.sites">
+    <term>Starten der booth-Services auf Cluster-Sites</term>
+    <listitem>
+     <para>
+      Nach dem Bootstrap-Prozess kann der booth-Service des Vermittlers noch nicht mit den booth-Services auf den Cluster-Sites kommunizieren, da diese standardmäßig nicht gestartet werden.
+     </para>
+     <para>
+      Der booth-Service für jede Cluster-Site wird von der booth-Ressourcengruppe <literal>g-booth</literal> verwaltet (siehe <xref linkend="ex.geo.init.rsc.conf"/>). Um eine Instanz des booth-Service pro Site zu starten, starten Sie die entsprechende booth-Ressourcengruppe auf den einzelnen Cluster-Sites. Damit sind alle booth-Instanzen in der Lage, miteinander zu kommunizieren.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Konfigurieren von Ticketabhängigkeiten und Einschränkungen</term>
+    <listitem>
+     <para>
+      Um Ressourcen von dem von Ihnen während des Bootstrap-Prozesses für den GeoCluster erstellten Ticket abhängig zu machen, müssen Sie Einschränkungen konfigurieren. Legen Sie für jede Einschränkung mit <literal>loss-policy</literal> eine Verlustrichtlinie fest, mit der Sie definieren, was mit den betroffenen Ressourcen passieren soll, wenn das Ticket von einer Cluster-Site zurückgezogen wird.
+     </para>
+     <para>
+      Weitere Einzelheiten finden Sie im <literal>Geo Clustering Guide</literal> (Geo-Clustering-Handbuch), im Kapitel <citetitle>Configuring Cluster Resources and Constraints</citetitle> (Konfigurieren von Cluster-Ressourcen und Einschränkungen). Dieses ist unter <link xlink:href="https://www.suse.com/documentation"/> verfügbar.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Einer Site ein erstes Ticket gewähren</term>
+    <listitem>
+     <para>
+      Bevor ein bestimmtes Ticket im GeoCluster von booth verwaltet werden kann, müssen Sie es einer Site einmal manuell <emphasis>gewähren</emphasis>. Um ein Ticket zu gewähren, können Sie entweder das Kommandozeilenwerkzeug „booth client“ oder Hawk2 verwenden.
+     </para>
+     <para>
+      Weitere Einzelheiten finden Sie im Kapitel <citetitle>Managing Geo Clusters</citetitle> (Verwalten von GeoClustern) im <literal>Geo Clustering Guide</literal> (Geo-Clustering-Handbuch). Dieses ist unter <link xlink:href="https://www.suse.com/documentation"/> verfügbar. 
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   Die Bootstrap-Skripte erstellen auf beiden Cluster-Sites dieselben booth-Ressourcen und auf allen Sites, auch auf dem Vermittler, dieselben booth-Konfigurationsdateien. Wenn Sie das GeoCluster-Setup erweitern (um in eine Produktionsumgebung zu wechseln), werden Sie die booth-Konfiguration wahrscheinlich genauer abstimmen und auch die Konfiguration der zu booth gehörenden Cluster-Ressourcen ändern. Anschließend müssen Sie die Änderungen mit den anderen Sites Ihres GeoClusters synchronisieren, damit sie wirksam werden.
+  </para>
+
+  <note>
+   <title>Synchronisieren von Änderungen zwischen Cluster-Sites</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Verwenden Sie Csync2, um Änderungen der booth-Konfiguration zwischen allen Cluster-Sites (einschließlich dem Vermittler) zu synchronisieren. Weitere Informationen finden Sie im <literal>Geo Clustering Guide</literal> (Geo-Clustering-Handbuch) im Kapitel <citetitle>Synchronizing Configuration Files Across All Sites and Arbitrators</citetitle> (Synchronisieren von Konfigurationsdateien zwischen allen Sites und Vermittlern). Das Handbuch ist unter <link xlink:href="https://www.suse.com/documentation"/> verfügbar.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Die CIB (Cluster Information Database) wird nicht automatisch zwischen den Cluster-Sites eines GeoClusters synchronisiert. Daher müssen alle Änderungen der Ressourcenkonfiguration, die auf allen Cluster-Sites benötigt werden, manuell auf die anderen Sites übertragen werden. Markieren Sie hierzu die entsprechenden Ressourcen, exportieren Sie sie aus der aktuellen CIB und importieren Sie sie in die CIBs auf den anderen Cluster-Sites. Weitere Einzelheiten finden Sie im <literal>Geo Clustering Guide</literal> (Geo-Clustering-Handbuch) im Abschnitt <citetitle>Transferring the Resource Configuration to Other Cluster Sites</citetitle> (Übertragen der Ressourcenkonfiguration auf andere Cluster-Sites). Das Handbuch ist unter <link xlink:href="https://www.suse.com/documentation"/> verfügbar.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.more">
+  <title>Weiterführende Informationen</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Mehr Dokumentation zu diesem Produkt ist unter <link xlink:href="https://www.suse.com/documentation/sle-ha-geo-12/"/> verfügbar. Zur Dokumentation gehört auch ein ausführliches <literal>Geo-Clustering-Handbuch</literal>. Dort werden weitere Konfigurations- und Verwaltungsaufgaben beschrieben.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     In der Serie <literal>SUSE Best Practices</literal> wurde ein Dokument mit detaillierten Informationen zur Datenreplikation über DRBD zwischen GeoClustern veröffentlicht: <link xlink:href="https://www.suse.com/documentation/suse-best-practices/sbp-drbd/data/sbp-drbd.html"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>
