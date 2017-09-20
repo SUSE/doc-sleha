@@ -1,0 +1,723 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<?provo dirname="geo_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_geo_quick.xml" version="5.0" xml:lang="zh-tw" xml:id="art.ha.geo.quick">
+ <title>Geo 叢集快速入門</title>
+ <subtitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase></productnumber><productname><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname><date>
+<?dbtimestamp format="Y"?>
+
+ 年 <?dbtimestamp format="B"?>
+
+月 <?dbtimestamp format="d"?>
+
+ 日 
+</date>
+  <authorgroup>
+   <author><personname><firstname>Tanja</firstname><surname>Roth</surname></personname>
+   </author>
+   <author><personname><firstname>Thomas</firstname><surname>Schraitle</surname></personname>
+   </author>
+  </authorgroup>
+  <abstract>
+   <para>
+     借助 Geo 叢集，您可以擁有多個地理位置分散的站點並在每個站點部署一個本地叢集。這些叢集之間的容錯移轉由一個更高階的實體來調節控制，即投票間叢集票證管理員。本文件會引導您使用 <systemitem class="resource">ha-cluster-bootstrap</systemitem> 套件提供的 Geo 開機程序檔完成 Geo 叢集的基本設定。
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:bugtracker>
+    <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+    <dm:product>SUSE Linux Enterprise High Availability Extension 12 SP3</dm:product>
+    <dm:component>GEO 叢集</dm:component>
+   </dm:bugtracker>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec.ha.geo.quick.concept">
+  <title>概念綜覽</title>
+
+  <para>
+   基於 <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> 的 Geo 叢集可視為<quote>覆蓋</quote>叢集，其中每個叢集站點相當於傳統叢集中的一個叢集節點。覆蓋叢集由投票間叢集票證管理員 (以下簡稱「投票間」) 管理。Geo 叢集中的各方都會執行一個服務，即 <systemitem class="daemon">boothd</systemitem>。它會與其餘站點上執行的投票間精靈連接，並交換连接性詳細資料。投票間依賴稱為「票證」的叢集物件來保持叢集資源在各站點之間的高度可用性。票證可授予在特定叢集站台上執行特定資源的權限。投票間可保證每個票證一次只會授予給一個站點。
+  </para>
+  <para>
+   如果兩個投票間例項之間的通訊中斷，則可能是因為叢集站點之間的網路發生故障，<emphasis>或</emphasis>其中一個叢集站點中斷運作。在此情況下，您需要使用一個額外的例項 (第三個叢集站點或<literal>仲裁方</literal>) 來就各決策 (例如在站點間進行資源的容錯移轉) 達成一致意見。仲裁方是一部以特殊模式執行投票間例項的機器 (不屬於叢集)。每個 Geo 叢集都可以有一或多個仲裁方。
+  </para>
+
+  <para>
+   <remark>toms 2017-07-04: for the future: maybe also add example IP addresses
+    to graphic (node IPs, VIPs for cluster sites)
+    </remark>
+  </para>
+
+  <figure xml:id="fig.ha.geo.quick.example.geosetup">
+   <title>雙站點叢集 (2x2 個節點 + 仲裁方)</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geocluster.svg" width="100%" format="SVG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   有關用於 Geo 叢集的概念、元件和票證管理的更多詳細資料，請參閱《<literal>Geo Clustering Guide</literal>》(Geo 叢集指南) 中的「<citetitle>Conceptual Overview</citetitle>」(概念綜覽) 一章。此文件位於 <link xlink:href="https://www.suse.com/documentation"/>。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.scenario">
+  <title>使用案例</title>
+
+  <para>
+   下面，我們將會設定一個包含兩個叢集站點和一個仲裁方的基本 Geo 叢集︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     我們假設叢集站點名為 <literal>amsterdam</literal> 和 <literal>berlin</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     我們假設每個站點分別包含兩個節點。節點 <literal>alice</literal> 和 <literal>bob</literal> 屬於叢集 <literal>amsterdam</literal>。節點 <literal>charlie</literal> 和 <literal>doro</literal> 屬於叢集 <literal>berlin</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     站點 <literal>amsterdam</literal> 將分配到以下虛擬 IP 位址︰<literal>192.168.201.100</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     站點 <literal>berlin</literal> 將分配到以下虛擬 IP 位址︰<literal>192.168.202.100</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     我們假設仲裁方的 IP 位址為 <literal>192.168.203.100</literal>。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   繼續操作前，請確認已符合以下要求︰
+  </para>
+
+  <variablelist>
+   <title>要求</title>
+   <varlistentry>
+    <term>兩個現有的叢集</term>
+    <listitem>
+     <para>
+      您至少擁有兩個要合併到 Geo 叢集中的現有叢集 (如果需要先設定兩個叢集，請依照《<citetitle>安裝與設定快速入門</citetitle>》中的說明操作。該文件可從 <link xlink:href="https://www.suse.com/documentation"/> 獲得)。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>有意義的叢集名稱</term>
+    <listitem>
+     <para>
+      每個叢集都有一個有意義的名稱，該名稱可反映其位置，定義於 <filename>/etc/corosync/corosync.conf</filename> 中。
+     </para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>仲裁方</term>
+    <listitem>
+     <para>
+      您已安裝不屬於任何現有叢集且將當成仲裁方使用的第三部機器。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   有關各項的詳細要求，另請參閱<xref linkend="sec.ha.geo.quick.req"/>。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.req">
+  <title>要求</title>
+
+  <itemizedlist>
+  <title>軟體要求</title>
+  <listitem>
+   <para>
+    將要加入 Geo 叢集的所有機器 (叢集節點和仲裁方) 上都已安裝以下軟體︰
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      SUSE® Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Geo Clustering for SUSE Linux Enterprise High Availability Extension <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase>
+      
+     </para>
+    </listitem>
+   </itemizedlist>
+  </listitem>
+ </itemizedlist>
+
+  <itemizedlist>
+   <title>網路要求</title>
+   <listitem>
+   <para>
+    要用於每個叢集站點的虛擬 IP 在 Geo 叢集中必須可存取。
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+     必須可以透過每個投票間例項上的一個 UDP 和 TCP 埠連接網站。這意味著，必須相應地設定通訊雙方之間的所有防火牆與 IPsec 通道。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     可能需要做出其他有關開啟更多連接埠的設定決策 (例如，為 DRBD 或資料庫複製開啟連接埠)。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <itemizedlist>
+  <title>其他要求與建議</title>
+  <listitem>
+   <para>
+    所有網站上的所有叢集節點都應該同步到叢集外部的 NTP 伺服器。如需詳細資訊，請參閱《<citetitle>SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase> 管理指南</citetitle>》︰<link xlink:href="http://www.suse.com/documentation/"/>。詳情位於「<citetitle>使用 NTP 進行時間同步化</citetitle>」一章。
+   </para>
+   <para>
+    如果節點未同步化，將很難分析記錄檔案和叢集報告。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    在 Geo 叢集中使用<emphasis>奇數</emphasis>數量的成員。這樣可確保在網路連接中斷時仍存有大部分站點 (從而避免出現電腦分裂情況)。如果叢集站點的數量為偶數，請使用仲裁方。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    每個站點上的叢集都有一個有意義的名稱，例如 <literal>amsterdam</literal> 和 <literal>berlin</literal>。
+   </para>
+   <para>
+    已在相應 <filename>/etc/corosync/corosync.conf</filename> 檔案中定義每個網站的叢集名稱。
+   </para>
+<screen>totem {
+    [...]
+    cluster_name: amsterdam
+    }
+</screen>
+   <para>
+    您可以手動完成此操作 (即編輯 <filename>/etc/corosync/corosync.conf</filename>)，也可以透過 YaST 叢集模組進行 (即切換到<guimenu>通訊通道</guimenu>類別，然後定義<guimenu>叢集名稱</guimenu>)。隨後，請停止 <systemitem class="service">pacemaker</systemitem> 服務然後再將其啟動，以使變更生效︰
+   </para> <screen><prompt role="root">root # </prompt><command>systemctl</command> stop pacemaker
+<prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+  </listitem>
+ </itemizedlist>
+
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.scripts">
+  <title>Geo 開機程序檔綜覽</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     使用 <command>ha-cluster-geo-init</command> 可將一個叢集變為 Geo 叢集的第一個站點。該程序檔會獲取某些參數 (例如叢集的名稱、仲裁方，以及一或多個票證) 並依據它們建立 <filename>/etc/booth/booth.conf</filename>。它會將投票間組態複製到目前叢集站點上的所有節點。它還會為目前叢集站點上的投票間設定所需的叢集資源。
+    </para>
+    <para>
+     如需詳細資料，請參閱<xref linkend="sec.ha.geo.quick.ha-cluster-geo-init"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用 <command>ha-cluster-geo-join</command> 可新增目前的叢集至現有的 Geo 叢集中。該程序檔會從現有的叢集站點複製投票間組態，並將其寫入到目前叢集站點上所有節點的 <filename>/etc/booth/booth.conf</filename> 中。它還會為目前叢集站點上的投票間設定所需的叢集資源。
+    </para>
+    <para>
+     如需詳細資料，請參閱<xref linkend="sec.ha.geo.quick.ha-cluster-geo-join"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用 <command>ha-cluster-geo-init-arbitrator</command> 可將目前的機器變為 Geo 叢集的仲裁方。該程序檔會從現有的叢集站點複製投票間組態，並將其寫入 <filename>/etc/booth/booth.conf</filename>。
+    </para>
+    <para>
+     如需詳細資料，請參閱<xref linkend="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator"/>。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   所有開機程序檔都會記錄至 <filename>/var/log/ha-cluster-bootstrap.log</filename>。如需開機程序的任何詳細資料，請檢查記錄檔案。在開機程序中設定的任何選項都可在稍後加以修改 (透過修改投票間設定、修改資源等)。如需詳細資料，請參閱《<literal>Geo Clustering Guide</literal>》(Geo 叢集指南)。此文件位於 <link xlink:href="https://www.suse.com/documentation"/>。
+  </para>
+
+
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.inst">
+  <title>以延伸形式安裝</title>
+
+  <para>
+   安裝單獨的延伸 Geo Clustering for SUSE Linux Enterprise High Availability Extension，即可不受距離限制使用高可用性叢集。
+  </para>
+  <para>
+   若要設定 Geo 叢集，您需要擁有以下安裝模式中包含的套件︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <literal>High Availability</literal>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <literal>Geo Clustering for High Availability</literal>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   僅當您已在 SUSE Customer Center (或本地註冊伺服器) 中註冊了系統，並且已新增相應的產品通道或安裝媒體做為延伸時，這兩個模式才可用。如需如何安裝延伸的資訊，請參閱《<citetitle>SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase> 部署指南</citetitle>》︰<link xlink:href="http://www.suse.com/documentation/"/>。參閱「<citetitle>安裝模組、延伸和協力廠商附加產品</citetitle>」一章。
+
+  </para>
+
+  <procedure xml:id="pro.ha.geo.inst">
+   <title>安裝套件</title>
+   <step>
+    <para>
+     若要透過指令行從這兩個模式安裝套件，請使用 Zypper：
+    </para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> install -t pattern ha_sles ha_geo</screen>
+   </step>
+   <step xml:id="st.ha.geo.inst.yast">
+    <para>
+     或者，使用 YaST 在圖形介面中安裝：
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       以 <systemitem class="username">root</systemitem> 使用者身分啟動 YaST，然後選取<menuchoice>
+       <guimenu>軟體</guimenu> <guimenu> 軟體管理</guimenu>
+       </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       按一下<menuchoice> <guimenu> 檢視</guimenu> <guimenu> 模式</guimenu>
+       </menuchoice> ，然後啟用以下模式：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         <literal>High Availability</literal>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <literal>Geo Clustering for High Availability</literal>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </step>
+     <step>
+      <para>
+       按一下<guimenu>接受</guimenu>開始安裝套件。
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+
+  <important>
+   <title>在所有參與方上安裝軟體套件</title>
+   <para>
+    高可用性和 Geo 叢集所需的軟體套件<emphasis>不會</emphasis>自動複製到叢集節點。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      請在要加入 Geo 叢集的<phrase role="productnumber"><phrase os="sles">所有</phrase></phrase>機器上安裝 SUSE Linux Enterprise Server <literal>12 SP3</literal> 以及 <literal>High Availability</literal> 和 <emphasis>Geo Clustering for High Availability</emphasis> 模式。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      您不必在將要加入叢集的所有機器上手動安裝這些套件，而應使用 AutoYaST 複製現有節點。<link xlink:href="http://www.suse.com/documentation/"/> 上的《<citetitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>
+      <phrase role="productnumber"><phrase os="sles"> 12 SP3</phrase></phrase> 管理指南</citetitle>》中提供了詳細資訊。請參閱「<citetitle>Installing the High Availability Extension</citetitle>」(安裝 High Availability Extension) 一章中的「<citetitle>Mass Installation and Deployment with AutoYaST</citetitle>」(使用 AutoYaST 進行批量安裝和部署) 部分。
+     </para>
+     <para>
+      <remark>taroth 2017-06-29: @DEV/QA, is the following still true?</remark>不過，必須<emphasis>手動</emphasis>在將要加入 Geo 叢集的所有機器上安裝 Geo 叢集延伸。目前尚不支援使用 AutoYaST 安裝 Geo Clustering for SUSE Linux Enterprise High Availability。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init">
+  <title>設定 Geo 叢集的第一個站點</title>
+
+  <para>
+   使用 <command>ha-cluster-geo-init</command> 程序檔可將現有叢集變為 Geo 叢集的第一個站點。
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init">
+   <title>使用 <command>ha-cluster-geo-init</command> 設定第一個站點 (<systemitem>amsterdam</systemitem>)</title>
+   <step>
+    <para>
+     為每個叢集站點定義一個虛擬 IP，以便存取該站點。在此，我們假設使用 <literal>192.168.201.100</literal> 和 <literal>192.168.202.100</literal>。您並不需要將虛擬 IP 設定為叢集資源。此工作將由開機程序檔完成。
+    </para>
+   </step>
+   <step>
+    <para>
+     至少定義一個票證的名稱，該票證將用於授予在叢集站點上執行特定資源的權限。使用一個有意義的名稱來反映將依賴於該票證的資源，例如 <literal>ticket-nfs</literal>。開機程序檔只需要票證名稱，您可以稍後再依<xref linkend="sec.ha.geo.quick.next"/>所述定義其餘的詳細資料 (資源的票證相依項)。
+    </para>
+   </step>
+   <step>
+    <para>
+     登入現有叢集的節點 (例如，叢集 <literal>amsterdam</literal> 的節點 <literal>alice</literal>)。
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-init">
+    <para>
+     執行 <command>ha-cluster-geo-init</command>。例如，使用以下選項︰
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init</command> \
+  --clusters<co xml:id="co.geo.init.clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100" \
+  --tickets<co xml:id="co.geo.init.ticket"/> ticket-nfs \
+  --arbitrator<co xml:id="co.geo.init.arbitrator"/> 192.168.203.100</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.clusters">
+       <para>
+    叢集站點的名稱 (定義於 <filename>/etc/corosync/corosync.conf</filename> 中) 和您想要為每個叢集站點使用的虛擬 IP 位址。在本例中，我們有兩個叢集站點 (<literal>amsterdam</literal> 和 <literal>berlin</literal>)，每個站點各有一個虛擬 IP 位址。
+   </para>
+     </callout>
+     <callout arearefs="co.geo.init.ticket">
+      <para>
+       一或多個票證的名稱。
+      </para>
+     </callout>
+     <callout arearefs="co.geo.init.arbitrator">
+      <para>
+       不屬於叢集的機器的主機名稱或 IP 位址。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   該開機程序檔會建立投票間組態檔案，並在叢集站點間同步該檔案。它還會建立投票間所需的的基本叢集資源。執行<xref linkend="pro.ha.geo.quick.ha-cluster-geo-init" xrefstyle="select:label"/> 的<xref linkend="st.ha-cluster-geo-init" xrefstyle="seletc:label"/> 將建立以下投票間組態和叢集資源︰
+  </para>
+
+  <example xml:id="ex.geo.init.booth.conf">
+   <title><command>ha-cluster-geo-init</command> 建立的投票間組態</title>
+<screen># The booth configuration file is "/etc/booth/booth.conf". You need to
+# prepare the same booth configuration file on each arbitrator and
+# each node in the cluster sites where the booth daemon can be launched.
+
+# "transport" means which transport layer booth daemon will use.
+# Currently only "UDP" is supported.
+transport="UDP"
+port="9929"
+
+arbitrator="192.168.203.100"
+site="192.168.201.100"
+site="192.168.202.100"
+authfile="/etc/booth/authkey"
+ticket="ticket-nfs"
+expire="600"</screen>
+  </example>
+
+  <example xml:id="ex.geo.init.rsc.conf">
+   <title><command>ha-cluster-geo-init</command> 建立的叢集資源</title>
+<screen>primitive<co xml:id="co.geo.quick.rsc.booth-ip"/> booth-ip IPaddr2 \
+  params rule #cluster-name eq amsterdam ip=192.168.201.100 \
+  params rule #cluster-name eq berlin ip=192.168.202.100 \
+primitive<co xml:id="co.geo.quick.rsc.booth-site"/> booth-site ocf:pacemaker:booth-site \
+  meta resource-stickiness=INFINITY \
+  params config=booth \
+  op monitor interval=10s
+group<co xml:id="co.geo.quick.rsc.g-booth"/> g-booth booth-ip booth-site \
+meta target-role=Stopped<co xml:id="co.geo.quick.rsc.stopped"/></screen>
+   <calloutlist>
+    <callout arearefs="co.geo.quick.rsc.booth-ip">
+     <para>
+      每個叢集站點的虛擬 IP 位址。必須為投票間精靈提供該虛擬 IP 位址，因為其需要每個叢集站點上都有永久的 IP 位址。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.booth-site">
+     <para>
+      投票間精靈的基本資源。它會與其餘叢集站點上的投票間精靈通訊。在站點的任何節點上均可啟動該精靈，但若要使資源位於同一個節點上 (如果可行)，則需將資源粘性設定為 <literal>INFINITY</literal>。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.g-booth">
+     <para>
+      兩個基本資源的叢集資源群組。如此設定後，便可透過每個投票間精靈的 IP 位址來使用該精靈，而無需考慮執行精靈的節點為何。
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.stopped">
+     <para>
+      該叢集資源群組預設不會啟動。驗證叢集資源的組態 (並新增完成設定所需的資源) 後，您需要啟動該資源群組。如需詳細資料，請參閱<xref linkend="vl.ha.geo.quick.next.req"/>。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-join">
+  <title>新增另一個站點至 Geo 叢集</title>
+
+  <para>
+   啟始化 Geo 叢集的第一個站點後，請依<xref linkend="pro.ha.geo.quick.ha-cluster-geo-join" xrefstyle="select:label"/> 所述使用 <literal>ha-cluster-geo-join</literal> 新增第二個叢集。該程序檔需要透過 SSH 存取已設定的叢集站點，並且會將目前的叢集新增至 Geo 叢集。
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-join">
+   <title>使用 <command>ha-cluster-geo-join</command> 新增第二個站點 (<literal>berlin</literal>)</title>
+   <step>
+    <para>
+     登入要新增的叢集站點的某個節點 (例如，叢集 <literal>berlin</literal> 的節點 <literal>charlie</literal>)。
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-join">
+    <para>
+     執行 <command>ha-cluster-geo-join</command> 指令。例如︰
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-join</command> \
+  --cluster-node<co xml:id="co.geo.join.cluster-node"/> 192.168.201.100\
+  --clusters<co xml:id="co.geo.join.clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100"
+     </screen>
+    <calloutlist>
+     <callout arearefs="co.geo.join.cluster-node">
+      <para>
+       指定要從何處複製投票間組態。請使用已設定的 Geo 叢集站點中某節點的 IP 位址或主機名稱。也可以使用現有叢集站點的虛擬 IP 位址 (如本範例中所示)。或者，使用已為 Geo 叢集設定的仲裁方的 IP 位址或主機名稱。
+      </para>
+     </callout>
+     <callout arearefs="co.geo.join.clusters">
+       <para>
+    叢集站點的名稱 (定義於 <filename>/etc/corosync/corosync.conf</filename> 中) 和您想要為每個叢集站點使用的虛擬 IP 位址。在本例中，我們有兩個叢集站點 (<literal>amsterdam</literal> 和 <literal>berlin</literal>)，每個站點各有一個虛擬 IP 位址。
+   </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   <command>ha-cluster-geo-join</command> 程序檔會從 <xref linkend="co.geo.join.cluster-node" xrefstyle="select:label"/> 複製投票間組態，請參閱<xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/>。此外，它還會建立投票間所需的叢集資源 (請參閱<xref linkend="ex.geo.init.rsc.conf" xrefstyle="select:label"/>)。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+  <title>新增仲裁方</title>
+
+  <para>
+   使用 <command>ha-cluster-geo-init</command> 和 <command>ha-cluster-geo-join</command> 設定 Geo 叢集的所有站點後，請使用 <command>ha-cluster-geo-init-arbitrator</command> 設定仲裁方。
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+   <title>使用 <command>ha-cluster-geo-init-arbitrator</command> 設定仲裁方</title>
+   <step>
+    <para>
+     登入要當成仲裁方使用的機器。
+    </para>
+   </step>
+   <step>
+    <para>
+     執行以下指令。例如︰
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init-arbitrator</command> --cluster-node<co xml:id="co.geo.init.arbitrator.cluster-node"/> 192.168.201.100</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.arbitrator.cluster-node">
+      <para>
+       指定要從何處複製投票間組態。請使用已設定的 Geo 叢集站點中某節點的 IP 位址或主機名稱。或者，使用現有叢集站點的虛擬 IP 位址 (如本範例中所示)。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   <command>ha-cluster-geo-init-arbitrator</command> 程序檔會從 <xref linkend="co.geo.init.arbitrator.cluster-node"/> 複製投票間組態，如<xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/> 所示。它還會在仲裁方上啟用並啟動投票間服務。因此，一旦叢集站點上也在執行投票間服務，仲裁方便會立即與這些叢集站點上的投票間例項通訊。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.monitor">
+  <title>監控叢集站點</title>
+
+  <para>
+   若要檢視您已在開機程序中建立的叢集站點及資源與票證，請使用 Hawk2。透過 Hawk2 Web 介面，您可以監控和管理多個 (不相關的) 叢集和 Geo 叢集。
+  </para>
+
+  <itemizedlist>
+   <title>先決條件</title>
+   <listitem>
+    <para>
+     要透過 Hawk3 <guimenu>儀表板</guimenu>監控的所有叢集都必須執行 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles"> 12 SP2</phrase></phrase>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     如果您之前未在每個叢集節點上以自己的證書 (或官方證書管理中心簽署的證書) 取代 Hawk2 的自行簽署證書，請執行以下操作︰在<emphasis>每個</emphasis>叢集的<emphasis>每個</emphasis>節點上至少登入 Hawk2 一次。驗證證書 (或在瀏覽器中新增一個例外以使警告不再顯示)。否則，Hawk2 將無法連接到叢集。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.geo.quick.hawk2.dashboard">
+   <title>使用 Hawk2 儀表板</title>
+   <step>
+    <para>
+     啟動網頁瀏覽器，並輸入第一個叢集站點 <literal>amsterdam</literal> 的虛擬 IP。
+    </para>
+<screen>https://192.168.201.100:7630/</screen>
+    <para>
+     或者，使用 <literal>alice</literal> 或 <literal>bob</literal> 的 IP 位址或主機名稱。如果您已使用開機程序檔設定兩個節點，則 <literal>hawk</literal> 服務在這兩個節點上應當都會執行。
+    </para>
+   </step>
+   <step>
+    <para>
+     登入 Hawk2 Web 介面。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中選取<guimenu>儀表板</guimenu>。
+    </para>
+    <para>
+     Hawk2 會顯示目前叢集站點的資源和節點綜覽。此外，它還會顯示已為 Geo 叢集設定的所有<guimenu>票證</guimenu>。如需有關此檢視中所用圖示的資訊，請按一下<guimenu>圖例</guimenu>。
+    </para>
+    <figure>
+     <title>包含一個叢集站點 (<literal>amsterdam</literal>) 的 Hawk2 儀表板</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="95%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     若要新增第二個叢集站點的儀表板，請按一下<guimenu>新增叢集</guimenu>。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       輸入用於在<guimenu>儀表板</guimenu>中識別該叢集的<guimenu>叢集名稱</guimenu>。在本例中為 <literal>berlin</literal>。
+      </para>
+     </step>
+     <step>
+      <para>
+       輸入其中一個叢集節點 (在本例中為 <literal>charlie</literal> 或 <literal>doro</literal>) 的完全合格的主機名稱。
+      </para>
+     </step>
+     <step>
+      <para>
+       按一下<guimenu>新增</guimenu>。Hawk2 會為新增的叢集站點顯示另一個索引標籤，其中會列出該叢集站點的節點和資源綜覽。
+      </para>
+      <figure>
+       <title>包含兩個叢集站點的 Hawk2 儀表板</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="95%" format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     若要檢視叢集站點的更多詳細資料或管理叢集站點，請切換到站點的索引標籤並按一下鎖鏈圖示。
+    </para>
+    <para>
+     Hawk2 會在新的瀏覽器視窗或索引標籤中開啟此站點的<guimenu>狀態</guimenu>檢視。在此檢視中，您可以管理 Geo 叢集的這部分內容。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.next">
+  <title>後續步驟</title>
+
+  <para>
+   使用 Geo 叢集開機程序檔，您可以快速地設定可用於測試用途的基本 Geo 叢集。不過，若要將建立的 Geo 叢集移轉到正常運作的可用於生產環境的 Geo 叢集，則需執行更多步驟 (請參閱<xref linkend="vl.ha.geo.quick.next.req"/>)。
+  </para>
+
+  <variablelist xml:id="vl.ha.geo.quick.next.req">
+   <title>完成 Geo 叢集設定所需的步驟</title>
+   <varlistentry xml:id="vle.ha.geo.quick.booth.service.sites">
+    <term>在叢集網站上啟動投票間服務</term>
+    <listitem>
+     <para>
+      開機程序完成後，仲裁方投票間服務還不能與叢集站點上的投票間服務通訊，因為這些服務預設不會啟動。
+     </para>
+     <para>
+      每個叢集站點的投票間服務都由投票間資源群組 <literal>g-booth</literal> 管理 (請參閱<xref linkend="ex.geo.init.rsc.conf"/>)。若要為每個網站啟動一個投票間服務例項，請在每個叢集網站上啟動相應的投票間資源群組。這樣可讓所有投票間例項互相通訊。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>設定票證相依項和順序條件約束</term>
+    <listitem>
+     <para>
+      若要使資源依賴於您已在 Geo 叢集開機程序中建立的票證，請設定條件約束。請為每個條件約束設定 <literal>loss-policy</literal>，它用於定義當從叢集站點撤銷票證時相應資源應發生的情況。
+     </para>
+     <para>
+      如需詳細資料，請參閱《<literal>Geo Clustering Guide</literal>》(Geo 叢集指南) 的「<citetitle>Configuring Cluster Resources and Constraints</citetitle>」(設定叢集資源與條件約束) 一章。此文件位於 <link xlink:href="https://www.suse.com/documentation"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>在開始時將票證授予給站點</term>
+    <listitem>
+     <para>
+      在投票間可以管理 Geo 叢集中的特定票證前，您首先需要手動將該票證<emphasis>授予</emphasis>給站點。您可以使用投票間用戶端指令行工具或 Hawk2 授予票證。
+     </para>
+     <para>
+      如需詳細資料，請參閱《<literal>Geo Clustering Guide</literal>》(Geo 叢集指南) 中的「<citetitle>Managing Geo Clusters</citetitle>」(管理 Geo 叢集) 一章。此文件位於 <link xlink:href="https://www.suse.com/documentation"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   開機程序檔會在兩個叢集站點上建立相同的投票間資源，並在所有站點 (包括仲裁方) 上建立相同的投票間組態檔案。如果您延伸 Geo 叢集設定 (以便移轉到生產環境)，可能需要調整投票間組態並變更與投票間有關的叢集資源的組態。之後，您需要將變更同步到 Geo 叢集的其餘站點才能使其生效。
+  </para>
+
+  <note>
+   <title>跨叢集站點同步變更</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      若要將投票間組態中的變更同步到所有叢集站點 (包括仲裁方)，請使用 Csync2。《<literal>Geo Clustering Guide</literal>》(Geo 叢集指南) 中的「<citetitle>Synchronizing Configuration Files Across All Sites and Arbitrators</citetitle>」(跨所有站點和仲裁方同步組態檔案) 一章中提供了詳細資訊。<link xlink:href="https://www.suse.com/documentation"/> 中提供了該指南。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      CIB (叢集資訊資料庫) 不會跨 Geo 叢集的叢集站點自動同步。這意味著需要將所有叢集站點上必需的資源組態中的所有變更手動傳輸到其餘站點。要執行此操作，請標記相應資源，從目前 CIB 輸出這些資源並將其輸入到其餘叢集站點上的 CIB。如需詳細資料，請參閱《<literal>Geo Clustering Guide</literal>》(Geo 叢集指南) 的「<citetitle>Transferring the Resource Configuration to Other Cluster Sites</citetitle>」(將資源相應傳輸至其他叢集站點)。<link xlink:href="https://www.suse.com/documentation"/> 中提供了該指南。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.more">
+  <title>更多資訊</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <link xlink:href="https://www.suse.com/documentation/sle-ha-geo-12/"/> 上提供了更多有關此產品的文件。其中包括完整的《<literal>Geo Clustering Guide</literal>》(Geo 叢集指南)。請參閱該指南，瞭解更多組態與管理任務。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     「<literal>SUSE Best Practices</literal>」(SUSE 最佳實務) 系列中已發佈了包含有關如何透過 DRBD 跨 Geo 叢集進行資料複製的詳細資訊的文件︰<link xlink:href="https://www.suse.com/documentation/suse-best-practices/sbp-drbd/data/sbp-drbd.html"/>。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>

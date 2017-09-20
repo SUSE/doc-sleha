@@ -1,0 +1,511 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_rear.xml" version="5.0" xml:id="cha.ha.rear">
+ <title>使用 Rear (Relax-and-Recover) 進行災難備援</title>
+ <info>
+      <abstract>
+        <para>
+    Relax-and-Recover (<quote>ReaR</quote>，本章中縮寫為 Rear) 是供系統管理員使用的災難備援架構。Rear 是一個 Bash 程序檔集合，您需要依據要在發生災難時加以保護的特定線上環境調整這些程序檔。
+   </para>
+        <para>
+    沒有任何災難備援解決方案能夠現成地解決問題。因此，必須在任何災難發生<emphasis>之前</emphasis>做好準備。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.rear.concept">
+  <title>概念綜覽</title>
+
+
+
+  <para>
+   以下幾節介紹了一般性的災難備援概念，以及您要使用 Rear 成功復原所需執行的基本步驟。此外，還提供了一些關於 Rear 要求、要注意的一些限制、案例和備份工具的指導。
+  </para>
+
+  <sect2 xml:id="sec.ha.rear.concept.drp">
+   <title>建立災難備援計畫</title>
+   <para>
+    在最壞的情況發生<emphasis>之前</emphasis>採取措施︰分析 IT 基礎架構是否存在任何重大風險，評估您的預算，並建立災難備援計畫。如果您還沒有現行的災難備援計畫，請先瞭解關於以下每個步驟的一些資訊︰
+   </para>
+   <itemizedlist>
+    <listitem>
+     <formalpara>
+      <title>風險分析</title>
+      <para>
+       對您的基礎結構進行一次全面的風險分析。列出所有可能存在的威脅並評估其嚴重性。判斷這些威脅發生的可能性，並對它們排列優先順序。建議進行一個簡單的分類︰可能性與影響。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>預算規劃</title>
+      <para>
+       分析的結果會是一個綜覽，告訴您哪些風險可以承受，哪些風險對企業影響很大。問問自己，怎樣才能將風險將至最低、這要付出多大的代價。根據公司的規模大小，將整個 IT 預算的 2% 到 50% 花費在災難備援上。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>災難備援計劃開發</title>
+      <para>
+       製作檢查清單、測試程序、建立並指定優先順序，以及清查 IT 基礎結構。定義當基礎結構中有服務失敗時，要如何處理問題。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>測試</title>
+      <para>
+       定義完一份詳細的計劃後，需對其進行測試。一年至少測試一次。所使用的測試硬體應與主要 IT 基礎結構相同。
+      </para>
+     </formalpara>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.rear.concept.recovery">
+   <title>災難備援意味著什麼？</title>
+   <para>
+    如果線上環境中的某個系統已經損毀 (可能出於任何原因，例如，硬體損壞、組態不當或軟體問題)，您需要重新建立該系統。可以在相同的硬體或者相容的替代硬體上重新建立。重新建立系統並不只是代表著從備份中還原檔案，還包括準備系統的儲存區 (與檔案系統、分割區和掛接點相關)，以及重新安裝開機載入程式。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.rear.concept.basics">
+   <title>災難備援如何與 Rear 一起運作？</title>
+   <para>
+    在系統正常運作時建立檔案的備份，並在復原媒體上建立復原系統。該復原系統包含一個復原安裝程式。
+   </para>
+   <para>
+    當系統已經損毀時，您可以更換受損的硬體 (如果需要)，將復原系統從復原媒體開機，然後啟動復原安裝程式。復原安裝程式會重新建立系統︰首先，它會準備儲存區 (分割區、檔案系統、掛接點)，然後從備份中還原檔案。最後，它會重新安裝開機載入程式。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.rear.concept.requirements">
+   <title>Rear 要求</title>
+   <para>
+    若要使用 Rear，您至少需要兩個相同的系統︰用來執行線上環境的機器，以及相同的測試機器。這裡所指的<quote>相同</quote>，舉例而言就是使用相同核心驅動程式的網路卡，可以用其中一個來取代另一個。
+   </para>
+   <warning>
+    <title>需要相同的驅動程式</title>
+    <para>
+     如果某個硬體元件使用的驅動程式不同於線上環境中所用的驅動程式，則 Rear 不會將該元件視為相同。
+    </para>
+   </warning>
+  </sect2>
+  
+  
+  <sect2 xml:id="sec.ha.rear.concept.versions">
+   <title>Rear 版本更新</title>
+   <para>
+    為了與舊版服務套件相容，<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles"> 12 SP3</phrase></phrase> 隨附了三種不同的 Rear 版本︰1.16 (包含在 RPM 套件
+    <package>rear116</package>中)、1.17.2.a (<package>rear1172a</package>) 及 1.18.a (<package>rear118a</package>)。最新版本包含一些來自上游 GitHub 專案的近期加強功能。
+   </para>
+
+   <note>
+    <title>在變更記錄中尋找重要資訊</title>
+    <para>
+     有關錯誤修復、不相容性及其他問題的任何資訊都可在套件的變更記錄中找到。如果需要重新驗證災難備援程序，建議您另外也要檢閱 Rear 的較新套件版本。
+    </para>
+   </note>
+
+   <para>
+     您需要瞭解 Rear 的以下問題︰
+   </para>
+
+    <itemizedlist>
+     <listitem>
+     <para>
+      若要能夠在 UEFI 系統上實現災難備援，您需要 1.18.a 版本和套件 <package>ebiso</package>。只有此版本支援新的輔助程式工具 <filename>/usr/bin/ebiso</filename>。此輔助程式工具用於建立 UEFI 可開機 Rear 系統 ISO 影像。
+     </para>
+     </listitem>
+     <listitem>
+     <para>
+      如果您使用一個 Rear 版本實作的災難備援程序已經過測試並且功能完備，請不要更新 Rear。請保留該 Rear 套件，並且不要變更您的災難備援方法！
+     </para>
+     </listitem>
+     <listitem>
+     <para>
+      Rear 的版本更新是以獨立套件的形式提供，這些套件在設計上有意彼此衝突，目的是防止所安裝的版本意外地由另一個版本取代。
+     </para>
+     </listitem>
+    </itemizedlist>
+
+   <para>
+    在以下情況下，您需要全面重新驗證現有的災難備援程序︰
+   </para>
+
+   <itemizedlist>
+    <listitem>
+     <para>
+      針對每個 Rear 版本更新。
+     </para>
+    </listitem>
+    <listitem>
+     <para>手動更新 Rear 時。</para>
+    </listitem>
+    <listitem>
+     <para>
+      針對 Rear 使用的每個軟體。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      更新底層系統元件 (例如 <command>parted</command>、<command>btrfs</command> 及類似元件) 時。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.rear.concept.limit">
+   <title>針對 Btrfs 的限制</title>
+   <para>
+    如果您使用 Btrfs，會存在以下限制。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>您的系統包括子磁碟區，但不包括快照子磁碟區</term>
+     <listitem>
+      <para>
+       至少需要 Rear 版本 1.17.2.a。此版本支援重新建立<quote>正常的</quote> Btrfs 子磁碟區結構 (不包括快照子磁碟區)。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>您的系統包括快照子磁碟區</term>
+     <listitem>
+      <warning>
+       <para>
+        <emphasis>無法</emphasis>像往常一樣使用以檔案為基礎的備份軟體來備份和還原 Btrfs 快照子磁碟區。
+       </para>
+      </warning>
+      <para>
+       雖然 Btrfs 檔案系統上的最新快照子磁碟區幾乎不佔用任何磁碟空間 (因為 Btrfs 具有寫入時複製功能)，但在使用以檔案為基礎的備份軟體時，這些檔案將會做為完整檔案進行備份。在備份中，這些檔案的大小為其原始檔案大小的兩倍。因此，也就無法將快照還原到它們以前在原始系統上的狀態。
+      </para>
+
+
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>您的 SLE12 系統需要相符的 Rear 組態</term>
+     <listitem>
+      <para>
+       SLE12 GA、SLE12 SP1 和 SLE12 SP2 中的設定具有數個不同的不相容 Btrfs 預設結構。因此，使用相符的 Rear 組態檔案至關重要。請參閱範例檔案 <filename>/usr/share/rear/conf/examples/SLE12*-btrfs-example.conf</filename>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.rear.concept.scenarios">
+   <title>案例和備份工具</title>
+   <para>
+    Rear 能夠建立可從本地媒體 (例如硬碟、隨身碟、DVD/CD-R) 或透過 PXE 開機的災難備援系統 (包括系統專屬的復原安裝程式)。可以依照<xref linkend="ex.ha.rear.nfs-server-backup" xrefstyle="select:label"/>所述，將備份資料儲存在網路檔案系統 (例如 NFS) 中。
+   </para>
+   <para>
+    Rear 不會取代檔案備份，而是對其進行補充。依預設，Rear 支援一般 <command>tar</command> 指令和多種協力廠商備份工具 (例如 Tivoli Storage Manager、QNetix Galaxy、Symantec NetBackup、EMC NetWorker 或 HP DataProtector)。如需將 Rear 與 EMC NetWorker (用做備份工具) 一起使用的範例組態，請參閱<xref linkend="ex.ha.rear.config.EMC" xrefstyle="select:label"/>。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.rear.concept.overview">
+   <title>基本步驟</title>
+   <para>
+    若要在發生災難時使用 Rear 成功復原，需要執行以下基本步驟︰
+   </para>
+   <variablelist>
+    <varlistentry>
+
+     <term><xref linkend="sec.ha.rear.config" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       這會涉及到一些任務，例如，編輯 Rear 組態檔案、調整 Bash 程序檔，以及設定您要使用的備份解決方案。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+
+     <term><xref linkend="sec.ha.rear.mkbackup" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       在要保護的系統處於正常運作狀態時，使用 <command>rear mkbackup</command> 指令建立檔案備份，並產生包含系統特定 Rear 復原安裝程式的復原系統。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+
+     <term><xref linkend="sec.ha.rear.testing" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       每當使用 Rear 建立災難備援媒體後，都要全面測試災難備援程序。所用測試機器上的硬體，必須與線上環境中的硬體<emphasis>相同</emphasis>。如需詳細資訊，請參閱<xref linkend="sec.ha.rear.concept.requirements"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+
+     <term><xref linkend="sec.ha.rear.recover" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       發生災難後，更換任何受損的硬體 (如果需要)。然後，將 Rear 復原系統開機，並使用 <command>rear recover</command> 指令啟動復原安裝程式。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.rear.config">
+  <title>設定 Rear 和您的備份解決方案</title>
+
+  <para>
+   若要設定 Rear，您至少需要編輯 Rear 組態檔案 <filename>/etc/rear/local.conf</filename>，此外可以根據需要編輯屬於 Rear 架構一部分的 Bash 程序檔。
+  </para>
+
+  <para>
+   具體而言，您需要定義 Rear 應執行的以下任務︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>當您的系統是透過 UEFI 開機時</title>
+     <para>
+      如果您的系統是透過 UEFI 開機載入程式開機，請安裝套件
+      <package>ebiso</package> 並將下行新增至 <filename>/etc/rear/local.conf</filename>︰
+     </para>
+    </formalpara>
+    <screen>ISO_MKISOFS_BIN=/usr/bin/ebiso</screen>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>如何備份檔案以及如何建立和儲存災難備援系統</title>
+     <para>
+      這需要在 <filename>/etc/rear/local.conf</filename> 中設定。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>需要重新建立的確切項目 (分割區、檔案系統、掛接點，等等)</title>
+     <para>
+      這可以在 <filename>/etc/rear/local.conf</filename> 中定義 (例如，要排除哪個項目)。若要重新建立非標準系統，您可能需要增強 Bash 程序檔。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>復原程序的運作方式</title>
+     <para>
+      若要變更 Rear 產生復原安裝程式的方式，或者要修改 Rear 復原安裝程式執行的動作，您必須編輯 Bash 程序檔。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   若要設定 Rear，請將您的選項新增至 <filename>/etc/rear/local.conf</filename> 組態檔案中 (以前的組態檔案 <filename>/etc/rear/sites.conf</filename> 已從套件中移除。但是，如果您有來自以前設定中的此檔案，Rear 將會繼續使用該檔案。)
+  </para>
+
+  <para>
+   所有 Rear 組態變數及其預設值都在 <filename>/usr/share/rear/conf/default.conf</filename> 中設定。<filename>Examples</filename> 子目錄中提供了一些使用者組態 (例如，<filename>/etc/rear/local.conf</filename> 中設定的項目) 的範例檔案 (<filename>*example.conf</filename>)。如需詳細資訊，請參閱 Rear man 頁面。
+  </para>
+  <para>
+   您應該使用一個相符的範例組態檔案做為樣板，然後依據需要對其進行調整，以此建立您的特定組態檔案。從數個範例組態檔案中複製各選項，然後將其貼至與特定系統相符的特定 <filename>/etc/rear/local.conf</filename> 檔案中。請勿使用原始的範例組態檔案，因為這些檔案提供了可能用於特定設定的變數綜覽。
+  </para>
+  <para>
+   變更 Rear 組態檔案後，執行以下指令並檢查該指令的輸出︰
+  </para>
+
+<screen>rear dump</screen>
+
+  <example xml:id="ex.ha.rear.nfs-server-backup">
+   <title>使用 NFS 伺服器儲存檔案備份</title>
+   <para>
+    Rear 可以在多種不同的情況下使用。以下範例使用 NFS 伺服器做為檔案備份的儲存區。
+   </para>
+  </example>
+
+  <procedure>
+   <step>
+    <para>
+     依照《SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP3</phrase></phrase> 管理指南》的「<citetitle>使用 NFS 共享檔案系統</citetitle>」一章所述，使用 YaST 設定 NFS 伺服器。此文件位於 <link xlink:href="http://www.suse.com/documentation/"/>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在 <filename>/etc/exports</filename> 檔案中定義 NFS 伺服器的組態。確定 NFS 伺服器上的目錄 (要儲存備份資料的位置) 具有適當的掛接選項。例如︰
+    </para>
+<screen><replaceable>/srv/nfs</replaceable> *([...],rw,no_root_squash,[...])</screen>
+    <para>
+     用 NFS 伺服器上的備份資料路徑取代 <filename>/srv/nfs</filename>，並調整掛接選項。您可能需要使用 <literal>no_root_squash</literal> 來存取備份資料，因為 <command>rear mkbackup</command> 指令是以 <systemitem class="username">root</systemitem> 身分執行。
+    </para>
+   </step>
+   <step>
+    <para>
+     調整各個 <varname>BACKUP</varname> 參數 (在組態檔案 <filename>/etc/rear/local.conf</filename> 中)，以便 Rear 將檔案備份儲存在相應的 NFS 伺服器上。所安裝系統中的 <filename>/usr/share/rear/conf/examples/SLE12-*-example.conf</filename> 下提供了範例。
+    </para>
+   </step>
+  </procedure>
+
+  <example xml:id="ex.ha.rear.config.EMC">
+   <title>使用 EMC NetWorker 等協力廠商備份工具</title>
+   <para>
+    若要使用協力廠商備份工具代替 <command>tar</command>，您需要在 Rear 組態檔案中進行相應的設定。
+   </para>
+   <para>
+    以下是 EMC NetWorker 的範例組態。將此組態片段新增至 <filename>/etc/rear/local.conf</filename> 中，並依據您的設定調整該片段︰
+   </para>
+<screen>BACKUP=NSR
+    OUTPUT=ISO
+    BACKUP_URL=nfs://<replaceable>host.example.com/path/to/rear/backup</replaceable>
+    OUTPUT_URL=nfs://<replaceable>host.example.com/path/to/rear/backup</replaceable>
+    NSRSERVER=<replaceable>backupserver.example.com</replaceable>
+    RETENTION_TIME="Month"</screen>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec.ha.rear.mkbackup">
+  <title>建立復原安裝系統</title>
+
+  <para>
+   依照<xref linkend="sec.ha.rear.config" xrefstyle="select:label"/>所述設定 Rear 後，使用以下指令建立復原安裝系統 (包括 Rear 復原安裝程式) 和檔案備份︰
+  </para>
+
+<screen>rear -d  -D mkbackup</screen>
+
+  <para>
+   該指令會執行以下步驟︰
+  </para>
+
+  <orderedlist spacing="normal">
+   <listitem>
+    <para>
+     分析目標系統並收集資訊，尤其是關於磁碟配置 (分割區、檔案系統、掛接點) 和開機載入程式的資訊。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用第一步收集的資訊建立一個可開機的復原系統。產生的 Rear 復原安裝程式<emphasis>特定於</emphasis>在發生災難時要保護的系統。使用該安裝程式只能重新建立這個特定的系統。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     呼叫設定的備份工具來備份系統和使用者檔案。
+    </para>
+   </listitem>
+  </orderedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.rear.testing">
+  <title>測試復原程序</title>
+
+  <para>
+   建立復原系統後，在具有相同硬體的測試機器上測試復原程序。並請參閱<xref linkend="sec.ha.rear.concept.requirements"/>。確定測試機器的設定正確，並且可以取代您的主要機器運作。
+  </para>
+
+  <warning>
+   <title>使用相同的硬體執行全面測試</title>
+   <para>
+    必須在機器上全面測試災難備援程序。請定期測試復原程序，以確定一切如預期運作。
+   </para>
+  </warning>
+
+  <procedure xml:id="pro.ha.rear.testing">
+   <title>在測試機器上執行災難備援</title>
+   <step>
+    <para>
+     將您在<xref linkend="sec.ha.rear.mkbackup" xrefstyle="select:label"/>中建立的復原系統燒錄到 DVD 或 CD 上，以建立復原媒體。或者，您可以透過 PXE 使用網路開機。
+    </para>
+   </step>
+   <step>
+    <para>
+     從復原媒體將測試機器開機。
+    </para>
+   </step>
+   <step>
+    <para>
+     從功能表中，選取<guimenu>復原</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 的身分登入 (不需要密碼)。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入以下指令來啟動復原安裝程式︰
+    </para>
+<screen>rear -d -D recover</screen>
+    <para>
+     如需 Rear 在此過程中執行之步驟的詳細資料，請參閱<xref linkend="ol.ha.rear.recovers.steps"/>。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成復原程序後，檢查是否已成功地重新建立系統，並且該系統是否可在線上環境中取代原始系統。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.rear.recover">
+  <title>從災難中復原</title>
+
+  <para>
+   如果發生災難，請視需要更換任何受損的硬體。然後依照<xref linkend="pro.ha.rear.testing" xrefstyle="select:label"/>所述，使用已修復的機器 (或使用已經測試並可取代原始系統運作的相同機器) 繼續操作。
+  </para>
+
+  <para>
+   <command>rear recover</command> 指令將執行以下步驟︰
+  </para>
+
+  <orderedlist xml:id="ol.ha.rear.recovers.steps" spacing="normal">
+   <title>復原程序</title>
+   <listitem>
+    <para>
+     還原磁碟配置 (分割區、檔案系統和掛接點)。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     從備份中還原系統和使用者檔案。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     還原開機載入程式。
+    </para>
+   </listitem>
+  </orderedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.rear.more">
+  <title>更多資訊</title>
+
+
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <link xlink:href="http://en.opensuse.org/SDB:Disaster_Recovery"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>rear</command> man 頁面
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>/usr/share/doc/packages/rear/README</filename>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>
