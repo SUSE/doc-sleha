@@ -45,8 +45,8 @@ cLVM) for more information and details to integrate here - really helpful-->
     about changes that are done to the storage subsystem. The Linux Volume
     Manager&nbsp;2 (LVM2), which is widely used to manage local storage,
     has been extended to support transparent management of volume groups
-    across the whole cluster. Clustered volume groups can be managed using
-    the same commands as local storage.
+    across the whole cluster. The shared volume groups among multiple hosts
+    can be managed using the same commands as local storage.
    </para>
       </abstract>
       <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
@@ -78,15 +78,16 @@ cLVM) for more information and details to integrate here - really helpful-->
    <varlistentry>
     <term>Distributed Lock Manager (DLM)</term>
     <listitem>
-     <para> Coordinates metadata access through cluster locking.</para>
+     <para> Coordinates access to shared resources among multiple hosts through
+      cluster-wide locking.</para>
     </listitem>
    </varlistentry>
    <varlistentry>
     <term>Logical Volume Manager (LVM2)</term>
     <listitem>
      <para>
-      Enables flexible distribution of one file system over several disks.
-      LVM2 provides a virtual pool of disk space.
+      LVM2 provides a virtual pool of disk space, enables flexible distribution of
+      one logical volume over several disks.
      </para>
     </listitem>
    </varlistentry>
@@ -96,55 +97,30 @@ cLVM) for more information and details to integrate here - really helpful-->
      <para>
       The term "cluster LVM2" indicates LVM2 is being used in cluster environment,
       which needs some configuration adjustments to enable its cluster extension
-      to protect the LVM2 metadata on shared storage. From SLES15 onward, the cluster
-      extension is now changed to use <literal>lvmlockd</literal>, which replaces the old
-      well-known <literal>clvmd</literal>.
+      to protect the LVM2 metadata on shared storage. From SLES15 onward, the
+      cluster extension is changed to use lvmlockd, which replaces the well-known
+      clvmd. For more information about lvmlockd, see the man page of the
+      <command>lvmlockd</command> command (<command>man 8
+      lvmlockd</command>).
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Volume Group (VG) and Logical Volume (LV)</term>
+    <listitem>
+     <para>
+      VG and LV are basic concepts of LVM2. VG is a storage pool of multiple physical
+      disks, while LV belongs to a VG, can be seen as an elastic volume on which you
+      can create a file system. In cluster environment, there is a concept of shared VG,
+      which consists of shared storage and can be used concurrently by multiple hosts.
      </para>
     </listitem>
    </varlistentry>
   </variablelist>
  </sect1>
  <sect1 xml:id="sec.ha.clvm.config">
-  <title>Configuration of cluster LVM</title>
+  <title>Configuration of Cluster LVM</title>
 
-  <para>
-   Depending on your scenario it is possible to create a RAID&nbsp;1
-   device with the following layers:
-  </para>
-
-  <remark>toms 2010-03-12 (DEV): What are the advantages and disadvantages?</remark>
-
-  <itemizedlist>
-   <listitem>
-    <formalpara>
-     <title>LVM</title>
-     <para>
-      This is a very flexible solution if you want to increase or decrease
-      your file system size, add more physical storage, or create snapshots
-      of your file systems. This method is described in
-      <xref linkend="sec.ha.clvm.scenario.iscsi"/>.
-     </para>
-    </formalpara>
-   </listitem>
-   <listitem>
-    <formalpara>
-     <title>DRBD</title>
-     <para>
-      This solution only provides RAID&nbsp;0 (striping) and
-      RAID&nbsp;1 (mirroring). The last method is described in
-      <xref linkend="sec.ha.clvm.scenario.drbd"/>.
-     </para>
-    </formalpara>
-   </listitem>
-   <!--taroth 2015-09-23: willl not be shipped for SP1--> 
-   <!--<listitem>
-     <formalpara>
-     <title>Cluster MD</title>
-     <para>Cluster MD provides a way to use MD RAID1 simultaneously across the
-      cluster. For details, see <xref linkend="cha.ha.cluster-md"/>. </para>
-    </formalpara>
-    </listitem>-->
-  </itemizedlist>
   <para>
    Make sure you have fulfilled the following prerequisites:
   </para>
@@ -158,223 +134,25 @@ cLVM) for more information and details to integrate here - really helpful-->
    </listitem>
    <listitem>
     <para>
-     In case of DRBD, both nodes must be primary (as described in the
-     following procedure).
+     Make sure the packages have been installed: <systemitem
+     class="resource">lvm2</systemitem> and <systemitem
+     class="resource">lvm2-lockd</systemitem>.
     </para>
    </listitem>
    <listitem>
     <para>
-     Check if the locking type of LVM2 is cluster-aware. The keyword
-     <literal>locking_type</literal> in
-     <filename>/etc/lvm/lvm.conf</filename> must contain the value
-     <literal>3</literal> (the default is <literal>1</literal>). Copy the configuration to all nodes, if necessary.
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-     Check if the <systemitem class="daemon">lvmetad</systemitem> daemon is
-     disabled because it cannot work with cluster LVM. In <filename>/etc/lvm/lvm.conf</filename>,
-     the keyword <literal>use_lvmetad</literal> must be set to <literal>0</literal>
-     (the default is <literal>1</literal>).
-     Copy the configuration to all nodes, if necessary.
+     From SLES15 onward, we use lvmlockd as the LVM2 cluster extension,
+     to replace the old clvmd. Make sure the clvmd daemon is not running,
+     otherwise lvmlockd will fail to start.
     </para>
    </listitem>
   </itemizedlist>
 
-  <note>
-   <title>Create Cluster Resources First</title>
-   <para>
-    First create your cluster resources as described in
-    <xref linkend="sec.ha.clvm.config.resources"/> and then your LVM
-    volumes. Otherwise it is impossible to remove the volumes later.
-   </para>
-  </note>
-
-  <sect2 xml:id="sec.ha.clvm.config.cmirrord">
-   <title>Configuring Cmirrord</title>
-<!-- FATE#314367,  -->
-   <para>
-    To track mirror log information in a cluster, the
-    <systemitem class="daemon">cmirrord</systemitem> daemon is used. Cluster
-    mirrors are not possible without this daemon running.
-   </para>
-   <para> We assume that <filename>/dev/sda</filename> and
-     <filename>/dev/sdb</filename> are the shared storage devices as with
-    DRBD, iSCSI, and others. Replace these with your own device name(s), if
-    necessary. Proceed as follows: </para>
-   <procedure xml:id="pro.ha.clvm.config.cmirrord">
-    <step>
-     <para> Create a cluster with at least two nodes as described in
-       <citetitle>&instquick;</citetitle>.</para>
-    </step>
-    <step>
-     <para>
-      Configure your cluster to run <command>dlm</command>,
-      <command>clvmd</command>, and &stonith;:
-     </para>
-<screen>&prompt.root;<command>crm</command> configure
-&prompt.crm.conf;<command>primitive</command> clvmd ocf:heartbeat:clvm \
-        params with_cmirrord=true \
-        op start timeout="90" \
-        op stop timeout="100" \
-        op monitor interval="20" timeout="60"
-&prompt.crm.conf;<command>primitive</command> dlm ocf:pacemaker:controld \
-        op start timeout="90" \
-        op stop timeout="100" \
-        op monitor interval="60" timeout="60"
-&prompt.crm.conf;<command>primitive</command> sbd_stonith stonith:external/sbd \
-        params pcmk_delay_max=30
-&prompt.crm.conf;<command>group</command> g-clvm dlm clvmd
-&prompt.crm.conf;<command>clone</command> c-clvm g-clvm \
-        meta interleave="true" ordered=true</screen>
-    </step>
-    <step>
-     <para>
-      Leave &crmsh; with <command>exit</command> and commit your changes.
-     </para>
-    </step>
-    <step>
-     <para>
-      Create a clustered volume group (VG):
-<!-- which requires 
-          Pacemaker to have started dlmd and clvmd-->
-     </para>
-<screen>&prompt.root;<command>pvcreate</command> /dev/sda /dev/sdb
-&prompt.root;<command>vgcreate</command> -cy vg1 /dev/sda /dev/sdb</screen>
-    </step>
-    <step>
-     <para>
-      Create a mirrored-log logical volume (LV) in your cluster:
-     </para>
-<screen>&prompt.root;<command>lvcreate</command> -n lv1 -m1 -l10%VG vg1 --mirrorlog mirrored</screen>
-    </step>
-    <step>
-     <para>
-      Use <command>lvs</command> to show the progress. If the percentage
-      number has reached 100%, the mirrored disk is successfully
-      synchronized.
-     </para>
-    </step>
-    <step xml:id="st.ha.clvm.config.cmirrord.test">
-     <para>
-      To test the clustered volume <filename>/dev/vg1/lv1</filename>, use the
-      following steps:
-     </para>
-     <substeps>
-      <step>
-       <para>
-        Read or write to <filename>/dev/vg1/lv1</filename>.
-       </para>
-      </step>
-      <step>
-       <para>
-        Deactivate your LV with <command>lvchange</command>
-        <option>-an</option>.
-       </para>
-      </step>
-      <step>
-       <para>
-        Activate your LV with <command>lvchange</command>
-        <option>-ay</option>.
-       </para>
-      </step>
-      <step>
-       <para>
-        Use <command>lvconvert</command> to convert a mirrored log to a disk
-        log.
-       </para>
-      </step>
-     </substeps>
-    </step>
-    <step>
-     <para>
-      Create a mirrored-log LV in another cluster VG. This is a different
-      volume group from the previous one.
-     </para>
-    </step>
-   </procedure>
-<!-- FATE#312248: -->
-   <para>
-    The current cluster LVM can only handle one physical volume (PV) per mirror
-    side. If one mirror is actually made up of several PVs that need to be
-    concatenated or striped, <command>lvcreate</command> does not understand
-    this. For this reason, <command>lvcreate</command> and
-    <systemitem>cmirrord</systemitem> metadata needs to understand
-    <quote>grouping</quote> of PVs into one side, effectively supporting
-    RAID10.
-   </para>
-   <para>
-    To support RAID10 for <systemitem class="daemon">cmirrord</systemitem>,
-    use the following procedure (assuming that <filename>/dev/sda</filename>,
-    <filename>/dev/sdb</filename>, <filename>/dev/sdc</filename>, and
-    <filename>/dev/sdd</filename> are the shared storage devices):
-   </para>
-   <procedure xml:id="pro.ha.clvm.config.raid10">
-<!--<step>
-        <para>Create a cluster with at least two nodes.</para>
-      </step>
-      -->
-    <step>
-     <para>
-      Create a volume group (VG):
-     </para>
-<screen>&prompt.root;<command>pvcreate</command> /dev/sda /dev/sdb /dev/sdc /dev/sdd
-  Physical volume "/dev/sda" successfully created
-  Physical volume "/dev/sdb" successfully created
-  Physical volume "/dev/sdc" successfully created
-  Physical volume "/dev/sdd" successfully created
-&prompt.root;<command>vgcreate</command> vgtest /dev/sda /dev/sdb /dev/sdc /dev/sdd
-  Clustered volume group "vgtest" successfully created</screen>
-    </step>
-    <step>
-     <para>
-      Open the file <filename>/etc/lvm/lvm.conf</filename> and go to the
-      section <literal>allocation</literal>. Set the following line and save
-      the file:
-     </para>
-<screen>mirror_logs_require_separate_pvs = 1</screen>
-    </step>
-    <step>
-     <para>
-      Add your tags to your PVs:
-     </para>
-<screen>&prompt.root;<command>pvchange</command> --addtag @a /dev/sda /dev/sdb
-&prompt.root;<command>pvchange</command> --addtag @b /dev/sdc /dev/sdd</screen>
-     <para>
-      A tag is an unordered keyword or term assigned to the metadata of a
-      storage object. Tagging allows you to classify collections of LVM
-      storage objects in ways that you find useful by attaching an unordered
-      list of tags to their metadata.
-     </para>
-    </step>
-    <step>
-     <para>
-      List your tags:
-     </para>
-<screen>&prompt.root;<command>pvs</command> -o pv_name,vg_name,pv_tags /dev/sd{a,b,c,d}</screen>
-     <para>
-      You should receive this output:
-     </para>
-<screen>PV        VG   PV Tags
-/dev/sda  vgtest   a
-/dev/sdb  vgtest   a
-/dev/sdc  vgtest   b
-/dev/sdd  vgtest   b</screen>
-    </step>
-   </procedure>
-   <para>
-    If you need further information regarding LVM, refer to the &sls;
-    &productnumber; <citetitle>&storage;</citetitle>, chapter
-    <citetitle>LVM Configuration</citetitle>. It is available from
-    <link xlink:href="http://www.suse.com/documentation/"/>.
-   </para>
-  </sect2>
-
   <sect2 xml:id="sec.ha.clvm.config.resources">
    <title>Creating the Cluster Resources</title>
    <para>
-    Preparing the cluster for use of cluster LVM includes the following basic
-    steps:
+    Perform the following basic steps on one node to configure a shared VG in
+    cluster:
    </para>
    <itemizedlist>
     <listitem>
@@ -383,11 +161,22 @@ cLVM) for more information and details to integrate here - really helpful-->
      </para>
     </listitem>
     <listitem>
-     <para>
-      <xref linkend="pro.ha.clvm.lvmresources" xrefstyle="select:title"/>
+     <para>Creating a lvmlockd Resource
+     <remark>taroth 2018-01-29: todo - replace by link</remark>
+     </para>
+    </listitem>
+    <listitem>
+     <para>Creating a shared VG and LV
+      <remark>taroth 2018-01-29: todo - replace by link</remark>
+     </para>
+    </listitem>
+    <listitem>
+     <para>Creating an LVM-activate Resource
+      <remark>taroth 2018-01-29: todo - replace by link</remark>
      </para>
     </listitem>
    </itemizedlist>
+
    <procedure xml:id="pro.ha.clvm.dlmresource">
     <title>Creating a DLM Resource</title>
 <!--bcn#633216 and lmb's setup proposal on [ha-devel]-->
@@ -406,6 +195,7 @@ cLVM) for more information and details to integrate here - really helpful-->
       Start a shell and log in as &rootuser;.
      </para>
     </step>
+    <!--updated until here, based on eric's v1-->
     <step>
      <para>
       Run <command>crm</command> <option>configure</option>.
