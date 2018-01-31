@@ -720,7 +720,15 @@ Timeout (msgwait)  : 40
    </sect3>
    <sect3 xml:id="sec.ha..storageprotection.sgpersist">
     <title>Configuring an sg_persist Resource</title>
-    <para/>
+    <note>
+     <title>SCSI Disk Compatibility</title>
+     <para>
+      Any backing disks for <literal>sg_persist</literal> must be SCSI disk
+      compatible. <literal>sg_persist</literal> only works for devices like SCSI
+      disks or iSCSI LUNs. Do <emphasis>not</emphasis> use it for IDE, SATA,
+      or any block devices which do not support the SCSI protocol.
+     </para>
+    </note>
     <remark>toms 2014-09-10: FATE#312345</remark>
     <procedure>
      <step>
@@ -730,24 +738,12 @@ Timeout (msgwait)  : 40
      </step>
      <step>
       <para>
-       Create the configuration file
-       <filename>/etc/sg_persist.conf</filename>:
-      </para>
-<screen>sg_persist_resource_MDRAID1() {
-      devs="/dev/sdd /dev/sde"
-      required_devs_nof=2
-}</screen>
-     </step>
-     <step>
-      <para>
        Run the following commands to create the primitive resources
        <literal>sg_persist</literal>:
       </para>
 <screen>&prompt.root;<command>crm</command> configure
-&prompt.crm.conf;<command>primitive</command> sg ocf:heartbeat:sg_persist \
-    params config_file=/etc/sg_persist.conf \
-           sg_persist_resource=MDRAID1 \
-           reservation_type=1 \
+&prompt.crm.conf;<command>primitive</command> sg sg_persist \
+    params devs="/dev/sdc" reservation_type=3 \
     op monitor interval=60 timeout=60</screen>
      </step>
      <step>
@@ -760,14 +756,6 @@ Timeout (msgwait)  : 40
      </step>
      <step>
       <para>
-       Set the master on the &node1; server and the slave on the
-       &node2; node:
-      </para>
-<screen>&prompt.crm.conf;<command>location</command> ms-sg-&node1;-loc ms-sg inf: &node1;
-&prompt.crm.conf;<command>location</command> ms-sg-&node2;-loc ms-sg 100: &node2;</screen>
-     </step>
-     <step>
-      <para>
        Do some tests. When the resource is in master/slave status, on the
        master server, you can mount and write on
        <filename>/dev/sdc1</filename>, while on the slave server you cannot
@@ -775,37 +763,29 @@ Timeout (msgwait)  : 40
       </para>
      </step>
     </procedure>
-    <para>
-     Usually you should use the above resource with the
-     <literal>Filesystem</literal> resource, for example, MD-RAID, LVM, and
-      Ext2/3/4/XFS. &ocfs; and cluster LVM do not need it. In this
-     case, you need to perform the following steps:
+    <para>For more information, refer to the <command>sg_persist</command> man page.
+     Usually you should use the above resource with a <literal>Filesystem</literal>
+     resource, for example, Ext2/3/4/XFS.
     </para>
     <procedure>
      <step>
       <para>
-       Add an &ocfs; primitive:
+       Add a file system primitive for Ext4:
       </para>
-<screen>&prompt.crm.conf;<command>primitive</command> ocfs2 ocf:heartbeat:Filesystem \
-    params device="/dev/sdc1" directory="/mnt/ocfs2" fstype=ocfs2</screen>
+<screen>&prompt.crm.conf;<command>primitive</command> ext4 ocf:heartbeat:Filesystem \
+    params device="/dev/sdc1" directory="/mnt/ext4" fstype=ext4</screen>
      </step>
      <step>
       <para>
-       Create a clone from the <literal>basegroup</literal>:
+       Add the following order relationship plus a collocation between
+       the <literal>sg_persist</literal> master and the file system resource:
       </para>
-<screen>&prompt.crm.conf;<command>clone</command> cl-group basegroup</screen>
+      <screen>&prompt.crm.conf;<command>order</command> o-ms-sg-before-ext4 inf: ms-sg:promote ext4:start
+&prompt.crm.conf;<command>colocation</command> col-ext4-with-sg-persist inf: ext4 ms-sg:Master</screen>
      </step>
      <step>
       <para>
-       Add relationship between <literal>ms-sg</literal> and
-       <literal>cl-group</literal>:
-      </para>
-<screen>&prompt.crm.conf;<command>colocation</command> ocfs2-group-on-ms-sg inf: cl-group ms-sg:Master
-&prompt.crm.conf;<command>order</command> ms-sg-before-ocfs2-group inf: ms-sg:promote cl-group</screen>
-     </step>
-     <step>
-      <para>
-       Check all your changes with the <command>edit</command> command.
+       Check all your changes with the <command>show</command> command.
       </para>
      </step>
      <step>
