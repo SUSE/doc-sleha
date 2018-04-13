@@ -238,7 +238,9 @@
    <procedure>
     <step>
      <para>
-      <xref linkend="pro.ha.storage.protect.watchdog" xrefstyle="select:title"/>
+      <xref linkend="pro.ha.storage.protect.sw-watchdog" xrefstyle="select:title"/>
+      or follow
+      <xref linkend="sec.ha.storageprotection.watchdog" xrefstyle="select:title"/>
      </para>
     </step>
     <step>
@@ -247,9 +249,155 @@
      </para>
     </step>
     <step>
-     <para></para>
+     <para><xref linkend="sec.ha.storageprotection.diskless-tests" xrefstyle="select:title"/></para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="pro.ha.storage.protect.fencing" xrefstyle="select:title"/>
+     </para>
     </step>
    </procedure>
+
+   <sect3 xml:id="pro.ha.storage.protect.sw-watchdog">
+    <title>Setting Up the Softdog Watchdog</title>
+
+    <!-- Softdog Limitations -->
+    &important-softdog-limit;
+
+    <para>To enable the software watchdog, use the following steps:</para>
+    <procedure>
+     <step>
+      <para>Add the following line to <filename>/etc/init.d/boot.local</filename>:</para>
+      <screen>modprobe softdog</screen>
+     </step>
+     <step>
+      <para>Open the file <filename>/etc/sysconfig/sbd</filename>:</para>
+      <screen>SBD_DEVICE="/dev/<replaceable>SBD</replaceable>"</screen>
+      <para>In case you have multiple devices, use the semicolon as a separator.</para>
+     </step>
+     <step>
+      <para>Test the SBD daemon:</para>
+      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> list
+0       &node1;      clear
+1       &node2;        clear</screen>
+      <para>The command will list all cluster nodes that have ever been
+       started against this device. Running nodes should have a
+       <literal>clear</literal> state. Fenced nodes, but not yet restarted,
+       shows the appropriate fencing message.</para>
+      <remark>toms 2018-04-05: What to do when the number of nodes doesn't
+       match the expected number of cluster nodes?</remark>
+     </step>
+     <step>
+      <para>Send a test message to one of your nodes, for example from
+       &node1; to &node2;:</para>
+      <screen>&prompt.root;<command>sbd</command>  -d /dev/<replaceable>SBD</replaceable> message &node2; test</screen>
+     </step>
+     <step>
+      <para>Check the message on &node2;:</para>
+      <screen>&prompt.root;<command>systemctl</command> status sbd
+[...]
+Sep 22 17:01:00 &node1; sbd: [13412]: info: Received command test from &node1;</screen>
+     </step>
+    </procedure>
+   </sect3>
+
+   <sect3 xml:id="sec.ha.storageprotection.watchdog">
+    <title>Setting Up the Hardware Watchdog</title>
+    <para> In &productname;, watchdog support in the kernel is enabled by
+     default: It ships with several different kernel modules that provide
+     hardware-specific watchdog drivers. The &hasi; uses the SBD daemon as the
+     software component that <quote>feeds</quote> the watchdog. If configured
+     as described in <xref linkend="pro.ha.storage.protect.sbd.daemon"/>, the
+     SBD daemon will start automatically when the respective node is brought
+     online with <command>systemctl</command>
+     <option>start pacemaker</option>. </para>
+    <important>
+     <title>Accessing the Watchdog Timer</title>
+     <para> No other software must access the watchdog timer. Some hardware
+      vendors ship systems management software that uses the watchdog for
+      system resets (for example, HP ASR daemon). Disable such software, if
+      watchdog is used by SBD. </para>
+    </important>
+
+    <para>Finding out the right kernel module for a given system is not exactly
+     trivial. This causes automatic probing to fail very often. As a result,
+     lots of modules are already loaded before the right one gets a chance. The
+     following procedure is a proven solution to load the proper watchdog
+     driver: </para>
+
+    <remark>toms 2015-10-05: Mostly inspired, taken, and adapted from
+     https://www.suse.com/support/kb/doc.php?id=7016880</remark>
+    <procedure xml:id="pro.ha.storageprotection.watchdog">
+     <title>Setting Up the Watchdog</title>
+     <step xml:id="st.ha.storage.determine.watchdog-module">
+      <para>Determine the right watchdog module:</para>
+      <substeps>
+       <step>
+        <para>Get the driver name from the following table:</para>
+        <table xml:id="tab.ha.storage.protect.watchdog.drivers">
+         <title>Abridged List of Commonly Used Watchdog Drivers</title>
+         <tgroup cols="2">
+          <thead>
+           <row>
+            <entry>Hardware</entry>
+            <entry>Driver</entry>
+           </row>
+          </thead>
+          <tbody>
+           <row>
+            <entry>HP</entry>
+            <entry><systemitem class="resource">hpwdt</systemitem></entry>
+           </row>
+           <row>
+            <entry>Dell, Fujitsu, Lenovo (Intel TCO)</entry>
+            <entry><systemitem class="resource">iTCO_wdt</systemitem></entry>
+           </row>
+           <row>
+            <entry>VM on z/VM on IBM mainframe</entry>
+            <entry><systemitem class="resource">vmwatchdog</systemitem></entry>
+           </row>
+           <row>
+            <entry>Xen VM (DomU)</entry>
+            <entry><systemitem class="resource">xen_xdt</systemitem></entry>
+           </row>
+           <row>
+            <entry>Generic</entry>
+            <entry><systemitem class="resource">softdog</systemitem></entry>
+           </row>
+          </tbody>
+         </tgroup>
+        </table>
+       </step>
+       <step>
+        <para>If your hardware is not listed in <xref
+          linkend="tab.ha.storage.protect.watchdog.drivers"/>, look into the
+         directory
+           <filename>/lib/modules/<replaceable>KERNEL_VERSION</replaceable>/kernel/drivers/watchdog</filename>
+         for a list of choices or ask your hardware vendor for the right name. </para>
+        <para> Alternatively, list the drivers that have been installed with
+         your kernel version with the following command: </para>
+        <screen>&prompt.root;<command>rpm</command> -ql kernel-<replaceable>VERSION</replaceable> | <command>grep</command> watchdog</screen>
+       </step>
+       <step xml:id="st.ha.storage.listwatchdog.modules">
+        <para>List any loaded watchdog modules and unload them:</para>
+        <screen>&prompt.root;<command>lsmod</command> | <command>egrep</command> "(wd|dog)"</screen>
+        <para>If you get a result, unload the wrong module:</para>
+        <screen>&prompt.root;<command>rmmod</command> <replaceable>WRONG_MODULE</replaceable></screen>
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para> Enable your watchdog module from <xref
+        linkend="st.ha.storage.determine.watchdog-module"/>: </para>
+      <screen>&prompt.root;<command>echo</command> <replaceable>WATCHDOG_MODULE</replaceable> > /etc/modules-load.d/watchdog.conf
+&prompt.root;<command>systemctl</command> restart systemd-modules-load</screen>
+     </step>
+     <step>
+      <para>Test if the watchdog module is loaded correctly:</para>
+      <screen>&prompt.root;<command>lsmod</command> | <command>grep</command> dog</screen>
+     </step>
+    </procedure>
+   </sect3>
 
    <sect3 xml:id="sec.ha.storageprotection.diskless-sbd">
     <title>Configuring Diskless SBD</title>
@@ -271,16 +419,49 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
       <para>Enable the SBD service: </para>
       <screen>&prompt.root;<command>systemctl</command> enable sbd</screen>
      </step>
+     <step>
+      <para>
+       If the cluster and SBD are correctly set up and running, check if
+       the parameter <parameter>have-watchdog=true</parameter> has been
+       automatically set:
+      </para>
+      <screen>&prompt.root;<command>crm</command> configure show | grep have-watchdog
+         have-watchdog=true \</screen>
+     </step>
+     <step>
+      <para>Configure the cluster property <property>stonith-watchdog-timeout</property>.
+       This property has to be consistent with the value of
+       <varname>SBD_WATCHDOG_TIMEOUT</varname> from <filename>/etc/sysconfig/sbd</filename>:
+      </para>
+      <screen>&prompt.root;<command>crm</command> configure property stonith-watchdog-timeout=5</screen>
+     </step>
     </procedure>
    </sect3>
-   <sect3>
-    <title></title>
-    <para></para>
+
+   <sect3 xml:id="sec.ha.storageprotection.diskless-tests">
+    <title>Testing Diskless SBD</title>
+    <para>To test the storage protection, use the following methods:</para>
+    <itemizedlist>
+     <listitem>
+       <para>Manually trigger fencing:</para>
+      <screen>&prompt.root;<command>crm</command> node fence <replaceable>NODE</replaceable></screen>
+     </listitem>
+     <listitem>
+       <para>Simulate a SBD failure:</para>
+      <screen>&prompt.root;<command>ps</command> | grep "sbd: inquisitor"
+root       <emphasis role="bold">123</emphasis> [...]  sbd: inquisitor
+&prompt.root;<command>kill</command> -9 123      </screen>
+     </listitem>
+     <listitem>
+       <para>Failure of resource operation which triggers fencing:</para>
+      <screen>&prompt.crm.conf;<command>primitive</command> [...] \
+   <emphasis role="bold">op monitor interval=10 on-fail=fence</emphasis></screen>
+      <para>Produce a monitor failure which will trigger fencing.</para>
+     </listitem>
+    </itemizedlist>
    </sect3>
-   <sect3>
-    <title>Testing SBD</title>
-    <para></para>
-   </sect3>
+
+
   </sect2>
 
   <sect2 xml:id="sec.ha.storageprotection.fencing.setup">
@@ -291,7 +472,7 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
    <procedure>
     <step>
        <para>
-         <xref linkend="pro.ha.storage.protect.watchdog" xrefstyle="select:title"/>
+         <xref linkend="pro.ha.storageprotection.watchdog" xrefstyle="select:title"/>
        </para>
     </step>
     <step>
@@ -315,117 +496,7 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
      </para>
     </step>
    </procedure>
-   <para>
-    All of the following procedures must be executed as &rootuser;.
-    Before you start, make sure the following requirements are met:
-   </para>
 
-    <sect3 xml:id="sec.ha.storage.protect.watchdog">
-      <title>Setting Up the Watchdog</title>
-      <para> In &productname;, watchdog support in the kernel is enabled
-          by default: It ships with several different kernel modules
-          that provide hardware-specific watchdog drivers. The &hasi;
-          uses the SBD daemon as the software component that
-            <quote>feeds</quote> the watchdog. If configured as
-          described in <xref linkend="pro.ha.storage.protect.sbd.daemon"/>, the SBD daemon will start automatically when the
-          respective node is brought online with
-            <command>systemctl</command>
-          <option>start pacemaker</option>. </para>
-      <important>
-        <title>Accessing the Watchdog Timer</title>
-        <para>
-          No other software must access the watchdog timer. Some hardware
-          vendors ship systems management software that uses the watchdog for
-          system resets (for example, HP ASR daemon). Disable such software, if
-          watchdog is used by SBD.
-        </para>
-      </important>
-
-      <para>Finding out the right kernel module for a given system is not
-        exactly trivial. This causes automatic probing to fail very often. As
-        a result, lots of modules are already loaded before the right one gets
-        a chance. The following procedure is a proven solution to load the
-        proper watchdog driver:
-      </para>
-
-      <remark>toms 2015-10-05: Mostly inspired, taken, and adapted from
-        https://www.suse.com/support/kb/doc.php?id=7016880</remark>
-      <procedure xml:id="pro.ha.storage.protect.watchdog">
-       <title>Setting Up the Watchdog</title>
-        <step xml:id="st.ha.storage.determine.watchdog-module">
-          <para>Determine the right watchdog module:</para>
-          <substeps>
-            <step>
-              <para>Get the driver name from the following table:</para>
-              <table xml:id="tab.ha.storage.protect.watchdog.drivers">
-                <title>Abridged List of Commonly Used Watchdog Drivers</title>
-                <tgroup cols="2">
-                  <thead>
-                    <row>
-                      <entry>Hardware</entry>
-                      <entry>Driver</entry>
-                    </row>
-                  </thead>
-                  <tbody>
-                    <row>
-                      <entry>HP</entry>
-                      <entry><systemitem class="resource">hpwdt</systemitem></entry>
-                    </row>
-                    <row>
-                      <entry>Dell, Fujitsu, Lenovo (Intel TCO)</entry>
-                      <entry><systemitem class="resource">iTCO_wdt</systemitem></entry>
-                    </row>
-                    <row>
-                      <entry>VM on z/VM on IBM mainframe</entry>
-                      <entry><systemitem class="resource">vmwatchdog</systemitem></entry>
-                    </row>
-                    <row>
-                      <entry>Xen VM (DomU)</entry>
-                      <entry><systemitem class="resource">xen_xdt</systemitem></entry>
-                    </row>
-                    <row>
-                      <entry>Generic</entry>
-                      <entry><systemitem class="resource">softdog</systemitem></entry>
-                    </row>
-                  </tbody>
-                </tgroup>
-              </table>
-            </step>
-            <step>
-              <para>If your hardware is not listed in <xref linkend="tab.ha.storage.protect.watchdog.drivers"/>, look
-                into the directory
-                <filename>/lib/modules/<replaceable>KERNEL_VERSION</replaceable>/kernel/drivers/watchdog</filename>
-                for a list of choices or ask your hardware vendor for the
-                right name.
-              </para>
-              <para>
-                Alternatively, list the drivers that have been installed with your
-                kernel version with the following command:
-              </para>
-              <screen>&prompt.root;<command>rpm</command> -ql kernel-<replaceable>VERSION</replaceable> | <command>grep</command> watchdog</screen>
-            </step>
-            <step xml:id="st.ha.storage.listwatchdog.modules">
-              <para>List any loaded watchdog modules and unload them:</para>
-              <screen>&prompt.root;<command>lsmod</command> | <command>egrep</command> "(wd|dog)"</screen>
-              <para>If you get a result, unload the wrong module:</para>
-              <screen>&prompt.root;<command>rmmod</command> <replaceable>WRONG_MODULE</replaceable></screen>
-            </step>
-          </substeps>
-        </step>
-       <step>
-        <para>
-         Enable your watchdog module from <xref linkend="st.ha.storage.determine.watchdog-module"/>:
-        </para>
-        <screen>&prompt.root;<command>echo</command> <replaceable>WATCHDOG_MODULE</replaceable> > /etc/modules-load.d/watchdog.conf
-&prompt.root;<command>systemctl</command> restart systemd-modules-load</screen>
-       </step>
-        <step>
-          <para>Test if the watchdog module is loaded correctly:</para>
-          <screen>&prompt.root;<command>lsmod</command> | <command>grep</command> dog</screen>
-        </step>
-      </procedure>
-  </sect3>
-    
   <sect3 xml:id="pro.ha.storage.protect.sbd.create">
     <title>Creating the SBD Partition Manually</title>
     <para>
@@ -575,49 +646,6 @@ Timeout (msgwait)  : 40
         command takes the above considerations into account.
       </para>
     </sect3>
-
-   <sect3 xml:id="pro.ha.storage.protect.sw-watchdog">
-    <title>Setting Up the Softdog Watchdog</title>
-
-    <!-- Softdog Limitations -->
-    &important-softdog-limit;
-
-    <para>To enable the software watchdog, use the following steps:</para>
-     <procedure>
-       <step>
-         <para>Add the following line to <filename>/etc/init.d/boot.local</filename>:</para>
-         <screen>modprobe softdog</screen>
-       </step>
-       <step>
-         <para>Open the file <filename>/etc/sysconfig/sbd</filename>:</para>
-         <screen>SBD_DEVICE="/dev/<replaceable>SBD</replaceable>"</screen>
-         <para>In case you have multiple devices, use the semicolon as a separator.</para>
-       </step>
-       <step>
-         <para>Test the SBD daemon:</para>
-         <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> list
-0       &node1;      clear
-1       &node2;        clear</screen>
-         <para>The command will list all cluster nodes that have ever been
-       started against this device. Running nodes should have a
-        <literal>clear</literal> state. Fenced nodes, but not yet restarted,
-       shows the appropriate fencing message.</para>
-        <remark>toms 2018-04-05: What to do when the number of nodes doesn't
-         match the expected number of cluster nodes?</remark>
-       </step>
-       <step>
-         <para>Send a test message to one of your nodes, for example from
-          &node1; to &node2;:</para>
-         <screen>&prompt.root;<command>sbd</command>  -d /dev/<replaceable>SBD</replaceable> message &node2; test</screen>
-       </step>
-      <step>
-       <para>Check the message on &node2;:</para>
-       <screen>&prompt.root;<command>systemctl</command> status sbd
-[...]
-Sep 22 17:01:00 &node1; sbd: [13412]: info: Received command test from &node1;</screen>
-      </step>
-     </procedure>
-   </sect3>
 
    <sect3 xml:id="pro.ha.storage.protect.sbd.daemon">
     <title>Starting the SBD Daemon</title>
