@@ -151,7 +151,7 @@
  <para>
   The following steps are necessary to set up storage-based protection:
  </para>
-  <procedure>
+  <!--<procedure>
    <step>
     <para>
      <xref linkend="sec.ha.storage.protect.watchdog" xrefstyle="select:title"/>.
@@ -182,7 +182,7 @@
      <xref linkend="pro.ha.storage.protect.fencing" xrefstyle="select:title"/>
     </para>
    </step>
-  </procedure>
+  </procedure>-->
   <para>
   If you prefer to set up everything manually, refer to the steps
   listed above. They must be executed as &rootuser;. Before
@@ -604,61 +604,62 @@ Timeout (msgwait)  : 10
     that all participating nodes agree on them. </para>
     </step>
    </procedure>
-  </sect1>
-
-  <sect1 xml:id="pro.ha.storage.protect.sbd.daemon">
-   <title>Starting the SBD Daemon</title>
-   <para> The SBD daemon is a critical piece of the cluster stack. It needs to
-    be running when the cluster stack is running, or even when part of it has
-    crashed, so that a crashed node can be fenced. </para>
-   <remark>toms 2018-04-18: Hmn, mentioning ha-cluster-init in step 2 is a
-    bit "strange". Better remove that?
-   </remark>
-   <procedure>
+   <para>
+    After you have initialized the SBD devices, edit the SBD configuration file,
+    then enable and start the respective services for the changes to take effect.
+   </para>
+   <procedure xml:id="pro.ha.storage.protect.sbd.config">
+   <title>Adding the SBD Devices to the SBD Configuration File</title>
     <step>
-     <para> Enable the SBD service: </para>
-     <screen>&prompt.root;<command>systemctl</command> enable sbd</screen>
-     <para> The service will be started by dependencies when you start the
-       <systemitem>pacemaker</systemitem> service (see <xref
-       linkend="step.pcmkr"/>). </para>
+     <para>Open the file <filename>/etc/sysconfig/sbd</filename>.</para>
     </step>
     <step>
-     <para> Run <command>ha-cluster-init</command>. This script ensures that
-      SBD is correctly configured and the configuration file
-       <filename>/etc/sysconfig/sbd</filename> is added to the list of files
-      that needs to be synchronized with &csync;. </para>
-     <para> If you want to configure SBD manually, perform the following step: </para>
-     <para> Open the file <filename>/etc/sysconfig/sbd</filename> and search
-      for the following line. Edit it by replacing
-       <replaceable>SBD</replaceable> with your SBD device: </para>
-     <screen>SBD_DEVICE="/dev/<replaceable>SBD</replaceable>"</screen>
-     <para> If you need to specify multiple devices in the first line, separate
-      them by a semicolon (the order of the devices does not matter): </para>
-     <screen>SBD_DEVICE="/dev/<replaceable>SBD1</replaceable>; /dev/<replaceable>SBD2</replaceable>; /dev/<replaceable>SBD3</replaceable>"</screen>
-     <para> If the SBD device is not accessible, the daemon will fail to start
-      and inhibit &corosync; start-up. </para>
+     <para>Search for the following parameter: <parameter>SBD_DEVICE</parameter>.
+     </para>
+     <para>It specifies the devices to monitor and to use for exchanging SBD messages.
+     </para>
+<screen>SBD_DEVICE="/dev/<replaceable>SBD</replaceable>"</screen>
     </step>
-    <step xml:id="step.pcmkr">
-     <para> Before proceeding, ensure that SBD has started on all nodes by
-      stopping and starting the <literal>pacemaker</literal> service
-      again:</para>
-     <screen>&prompt.root;<command>systemctl</command> stop pacemaker
+   <step>
+    <para> Edit this line by replacing <replaceable>SBD</replaceable> with your SBD device:</para>
+    <screen>SBD_DEVICE="/dev/<replaceable>SBD</replaceable>"</screen>
+    <para> If you need to specify multiple devices in the first line, separate them by a semicolon
+     (the order of the devices does not matter):</para>
+    <screen>SBD_DEVICE="/dev/<replaceable>SBD1</replaceable>; /dev/<replaceable>SBD2</replaceable>; /dev/<replaceable>SBD3</replaceable>"</screen>
+    <para> If the SBD device is not accessible, the daemon will fail to start and inhibit
+     &corosync; start-up. </para>
+   </step>
+ </procedure>
+ <para>After you have added your SBD devices to the SBD configuration file,
+  enable the SBD daemon to start at boot time. The SBD daemon is a critical piece
+  of the cluster stack. It needs to be running when the cluster stack is running.
+  Thus, the <systemitem>sbd</systemitem> service is started as a dependency whenever
+  the <systemitem>pacemaker</systemitem> service is started.</para>
+  <procedure xml:id="pro.ha.storage.protect.sbd.services">
+   <title>Enabling and Starting the SBD Service</title>
+   <step>
+    <para>on each node, enable the SBD service to start at boot time: </para>
+    <screen>&prompt.root;<command>systemctl</command> enable sbd</screen>
+   </step>
+   <step>
+    <para>Restart the cluster stack on each node to ensure that the
+     <systemitem>sbd</systemitem> is started:</para>
+    <screen>&prompt.root;<command>systemctl</command> stop pacemaker
 &prompt.root;<command>systemctl</command> start pacemaker</screen>
-     <para> This automatically triggers the start of the SBD daemon. </para>
-    </step>
-   </procedure>
-  </sect1>
-
-  <sect1 xml:id="pro.ha.storage.protect.sbd.test">
-   <title>Testing SBD</title>
-   <procedure>
+    <para> This automatically triggers the start of the SBD daemon. </para>
+   </step>
+  </procedure>
+<para>As a final step, test the SBD devices as described in <xref
+linkend="pro.ha.storage.protect.sbd.test" xrefstyle="select:label"/>.</para>
+<procedure xml:id="pro.ha.storage.protect.sbd.test">
+<title>Testing the SBD Devices</title>
     <step>
      <para> The following command will dump the node slots and their current
       messages from the SBD device: </para>
      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> list</screen>
-     <para> Now you should see all cluster nodes that have ever been started
-      with SBD listed here, the message slot should show
-       <literal>clear</literal>:</para>
+    <para> Now you should see all cluster nodes that have ever been started with SBD listed here.
+     For example, if you have a two-node cluster, the message slot should show
+      <literal>clear</literal>:</para>
      <screen>0       &node1;        clear
 1       &node2;          clear</screen>
     </step>
@@ -674,7 +675,7 @@ Timeout (msgwait)  : 10
       that it is ready to receive messages. </para>
     </step>
    </procedure>
-  </sect1>
+</sect1>
 
   <sect1 xml:id="pro.ha.storage.protect.fencing">
    <title>Configuring the Fencing Resource</title>
