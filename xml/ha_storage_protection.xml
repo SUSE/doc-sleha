@@ -313,10 +313,19 @@
         mostly on your storage latency. The majority of devices must be successfully
         read within this time. Otherwise, the node will self-fence.
        </para>
-       <para>
-        If your SBD device(s) reside on a multipath setup or iSCSI, the timeout
-        should be  set to the time required to detect a path failure.
-       </para>
+       <note>
+        <title>Multipath or iSCSI Setup</title>
+          <para>
+          If your SBD device(s) reside on a multipath setup or iSCSI, the timeout
+          should be  set to the time required to detect a path failure and switch
+          to the next path.
+          </para>
+          <para>
+           This also means that <literal>max_polling_interval</literal> in
+           <filename>/etc/multipath.conf</filename> must be less than
+           <literal>watchdog</literal> timeout.
+         </para>
+       </note>
       </listitem>
      </varlistentry>
      <varlistentry>
@@ -515,62 +524,56 @@ Timeout (msgwait)  : 40
  </sect1>
 
  <sect1 xml:id="sec.ha.storageprotection.fencing.setup">
-  <title>Setting Up Storage-based Protection</title>
-  <para></para>
-  <sect2 xml:id="pro.ha.storage.protect.sbd.create">
-   <title>Creating the SBD Partition Manually</title>
-   <remark>toms 2018-04-18: It should be mentioned somehwere, that this
-   step can be skipped, if the user used the bootstrap scripts and answered
-   "y" for SBD setup.
-   </remark>
-   <para> It is recommended to create a 1MB partition at the start of the
-    device. If your SBD device resides on a multipath group, you need to adjust
-    the timeout settings SBD uses, as multipath I/O's (MPIO) path down
-    detection can cause some latency.</para>
-   <para>After the <literal>msgwait</literal> timeout, the message is assumed
-    to have been delivered to the node. For multipath, this should be the time
-    required for MPIO to detect a path failure and switch to the next path.
-    Note that this also means that <literal>max_polling_interval</literal> in
-     <filename>/etc/multipath.conf</filename> must be less than
-     <literal>watchdog</literal> timeout. You may need to test this in your
-    environment.</para>
-   <para>The node will terminate itself if the SBD daemon running on it has not
-    updated the watchdog timer fast enough. Test your chosen timeouts in your
-    specific environment. In case you use a multipath storage with just one SBD
-    device, pay special attention to the failover delays incurred. </para>
-   <important>
-    <title>Overwriting Existing Data</title>
-    <para> Make sure the device you want to use for SBD does not hold any
-     important data. The <command>sbd</command> command will overwrite the
-     device without further requests for confirmation. </para>
-   </important>
-   <procedure>
+  <title>Setting Up SBD with 1-3 Devices</title>
+  <para>
+    Make sure the block device or devices you want to use for SBD meet the
+    requirements specified in <xref linkend="sec.ha.storage.protect.req"
+    xrefstyle="select:label"/>.
+  </para>
+  <para>
+   When setting up the SBD devices, you need to take several timeout values into
+   account. For details, see <xref linkend="sec.ha.storage.protect.watchdog.timings"/>.
+  </para>
+  <para>
+   The node will terminate itself if the SBD daemon running on it has not
+   updated the watchdog timer fast enough. After having set the timeouts, test
+   them in your specific environment.
+  </para>
+  <procedure xml:id="pro.ha.storage.protect.sbd.create">
+   <title>Initializing the SBD Devices</title>
+   <para>
+    To use SBD with shared storage, you must first create the messaging
+    layout on one to three block devices. The <command>sbd create</command> command
+    will write a metadata header to the specified device or devices. It will also
+    initialize the messaging slots for up to 255 nodes. If executed without any
+    further options, the command will use the default timeout settings.</para>
+    <warning>
+     <title>Overwriting Existing Data</title>
+      <para> Make sure the device or devices you want to use for SBD do not hold any
+       important data. As soon as you execute the <command>sbd create</command>
+       command, roughly the first megabyte of the specified block devices
+       will be overwritten without further requests nor backup.
+      </para>
+    </warning>
     <step>
-     <para>Decide which block device will serve as the SBD device. This SBD
-      device can be a logical unit, a partition, or a logical volume.
-      Regardless of its block device, the SBD device must be accessible from
-      all nodes. </para>
+     <para>Decide which block device or block devices to use for SBD.</para>
     </step>
     <step>
-     <para> Initialize the SBD device with the following command (replace
-        <filename>/dev/<replaceable>SBD</replaceable></filename> with your
-      actual path name, for example:
-       <filename>/dev/disk/by-id/scsi-ST2000DM001-0123456_Wabcdefg</filename>): </para>
+     <para>Initialize the SBD device with the following command: </para>
      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> create</screen>
-     <para> This will write a header to the device, and create slots for up to
-      255 nodes sharing this device with default timings. </para>
-     <para> If you want to use more than one device for SBD, provide the
-      devices by specifying the <option>-d</option> option multiple times, for
+     <para>(replace <filename>/dev/<replaceable>SBD</replaceable></filename>
+       with your actual path name, for example:
+       <filename>/dev/disk/by-id/scsi-ST2000DM001-0123456_Wabcdefg</filename>)</para>
+        <para> If you want to use more than one device for SBD, specify the <option>-d</option> option multiple times, for
       example: </para>
      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD1</replaceable> -d /dev/<replaceable>SBD2</replaceable> -d /dev/<replaceable>SBD3</replaceable> create</screen>
     </step>
     <step>
-     <para> If your SBD device resides on a multipath group, adjust the
-      timeouts SBD uses. This can be specified when the SBD device is
-      initialized (all timeouts are given in seconds, see <xref
-       linkend="sec.ha.storage.protect.watchdog.timings"/> for details): </para>
-     <!--taroth 2010-06-22: fix for http://doccomments.provo.novell.com/admin/viewcomment/14391#-->
-     <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> -4 180<co xml:id="co.msgwait"/> -1 90<co xml:id="co.watchdog"/> create</screen>
+     <para>If your SBD device resides on a multipath group, use the <option>-1</option>
+      and <option>-4</option> options to adjust the timeouts to use for SBD (for
+      details, see <xref linkend="sec.ha.storage.protect.watchdog.timings"/>).
+      All timeouts are given in seconds:</para>
+      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> -4 180<co xml:id="co.msgwait"/> -1 90<co xml:id="co.watchdog"/> create</screen>
      <calloutlist>
       <callout arearefs="co.msgwait">
        <para> The <option>-4</option> option is used to specify the
@@ -586,8 +589,7 @@ Timeout (msgwait)  : 40
      </calloutlist>
     </step>
     <step>
-     <para> With the following command, check what has been written to the
-      device: </para>
+     <para>Check what has been written to the device: </para>
      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> dump
 Header version     : 2.1
 UUID               : 619127f4-0e06-434c-84a0-ea82036e144c
@@ -598,13 +600,13 @@ Timeout (allocate) : 2
 Timeout (loop)     : 1
 Timeout (msgwait)  : 10
 ==Header on disk /dev/<replaceable>SBD</replaceable> is dumped</screen>
+    <para> As you can see, the timeouts are also stored in the header, to ensure
+    that all participating nodes agree on them. </para>
     </step>
    </procedure>
-   <para> As you can see, the timeouts are also stored in the header, to ensure
-    that all participating nodes agree on them. </para>
-  </sect2>
+  </sect1>
 
-  <sect2 xml:id="pro.ha.storage.protect.sbd.daemon">
+  <sect1 xml:id="pro.ha.storage.protect.sbd.daemon">
    <title>Starting the SBD Daemon</title>
    <para> The SBD daemon is a critical piece of the cluster stack. It needs to
     be running when the cluster stack is running, or even when part of it has
@@ -645,9 +647,9 @@ Timeout (msgwait)  : 10
      <para> This automatically triggers the start of the SBD daemon. </para>
     </step>
    </procedure>
-  </sect2>
+  </sect1>
 
-  <sect2 xml:id="pro.ha.storage.protect.sbd.test">
+  <sect1 xml:id="pro.ha.storage.protect.sbd.test">
    <title>Testing SBD</title>
    <procedure>
     <step>
@@ -672,9 +674,9 @@ Timeout (msgwait)  : 10
       that it is ready to receive messages. </para>
     </step>
    </procedure>
-  </sect2>
+  </sect1>
 
-  <sect2 xml:id="pro.ha.storage.protect.fencing">
+  <sect1 xml:id="pro.ha.storage.protect.fencing">
    <title>Configuring the Fencing Resource</title>
    <remark>toms 2018-04-18: Only needed, when user didn't use the boostrap
     script(s).</remark>
@@ -735,9 +737,9 @@ Timeout (msgwait)  : 10
    <para> After the resource has started, your cluster is successfully
     configured for shared-storage fencing and will use this method in case a
     node needs to be fenced. </para>
-  </sect2>
+  </sect1>
 
-  <sect2 xml:id="sec.ha..storageprotection.sgpersist">
+  <sect1 xml:id="sec.ha..storageprotection.sgpersist">
    <title>Configuring an sg_persist Resource</title>
    <remark>toms 2018-04-18: Not sure why this section is here. It does not
     belong to the described procedure introduced in
@@ -802,8 +804,8 @@ Timeout (msgwait)  : 10
      <para> Commit your changes. </para>
     </step>
    </procedure>
-  </sect2>
- </sect1>
+  </sect1>
+
 
 <!--  <sect1 xml:id="sec.ha.storage.protect.fencing">
   <title>Storage-based Fencing</title>
