@@ -19,16 +19,30 @@
    <para>
     SBD (&stonith; Block Device) provides a node fencing mechanism for
     Pacemaker-based clusters through the exchange of messages via shared block
-    storage such as for example a SAN, iSCSI, FCoE. This isolates the fencing
+    storage such as a SAN, iSCSI, or FCoE for example. This isolates the fencing
     mechanism from changes in firmware version or dependencies on specific
     firmware controllers. SBD can be used as a &stonith; mechanism in all
-    configurations that have reliable shared storage.
+    configurations that have reliable shared storage, but it can also used in
+    <literal>diskless mode</literal>, that means, without any shored storage.
+   </para>
+    <!--taroth 2018-04-20: commenting too not make the abstract too long,
+     maybe it can be sued in the diskless SBD section?
+     In this mode, a watchdog device will be used to reset the node in the following cases:
+    if it loses quorum, if any monitored daemon is lost and not recovered or if
+    Pacemaker decides that the node requires fencing.-->
+   <para>
+    The <package>ha-cluster-bootstrap</package> scripts provide a quick way to
+    set up a cluster with the option of using SBD as fencing mechanism. The
+    bootstrap scripts automatically execute all required steps to set up SBD as
+    fencing mechanism. For automatic setup, see the
+    <xref linkend="art.sleha.install.quick"/>.
    </para>
    <para>
-    SBD can also be used without any shared storage, in so-called <literal>diskless mode</literal>).
-    In this mode, a watchdog device will be used to reset the node in the following cases:
-    if it loses quorum, if any monitored daemon is lost and not recovered or if
-    Pacemaker decides that the node requires fencing.</para>
+    However, manually setting up SBD provides you with more options regarding
+    the individual settings. This chapter explains the concepts behind SBD and
+    guides you through configuring the components that SBD needs to protect
+    your cluster from potential data corruption in case of a split brain scenario.
+   </para>
   </abstract>
       <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
         <dm:maintainer/>
@@ -49,36 +63,33 @@
       term: '&stonith; by disk' - we should consolidate this. I would suggest to
       use the term that is mentioned in 'man sbd': STONITH Block Device</remark></para>
       <para>
-        The &ha; cluster stack's highest priority is protecting the integrity
+        The highest priority of the &ha; cluster stack is to protect the integrity
         of data. This is achieved by preventing uncoordinated concurrent access
-        to data storage: For example, Ext3 file systems are only mounted once in
-        the cluster, OCFS2 volumes will not be mounted unless coordination with
-        other cluster nodes is available. In a well-functioning cluster
-        Pacemaker will detect if resources are active beyond their concurrency
-        limits and initiate recovery. Furthermore, its policy engine will never
-        exceed these limitations.
+        to data storage. The cluster stack takes care of this using several
+        control mechanisms.
       </para>
       <para>
         However, network partitioning or software malfunction could potentially
-        cause scenarios where several coordinators are elected. If this
+        cause scenarios where several DCs are elected in a cluster. If this
         so-called split brain scenarios were allowed to unfold, data corruption
-        might occur. Hence, several layers of protection have been added to the
-        cluster stack to mitigate this.
+        might occur.
       </para>
       <para>
-        Server fencing via &stonith; is the primary component contributing to
-        this goal since it ensures that, prior to storage activation, all other
-        access is terminated. Other mechanisms are LVM2 exclusive
-        activation or OCFS2 file locking support. They protect your system against
-        administrative or application faults. Combined appropriately for your
-        setup, these can reliably prevent split brain scenarios from causing
-        harm.
+        Server fencing via &stonith; is the primary mechanism to prevent this.
+        Using SBD as server fencing mechanism is one way of shutting down nodes
+        without external power off device in case of a split brain scenario.
       </para>
       <para>
-       The following list explains the SBD components and mechanism in more
-       detail.
+        Additional mechanisms for storage protection are LVM2 exclusive activation
+        or OCFS2 file locking support.
+        <remark>taroth 2018-04-20: FIXME add link!</remark>
+        They protect your system against administrative or application faults.
+        Combined appropriately for your setup, they can reliably prevent split
+        brain scenarios from causing harm.
       </para>
+
   <variablelist>
+   <title>SBD Components and Mechanisms</title>
    <varlistentry>
     <term>SBD Partition</term>
     <listitem>
@@ -86,7 +97,9 @@
       small partition of the device is formatted for use with SBD. The size of
       the partition depends on the block size of the used disk (for example,
       1&nbsp;MB for standard SCSI disks with 512&nbsp;Byte block size or
-      4&nbsp;MB for DASD disks with 4&nbsp;kB block size). </para>
+      4&nbsp;MB for DASD disks with 4&nbsp;kB block size). The initialization
+      process creates a message layout on the device with slots for up to 255
+      nodes.</para>
     </listitem>
    </varlistentry>
    <varlistentry>
@@ -149,9 +162,11 @@
   </sect1>
 
  <sect1 xml:id="sec.ha.storage.protect.procedure">
- <title>Ways to Set Up Storage-based Protection</title>
+ <title>Steps to Set Up Storage-based Protection</title>
  <para>
-  The following steps are necessary to set up storage-based protection:
+  The following steps are necessary to manually set up storage-based protection.
+  They must be executed as &rootuser;. Before you start, check the <xref
+  linkend="sec.ha.storage.protect.req" xrefstyle="sec.ha.storage.protect.req"/>.
   <remark>taroth 2018-04-19: ToDo - modify and re-add step overview after the chapter
   has reached its final structure!</remark>
  </para>
@@ -187,21 +202,6 @@
     </para>
    </step>
   </procedure>-->
-  <para>
-  If you prefer to set up everything manually, refer to the steps
-  listed above. They must be executed as &rootuser;. Before
-  you start, check the <xref linkend="sec.ha.storage.protect.req"
-   xrefstyle="sec.ha.storage.protect.req"/>.
-  </para>
-  <para>
-   Alternatively, you can use the <package>ha-cluster-bootstrap</package> scripts
-   to configure a shared storage segment for use as SBD device, in combination
-   with the <literal>softdog</literal> kernel module. If you decide to use
-   SBD as fencing mechanism, the scripts prompts you for the path to the device.
-   It then automatically prepares the SBD device, loads the softdog module,
-   starts the SBD daemon and creates an <literal>external/sbd</literal> &stonith;
-   resource. See the <xref linkend="art.sleha.install.quick"/> for details.
-  </para>
  </sect1>
 
  <sect1 xml:id="sec.ha.storage.protect.req">
