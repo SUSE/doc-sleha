@@ -698,6 +698,66 @@ Timeout (msgwait)  : 10
    </procedure>
   </sect1>
 
+  <sect1 xml:id="sec.ha.storage.protect.diskless-sbd">
+   <title>Setting up Diskless SBD</title>
+   <para>
+    SBD can be operated in a diskless mode. As diskless SBD is not able
+    to handle split-brain scenarios in a two-node cluster, it is required
+    for this fencing mechanism to use a minimum of three nodes.
+   </para>
+   <para>
+    When setting up SBD, you need to take several timeout values into account.
+    For details, see <xref linkend="sec.ha.storage.protect.watchdog.timings"/>.
+   </para>
+   <para>
+    The following steps are necessary to set up diskless storage-based
+    protection:
+   </para>
+
+   <procedure xml:id="pro.">
+    <title>Configuring Diskless SBD</title>
+    <step>
+     <para>Open the file <filename>/etc/sysconfig/sbd</filename> and use
+      the following entries:</para>
+     <screen>SBD_PACEMAKER=yes
+SBD_STARTMODE=always
+SBD_DELAY_START=no
+SBD_WATCHDOG_DEV=/dev/watchdog
+SBD_WATCHDOG_TIMEOUT=5</screen>
+      <para>Keep in mind, we do not use a shared disk. As such, we do not
+       need the <varname>SBD_DEVICE</varname> entry in the configuration file.
+      </para>
+    </step>
+    <step>
+     <para>On each node, enable the SBD service to start at boot time: </para>
+     <screen>&prompt.root;<command>systemctl</command> enable sbd</screen>
+    </step>
+    <step>
+     <para>Restart the cluster stack on each node to ensure that the
+      <systemitem>sbd</systemitem> service is started:</para>
+     <screen>&prompt.root;<command>systemctl</command> stop pacemaker
+&prompt.root;<command>systemctl</command> start pacemaker</screen>
+     <para> This automatically triggers the start of the SBD daemon. </para>
+    </step>
+    <step>
+      <para>
+       If the cluster and SBD are correctly set up and running, check if
+       the parameter <parameter>have-watchdog=true</parameter> has been
+       automatically set:
+      </para>
+      <screen>&prompt.root;<command>crm</command> configure show | grep have-watchdog
+         have-watchdog=true \</screen>
+    </step>
+    <step>
+      <para>Configure the cluster property <property>stonith-watchdog-timeout</property>.
+       This property has to be consistent with the value of
+       <varname>SBD_WATCHDOG_TIMEOUT</varname> from <filename>/etc/sysconfig/sbd</filename>:
+      </para>
+      <screen>&prompt.root;<command>crm</command> configure property stonith-watchdog-timeout=5</screen>
+    </step>
+   </procedure>
+  </sect1>
+
   <sect1 xml:id="pro.ha.storage.protect.fencing">
    <title>Configuring the Cluster to Use SBD</title>
    <para>
@@ -782,14 +842,49 @@ Timeout (msgwait)  : 10
     node needs to be fenced. </para>
   </sect1>
 
-<!--  <sect1 xml:id="sec.ha.storage.protect.fencing">
-  <title>Storage-based Fencing</title>
-  <para>
-   You can reliably avoid split brain scenarios by using one or more
-   &stonith; Block Devices (SBD), <literal>watchdog</literal> support and
-   the <literal>external/sbd</literal> &stonith; agent.
-  </para>
- </sect1>-->
+  <sect1 xml:id="sec.ha.storage.protect.test">
+   <title>Testing SBD and Fencing</title>
+   <para>To test if the combination of SBD and fencing works, use one or all
+    of the following methods to check them:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>Manually trigger fencing for node <replaceable>NODENAME</replaceable>:</para>
+     <screen>&prompt.root;<command>crm</command> node fence <replaceable>NODENAME</replaceable></screen>
+    </listitem>
+    <listitem>
+     <para>Simulate a SBD failure on the SBD inquisitor and use its process ID:</para>
+     <screen>&prompt.root;<command>systemctl</command> status sbd
+● sbd.service - Shared-storage based fencing daemon
+
+   Loaded: loaded (/usr/lib/systemd/system/sbd.service; enabled; vendor preset: disabled)
+   Active: active (running) since Tue 2018-04-17 15:24:51 CEST; 6 days ago
+     Docs: man:sbd(8)
+  Process: 1844 ExecStart=/usr/sbin/sbd $SBD_OPTS -p /var/run/sbd.pid watch (code=exited, status=0/SUCCESS)
+ Main PID: 1859 (sbd)
+    Tasks: 4 (limit: 4915)
+   CGroup: /system.slice/sbd.service
+           ├─<emphasis role="strong">1859 sbd: inquisitor</emphasis>
+[...]</screen>
+     <para>Use the process ID (in our example, <literal>1859</literal>) and
+      kill the SBD inquisitor:
+     </para>
+     <screen>&prompt.root;<command>kill</command> -9 1859 </screen>
+    </listitem>
+    <listitem>
+     <remark>toms 2018-04-24: This is a bit vague and I'm not entirely sure
+      about this step. Taken from FATE entry, developers could add more info.
+     </remark>
+     <para>
+      Produce a failure of resource operation. This failure triggers a
+      fencing action. For example, produce a failure of resource stop
+      operation or configure <property>on-fail=fence</property> for a
+      resource monitor operation like:
+     </para>
+     <screen>op monitor interval=10 on-fail=fenc</screen>
+    </listitem>
+   </itemizedlist>
+  </sect1>
 
  <sect1 xml:id="sec.ha.storage.protect.morestuff">
   <title>Additional Mechanisms for Storage Protection</title>
