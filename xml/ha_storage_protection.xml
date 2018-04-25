@@ -698,6 +698,63 @@ Timeout (msgwait)  : 10
    </procedure>
   </sect1>
 
+  <sect1 xml:id="sec.ha.storage.protect.diskless-sbd">
+   <title>Setting Up Diskless SBD</title>
+   <para>SBD can be operated in a diskless mode.</para>
+    <important>
+     <title>Number of Cluster Nodes</title>
+       <para>
+         Do <emphasis>not</emphasis> use diskless SBD as fencing mechanism
+         for two-node clusters. Use it only in clusters with three or more
+         nodes. SBD in diskless mode cannot handle split brain
+         scenarios for two-node clusters.
+      </para>
+   </important>
+   <para>
+    When setting up SBD, you need to take several timeout values into account.
+    For details, see <xref linkend="sec.ha.storage.protect.watchdog.timings"/>.
+   </para>
+
+   <procedure xml:id="pro.ha.storage.protect.confdiskless">
+    <title>Configuring Diskless SBD</title>
+    <step>
+     <remark>toms 2018-04-25: Move the para and screen into section about
+     1-3 devices too?</remark>
+     <para>Open the file <filename>/etc/sysconfig/sbd</filename> and use
+      the following entries:</para>
+     <screen>SBD_PACEMAKER=yes
+SBD_STARTMODE=always
+SBD_DELAY_START=no
+SBD_WATCHDOG_DEV=/dev/watchdog
+SBD_WATCHDOG_TIMEOUT=5</screen>
+      <para>
+       The <varname>SBD_DEVICE</varname> entry is not needed as not shared
+       disk is used.
+      </para>
+    </step>
+    <step>
+     <para>On each node, enable the SBD service to start at boot time: </para>
+     <screen>&prompt.root;<command>systemctl</command> enable sbd</screen>
+    </step>
+    <step>
+     <para>Restart the cluster stack on each node to ensure that the
+      <systemitem>sbd</systemitem> service is started:</para>
+     <screen>&prompt.root;<command>systemctl</command> stop pacemaker
+&prompt.root;<command>systemctl</command> start pacemaker</screen>
+     <para> This automatically triggers the start of the SBD daemon. </para>
+    </step>
+    <step>
+      <para>
+       Check if the parameter <parameter>have-watchdog=true</parameter> has
+       been automatically set:
+      </para>
+      <screen>&prompt.root;<command>crm</command> configure show | grep have-watchdog
+         have-watchdog=true \</screen>
+     <para>This means, that the cluster has detected SBD.</para>
+    </step>
+   </procedure>
+  </sect1>
+
   <sect1 xml:id="pro.ha.storage.protect.fencing">
    <title>Configuring the Cluster to Use SBD</title>
    <para>
@@ -736,6 +793,7 @@ Timeout (msgwait)  : 10
     <para>Enter the following:</para>
     <screen>
 &prompt.crm.conf;<command>property</command> stonith-enabled="true" <co xml:id="co.ha.sbd.st.enabled"/>
+&prompt.crm.conf;<command>property</command> stonith-watchdog-timeout=5 <co xml:id="co.ha.sbd.watchdog-timeout"/>
 &prompt.crm.conf;<command>property</command> stonith-timeout="40s" <co xml:id="co.ha.sbd.st.timeout"/>
 &prompt.crm.conf;<command>primitive</command> stonith_sbd stonith:external/sbd <co xml:id="co.ha.sbd.st.rsc"/>\
   params pcmk_delay_max=30 <co xml:id="co.ha.sbd.pm_delay_max"/></screen>
@@ -745,6 +803,11 @@ Timeout (msgwait)  : 10
        This is the default configuration, because clusters with &stonith; are not supported.
        But in case &stonith; had been deactivated for testing purposes,
        make sure this parameter is set to <literal>true</literal>.</para>
+     </callout>
+     <callout arearefs="co.ha.sbd.watchdog-timeout">
+      <para>This property has to be consistent with the value of
+       <varname>SBD_WATCHDOG_TIMEOUT</varname> from <filename>/etc/sysconfig/sbd</filename>.
+      </para>
      </callout>
      <callout arearefs="co.ha.sbd.st.timeout">
       <para>
@@ -782,14 +845,49 @@ Timeout (msgwait)  : 10
     node needs to be fenced. </para>
   </sect1>
 
-<!--  <sect1 xml:id="sec.ha.storage.protect.fencing">
-  <title>Storage-based Fencing</title>
-  <para>
-   You can reliably avoid split brain scenarios by using one or more
-   &stonith; Block Devices (SBD), <literal>watchdog</literal> support and
-   the <literal>external/sbd</literal> &stonith; agent.
-  </para>
- </sect1>-->
+  <sect1 xml:id="sec.ha.storage.protect.test">
+   <title>Testing SBD and Fencing</title>
+   <para>To test if the combination of SBD and fencing works, use one or all
+    of the following methods to check them:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>Manually trigger fencing for node <replaceable>NODENAME</replaceable>:</para>
+     <screen>&prompt.root;<command>crm</command> node fence <replaceable>NODENAME</replaceable></screen>
+    </listitem>
+    <listitem>
+     <para>Simulate a SBD failure on the SBD inquisitor and use its process ID:</para>
+     <screen>&prompt.root;<command>systemctl</command> status sbd
+● sbd.service - Shared-storage based fencing daemon
+
+   Loaded: loaded (/usr/lib/systemd/system/sbd.service; enabled; vendor preset: disabled)
+   Active: active (running) since Tue 2018-04-17 15:24:51 CEST; 6 days ago
+     Docs: man:sbd(8)
+  Process: 1844 ExecStart=/usr/sbin/sbd $SBD_OPTS -p /var/run/sbd.pid watch (code=exited, status=0/SUCCESS)
+ Main PID: 1859 (sbd)
+    Tasks: 4 (limit: 4915)
+   CGroup: /system.slice/sbd.service
+           ├─<emphasis role="strong">1859 sbd: inquisitor</emphasis>
+[...]</screen>
+     <para>Use the process ID (in our example, <literal>1859</literal>) and
+      kill the SBD inquisitor:
+     </para>
+     <screen>&prompt.root;<command>kill</command> -9 1859 </screen>
+    </listitem>
+    <listitem>
+     <remark>toms 2018-04-24: This is a bit vague and I'm not entirely sure
+      about this step. Taken from FATE entry, developers could add more info.
+     </remark>
+     <para>
+      Produce a failure of resource operation. This failure triggers a
+      fencing action. For example, produce a failure of resource stop
+      operation or configure <property>on-fail=fence</property> for a
+      resource monitor operation like:
+     </para>
+     <screen>op monitor interval=10 on-fail=fenc</screen>
+    </listitem>
+   </itemizedlist>
+  </sect1>
 
  <sect1 xml:id="sec.ha.storage.protect.morestuff">
   <title>Additional Mechanisms for Storage Protection</title>
