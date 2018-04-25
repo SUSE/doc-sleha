@@ -21,11 +21,6 @@
     configurations that have reliable shared storage, but it can also used in
     <literal>diskless mode</literal>, that means, without any shored storage.
    </para>
-    <!--taroth 2018-04-20: commenting too not make the abstract too long,
-     maybe it can be sued in the diskless SBD section?
-     In this mode, a watchdog device will be used to reset the node in the following cases:
-    if it loses quorum, if any monitored daemon is lost and not recovered or if
-    Pacemaker decides that the node requires fencing.-->
    <para>
     The <package>ha-cluster-bootstrap</package> scripts provide a quick way to
     set up a cluster with the option of using SBD as fencing mechanism. The
@@ -352,12 +347,10 @@
       <term><literal>stonith-watchdog-timeout</literal> in the CIB</term>
       <listitem>
        <para>
-        This timeout is set in the CIB as global cluster property.
-        It defines after how many seconds it is assumed that the fencing target
-        has already self-fenced. This value must be &gt;= the value of
-        <varname>SBD_WATCHDOG_TIMEOUT</varname> in
-        <filename>/etc/sysconfig/sbd</filename>.
-       </para>
+        This timeout is set in the CIB as global cluster property. If not set
+        explicitly, it defaults to <literal>0</literal>, which is appropriate for
+        using SBD with 1-3 devices. For use of SBD in diskless mode, see FIXME
+        for more details.</para>
       </listitem>
      </varlistentry>
     </variablelist>
@@ -680,7 +673,7 @@ Timeout (msgwait)  : 10
   </procedure>
 
   <para>
-   As a final step, test the SBD devices as described in <xref
+   As next step, test the SBD devices as described in <xref
    linkend="pro.ha.storage.protect.sbd.test" xrefstyle="select:label"/>.
   </para>
 
@@ -708,67 +701,14 @@ Timeout (msgwait)  : 10
       that it is ready to receive messages. </para>
     </step>
    </procedure>
-  </sect1>
 
-  <sect1 xml:id="sec.ha.storage.protect.diskless-sbd">
-   <title>Setting Up Diskless SBD</title>
-   <para>SBD can be operated in a diskless mode.</para>
-    <important>
-     <title>Number of Cluster Nodes</title>
-       <para>
-         Do <emphasis>not</emphasis> use diskless SBD as fencing mechanism
-         for two-node clusters. Use it only in clusters with three or more
-         nodes. SBD in diskless mode cannot handle split brain
-         scenarios for two-node clusters.
-      </para>
-   </important>
-   <para>
-    When setting up SBD, you need to take several timeout values into account.
-    For details, see <xref linkend="sec.ha.storage.protect.watchdog.timings"/>.
-   </para>
+  <para>
+   As final step, you need to adjust the cluster configuration as described in
+   <xref linkend="pro.ha.storage.protect.fencing" xrefstyle="select:label"/>.
+  </para>
 
-   <procedure xml:id="pro.ha.storage.protect.confdiskless">
-    <title>Configuring Diskless SBD</title>
-    <step>
-     <remark>toms 2018-04-25: Move the para and screen into section about
-     1-3 devices too?</remark>
-     <para>Open the file <filename>/etc/sysconfig/sbd</filename> and use
-      the following entries:</para>
-     <screen>SBD_PACEMAKER=yes
-SBD_STARTMODE=always
-SBD_DELAY_START=no
-SBD_WATCHDOG_DEV=/dev/watchdog
-SBD_WATCHDOG_TIMEOUT=5</screen>
-      <para>
-       The <varname>SBD_DEVICE</varname> entry is not needed as not shared
-       disk is used.
-      </para>
-    </step>
-    <step>
-     <para>On each node, enable the SBD service to start at boot time: </para>
-     <screen>&prompt.root;<command>systemctl</command> enable sbd</screen>
-    </step>
-    <step>
-     <para>Restart the cluster stack on each node to ensure that the
-      <systemitem>sbd</systemitem> service is started:</para>
-     <screen>&prompt.root;<command>systemctl</command> stop pacemaker
-&prompt.root;<command>systemctl</command> start pacemaker</screen>
-     <para> This automatically triggers the start of the SBD daemon. </para>
-    </step>
-    <step>
-      <para>
-       Check if the parameter <parameter>have-watchdog=true</parameter> has
-       been automatically set:
-      </para>
-      <screen>&prompt.root;<command>crm</command> configure show | grep have-watchdog
-         have-watchdog=true \</screen>
-     <para>This means, that the cluster has detected SBD.</para>
-    </step>
-   </procedure>
-  </sect1>
-
-  <sect1 xml:id="pro.ha.storage.protect.fencing">
-   <title>Configuring the Cluster to Use SBD</title>
+<procedure xml:id="pro.ha.storage.protect.fencing">
+ <title>Configuring the Cluster to Use SBD</title>
    <para>
     To configure the use of SBD in the cluster, you need to do the following in
     the cluster configuration:
@@ -790,7 +730,6 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
      For the calculation of the <parameter>stonith-timeout</parameter> refer to
      <xref linkend="sec.ha.storage.protect.watchdog.timings"/>.
    </para>
- <procedure>
    <step>
     <para>
      Start a shell and log in as &rootuser; or equivalent.
@@ -805,7 +744,7 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
     <para>Enter the following:</para>
     <screen>
 &prompt.crm.conf;<command>property</command> stonith-enabled="true" <co xml:id="co.ha.sbd.st.enabled"/>
-&prompt.crm.conf;<command>property</command> stonith-watchdog-timeout=5 <co xml:id="co.ha.sbd.watchdog-timeout"/>
+&prompt.crm.conf;<command>property</command> stonith-watchdog-timeout=0 <co xml:id="co.ha.sbd.watchdog-timeout"/>
 &prompt.crm.conf;<command>property</command> stonith-timeout="40s" <co xml:id="co.ha.sbd.st.timeout"/>
 &prompt.crm.conf;<command>primitive</command> stonith_sbd stonith:external/sbd <co xml:id="co.ha.sbd.st.rsc"/>\
   params pcmk_delay_max=30 <co xml:id="co.ha.sbd.pm_delay_max"/></screen>
@@ -817,8 +756,8 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
        make sure this parameter is set to <literal>true</literal>.</para>
      </callout>
      <callout arearefs="co.ha.sbd.watchdog-timeout">
-      <para>This value needs to be &gt;= the value of
-       <varname>SBD_WATCHDOG_TIMEOUT</varname> in <filename>/etc/sysconfig/sbd</filename>.
+      <para>If not explicitly set, this value default to <literal>0</literal>,
+        which is appropriate for use of SBD with 1-3 devices.
       </para>
      </callout>
      <callout arearefs="co.ha.sbd.st.timeout">
@@ -854,21 +793,128 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
 
    <para> After the resource has started, your cluster is successfully
     configured for use of SBD and will use this method in case a
-    node needs to be fenced. </para>
+    node needs to be fenced.</para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.storage.protect.diskless-sbd">
+   <title>Setting Up Diskless SBD</title>
+   <para>SBD can be operated in a diskless mode. In this mode, a watchdog device
+    will be used to reset the node in the following cases: if it loses quorum,
+    if any monitored daemon is lost and not recovered or if Pacemaker decides
+    that the node requires fencing. Diskless SBD is basically based on
+     <quote>self-fencing</quote> of a node, depending on the status of the quorum
+     and some reasonable assumptions.</para>
+    <important>
+     <title>Number of Cluster Nodes</title>
+       <para>
+         Do <emphasis>not</emphasis> use diskless SBD as fencing mechanism
+         for two-node clusters. Use it only in clusters with three or more
+         nodes. SBD in diskless mode cannot handle split brain
+         scenarios for two-node clusters.
+      </para>
+   </important>
+
+   <procedure xml:id="pro.ha.storage.protect.confdiskless">
+    <title>Configuring Diskless SBD</title>
+    <step>
+     <para>Open the file <filename>/etc/sysconfig/sbd</filename> and use
+      the following entries:</para>
+     <screen>SBD_PACEMAKER=yes
+SBD_STARTMODE=always
+SBD_DELAY_START=no
+SBD_WATCHDOG_DEV=/dev/watchdog
+SBD_WATCHDOG_TIMEOUT=5</screen>
+      <para>
+       The <varname>SBD_DEVICE</varname> entry is not needed as no shared
+       disk is used. When this parameter is missing, the <systemitem>sbd</systemitem>
+       service does not start any watcher process for SBD devices.
+      </para>
+    </step>
+    <step>
+     <para>On each node, enable the SBD service to start at boot time: </para>
+     <screen>&prompt.root;<command>systemctl</command> enable sbd</screen>
+    </step>
+    <step>
+     <para>Restart the cluster stack on each node to ensure that the
+      <systemitem>sbd</systemitem> service is started:</para>
+     <screen>&prompt.root;<command>systemctl</command> stop pacemaker
+&prompt.root;<command>systemctl</command> start pacemaker</screen>
+     <para> This automatically triggers the start of the SBD daemon. </para>
+    </step>
+    <step>
+      <para>
+       Check if the parameter <parameter>have-watchdog=true</parameter> has
+       been automatically set:
+      </para>
+      <screen>&prompt.root;<command>crm</command> configure show | grep have-watchdog
+         have-watchdog=true</screen>
+    </step>
+    <step>
+     <para>Run <command>crm configure</command> and set the following cluster
+      properties on the &crmshell;:</para>
+<screen>&prompt.crm.conf;<command>property</command> stonith-enabled="true" <xref
+        linkend="co.ha.sbd.st.enabled" xrefstyle="select:label"/>
+&prompt.crm.conf;<command>property</command> stonith-watchdog-timeout=5 <co
+        xml:id="co.ha.sbd.diskless.watchdog-timeout"/></screen>
+    <calloutlist>
+     <callout arearefs="co.ha.sbd.st.enabled">
+      <para>
+       This is the default configuration, because clusters with &stonith; are not supported.
+       But in case &stonith; had been deactivated for testing purposes,
+       make sure this parameter is set to <literal>true</literal>.</para>
+     </callout>
+     <callout arearefs="co.ha.sbd.watchdog-timeout">
+      <para>For diskless SBD, this parameter must not equal zero.
+       It defines after how long it is assumed that the fencing target has already
+       self-fenced. Therefore its value needs to be &gt;= the value of
+       <varname>SBD_WATCHDOG_TIMEOUT</varname> in <filename>/etc/sysconfig/sbd</filename>.
+       Starting with &productname; 15, if you set it to a negative value, Pacemaker
+       will automatically calculate an appropriate timeout based on the value of
+       <parameter>SBD_WATCHDOG_TIMEOUT</parameter> that is configured in
+       <filename>/etc/sysconfig/sbd</filename>.
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  <step>
+    <para>
+     Review your changes with <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Submit your changes with <command>commit</command> and leave the crm live
+     configuration with <command>exit</command>.
+    </para>
+   </step>
+  </procedure>
   </sect1>
 
   <sect1 xml:id="sec.ha.storage.protect.test">
    <title>Testing SBD and Fencing</title>
    <para>To test if the combination of SBD and fencing works, use one or all
     of the following methods to check them:
+<remark>taroth 2018-04-25: not sure if itemizedlist is the best way to present this,
+as soon as we also mention the expected results, this might be overloaded...</remark>
    </para>
    <itemizedlist>
     <listitem>
      <para>Manually trigger fencing for node <replaceable>NODENAME</replaceable>:</para>
      <screen>&prompt.root;<command>crm</command> node fence <replaceable>NODENAME</replaceable></screen>
+    <para>
+      <remark>taroth 2018-04-25: What should be the result of this test? Would
+       be good to mention it, too. - according to ygao: Agreed. For example,
+       the fencing target should be fenced and the online nodes consider the
+       fencing target has been fenced after the time stonith-watchdog-timeout.</remark></para>
     </listitem>
     <listitem>
-     <para>Simulate a SBD failure on the SBD inquisitor and use its process ID:</para>
+     <para>Simulate a SBD failure on the SBD inquisitor and use its process ID:
+      <remark>taroth 2018-04-28: struggling a little bit with the order of this...
+      How about the following? "Simulate an SBD failure by killing the SBD
+      inquisitor process: 1. Identify the process ID of the SBD inquisitor with
+      the following command: [...] 2. Kill the process: [...] Also here, would
+      be useful to mention the expected result.</remark>
+    </para>
      <screen>&prompt.root;<command>systemctl</command> status sbd
 ● sbd.service - Shared-storage based fencing daemon
 
@@ -891,12 +937,18 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
       about this step. Taken from FATE entry, developers could add more info.
      </remark>
      <para>
+      <remark>taroth 2018-04-28: I would list this as steps:
+       1. Configure a <property>on-fail=fence</property> property for a resource monitor operation: [...]
+          (not sure if giving the line is enough, perhaps also mention command with which to set this property?)
+       2. Produce a failure of the monitoring operation (how???).
+        This failure triggers a fencing action (result).
+     </remark>
       Produce a failure of resource operation. This failure triggers a
       fencing action. For example, produce a failure of resource stop
       operation or configure <property>on-fail=fence</property> for a
       resource monitor operation like:
      </para>
-     <screen>op monitor interval=10 on-fail=fenc</screen>
+     <screen>op monitor interval=10 on-fail=fence</screen>
     </listitem>
    </itemizedlist>
   </sect1>
