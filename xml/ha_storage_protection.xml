@@ -652,7 +652,7 @@ Timeout (msgwait)  : 10
   </procedure>
 
  <para>After you have added your SBD devices to the SBD configuration file,
-  enable the SBD daemon to start at boot time. The SBD daemon is a critical piece
+  enable the SBD daemon. The SBD daemon is a critical piece
   of the cluster stack. It needs to be running when the cluster stack is running.
   Thus, the <systemitem>sbd</systemitem> service is started as a dependency whenever
   the <systemitem>pacemaker</systemitem> service is started.</para>
@@ -660,12 +660,13 @@ Timeout (msgwait)  : 10
   <procedure xml:id="pro.ha.storage.protect.sbd.services">
    <title>Enabling and Starting the SBD Service</title>
    <step>
-    <para>On each node, enable the SBD service to start at boot time: </para>
+    <para>On each node, enable the SBD service:</para>
     <screen>&prompt.root;<command>systemctl</command> enable sbd</screen>
+    <para>It will be started together with the Corosync service whenever the Pacemaker
+     service is started.</para>
    </step>
    <step>
-    <para>Restart the cluster stack on each node to ensure that the
-     <systemitem>sbd</systemitem> service is started:</para>
+    <para>Restart the cluster stack on each node:</para>
     <screen>&prompt.root;<command>systemctl</command> stop pacemaker
 &prompt.root;<command>systemctl</command> start pacemaker</screen>
     <para> This automatically triggers the start of the SBD daemon. </para>
@@ -802,8 +803,8 @@ Timeout (msgwait)  : 10
     will be used to reset the node in the following cases: if it loses quorum,
     if any monitored daemon is lost and not recovered or if Pacemaker decides
     that the node requires fencing. Diskless SBD is basically based on
-     <quote>self-fencing</quote> of a node, depending on the status of the quorum
-     and some reasonable assumptions.</para>
+    <quote>self-fencing</quote> of a node, depending on the status of the cluster,
+    the quorum and some reasonable assumptions.</para>
     <important>
      <title>Number of Cluster Nodes</title>
        <para>
@@ -831,12 +832,13 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
       </para>
     </step>
     <step>
-     <para>On each node, enable the SBD service to start at boot time: </para>
+     <para>On each node, enable the SBD service:</para>
      <screen>&prompt.root;<command>systemctl</command> enable sbd</screen>
+     <para>It will be started together with the Corosync service whenever the Pacemaker
+      service is started.</para>
     </step>
     <step>
-     <para>Restart the cluster stack on each node to ensure that the
-      <systemitem>sbd</systemitem> service is started:</para>
+     <para>Restart the cluster stack on each node:</para>
      <screen>&prompt.root;<command>systemctl</command> stop pacemaker
 &prompt.root;<command>systemctl</command> start pacemaker</screen>
      <para> This automatically triggers the start of the SBD daemon. </para>
@@ -854,7 +856,7 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
       properties on the &crmshell;:</para>
 <screen>&prompt.crm.conf;<command>property</command> stonith-enabled="true" <xref
         linkend="co.ha.sbd.st.enabled" xrefstyle="select:label"/>
-&prompt.crm.conf;<command>property</command> stonith-watchdog-timeout=5 <co
+&prompt.crm.conf;<command>property</command> stonith-watchdog-timeout=10 <co
         xml:id="co.ha.sbd.diskless.watchdog-timeout"/></screen>
     <calloutlist>
      <callout arearefs="co.ha.sbd.st.enabled">
@@ -863,15 +865,15 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
        But in case &stonith; had been deactivated for testing purposes,
        make sure this parameter is set to <literal>true</literal>.</para>
      </callout>
-     <callout arearefs="co.ha.sbd.watchdog-timeout">
+     <callout arearefs="co.ha.sbd.diskless.watchdog-timeout">
       <para>For diskless SBD, this parameter must not equal zero.
        It defines after how long it is assumed that the fencing target has already
        self-fenced. Therefore its value needs to be &gt;= the value of
        <varname>SBD_WATCHDOG_TIMEOUT</varname> in <filename>/etc/sysconfig/sbd</filename>.
        Starting with &productname; 15, if you set it to a negative value, Pacemaker
-       will automatically calculate an appropriate timeout based on the value of
-       <parameter>SBD_WATCHDOG_TIMEOUT</parameter> that is configured in
-       <filename>/etc/sysconfig/sbd</filename>.
+       will automatically calculate an appropriate timeout. In that case, it will
+       be set to twice the value of <parameter>SBD_WATCHDOG_TIMEOUT</parameter>
+       that is configured in <filename>/etc/sysconfig/sbd</filename>.
       </para>
      </callout>
     </calloutlist>
@@ -892,30 +894,26 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
 
   <sect1 xml:id="sec.ha.storage.protect.test">
    <title>Testing SBD and Fencing</title>
-   <para>To test if the combination of SBD and fencing works, use one or all
-    of the following methods to check them:
-<remark>taroth 2018-04-25: not sure if itemizedlist is the best way to present this,
-as soon as we also mention the expected results, this might be overloaded...</remark>
+   <para>To test if SBD works as expected for node fencing purposes, use one or all
+    of the following methods:
    </para>
-   <itemizedlist>
+  <variablelist>
+   <varlistentry>
+    <term>Manually Triggering Fencing of a Node</term>
     <listitem>
-     <para>Manually trigger fencing for node <replaceable>NODENAME</replaceable>:</para>
-     <screen>&prompt.root;<command>crm</command> node fence <replaceable>NODENAME</replaceable></screen>
-    <para>
-      <remark>taroth 2018-04-25: What should be the result of this test? Would
-       be good to mention it, too. - according to ygao: Agreed. For example,
-       the fencing target should be fenced and the online nodes consider the
-       fencing target has been fenced after the time stonith-watchdog-timeout.</remark></para>
+     <para>To trigger a fencing action for node <replaceable>NODENAME</replaceable>:</para>
+ <screen>&prompt.root;<command>crm</command> node fence <replaceable>NODENAME</replaceable></screen>
+     <para>Check if the node is fenced and if the other nodes consider the node as fenced
+      after the <parameter>stonith-watchdog-timeout</parameter>.</para>
     </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Simulating an SBD Failure</term>
     <listitem>
-     <para>Simulate a SBD failure on the SBD inquisitor and use its process ID:
-      <remark>taroth 2018-04-28: struggling a little bit with the order of this...
-      How about the following? "Simulate an SBD failure by killing the SBD
-      inquisitor process: 1. Identify the process ID of the SBD inquisitor with
-      the following command: [...] 2. Kill the process: [...] Also here, would
-      be useful to mention the expected result.</remark>
-    </para>
-     <screen>&prompt.root;<command>systemctl</command> status sbd
+     <procedure>
+      <step>
+       <para>Identify the process ID of the SBD inquisitor:</para>
+       <screen>&prompt.root;<command>systemctl</command> status sbd
 ● sbd.service - Shared-storage based fencing daemon
 
    Loaded: loaded (/usr/lib/systemd/system/sbd.service; enabled; vendor preset: disabled)
@@ -927,31 +925,38 @@ as soon as we also mention the expected results, this might be overloaded...</re
    CGroup: /system.slice/sbd.service
            ├─<emphasis role="strong">1859 sbd: inquisitor</emphasis>
 [...]</screen>
-     <para>Use the process ID (in our example, <literal>1859</literal>) and
-      kill the SBD inquisitor:
-     </para>
-     <screen>&prompt.root;<command>kill</command> -9 1859 </screen>
+      </step>
+      <step>
+       <para>Simulate an SBD failure by killing the SBD inquisitor process.
+       In our example, the process ID of the SBD inquisitor is
+         <literal>1859</literal>):</para>
+       <screen>&prompt.root;<command>kill</command> -9 1859 </screen>
+       <para>
+        <remark>taroth 2018-04-28: @DEVs, What is the expected result?</remark>
+       </para>
+      </step>
+     </procedure>
     </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Producing a Failure of a Resource Operation</term>
     <listitem>
-     <remark>toms 2018-04-24: This is a bit vague and I'm not entirely sure
-      about this step. Taken from FATE entry, developers could add more info.
-     </remark>
-     <para>
-      <remark>taroth 2018-04-28: I would list this as steps:
-       1. Configure a <property>on-fail=fence</property> property for a resource monitor operation: [...]
-          (not sure if giving the line is enough, perhaps also mention command with which to set this property?)
-       2. Produce a failure of the monitoring operation (how???).
-        This failure triggers a fencing action (result).
-     </remark>
-      Produce a failure of resource operation. This failure triggers a
-      fencing action. For example, produce a failure of resource stop
-      operation or configure <property>on-fail=fence</property> for a
-      resource monitor operation like:
-     </para>
-     <screen>op monitor interval=10 on-fail=fence</screen>
+     <procedure>
+      <step>
+       <para>Configure a <property>on-fail=fence</property> property for a resource monitor
+        operation:</para>
+       <screen>op monitor interval=10 on-fail=fence</screen>
+      </step>
+      <step>
+       <para> Produce a failure of the monitoring operation (for example, by killing the respective
+        daemon, if the resource relates to a service).</para>
+       <para>This failure should trigger a fencing action.</para>
+      </step>
+     </procedure>
     </listitem>
-   </itemizedlist>
-  </sect1>
+   </varlistentry>
+  </variablelist>
+ </sect1>
 
  <sect1 xml:id="sec.ha.storage.protect.morestuff">
   <title>Additional Mechanisms for Storage Protection</title>
