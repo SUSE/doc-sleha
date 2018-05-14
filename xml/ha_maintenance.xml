@@ -47,6 +47,18 @@
     </listitem>
    </varlistentry>
    <varlistentry>
+    <term>Maintenance Mode for Nodes</term>
+    <listitem>
+     <para>
+      Use this option if you want to do maintenance for plenty of (or all)
+      resources hosted on a node. It can also be used for updating software
+      packages on a node that do <emphasis>not</emphasis> affect the cluster
+      stack. See also
+      <xref linkend="sec.ha.migration.update"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
     <term>Maintenance Mode For Resources</term>
     <listitem>
      <para>
@@ -72,17 +84,6 @@
      </note>
     </listitem>
    </varlistentry>
-   <varlistentry>
-    <term>Maintenance Mode for Nodes</term>
-    <listitem>
-     <para>
-      Use this option if you want to update software packages on a node that do
-      <emphasis>not</emphasis> affect the cluster stack. To check the exact
-      conditions under which to use this option, see
-      <xref linkend="sec.ha.migration.update"/>.
-     </para>
-    </listitem>
-   </varlistentry>
   </variablelist>
  </sect1>
  <sect1 xml:id="se.ha.maintenance.cluster.services">
@@ -100,8 +101,9 @@
    this might lead to unexpected results for some resources. For example, DLM
    depends on the membership and messaging services provided by &corosync;. If
    &corosync; stops, the DLM resource will assume a split-brain scenario and
-   trigger a fencing operation. To avoid this, manually stop resources like DLM
-   or bring them back from maintenance mode before stopping the &pace; service.
+   trigger a fencing operation. To avoid this, explicitly stop resources like
+   DLM before putting the cluster or the node into maintenance mode and before
+   stopping the &pace; service.
   </para>
 
   <para>
@@ -123,7 +125,7 @@
    The following procedures show how to set and unset maintenance mode on
    cluster level, node level, and resource level with &hawk2;. If you want to
    put a resource into unmanaged mode with the <option>is-managed</option> meta
-   attribute, see <xref linkend="pro.ha.config.hawk.rsc.is-managed"/>.
+   attribute instead, see <xref linkend="pro.ha.config.hawk.rsc.is-managed"/>.
   </para>
 
   <procedure xml:id="pro.ha.config.hawk.maint.mode.cluster">
@@ -184,10 +186,10 @@
      node and select <guimenu>Maintenance</guimenu>.
     </para>
     <para>
-     This will add the following instance attribute to the node:
+     This adds the following instance attribute to the node:
      <literal>maintenance="true"</literal>. The resources previously running on
-     the maintenance-mode node will become <literal>unmanaged</literal>. No new
-     resources will be allocated to the node until it leaves the maintenance
+     this node now become <literal>unmanaged</literal>. No new
+     resources are allocated to the node until it leaves the maintenance
      mode.
     </para>
    </step>
@@ -355,21 +357,99 @@
   </variablelist>
  </sect1>
  <sect1>
-  <title>Rebooting a Cluster Node</title>
-  <para>If you need to reboot a cluster node for a maintenance task, it is not a
-   good idea to simply shut down the node down without precautions. Rebooting a cluster
-   node (as well as stopping the cluster stack on a node) will trigger the
-   normal &ha; recovery process&mdash;like in the case of a reboot caused by a fault.
-   That means the node will be fenced. Services that had been running on
-   this node will be restarted on other nodes (or migrate back to the same node
-   when it has finished rebooting and has rejoined the cluster).
- </para>
-<para>If the objective is to move services off the node in an orderly fashion,
-the best way to do that is to set the node to standby before shutting
-down the cluster stack and rebooting.
-
-That way, services can migrate off the node without having to wait for
-fencing to confirm that the node really is no longer a member in the
-cluster.</para>
+  <title>Implications of Rebooting a Cluster Node</title>
+  <para>
+   When you shut down or reboot a cluster node or stop the &pace; service on a
+   node, the following processes will be triggered:</para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      The resources that are running on the node will be stopped or moved
+      off the node.
+     </para>
+    </listitem>
+   <listitem>
+     <para>
+      If stopping the resources should fail or time out, the &stonith; mechanism
+      will fence the node and shut it down.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <procedure>
+    <title>Manually Rebooting a Cluster Node</title>
+    <para>
+     If your aim is to move the services off the node in an orderly fashion
+     before shutting down or rebooting the node, proceed as follows:
+    </para>
+   <step>
+    <para>
+     On the node you want to reboot or shut down, log in as &rootuser; or
+     equivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Put the node into <literal>standby</literal> mode:
+    </para>
+    <screen>&prompt.root;crm node standby</screen>
+    <para>
+     That way, services can migrate off the node without having to wait for the
+     shutdown timeout of &pace;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check the cluster status with:
+    </para>
+    <screen>&prompt.root;crm status</screen>
+    <para>
+     It shows the respective node in <literal>standby</literal> mode (for example,
+     &node2;):
+    </para>
+<screen>[...]
+Node &node2;: standby
+[...]</screen>
+   </step>
+    <step>
+    <para>
+     Stop the &pace; service on that node:
+    </para>
+    <screen>&prompt.root;systemctl stop pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     Reboot the node.
+    </para>
+   </step>
+  </procedure>
+<para>To check if the node joins the cluster again:</para>
+  <procedure>
+    <step>
+      <para>
+       Log in to the node as &rootuser; or equivalent.
+      </para>
+     </step>
+     <step>
+      <para>
+       Check if the &pace; service has started:
+      </para>
+      <screen>&prompt.root;systemctl status pacemaker.service</screen>
+     </step>
+     <step>
+      <para>
+       If not, start it:
+      </para>
+      <screen>&prompt.root;systemctl start pacemaker.service</screen>
+     </step>
+     <step>
+      <para>
+       Check the cluster status with:
+      </para>
+      <screen>&prompt.root;crm status</screen>
+      <para>
+       It should show the node coming online again.
+      </para>
+     </step>
+   </procedure>
  </sect1>
 </chapter>
