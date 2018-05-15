@@ -781,15 +781,21 @@ Login to [iface: default, target: iqn.2010-03.de.&wsI;:san1, portal: &wwwip;,326
 <sect1 xml:id="sec.ha.clvm.migrate">
   <title>Migrating a Mirror VL to Cluster MD</title>
   <para>
-   As cmirrord in cluster LVM is deprecated with &productnumber; 15,
+   As cmirrord in cluster LVM is deprecated with &productname; 15,
    we highly recommend to migrate the mirror logical volumes in your cluster to
    cluster MD. Cluster MD stands for cluster multi-device and is a software-based
    RAID storage solution for a cluster.
  </para>
- <para>
-  The following migration procedure is based on the following assumptions:
- </para>
+ <example>
+ <title>Setup Before Migration</title>
+<para>For example, your current setup might look like this:</para>
  <itemizedlist>
+  <listitem>
+   <para>
+    You have a two-node cluster consisting of the nodes <literal>&node1;</literal>
+    and <literal>&node2;</literal>.
+   </para>
+  </listitem>
   <listitem>
     <para>
      A mirror logical volume named <replaceable>test-lv</replaceable> was
@@ -798,13 +804,11 @@ Login to [iface: default, target: iqn.2010-03.de.&wsI;:san1, portal: &wwwip;,326
   </listitem>
   <listitem>
    <para>
-     The volume group <replaceable>cluster-vg2</replaceable> is composed of
-    <filename>/dev/vdb disk</filename> and <filename>/dev/vdc disk</filename>.
+     The volume group <replaceable>cluster-vg2</replaceable> is composed of the
+     disks <filename>/dev/vdb</filename> and <filename>/dev/vdc</filename>.
    </para>
   </listitem>
  </itemizedlist>
- <example>
- <title>Example Setup Before Migration</title>
  <screen>&prompt.root;<command>lsblk</command>
 NAME                                  MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
 vda                                   253:0    0   40G  0 disk
@@ -823,8 +827,21 @@ vdc                                   253:32   0   20G  0 disk
 └─cluster--vg2-test--lv_mimage_1      254:4    0   12G  0 lvm
   └─cluster--vg2-test--lv             254:5    0   12G  0 lvm</screen>
 </example>
-
+<note>
+ <title>Adjustments Needed</title>
+  <para>
+  The following procedure shows you how to migrate the mirror logical volume
+  <replaceable>test-lv</replaceable> to cluster MD. Modify the instructions
+  according to your settings and replace the names for the LVs, VGs, disks and 
+  the cluster MD device according to your setup.
+ </para>
+</note>
   <procedure>
+   <step>
+    <para>
+     Log in as &rootuser; or equivalent on node <literal>&node1;</literal>.
+    </para>
+   </step>
    <step>
     <para>
      Convert the mirror logical volume <replaceable>test-lv</replaceable>
@@ -863,12 +880,21 @@ vdc                     253:32   0   20G  0 disk</screen>
    </step>
    <step>
     <para>
-      Assemble this MD device from other nodes in your cluster:
+     Log in as &rootuser; or equivalent on node <literal>&node2;</literal>.
     </para>
-    <screen>&prompt.root;mdadm --assemble md0 /dev/vdc</screen>
    </step>
    <step>
-    <para>FIXME: description missing:
+    <para>
+      On <literal>&node2;</literal>, assemble this MD device:
+    </para>
+    <screen>&prompt.root;mdadm --assemble md0 /dev/vdc</screen>
+    <para>
+     If your cluster consists of more than two nodes, execute this step on all
+     remaining nodes in your cluster.
+    </para>
+   </step>
+   <step>
+    <para>On node <literal>&node1;</literal>, initialize the MD device for use with LVM:
     </para>
     <screen>&prompt.root;pvcreate /dev/md0</screen>
    </step>
@@ -887,7 +913,7 @@ vdc                     253:32   0   20G  0 disk</screen>
     <screen>&prompt.root;pvmove /dev/vdb /dev/md0</screen>
    </step>
    <step>
-    <para>FIXME: description missing:
+    <para>
      Remove the physical volume <filename>/dev/vdb</filename> from the volume
      <replaceable>group cluster-vg2</replaceable>:
     </para>
@@ -895,14 +921,14 @@ vdc                     253:32   0   20G  0 disk</screen>
    </step>
    <step>
     <para>
-     Remove the physical volume <filename>/dev/vdb</filename> from the volume
-     <replaceable>group cluster-vg2</replaceable>:
+     Remove the label from the device so that LVM no longer recognizes it as
+     physical volume:
     </para>
     <screen>&prompt.root;pvremove /dev/vdb</screen>
    </step>
    <step>
     <para>
-     Add it to the MD device <filename>/dev/md0</filename>
+     Add <filename>/dev/vdb</filename> to the MD device <filename>/dev/md0</filename>:
     </para>
     <screen>&prompt.root;mdadm --grow /dev/md0 --raid-devices=2 --add /dev/vdb</screen>
    </step>
