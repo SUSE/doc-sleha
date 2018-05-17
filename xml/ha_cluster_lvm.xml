@@ -777,6 +777,186 @@ Login to [iface: default, target: iqn.2010-03.de.&wsI;:san1, portal: &wwwip;,326
    </step>
   </procedure>
  </sect1>
+
+<sect1 xml:id="sec.ha.clvm.migrate">
+  <title>Migrating a Mirror LV to Cluster MD</title>
+  <para>
+   With &productname; 15, cmirrord in cluster LVM is deprecated. We highly
+   recommend to migrate the mirror logical volumes in your cluster to cluster MD.
+   Cluster MD stands for cluster multi-device and is a software-based
+   RAID storage solution for a cluster.
+ </para>
+ <example xml:id="ex.ha.clvm.setup.before">
+ <title>Setup Before Migration</title>
+<para>Let us assume you have the following example setup:</para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    You have a two-node cluster consisting of the nodes <literal>&node1;</literal>
+    and <literal>&node2;</literal>.
+   </para>
+  </listitem>
+  <listitem>
+    <para>
+     A mirror logical volume named <literal>test-lv</literal> was
+     created from a volume group named <literal>cluster-vg2</literal>.
+    </para>
+  </listitem>
+  <listitem>
+   <para>
+     The volume group <literal>cluster-vg2</literal> is composed of the
+     disks <filename>/dev/vdb</filename> and <filename>/dev/vdc</filename>.
+   </para>
+  </listitem>
+ </itemizedlist>
+ <screen>&prompt.root;<command>lsblk</command>
+NAME                                  MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+vda                                   253:0    0   40G  0 disk
+├─vda1                                253:1    0    4G  0 part [SWAP]
+└─vda2                                253:2    0   36G  0 part /
+vdb                                   253:16   0   20G  0 disk
+├─cluster--vg2-test--lv_mlog_mimage_0 254:0    0    4M  0 lvm
+│ └─cluster--vg2-test--lv_mlog        254:2    0    4M  0 lvm
+│   └─cluster--vg2-test--lv           254:5    0   12G  0 lvm
+└─cluster--vg2-test--lv_mimage_0      254:3    0   12G  0 lvm
+  └─cluster--vg2-test--lv             254:5    0   12G  0 lvm
+vdc                                   253:32   0   20G  0 disk
+├─cluster--vg2-test--lv_mlog_mimage_1 254:1    0    4M  0 lvm
+│ └─cluster--vg2-test--lv_mlog        254:2    0    4M  0 lvm
+│   └─cluster--vg2-test--lv           254:5    0   12G  0 lvm
+└─cluster--vg2-test--lv_mimage_1      254:4    0   12G  0 lvm
+  └─cluster--vg2-test--lv             254:5    0   12G  0 lvm</screen>
+</example>
+<note>
+ <title>Adjustments Needed</title>
+ <para>
+  The following procedure is based on <xref linkend="ex.ha.clvm.setup.before"
+  xrefstyle="select:label"/>. Adjust the instructions to match your setup
+  and replace the names for the LVs, VGs, disks and the cluster MD device
+  accordingly.
+ </para>
+</note>
+  <procedure>
+   <step>
+    <para>
+     On node <literal>&node1;</literal>, execute the following steps:
+    </para>
+   <substeps>
+   <step>
+    <para>
+     Convert the mirror logical volume <literal>test-lv</literal>
+     to a linear logical volume:
+    </para>
+    <screen>&prompt.root;lvconvert -m0 cluster-vg2/test-lv /dev/vdc</screen>
+   </step>
+   <step>
+    <para>
+      Remove the physical volume <filename>/dev/vdc</filename> from the volume
+      group <literal>cluster-vg2</literal>:
+    </para>
+    <screen>&prompt.root;vgreduce cluster-vg2 /dev/vdc</screen>
+   </step>
+   <step>
+    <para>
+      Remove this physical volume from LVM:
+    </para>
+    <screen>&prompt.root;pvremove /dev/vdc</screen>
+    <para>When you run <command>lsblk</command> now, you get:</para>
+   <screen>NAME                                  MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+vda                     253:0    0   40G  0 disk
+├─vda1                  253:1    0    4G  0 part [SWAP]
+└─vda2                  253:2    0   36G  0 part /
+vdb                     253:16   0   20G  0 disk
+└─cluster--vg2-test--lv 254:5    0   12G  0 lvm
+vdc                     253:32   0   20G  0 disk</screen>
+   </step>
+   <step>
+    <para>
+      Create a cluster MD device <filename>/dev/md0</filename> with the disk
+     <filename>/dev/vdc</filename>:
+    </para>
+    <screen>&prompt.root;mdadm --create /dev/md0 --bitmap=clustered \
+  --metadata=1.2 --raid-devices=1 --force --level=mirror /dev/vdc</screen>
+   </step>
+  </substeps>
+  </step>
+   <step>
+    <para>
+     On node <literal>&node2;</literal>, assemble this MD device:
+    </para>
+    <screen>&prompt.root;mdadm --assemble md0 /dev/vdc</screen>
+    <para>
+     If your cluster consists of more than two nodes, execute this step on all
+     remaining nodes in your cluster.
+    </para>
+   </step>
+   <step>
+    <para>Back on node <literal>&node1;</literal>:
+   </para>
+   <substeps>
+   <step>
+    <para>
+     Initialize the MD device <filename>/dev/md0</filename> as physical volume
+     for use with LVM:
+    </para>
+    <screen>&prompt.root;pvcreate /dev/md0</screen>
+   </step>
+   <step>
+    <para>
+     Add the MD device <filename>/dev/md0</filename> to the volume group
+     <literal>cluster-vg2</literal>:
+    </para>
+    <screen>&prompt.root;vgextend cluster-vg2 /dev/md0</screen>
+   </step>
+   <step>
+    <para>
+     Move the data from the disk <filename>/dev/vdb</filename> to the
+     <filename>/dev/md0</filename> device:
+    </para>
+    <screen>&prompt.root;pvmove /dev/vdb /dev/md0</screen>
+   </step>
+   <step>
+    <para>
+     Remove the physical volume <filename>/dev/vdb</filename> from the volume
+     <literal>group cluster-vg2</literal>:
+    </para>
+    <screen>&prompt.root;vgreduce cluster-vg2 /dev/vdb</screen>
+   </step>
+   <step>
+    <para>
+     Remove the label from the device so that LVM no longer recognizes it as
+     physical volume:
+    </para>
+    <screen>&prompt.root;pvremove /dev/vdb</screen>
+   </step>
+   <step>
+    <para>
+     Add <filename>/dev/vdb</filename> to the MD device <filename>/dev/md0</filename>:
+    </para>
+    <screen>&prompt.root;mdadm --grow /dev/md0 --raid-devices=2 --add /dev/vdb</screen>
+   </step>
+  </substeps>
+  </step>
+ </procedure>
+
+<example xml:id="ex.ha.clvm.setup.after">
+ <title>Example Setup After Migration</title>
+  <para>
+   When you run <command>lsblk</command> now, you get:
+  </para>
+  <screen>NAME                      MAJ:MIN RM  SIZE RO TYPE  MOUNTPOINT
+vda                       253:0    0   40G  0 disk
+├─vda1                    253:1    0    4G  0 part  [SWAP]
+└─vda2                    253:2    0   36G  0 part  /
+vdb                       253:16   0   20G  0 disk
+└─md0                       9:0    0   20G  0 raid1
+  └─cluster--vg2-test--lv 254:5    0   12G  0 lvm
+vdc                       253:32   0   20G  0 disk
+└─md0                       9:0    0   20G  0 raid1
+  └─cluster--vg2-test--lv 254:5    0   12G  0 lvm</screen>
+</example>
+ </sect1>
+
  <sect1 xml:id="sec.ha.clvm.more">
   <title>For More Information</title>
 
