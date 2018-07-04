@@ -1,0 +1,623 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<?provo dirname="install_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_install_quick.xml" version="5.0" xml:lang="pt-br" xml:id="art.sleha.install.quick">
+  
+  <title>Inicialização Rápida de Instalação e Configuração</title>
+ <subtitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15</phrase></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">15</phrase></phrase></productnumber>
+  <productname><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname>
+  <date><?dbtimestamp ?>
+
+</date>
+  <xi:include href="ha_authors.xml"/>
+  <abstract>
+   <para>
+     Este documento orienta na configuração de um cluster muito básico de dois nós usando os scripts de boot incluídos no pacote <systemitem class="resource">ha-cluster-bootstrap</systemitem>. Isso inclui a configuração de um endereço IP virtual como um recurso de cluster e o uso do SBD em armazenamento compartilhado como mecanismo de fencing.
+    
+   </para>
+  </abstract>
+  
+  <dm:docmanager>
+   <dm:bugtracker>
+    <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+    <dm:product>SUSE Linux Enterprise High Availability Extension 15</dm:product>
+    <dm:component>Documentação</dm:component>
+   </dm:bugtracker>
+   <dm:translation>yes (sim)</dm:translation>
+  </dm:docmanager>
+ </info>
+
+  <sect1 xml:id="sec.ha.inst.quick.usage-scenario">
+   <title>Cenário de uso</title>
+   <para>
+    Os procedimentos neste documento conduzem a configuração mínima de um cluster de dois nós com as seguintes propriedades:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Dois nós: <systemitem class="server">alice</systemitem> (IP: <systemitem class="ipaddress">192.168.1.1</systemitem>) e <systemitem class="server">bob</systemitem> (IP: <systemitem class="ipaddress">192.168.1.2</systemitem>), conectados um ao outro pela rede.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Um endereço IP virtual flutuante (<systemitem class="ipaddress">192.168.2.1</systemitem>) que permite aos clientes se conectarem ao serviço independentemente do nó físico no qual estão sendo executados.
+     </para>
+    </listitem>
+    <listitem>
+     <para>Um dispositivo de armazenamento compartilhado usado como mecanismo de fencing SBD. Isso evita cenários de split brain.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Failover de recursos de um nó para outro em caso de falha no host ativo (configuração <emphasis>ativo/passivo</emphasis>).
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    Após a configuração do cluster com os scripts de boot, monitoraremos o cluster com o Hawk2 gráfico. Trata-se de uma das ferramentas de gerenciamento de cluster incluídas na <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase>. Como um teste básico para verificar se o failover de recursos funciona, colocaremos um dos nós no modo standby e verificaremos se o endereço IP virtual será migrado para o segundo nó.
+   </para>
+   <para>
+    Você pode usar o cluster de dois nós para fins de teste ou como uma configuração de cluster mínima que pode ser estendida posteriormente. Antes de usar o cluster em um ambiente de produção, modifique-o de acordo com os seus requisitos.
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.req">
+   <title>Requisitos do sistema</title>
+   <para>
+    Esta seção informa você sobre os principais requisitos do sistema para o cenário descrito na <xref linkend="sec.ha.inst.quick.usage-scenario" xrefstyle="select:label"/>. Para ajustar o cluster para uso em um ambiente de produção, consulte a lista completa no <xref linkend="cha.ha.requirements"/>.
+   </para>
+
+  <sect2 xml:id="vl.ha.inst.quick.req.hw">
+   <title>Requisitos de hardware</title>
+   <variablelist>
+    <varlistentry>
+     <term>Servidores </term>
+     <listitem>
+      <para>
+       Dois servidores com software conforme especificado na <xref linkend="il.ha.inst.quick.req.sw"/>.
+      </para> <para>
+      Os servidores podem ser completamente vazios ou máquinas virtuais. Eles não exigem hardware idêntico (memória, espaço em disco, etc.), mas devem ter a mesma arquitetura. Clusters compatíveis com várias plataformas não são suportados.
+     </para>
+      
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Canais de comunicação</term>
+     <listitem>  <para>
+       No mínimo, duas mídias de comunicação TCP/IP por nó do cluster. O equipamento de rede deve suportar os meios de comunicação que você deseja usar para comunicação do cluster: multicast ou unicast. A mídia de comunicação deve suportar uma taxa de dados de 100 Mbit/s ou superior. Para uma configuração de cluster compatível, são necessários pelo menos dois caminhos de comunicação redundantes. Isso pode ser feito por meio de:</para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          Ligação de Dispositivo de Rede (preferencial)
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          Um segundo canal de comunicação no Corosync
+         </para>
+        </listitem>
+       </itemizedlist> </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Fencing de nó/STONITH</term>
+     <listitem>  <para>
+      Para evitar um cenário de <quote>split brain</quote>, os clusters precisam de um mecanismo de fencing de nó. Em um cenário de split brain, os nós do cluster são divididos em dois ou mais grupos que não sabem a respeito um do outro (devido a uma falha de hardware ou de software ou a uma conexão de rede interrompida). Um mecanismo de fencing isola o nó em questão (geralmente, redefinindo ou desligando o nó). Isso também é chamado de STONITH (<quote>Shoot the other node in the head</quote> – Atirar na cabeça do outro nó). O mecanismo de fencing de nó pode ser um dispositivo físico (switch de energia) ou um mecanismo como SBD (STONITH por disco) em combinação com um watchdog. O uso do SBD requer armazenamento compartilhado.
+     </para> </listitem>
+    </varlistentry>
+   </variablelist>
+ </sect2>
+  <sect2 xml:id="il.ha.inst.quick.req.sw">
+   <title>Requisitos de software</title>
+   <para>
+   Todos os nós que farão parte do cluster precisam, no mínimo, dos seguintes módulos e extensões:
+  </para>
+
+<itemizedlist>
+   <listitem>
+    <para>Base System Module <phrase role="productnumber"><phrase os="sles">15</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para>Server Applications Module <phrase role="productnumber"><phrase os="sles">15</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15</phrase></phrase></para>
+   </listitem>
+  </itemizedlist>
+
+  </sect2>
+  <sect2 xml:id="vl.ha.inst.quick.req.other">
+   <title>Outros requisitos e recomendações</title>
+   <variablelist>
+    <varlistentry>
+     <term>Sincronização de horário</term>  <listitem>
+   <para>
+     Os nós do cluster devem ser sincronizados com um servidor NTP fora do cluster. Desde a <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 15, chrony é a implementação padrão de NTP. Para obter mais informações, consulte o <citetitle>Guia de Administração</citetitle> para SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15</phrase></phrase>, capítulo <citetitle>Sincronização de horário com NTP</citetitle>. Ele está disponível em <link xlink:href="http://www.suse.com/documentation/"/>.
+    </para>
+    <para>
+     Se os nós não forem sincronizados, o cluster poderá não funcionar apropriadamente. Além disso, os arquivos de registro e os relatórios do cluster são muito difíceis de analisar sem a sincronização. Se você usar os scripts de boot, será avisado caso o NTP ainda não tenha sido configurado.
+    </para>
+  </listitem> </varlistentry>
+    <varlistentry>
+     <term>Nome de host e endereço IP</term>
+     <listitem>
+      <itemizedlist>
+       <listitem>
+        <para> Use endereços IP estáticos. </para>
+       </listitem>
+       <listitem>  <para>
+     Liste todos os nós do cluster no arquivo <filename>etc/hosts</filename> com o respectivo nome completo e abreviado do host. É essencial que os membros do cluster possam encontrar uns aos outros pelo nome. Se os nomes não estiverem disponíveis, haverá falha na comunicação interna do cluster.
+   </para> </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>SSH</term>
+     <listitem>  <para>
+    Todos os nós do cluster devem ser capazes de acessar uns aos outros por SSH. Ferramentas como o <command>crm report</command> (para solução de problemas) e o <guimenu>Explorador do Histórico</guimenu> do Hawk2 exigem acesso por SSH sem senha entre os nós; do contrário, elas apenas poderão coletar dados do nó atual.
+  </para> <para> Se você usar os scripts de boot para configurar o cluster, as chaves SSH serão automaticamente criadas e copiadas. </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.bootstrap">
+  <title>Visão geral dos scripts de boot</title>
+  <para>
+   Todos os comandos do pacote <package>ha-cluster-bootstrap</package> executam scripts de boot que exigem apenas um mínimo de intervenção manual e de tempo.
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Com o <command>ha-cluster-init</command>, defina os parâmetros básicos necessários para a comunicação do cluster. Dessa forma, você tem um cluster de um nó em execução.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Com o <command>ha-cluster-join</command>, adicione mais nós ao cluster.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Com o <command>ha-cluster-remove</command>, remova nós do cluster.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Todos os scripts de boot são registrados em <filename>/var/log/ha-cluster-bootstrap.log</filename>. Consulte esse arquivo para obter todos os detalhes do processo de boot. As opções definidas durante o processo de boot podem ser modificadas posteriormente com o módulo de cluster do YaST. Consulte o <xref linkend="cha.ha.ycluster"/> para obter os detalhes. 
+  </para>
+  <para>Cada script vem com uma página de manual que abrange a variedade de funções, as opções do script e uma visão geral dos arquivos que o script pode criar e modificar.
+  </para>
+  <para>
+   O script de boot <command>ha-cluster-init</command> verifica e configura os seguintes componentes:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>NTP</term>
+    <listitem>
+     <para>
+      Se o NTP não foi configurado para ser iniciado no momento da inicialização, uma mensagem é exibida. Desde a <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 15, chrony é a implementação padrão de NTP.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SSH</term>
+    <listitem>
+     <para>Ele cria chaves SSH para login sem senha entre os nós do cluster.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      Ele configura o Csync2 para replicar os arquivos de configuração para todos os nós em um cluster.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Corosync</term>
+    <listitem>
+     <para>Ele configura o sistema de comunicação do cluster.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SBD/Watchdog</term>
+    <listitem>
+     <para>Ele verifica se há um watchdog e pergunta se é para configurar o SBD como mecanismo de fencing de nó.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>IP flutuante virtual</term>
+    <listitem>
+     <para>Ele pergunta se é para configurar um endereço IP virtual para administração do cluster com o Hawk2.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Firewall</term>
+    <listitem>
+     <para>Ele abre as portas no firewall que são necessárias para a comunicação do cluster.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Nome do cluster</term>
+    <listitem>
+     <para>Define um nome para o cluster. Por padrão, <systemitem>hacluster</systemitem>. Isso é opcional e é útil principalmente para clusters Geo. Geralmente, o nome do cluster reflete a localização e facilita distinguir um site dentro de um cluster Geo.</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.installation">
+    <title>Instalando a <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></title>
+    <para>
+      Os pacotes para configuração e gerenciamento de um cluster com a High Availability Extension estão incluídos no padrão de instalação <literal>High Availability</literal> (denominado <literal>sles_ha</literal> na linha de comando). Esse padrão apenas estará disponível após a instalação da <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> como uma extensão ao SUSE® Linux Enterprise Server.
+    </para>
+    <para>
+      Para obter informações sobre como instalar extensões, consulte o <citetitle>Guia de Implantação</citetitle> para SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">15</phrase></phrase>, capítulo <citetitle>Instalando módulos, extensões e produtos complementares de terceiros</citetitle>. Ele está disponível em <link xlink:href="http://www.suse.com/documentation/sles"/>.
+    </para>
+
+    <procedure xml:id="pro.ha.inst.quick.pattern">
+      <title>Instalando o padrão <literal>High Availability</literal></title>
+       <para>
+        Se o padrão ainda não foi instalado, faça o seguinte:
+       </para>
+      <step>
+       <para>
+        Instale-o por meio da linha de comando usando o Zypper:</para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> install -t pattern ha_sles</screen>
+      </step>
+      <step>
+       <para>
+          Instale o padrão High Availability em <emphasis>todas</emphasis> as máquinas que farão parte do cluster.
+       </para>
+       <note>
+        <title>Instalando pacotes de software em todas as partes</title>
+        <para>
+         Para uma instalação automatizada do SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 </phrase></phrase> e da <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15</phrase></phrase>, use o AutoYaST para clonar os nós existentes. Para obter mais informações, consulte o <xref linkend="sec.ha.installation.autoyast"/>.
+        </para>
+       </note>
+      </step>
+      <step>
+       <para>
+         Registre as máquinas no SUSE Customer Center. Há mais informações no <citetitle>Guia de Implantação</citetitle> para SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15</phrase></phrase>, capítulo <citetitle>Instalando ou removendo software</citetitle>, seção <citetitle>Registrando um sistema instalado</citetitle>. Ele está disponível em <link xlink:href="http://www.suse.com/documentation/sles"/>.
+       </para>
+      </step>
+    </procedure>
+  </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.sbd">
+  <title>Usando o SBD como mecanismo de fencing</title>
+  
+   
+   <para>
+    Se você compartilhou armazenamento, por exemplo SAN (Storage Area Network), pode usá-lo para evitar cenários de split brain. Para fazer isso, configure o SBD como o mecanismo de fencing de nó. O SBD usa o suporte a watchdog e o agente de recurso <literal>external/sbd</literal> do STONITH.
+   </para>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.req">
+   <title>Requisitos do SBD</title>
+   <para>
+    Durante a configuração do primeiro nó com <command>ha-cluster-init</command>, você decide se vai usar o SBD. Em caso afirmativo, será necessário digitar o caminho para o dispositivo de armazenamento compartilhado. Por padrão, o <command>ha-cluster-init</command> cria automaticamente uma pequena partição no dispositivo que será usado para o SBD.
+   </para>
+   <para>Para usar o SBD, os seguintes requisitos devem ser atendidos:</para>
+
+   <itemizedlist>
+    <listitem>
+     <para>O caminho para o dispositivo de armazenamento compartilhado deve ser persistente e consistente em todos os nós no cluster. Use nomes de dispositivos estáveis, como <filename>/dev/disk/by-id/dm-uuid-part1-mpath-abcedf12345</filename>.
+     </para>
+    </listitem>
+    <listitem>
+     <para> O dispositivo SBD <emphasis>não deve</emphasis> usar RAID com base em host, cLVM2 nem residir em uma instância DRBD*.
+     </para>
+    </listitem>
+   </itemizedlist>
+
+  <para>
+   Para obter detalhes sobre a configuração do armazenamento compartilhado, consulte o <citetitle>Guia de Administração de Armazenamento</citetitle> do SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15</phrase></phrase>. Ele está disponível em <link xlink:href="http://www.suse.com/documentation/sles"/>.
+  </para>
+  
+  </sect2>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.setup">
+   <title>Habilitando o watchdog do softdog para SBD</title>
+   
+   <para>
+    No SUSE Linux Enterprise Server, o suporte a watchdog no kernel está habilitado por padrão: Ele está incluído em vários módulos do kernel que fornecem drivers de watchdog específicos do hardware. A High Availability Extension usa o daemon SBD como o componente de software que <quote>alimenta</quote> o watchdog.
+   </para>
+   <para>
+    O procedimento a seguir usa o watchdog do <systemitem>softdog.</systemitem>
+   </para>
+
+   
+   <important>
+    <title>Limitações do softdog</title>
+    <para>
+     O driver softdog supõe que pelo menos uma CPU ainda esteja em execução. Se todas as CPUs estiverem travadas, o código no driver softdog que deve reinicializar o sistema nunca será executado. Por outro lado, os watchdogs do hardware continuarão funcionando mesmo se todas as CPUs estiverem travadas.
+    </para>
+    <para>Antes de usar o cluster em um ambiente de produção, é altamente recomendável substituir o módulo <systemitem>softdog</systemitem> pelo módulo mais adequado ao seu hardware.
+    </para>
+    <para>No entanto, se nenhum watchdog corresponder ao seu hardware, o <systemitem class="resource">softdog</systemitem> poderá ser usado como o módulo watchdog do kernel.</para>
+   </important>
+
+   <procedure xml:id="pro.ha.inst.quick.sbd.setup">
+    <step>
+     <para>
+      Crie um armazenamento compartilhado persistente conforme descrito na <xref linkend="sec.ha.inst.quick.sbd.req"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Habilite o watchdog do softdog:
+     </para>
+     
+     <screen><prompt role="root">root # </prompt><command>echo</command> softdog &gt; /etc/modules-load.d/watchdog.conf
+<prompt role="root">root # </prompt><command>systemctl</command> restart systemd-modules-load</screen>
+    </step>
+    <step>
+      
+     <para>Teste se o módulo softdog foi carregado corretamente:
+     </para>
+     <screen><prompt role="root">root # </prompt><command>lsmod</command> | grep dog
+softdog                16384  1</screen>
+    </step>
+  </procedure>
+
+   <remark>toms 2018-04-05: we need to add a bit more info here how you do
+    the tests and what to do when it fails.
+    However, this needs some further info from our developers. Some info can
+    be found in ha_storage_protection.xml.
+    Usually it boils down to "sbd -d DEV list" and "sbd -d DEV message bob test"
+   </remark>
+   <para>
+    É altamente recomendável testar o mecanismo de fencing SBD na função apropriada para evitar um cenário de divisão. Esse tipo de teste pode ser feito bloqueando a comunicação do cluster Corosync.
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.setup.1st-node">
+  <title>Configurando o primeiro nó</title>
+   <para>
+   Configure o primeiro nó com o script <command>ha-cluster-init</command>. Isso exige apenas um mínimo de intervenção manual e de tempo.
+  </para>
+
+  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-init">
+   <title>Configurando o primeiro nó (<systemitem class="server">alice</systemitem>) com <command>ha-cluster-init</command></title>
+   <step>
+    <para>
+     Efetue login como <systemitem class="username">root</systemitem> na máquina física ou virtual que será usada como nó do cluster.
+    </para>
+   </step>
+   <step>
+    <para>
+     Inicie o script de boot executando:
+    </para>
+    <screen><prompt role="root">root # </prompt><command>ha-cluster-init</command> --name <replaceable>CLUSTERNAME</replaceable></screen>
+    <para>Substitua o marcador <replaceable>CLUSTERNAME</replaceable> por um nome significativo, como a localização geográfica do seu cluster (por exemplo, <literal>amsterdam</literal>). Isso é útil principalmente para criar um cluster Geo no futuro, pois ele simplifica a identificação de um site.
+    </para>
+    <remark>toms 2016-08-11: the following para relates to
+     (a) FATE#320604 allow unicast,
+     (b) FATE#320605 identify AWS and use unicast</remark>
+    <para>
+     Se você precisar de unicast em vez de multicast (padrão) para a comunicação com o cluster, use a opção <option>-u</option>. Após a instalação, localize o valor <literal>udpu</literal> no arquivo <filename>/etc/corosync/corosync.conf</filename>. Se <command>ha-cluster-init</command> detectar um nó em execução na AWS (Amazon Web Services), o script usará unicast automaticamente como padrão para comunicação com o cluster.
+    </para>
+    <para>
+     O script verifica se há um serviço watchdog de hardware e uma configuração do NTP. Ele gera as chaves SSH públicas e privadas usadas para acesso SSH e sincronização Csync2 e inicia os respectivos serviços.
+    </para>
+    
+   </step>
+   <step>
+    <para>
+     Configure a camada de comunicação do cluster (Corosync):
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Digite um endereço de rede ao qual vincular. Por padrão, o script propõe o endereço de rede de <systemitem>eth0</systemitem>. Se preferir, digite um endereço de rede diferente, por exemplo, o endereço de <literal>bond0</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Digite um endereço multicast. O script propõe um endereço aleatório que você pode usar como padrão. A sua rede particular precisa suportar esse endereço multicast.
+      </para>
+     </step>
+     <step>
+      <para>
+       Digite uma porta de multicast. Como padrão, o script propõe <literal>5405</literal>.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+    Configure o SBD como mecanismo de fencing de nó:</para>
+    <substeps>
+     <step>
+      <para>Pressione <literal>y</literal> para confirmar que você deseja usar o SBD.</para>
+     </step>
+     <step>
+      <para>Digite um caminho persistente para a partição do dispositivo de blocos que você deseja usar para o SBD. Consulte a <xref linkend="sec.ha.inst.quick.sbd"/>. O caminho deve ser consistente em todos os nós no cluster.</para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st.ha-cluster-init.ip">
+    
+    <para>Configure um endereço IP virtual para administração do cluster com o Hawk2. (Usaremos esse recurso de IP virtual para testar o failover bem-sucedido mais adiante.)</para>
+    <substeps>
+     <step>
+      <para>Pressione <literal>y</literal> para confirmar que você deseja configurar um endereço IP virtual.</para></step>
+     <step>
+      <para>Digite um endereço IP não utilizado que você deseja usar como o IP de administração no Hawk2: <literal>192.168.2.1</literal>
+      </para>
+      <para>Em vez de efetuar login em um nó de cluster individual com o Hawk2, você pode se conectar ao endereço IP virtual.</para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  <para>
+   Por fim, o script iniciará o serviço Pacemaker para colocar o cluster online e habilitar o Hawk2. O URL a ser usado no Hawk2 é exibido na tela.
+  </para>
+
+  <para>
+   Agora, você tem um cluster de um nó em execução. Para ver seu status, faça o seguinte:
+  </para>
+  <procedure xml:id="pro.ha.inst.quick.hawk2.login">
+   <title>Efetuando login na interface da Web do Hawk2</title>
+   <step>
+    <para> Em qualquer máquina, inicie um browser da Web e verifique se o JavaScript e os cookies estão habilitados. </para>
+   </step>
+   <step>
+    <para> Como URL, digite o endereço IP ou nome de host de qualquer nó do cluster que executa o serviço Web Hawk. Se preferir, digite o endereço IP virtual que foi configurado na <xref linkend="st.ha-cluster-init.ip"/> do <xref linkend="pro.ha.inst.quick.setup.ha-cluster-init"/>: </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    <note>
+     <title>Aviso de Certificado</title>
+     <para> Se um aviso de certificado for exibido quando você tentar acessar o URL pela primeira vez, um certificado autoassinado estará em uso. Os certificados autoassinados não são considerados confiáveis por padrão. </para>
+     <para> Solicite ao operador do cluster os detalhes do certificado para verificá-lo. </para>
+     <para> Para continuar mesmo assim, você pode adicionar uma exceção ao browser para ignorar o aviso. </para>
+     
+    </note>
+   </step>
+   <step>
+    <para> Na tela de login do Hawk2, digite o <guimenu>Nome de usuário</guimenu> e a <guimenu>Senha</guimenu> do usuário que foi criado durante o procedimento de boot (usuário <systemitem class="username">hacluster</systemitem>, senha <literal>linux</literal>).</para>
+    <important>
+     <title>Senha de Segurança</title>
+     <para>Substitua a senha padrão por uma segura assim que possível:
+     </para>
+     <screen><prompt role="root">root # </prompt><command>passwd</command> hacluster</screen>
+    </important>
+   </step>
+   <step>
+    <para>
+     Clique em <guimenu>Efetuar Login</guimenu>. Após o login, a interface da Web do Hawk2 mostrará a tela Status por padrão, exibindo o status atual do cluster imediatamente:
+    </para>
+    <figure xml:id="fig.ha.inst.quick.one-node-status">
+     <title>Status do Cluster de um Nó no Hawk2</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata width="80%" fileref="installquick-one-nodecluster.png"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.setup.2nd-node">
+  <title>Adicionando o segundo nó</title>
+  <para>
+    Se você tem um cluster de um nó ativo em execução, adicione o segundo nó do cluster com o script de boot <command>ha-cluster-join</command>, conforme descrito no <xref linkend="pro.ha.inst.quick.setup.ha-cluster-join" xrefstyle="select:label nopage"/>. O script precisa apenas de acesso a um nó do cluster existente para concluir a configuração básica na máquina atual automaticamente. Para obter detalhes, consulte a página de manual do <command>ha-cluster-join</command>.
+  </para>
+  <para>
+   Os scripts de boot ficam encarregados de mudar a configuração específica para um cluster de dois nós, por exemplo, SBD e Corosync.
+  </para>
+  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-join">
+   <title>Adicionando o segundo nó (<systemitem class="server">bob</systemitem>) com <command>ha-cluster-join</command></title>
+   <step>
+    <para>
+     Efetue login como <systemitem class="username">root</systemitem> na máquina virtual ou física que deve se unir ao cluster.
+    </para>
+   </step>
+   <step>
+    <para>
+     Inicie o script de boot executando:
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-join</command></screen>
+    <para>
+     Se o NTP não foi configurado para ser iniciado no momento da inicialização, uma mensagem é exibida. O script também verifica se há um dispositivo de watchdog de hardware (que é importante se você deseja configurar o SBD). Você receberá um aviso se não houver nenhum.
+    </para>
+   </step>
+   <step>
+    <para>
+     Se você continuar mesmo assim, será solicitado a digitar o endereço IP de um nó existente. Digite o endereço IP do primeiro nó (<systemitem class="server">alice</systemitem>, <systemitem class="ipaddress">192.168.1.1</systemitem>).
+    </para>
+   </step>
+   <step>
+    <para>
+     Se você ainda não configurou o acesso SSH sem senha entre as duas máquinas, será solicitado a digitar a senha de <systemitem class="username">root</systemitem> do nó existente.
+    </para>
+    <para>
+     Após efetuar login no nó especificado, o script copiará a configuração do Corosync, definirá o SSH e o Csync2 e colocará a máquina atual online como novo nó do cluster. Além disso, ele iniciará o serviço necessário no Hawk2. 
+    </para>
+   </step>
+  </procedure>
+  <para>
+   Verifique o status do cluster no Hawk2. Em <menuchoice> <guimenu>Status</guimenu> <guimenu>Nós</guimenu> </menuchoice>, dois nós são exibidos com um status verde (consulte a <xref linkend="fig.ha.inst.quick.two-node-cluster"/>).
+  </para>
+
+  <figure xml:id="fig.ha.inst.quick.two-node-cluster">
+   <title>Status do Cluster de Dois Nós</title>
+   <mediaobject>
+    <imageobject>
+     <imagedata width="80%" fileref="installquick-two-nodecluster-status.png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.test">
+   <title>Testando o cluster</title>
+   <para>
+    O <xref linkend="pro.ha.inst.quick.test"/> é um teste simples para verificar se o cluster move o endereço IP virtual para o outro nó caso o nó que executa o recurso atualmente esteja definido como <literal>standby</literal>.
+   </para>
+   <para>No entanto, um teste realista envolve casos de uso e cenários específicos, incluindo testes do mecanismo de fencing para evitar uma situação de split brain. Se você não configurar o mecanismo de fencing corretamente, o cluster não funcionará de maneira apropriada.</para>
+   <para>Antes de usar o cluster em um ambiente de produção, teste-o completamente de acordo com os seus casos de uso.
+    
+   </para>
+    <remark>toms 2016-07-27: Fate#321073
+    Tool for Standardize Testing of Basic Cluster Functionality</remark>
+   <procedure xml:id="pro.ha.inst.quick.test">
+    <title>Testando o failover de recursos</title>
+    <step>
+     <para>
+      Abra um terminal e execute o ping de <systemitem>192.168.2.1</systemitem>, seu endereço IP virtual:
+     </para>
+     <screen><prompt role="root">root # </prompt><command>ping</command> 192.168.2.1</screen>
+    </step>
+    <step>
+     <para>
+      Efetue login no seu cluster conforme descrito no <xref linkend="pro.ha.inst.quick.hawk2.login"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      No Hawk2, <menuchoice> <guimenu>Status</guimenu> <guimenu>Recursos</guimenu> </menuchoice>, verifique em qual nó o endereço IP virtual (recurso <systemitem>admin_addr</systemitem>) está sendo executado. Consideramos que o recurso esteja sendo executado em <systemitem class="server">alice</systemitem>.
+      </para>
+    </step>
+    <step>
+     <para>
+      Coloque <systemitem class="server">alice</systemitem> no modo <guimenu>Standby</guimenu> (consulte a <xref linkend="fig.ha.inst.quick.standby"/>).
+     </para>
+     <figure xml:id="fig.ha.inst.quick.standby">
+      <title>Nó <systemitem class="server">alice</systemitem> no Modo Standby</title>
+      <mediaobject>
+       <imageobject>
+        <imagedata width="60%" fileref="installquick-standby-node.png"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+     
+    </step>
+    <step>
+     <para>
+      Clique em <menuchoice> <guimenu>Status</guimenu> <guimenu>Recursos</guimenu> </menuchoice>. O recurso <systemitem>admin_addr</systemitem> foi migrado para <systemitem class="server">bob</systemitem>.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    Durante a migração, é exibido um fluxo contínuo de pings para o endereço IP virtual. Isso mostra que a configuração do cluster e o IP flutuante funcionam corretamente. Cancele o comando <command>ping</command> com <keycombo> <keycap function="control"/><keycap>C</keycap> </keycombo>.
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.moreinfo">
+   <title>Para obter mais informações</title>
+   <para>
+    Encontre mais documentação para este produto em <link xlink:href="http://www.suse.com/documentation/sle-ha"/>. A documentação também inclui um <citetitle>Guia de Administração</citetitle> completo para a <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>. Consulte-o para ver mais tarefas de configuração e administração.
+   </para>
+  </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>
