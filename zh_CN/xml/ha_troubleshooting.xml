@@ -1,0 +1,544 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_troubleshooting.xml" xml:id="app.ha.troubleshooting" version="5.0">
+ <title>查错</title>
+ <info>
+      <abstract>
+        <para>
+    用户可能会遇到奇怪而不易理解的问题，特别是刚开始尝试使用 High Availability 时。不过，有一些实用程序可用来仔细地观察 High Availability 的内部进程。本章将推荐各种解决方案。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.troubleshooting.install">
+  <title>安装及初始步骤</title>
+
+  <para>
+   对安装包或使群集联机的过程中遇到的问题查错。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>是否安装了 HA 包？</term>
+    <listitem>
+     <para>
+      配置和管理群集所需的包位于 High Availability Extension 提供的 <literal>High Availability</literal> 安装模式中。
+     </para>
+     <para>
+      按《安装和设置快速入门》中所述，检查 High Availability Extension 是否已作为 SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 </phrase></phrase> 的扩展安装在每个群集节点上，以及每台计算机上是否安装了 <guimenu>High Availability</guimenu> 模式。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>所有群集节点的初始配置是否相同？</term>
+    <listitem>
+     <para>
+      如<xref linkend="cha.ha.ycluster"/>中所述，为了相互通讯，属于同一个群集的所有节点需要使用相同的 <literal>bindnetaddr</literal>、<literal>mcastaddr</literal> 和 <literal>mcastport</literal>。
+     </para>
+     <para>
+      检查 <filename>/etc/corosync/corosync.conf</filename> 中配置的通讯通道和选项是否对所有群集节点都相同。
+     </para>
+     <para>
+      如果使用加密通讯，请检查 <filename>/etc/corosync/authkey</filename> 文件是否在所有群集节点上都可用。
+     </para>
+     <para>
+      除 <literal>nodeid</literal> 以外的所有 <filename>corosync.conf</filename> 设置都必须相同；所有节点上的 <filename>authkey</filename> 文件都必须相同。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>防火墙是否允许通过 <literal>mcastport</literal> 进行通讯？</term>
+    <listitem>
+     <para>
+      如果用于群集节点之间通讯的 mcastport 由防火墙阻止，这些节点将无法相互可见。在分别按<xref linkend="cha.ha.ycluster"/>或<xref linkend="art.sleha.install.quick"/>中所述使用 YaST 或引导脚本执行初始设置时，防火墙设置通常会自动调整。
+     </para>
+     <para>
+      要确保 mcastport 不被防火墙阻止，请检查每个节点上的防火墙设置。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>每个群集节点上是否都启动了 Pacemaker 和 Corosync？</term>
+    <listitem>
+     <para>
+      通常，启动 Pacemaker 也会启动 Corosync 服务。要检查这两个服务是否在运行，请使用以下命令：
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> status pacemaker corosync</screen>
+     <para>
+      如果它们未运行，请执行以下命令将其启动：
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec.ha.troubleshooting.log">
+  <title>日志记录</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>可以在哪里找到日志文件？ </term>
+    <listitem>
+     <para>
+      Pacemaker 会将其日志文件写入 <filename>/var/log/pacemaker</filename> 目录。主要的 Pacemaker 日志文件是 <filename>/var/log/pacemaker/pacemaker.log</filename>。如果您找不到日志文件，请检查 <filename>/etc/sysconfig/pacemaker</filename> 中的日志记录设置（Pacemaker 自己的配置文件）。如果该配置文件中配置了 <literal>PCMK_logfile</literal>，Pacemaker 将使用此参数定义的路径。
+     </para>
+     <para>
+      如果您需要获得一份显示所有相关日志文件的群集级报告，请参见<xref linkend="vle.ha.crmreport"/>以了解更多信息。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>我启用了监视，但为什么日志文件中没有监视操作的任何跟踪信息？</term>
+    <listitem>
+     <para>
+      除非发生错误，否则 <systemitem class="daemon">lrmd</systemitem> 守护程序不会记录重现的监视操作。记录所有重现的操作会产生太多噪音。因此，只会每小时记录一次重现的监视操作。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>我只收到了一条<literal>失败</literal>讯息。有可能收到更多信息吗？</term>
+    <listitem>
+     <para>
+      在命令中添加 <literal>--verbose</literal> 参数。如果多次执行该操作，调试输出会变得相当详细。请参见日志记录数据 (<command>sudo journalctl -n</command>) 以获得有用的提示。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>如何获取所有节点和资源的概述？</term>
+    <listitem>
+     <para>
+      使用 <command>crm_mon</command> 命令。下面显示了资源操作的历史记录（选项 <option>-o</option>）和处于不活动状态的资源 (<option>-r</option>)：
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm_mon</command> -o -r</screen>
+     <para>
+      状态改变时，显示内容会刷新（要取消，请按 <keycombo> <keycap function="control"/> <keycap>  C</keycap>
+      </keycombo> ）。示例可能显示如下：
+     </para>
+     <example>
+      <title>已停止的资源</title>
+<screen>Last updated: Fri Aug 15 10:42:08 2014
+Last change: Fri Aug 15 10:32:19 2014
+ Stack: corosync
+Current DC: bob (175704619) - partition with quorum
+Version: 1.1.12-ad083a8
+2 Nodes configured
+3 Resources configured
+       
+Online: [ alice bob ]
+       
+Full list of resources:
+       
+my_ipaddress    (ocf:heartbeat:Dummy): Started bob
+my_filesystem   (ocf:heartbeat:Dummy): Stopped
+my_webserver    (ocf:heartbeat:Dummy): Stopped
+       
+Operations:
+* Node bob: 
+    my_ipaddress: migration-threshold=3
+      + (14) start: rc=0 (ok)
+      + (15) monitor: interval=10000ms rc=0 (ok)
+      * Node alice:</screen>
+     </example>
+     <para>
+      <link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/> 上《<citetitle>Pacemaker Explained</citetitle>》（Pacemaker 说明）PDF 文件中的“<citetitle>How are OCF Return Codes Interpreted?</citetitle>”（如何解释 OCF 返回代码？）部分中介绍了三种不同的恢复类型。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>如何查看日志？</term>
+    <listitem>
+     <para>要详细查看群集中的当前活动，请使用以下命令：</para>
+      <screen><prompt role="root">root # </prompt><command>crm</command> history log [<replaceable>NODE</replaceable>]</screen>
+      <para>将 <replaceable>NODE</replaceable> 替换为您要检查的节点，或将它保留空白。有关更多信息，请参见<xref linkend="sec.ha.troubleshooting.history"/>。</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec.ha.troubleshooting.resource">
+  <title>资源</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>如何清理我的资源？</term>
+    <listitem>
+     <para>
+      使用以下命令：
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource list
+crm resource cleanup <replaceable>rscid</replaceable> [<replaceable>node</replaceable>]</screen>
+     <para>
+      如果遗漏此节点，则资源将在所有节点上清除。更多信息可以在<xref linkend="sec.ha.manual_config.cleanup"/>中找到。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>如何列出当前已知的资源？</term>
+    <listitem>
+     <para>
+      使用命令 <command>crm resource list</command> 可以显示当前资源。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>我配置了一个资源，但是它总是失败。为什么？</term>
+    <listitem>
+     <para>
+      要检查 OCF 脚本，请使用 <command>ocf-tester</command>，例如：
+     </para>
+<screen>ocf-tester -n ip1 -o ip=<replaceable>YOUR_IP_ADDRESS</replaceable> \
+  /usr/lib/ocf/resource.d/heartbeat/IPaddr</screen>
+     <para>
+      对更多参数，请多次使用 <option>-o</option>。通过运行 <command>crm</command> <option> ra</option> <option> info</option>
+      <replaceable> AGENT</replaceable> 可获取必需参数和可选参数的列表，例如：
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info ocf:heartbeat:IPaddr</screen>
+     <para>
+      运行 ocf-tester 之前，请确保资源不受群集管理。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>资源为什么不故障转移，为什么没有错误？</term>
+    <listitem>
+     <para>
+      已终止的节点可能会被视为不干净。这样就必须屏蔽它。如果 STONITH 资源不可运行或不存在，则剩余的节点将等待屏蔽发生。屏蔽超时值通常比较大，因此可能需要很长一段时间才能看到问题的明显迹象（如有）。
+     </para>
+     <para>
+      另一种可能的解释是仅仅是不允许资源在此节点上运行。这可能是由于未<quote>清理</quote>过去发生的失败所致。或者可能是先前的管理操作（即，添加了分数为负值的位置约束）所致。例如，此类位置约束是通过 <command>crm resource migrate</command> 命令插入的。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>我为什么从不知道资源将在何处运行？</term>
+    <listitem>
+     <para>
+      如果资源没有位置约束，则其放置取决于（几乎）随机节点选择。建议您始终明确表示资源的首选节点。这并不意味着您需要指定<emphasis>所有</emphasis>资源的位置自选设置。一个自选设置就能满足一组相关（共置）资源的需要。节点自选设置类似如下：
+     </para>
+<screen>location rsc-prefers-alice rsc 100: alice</screen>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec.ha.troubleshooting.stonith">
+  <title>STONITH 和屏蔽</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>我的 STONITH 资源为什么不启动？</term>
+    <listitem>
+     <para>
+      启动（或启用）操作包括检查设备的状态。如果设备未就绪，STONITH 资源将无法启动。
+     </para>
+     <para>
+      同时系统将要求 STONITH 插件生成主机列表。如果此列表为空，则运行无法关闭任何节点的 STONITH 资源将毫无意义。运行 STONITH 的主机的名称是从列表中滤除的，因为节点不能自我关闭。
+     </para>
+     <para>
+      如果要使用单主机管理设备（如无人值守设备），请确保<emphasis>不</emphasis>允许 STONITH 资源在应当屏蔽的节点上运行。使用无限负位置节点自选设置（约束）。群集会将 STONITH 资源移到其他可以启动的位置，但不会未通知您就移动。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>为什么尽管我有 STONITH 资源，却没有发生屏蔽？</term>
+    <listitem>
+     <para>
+      每个 STONITH 资源都必须提供主机列表。您可以手动将此列表插入 STONITH 资源配置，也可以从设备自身（例如，从输出名称）检索。这取决于 STONITH 插件的性质。<systemitem>stonithd</systemitem> 使用此列表来查找可以屏蔽目标节点的 STONITH 资源。只有出现在该列表中的节点 STONITH 资源才能关闭（屏蔽）。
+     </para>
+     <para>
+      如果 <systemitem>stonithd</systemitem> 在运行中的 STONITH 资源提供的任何主机列表中找不到该节点，它将询问其他节点上的 <systemitem>stonithd</systemitem> 实例。如果目标节点未显示在其他 <systemitem>stonithd</systemitem> 实例的主机列表中，则屏蔽请求将以超时在源节点上结束。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>我的 STONITH 资源为什么会偶尔失败？</term>
+    <listitem>
+     <para>
+      如果广播通讯量过大，电源管理设备可能会停止运行。隔开监视操作。如果只是偶尔（最好是从不）需要屏蔽，则每隔几小时检查一次设备状态就已足够。
+     </para>
+     <para>
+      另外，其中的一些设备可能会拒绝同时与多方通讯。如果在群集尝试测试状态时将终端或浏览器会话保持打开状态，则这可能会产生问题。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec.ha.troubleshooting.history">
+   <title>历史记录</title>
+   <variablelist>
+     <varlistentry>
+       <term>如何从发生故障的资源中检索状态信息或日志？</term>
+       <listitem>
+         <para>使用 <command>history</command> 命令及其子命令 <command>resource</command>：
+         </para>
+         <screen><prompt role="root">root # </prompt><command>crm</command> history resource <replaceable>NAME1</replaceable></screen>
+         <para>这只会返回给定资源的完整转换日志。不过，您也可以调查多个资源，在第一个资源名称的后面追加更多的资源名称即可。
+         </para>
+         <para>如果您遵循了某种命名约定（请参见<xref linkend="app.naming" xrefstyle="select:number"/>一节），使用 <command>resource</command> 命令可以更轻松地调查一组资源。例如，以下命令将调查以 <literal>db</literal> 开头的所有原始资源：
+         </para>
+         <screen><prompt role="root">root # </prompt><command>crm</command> history resource db*</screen>
+         <para>查看 <filename>/var/cache/crm/history/live/alice/ha-log.txt</filename> 中的日志文件。</para>
+       </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term>如何减少历史输出？</term>
+       <listitem>
+         <para><command>history</command> 命令有两个选项：</para>
+         <itemizedlist>
+           <listitem>
+             <para>使用 <command>exclude</command></para>
+           </listitem>
+           <listitem>
+             <para>使用 <command>timeframe</command></para>
+           </listitem>
+         </itemizedlist>
+
+         <para><command>exclude</command> 命令可让您设置附加的正则表达式用于从日志中排除特定的模式。例如，以下命令将排除所有 SSH、systemd 和内核讯息： </para>
+         <screen><prompt role="root">root # </prompt><command>crm</command> history exclude ssh|systemd|kernel.</screen>
+
+         <para>使用 <command>timeframe</command> 命令可将输出限制为特定的范围。例如，以下命令将显示 8 月 23 日 12:00 到 12:30 的所有事件：</para>
+         <screen><prompt role="root">root # </prompt><command>crm</command> history timeframe "Aug 23 12:00" "Aug 23 12:30"</screen>
+       </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term>如何储存<quote>会话</quote>以便日后检查？</term>
+       <listitem>
+         <para>当您遇到 bug 或者需要进一步检查的事件时，储存所有当前设置的做法非常有用。您可以将储存的文件发送给支持人员，或者使用 <command>bzless</command> 进行查看。例如：</para>
+         <screen><prompt role="custom">crm(live)history# </prompt><command>timeframe</command> "Oct 13 15:00" "Oct 13 16:00"
+<prompt role="custom">crm(live)history# </prompt><command>session</command> save tux-test
+<prompt role="custom">crm(live)history# </prompt><command>session</command> pack
+Report saved in '/root/tux-test.tar.bz2'</screen>
+       </listitem>
+     </varlistentry>
+   </variablelist>
+ </sect1>
+ <sect1 xml:id="sec.ha.troubleshooting.hawk2">
+  <title>Hawk2</title>
+  <variablelist>
+   <varlistentry xml:id="vle.trouble.hawk2.cert">
+    <term>替换自签名证书</term>
+    <listitem>
+     <para> 要避免在首次启动 Hawk2 时收到有关自我签名证书的警告，请将自动创建的证书替换为您自己的证书或官方证书颁发机构 (CA) 签名的证书：</para>
+     <procedure>
+      <step>
+       <para>将 <filename>/etc/hawk/hawk.key</filename> 替换为私用密钥。</para>
+      </step>
+      <step>
+       <para>将 <filename>/etc/hawk/hawk.pem</filename> 替换为 Hawk2 应当提供的证书。</para>
+      </step>
+     </procedure>
+     <para>
+      将文件的所有权更改为 <literal>root:haclient</literal> 并使文件可被组访问：</para>
+     <screen>chown root:haclient /etc/hawk/hawk.key /etc/hawk/hawk.pem
+chmod 640 /etc/hawk/hawk.key /etc/hawk/hawk.pem</screen>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec.ha.troubleshooting.misc">
+  <title>杂项</title>
+
+  <variablelist>
+   <varlistentry>
+
+    <term>如何在所有群集节点上运行命令？</term>
+    <listitem>
+     <para>
+      使用 <command>pssh</command> 命令可完成此任务。如果需要，请安装  <package>pssh</package>。创建一个文件（例如 <filename>hosts.txt</filename>），将要访问的所有 IP 地址或主机名都收集在其中。确保可以使用 <command>ssh</command> 登录到 <filename>hosts.txt</filename> 文件中列出的每台主机。如果一切准备就绪，请执行 <command>pssh</command> 并使用 <filename>hosts.txt</filename> 文件（选项 <option>-h</option>）和交互模式（选项 <option>-i</option>），如此例所示：
+     </para>
+<screen>pssh -i -h hosts.txt "ls -l /corosync/*.conf"
+[1] 08:28:32 [SUCCESS] root@venus.example.com
+-rw-r--r-- 1 root root 1480 Nov 14 13:37 /etc/corosync/corosync.conf
+[2] 08:28:32 [SUCCESS] root@192.168.2.102
+-rw-r--r-- 1 root root 1480 Nov 14 13:37 /etc/corosync/corosync.conf</screen>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>我的群集状态是什么？</term>
+    <listitem>
+     <para>
+      要检查群集的当前状态，请使用程序 <literal>crm_mon</literal> 或 <command>crm</command>
+      <option> status</option> 之一。这将显示当前的 DC 以及当前节点已知的所有节点和资源。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>为什么群集的多个节点看不到彼此？</term>
+    <listitem>
+     <para>
+      这可能有几个原因：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        先查看配置文件 <filename>/etc/corosync/corosync.conf</filename>。检查群集中每个节点的多路广播或单路广播地址是否相同（使用关键字 <literal>mcastaddr</literal> 在 <literal>interface</literal> 部分中查找）。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        检查您的防火墙设置。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        检查您的交换机是否支持多路广播或单路广播地址。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        检查节点间的连接是否已断开。这通常是错误配置防火墙的结果。这也可能是<emphasis>节点分裂</emphasis>情况（其中群集已分区）的原因。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>为什么不能装入 OCFS2 设备？</term>
+    <listitem>
+     <para>
+      检查日志讯息 (<command>sudo journalctl -n</command>) 中是否包含以下行：
+     </para>
+<screen>Jan 12 09:58:55 alice lrmd: [3487]: info: RA output: [...] 
+  ERROR: Could not load ocfs2_stackglue
+Jan 12 16:04:22 alice modprobe: FATAL: Module ocfs2_stackglue not found.</screen>
+     <para>
+      在此案例中，是因为缺少内核模块 <filename>ocfs2_stackglue.ko</filename>。请根据安装的内核安装包 <filename>ocfs2-kmp-default</filename>、<filename>ocfs2-kmp-pae</filename> 或 <filename>ocfs2-kmp-xen</filename>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.crmreport">
+
+    <term>如何创建包含所有群集节点分析的报告？</term>
+    <listitem>
+     <para> 在 crm 外壳中，可以使用 <command>crm report</command> 创建报告。此工具将会编译： </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        群集范围内的日志文件，
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        包状态，
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        DLM/OCFS2 状态，
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        系统信息,
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        CIB 历史记录，
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        内核转储报告的分析（如果安装了 debuginfo 包）。
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      通常需要结合以下命令运行 <command>crm report</command>：
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm report</command> -f 0:00 -n alice -n bob</screen>
+     <para>
+      该命令将提取主机 alice 和 bob 上从凌晨 0 点开始的所有信息，并在当前目录中创建名为 <filename>crm_report-<replaceable>日期</replaceable>.tar.bz2</filename> 的 <literal>*.tar.bz2</literal> 存档，例如 <filename>crm_report-Wed-03-Mar-2012</filename>。如果您只对特定时间段感兴趣，请使用 <option>-t</option> 选项添加结束时间。
+     </para>
+     <warning>
+      <title>删除敏感信息</title>
+      <para>
+       <command>crm report</command> 工具会尝试从 CIB 和 PE 输入文件去除所有敏感信息，但是，它并不是万能的。如果您还有更多敏感信息，请通过 <option>-p</option> 选项（请参见手册页）提供其他模式。日志文件以及 <command>crm_mon</command>、<command>ccm_tool</command> 和 <command>crm_verify</command> 输出<emphasis>不会</emphasis>被清理。
+      </para>
+      <para>
+       以任何方式共享数据之前，请检查存档并删除不想泄露的所有信息。
+      </para>
+     </warning>
+     <para>
+      使用其他选项自定义命令执行。例如，如果您有一个 Pacemaker 群集，那么您肯定想添加选项 <option>-A</option>。如果还有一个用户（除 <systemitem class="username">root</systemitem> 和 <systemitem class="username">hacluster</systemitem> 以外）对该群集拥有权限，可使用 <option>-u</option> 选项并指定此用户。如果您有一个非标准 SSH 端口，请使用 <option>-X</option> 选项添加该端口（例如，如果端口为 3479，则使用 <literal>-X "-p 3479"</literal>）。要了解更多选项，请参见 <command>crm report</command> 的手册页。
+     </para>
+     <para>
+      在 <command>crm report</command> 分析完所有相关日志文件并创建目录（或存档）后，请检查日志文件中有无大写的 <literal>ERROR</literal> 字符串。位于报告顶层目录中的最重要的文件有：
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><filename>analysis.txt</filename>
+       </term>
+       <listitem>
+        <para>
+         比较在所有节点上都应保持一致的文件。
+        </para>
+       </listitem>
+      </varlistentry>
+       <varlistentry>
+         <term><filename>corosync.txt</filename>
+         </term>
+         <listitem>
+           <para>
+             包含 Corosync 配置文件的副本。
+           </para>
+         </listitem>
+       </varlistentry>
+       <varlistentry>
+       <term><filename>crm_mon.txt</filename>
+       </term>
+       <listitem>
+        <para>
+         包含 <command>crm_mon</command> 命令的输出。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><filename>description.txt</filename>
+       </term>
+       <listitem>
+        <para>
+         包含您节点上的所有群集包版本。另有节点特定的 <filename>sysinfo.txt</filename> 文件。它会链接到顶层目录。
+        </para>
+        <para>可以使用此文件作为模板来描述您遇到的问题，然后将它发布到 <link xlink:href="https://github.com/ClusterLabs/crmsh/issues"/>。</para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><filename>members.txt</filename></term>
+        <listitem>
+          <para>所有节点的列表</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><filename>sysinfo.txt</filename></term>
+        <listitem>
+          <para>包含所有相关包名称及其版本的列表。此外，还有一个不同于原始 RPM 包的配置文件列表。</para>
+        </listitem>
+      </varlistentry>
+     </variablelist>
+     <para>
+      节点特定的文件将存储在以节点名称命名的子目录中。其中包含相应节点的 <filename>/etc</filename> 目录副本。
+     </para>
+     
+     <para>
+      如果您需要简化自变量，请在配置文件 <filename>/etc/crm/crm.conf</filename> 的 <literal>report</literal> 部分设置默认值。更多信息请参见手册页 <command>man 8 crmsh_hb_report</command>。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.troubleshooting.moreinfo">
+  <title>更多信息</title>
+
+  <para>
+   有关 Linux 上的高可用性的更多信息（包括配置群集资源以及管理和自定义高可用性群集），请参见 <link xlink:href="http://clusterlabs.org/wiki/Documentation"/>。
+  </para>
+ </sect1>
+</appendix>

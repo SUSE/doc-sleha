@@ -1,0 +1,930 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_storage_protection.xml" version="5.0" xml:id="cha.ha.storage.protect">
+ <title>储存保护和 SBD</title>
+ <info>
+  <abstract>
+   <para>
+    SBD（STONITH 块设备）通过经由共享块储存（SAN、iSCSI、FCoE 等）交换讯息来为基于 Pacemaker 的群集提供节点屏蔽机制。此方法可以将屏蔽机制隔离开来，使其不受固件版本更改的影响或不依赖于特定固件控制器。SBD 需要在每个节点上安装一个检查包，以确保能确实停止行为异常的节点。在某些情况下，还可以通过无磁盘模式运行 SBD，以便使用不含共享储存的 SBD。
+   </para>
+   <para>
+    此 <package>ha-cluster-bootstrap</package>  脚本提供了一种自动设置群集的方式，并可选择使用 SBD 作为屏蔽机制。有关详细信息，请参见<xref linkend="art.sleha.install.quick"/>。但是，手动设置 SBD 可为您提供个别设置的更多选项。
+   </para>
+   <para>
+    本章介绍 SBD 背后的概念。它将指导您完成 SBD 所需的组件配置，以保护您的群集防止在发生节点分裂情况下出现可能的数据损坏。
+   </para>
+   <para>
+    除了节点级别屏蔽，您还可以使用额外的储存保护机制，例如 LVM2 排它激活或 OCFS2 文件锁定支持（资源级别屏蔽）。它们可以保护您的系统，以防出现管理或应用程序故障。
+   </para>
+  </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.storage.protect.overview">
+      <title>概念概述</title>
+      <para>SBD 是 <emphasis>Storage-Based Death</emphasis>（基于储存区的终止）或 <emphasis>STONITH Block Device</emphasis>（STONITH 块设备）的缩写。
+      </para>
+      <para>
+        高可用性群集堆栈的最高优先级是保护数据完整性。此项保护通过防止对数据储存进行未协调的并行访问来实现。群集堆栈会使用几种控制机制来实现此目标。
+      </para>
+      <para>
+        但是，如果在群集中选出数个 DC，则可能导致网络分区或软件故障。如果允许出现这种所谓的“节点分裂”情况，则可能会发生数据损坏。
+      </para>
+      <para>
+        避免出现这种情况可采用的主要机制是通过 STONITH 实现节点屏蔽。如果使用 SBD 作为节点屏蔽机制可在节点分裂情况下关闭节点而无需使用外部关闭设备。
+      </para>
+
+  <variablelist>
+   <title>SBD 组件和机制</title>
+   <varlistentry>
+    <term>SBD 分区</term>
+    <listitem>
+     <para> 在所有节点都可访问共享储存的环境中，设备的某个小分区会格式化，以用于 SBD。该分区的大小取决于所用磁盘的块大小（例如，对于块大小为 512 字节的标准 SCSI 磁盘，该分区大小为 1 MB；块大小为 4 KB 的 DASD 磁盘需要 4 MB 大小的分区）。初始化过程会在设备上创建讯息布局，配置最多 255 个节点的讯息槽。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SBD 守护程序</term>
+    <listitem>
+     <para> 配置完相应的 SBD 守护程序后，在每个节点上使其联机，然后启动其余群集堆栈。它在所有其他群集组件都关闭之后才终止，从而确保了群集资源绝不会在没有 SBD 监督的情况下被激活。 </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>讯息</term>
+    <listitem>
+     <para>
+      此守护程序会自动将分区上的消息槽之一分配给其自身，并持续监视其中有无发送给它自己的消息。收到消息后，守护程序会立即执行请求，如启动关闭电源或重引导循环以进行屏蔽。
+     </para>
+     <para>
+      另外，此守护程序会持续监视与储存设备的连接性，当无法连接分区时会自行终止。这就保证了它不会从屏蔽消息断开连接。如果群集数据驻留在不同分区中的同一个逻辑单元，则一旦与储存失去连接，工作负载便将终止，因此不会增加额外的故障点。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>检查包</term>
+     <listitem>
+      <para>
+      只要使用 SBD，就必须确保检查包正常工作。新式系统支持<emphasis>硬件检查包</emphasis>，此功能需由软件组件来<quote>激发</quote>或<quote>馈送数据</quote>。软件组件（在此案例中为 SBD 守护程序）通过将服务脉冲定期写入检查包来<quote>供给</quote>检查包。如果守护程序停止供给检查包，硬件将强制系统重启动。这可防止出现 SBD 进程本身的故障，如失去响应或由于 IO 错误而卡住。
+     </para>
+     </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   如果 Pacemaker 集成已激活，则当设备大多数节点丢失时，SBD 将不会进行自我屏蔽。例如，假设您的群集包含三个节点：A、B 和 C。由于网络分隔，A 只能看到它自己，而 B 和 C 仍可相互通讯。在此案例中，有两个群集分区，一个因节点占多数（B 和 C）而具有法定票数，而另一个则不具有 (A)。如果在大多数屏蔽设备无法访问时发生此情况，则节点 A 会立即自我关闭，而节点 B 和 C 将会继续运行。
+   </para>
+  </sect1>
+
+ <sect1 xml:id="sec.ha.storage.protect.steps">
+ <title>手动设置 SBD 概述</title>
+ <para>
+  手动设置基于储存的保护时必须执行以下步骤：必须以 <systemitem class="username">root</systemitem> 身份执行这些步骤。在开始执行之前，请查看<xref linkend="sec.ha.storage.protect.req" xrefstyle="sec.ha.storage.protect.req"/>。
+  </para>
+ <procedure>
+   <step>
+    <para>
+     <xref linkend="sec.ha.storage.protect.watchdog" xrefstyle="select:title"/>
+    </para>
+   </step>
+   <step>
+    <para>根据您的情况，可将 SBD 与一到三个设备搭配使用，或以无磁盘模式使用。有关概述，请参见<xref linkend="sec.ha.storage.protect.fencing.number"/>。有关详细的设置，请参见：</para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <xref linkend="sec.ha.storage.protect.fencing.setup" xrefstyle="select:title"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <xref linkend="sec.ha.storage.protect.diskless-sbd" xrefstyle="select:title"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+    <para>
+     <xref linkend="sec.ha.storage.protect.test" xrefstyle="select:title"/>
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.storage.protect.req">
+  <title>要求</title>
+   <itemizedlist>
+   <listitem>
+    <para>最多可将三个 SBD 设备用于基于储存的屏蔽。使用一到三个设备时，必须可从所有节点访问共享储存。</para>
+   </listitem>
+   <listitem>
+    <para>群集中的所有节点上，共享存储设备的路径都必须永久且一致。使用稳定的设备名称，如 <filename>/dev/disk/by-id/dm-uuid-part1-mpath-abcedf12345</filename>。
+     </para>
+   </listitem>
+   <listitem>
+    <para>可通过光纤通道 (FC)、以太网光纤通道 (FCoE) 甚至 iSCSI 来连接共享储存。 </para>
+   </listitem>
+   <listitem>
+    <para> 共享储存段<emphasis>不得</emphasis>使用基于主机的 RAID、LVM2 或 DRBD*。DRBD 可能已分割，这会导致 SBD 发生问题，因为 SBD 中不能存在两种状态。不能将群集多设备（群集 MD）用于 SBD。
+    </para>
+   </listitem>
+   <listitem>
+    <para> 但是，建议使用基于储存区的 RAID 和多路径，以提高可靠性。 </para>
+   </listitem>
+   <listitem>
+    <para>可以在不同群集之间共享某个 SBD 设备，只要共享该设备的节点数不超过 255 个。 </para>
+   </listitem>
+   <listitem>
+    <para>对于具有两个以上节点的群集，还可以在<emphasis>无磁盘</emphasis>模式下使用 SBD。
+   </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.storage.protect.fencing.number">
+  <title>SBD 设备的数量</title>
+  
+  <para> SBD 支持最多使用三个设备： </para>
+  <variablelist>
+   <varlistentry>
+    <term>一个设备</term>
+    <listitem>
+     <para>
+      最简单的实施。适用于所有数据位于同一个共享储存的群集。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>两个设备</term>
+    <listitem>
+     <para>
+      此配置主要用于使用基于主机的镜像但未提供第三个存储设备的环境。SBD 在丢失对某个镜像分支的访问权后将自我终止，以允许群集继续运行。但是，由于 SBD 不具备足够的知识可以检测到存储区的不对称分裂，因此在只有一个镜像分支可用时它不会屏蔽另一个分支。如此一来，就无法在存储阵列中的一个关闭时对第二个故障自动容错。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>三个设备</term>
+    <listitem>
+     <para>
+      最可靠的配置。它具有从一个设备中断（可能是因为故障或维护）的情况中恢复的能力。只有当一个以上设备丢失及必要时，SBD 才会自行终止，具体取决于群集分区或节点的状态。如果至少有两个设备仍然可访问，便能成功传输屏蔽讯息。
+     </para>
+     <para>
+      此配置适用于存储未限制为单个阵列的更为复杂的环境。基于主机的镜像解决方案可以每个镜像分支拥有一个 SBD（不自我镜像），并在 iSCSI 上有一个额外的决定项。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>无磁盘</term>
+    <listitem>
+     <para>如果您想要建立一个不含共享储存的屏蔽机制，则此配置十分有用。在此无磁盘模式下，SBD 会使用硬件检查包来屏蔽节点，而不依赖于任何共享设备。不过，无磁盘 SBD 不能处理双节点群集的节点分裂情况。此选项仅适用于具有<emphasis>两个以上</emphasis>节点的群集。</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.storage.protect.watchdog.timings">
+   <title>超时计算</title>
+    <para>
+      使用 SBD 作为屏蔽机制时，必须考虑所有组件的超时，因为它们之间相互依赖。
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>检查包超时</term>
+      <listitem>
+       <para>
+        此超时在初始化 SBD 设备期间设置。它主要取决于储存延迟。必须可在此时间内成功读取大多数设备。否则，节点可能会自我屏蔽。
+       </para>
+       <note>
+        <title>多路径或 iSCSI 设置</title>
+          <para>
+          如果 SBD 设备驻留在多路径设置或 iSCSI 上，则应将超时设置为检测到路径故障并切换到下一个路径所需的时间。
+          </para>
+          <para>
+           这还意味着在 <filename>/etc/multipath.conf</filename> 中，<literal>max_polling_interval</literal> 的值必须小于 <literal>watchdog</literal> 超时。
+         </para>
+       </note>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><literal>msgwait</literal> 超时</term>
+      <listitem>
+       <para>
+        此超时在初始化 SBD 设备期间设置。它定义了将讯息写入到 SBD 设备上的某个节点槽后经过多长时间视为已传递。该超时应设置的足够长，让节点有时间检测到它是否需要自我屏蔽。
+       </para>
+       <para>
+        但是，如果 <literal>msgwait</literal> 超时相对较长，已屏蔽的群集节点可能会在屏蔽操作返回之前便又重新加入。此情况可通过在 SBD 配置中设置  <varname>SBD_DELAY_START</varname>
+         参数来缓解，请参见<xref linkend="st.ha.storage.protect.sbd_delay_start"/> 中的<xref linkend="pro.ha.storage.protect.sbd.config" xrefstyle="select:label"/>。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>CIB 中的 <literal>stonith-timeout</literal></term>
+      <listitem>
+       <para>
+        此超时在 CIB 中作为全局群集属性设置。它定义了等待 STONITH 操作（重引导、打开、关闭）完成的时间。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>CIB 中的 <literal>stonith-watchdog-timeout</literal></term>
+      <listitem>
+       <para>
+        此超时在 CIB 中作为全局群集属性设置。如果未显式设置，则默认值为 <literal>0</literal>，此值适用于 SBD 与一到三个设备搭配使用的情况。若要以无磁盘模式使用 SBD，请参见<xref linkend="pro.ha.storage.protect.confdiskless"/>以获取详细信息。</para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+  <para>
+   如果您更改检查包超时，则需要同时调整另外两个超时。以下<quote>公式</quote>表达了这三个值之间的关系：
+  </para>
+   <example xml:id="ex.ha.storage.protect.sbd-timings">
+    <title>超时计算公式</title>
+    <screen>Timeout (msgwait) = (Timeout (watchdog) * 2)
+stonith-timeout = Timeout (msgwait) + 20%</screen>
+   </example>
+   <para>
+    例如，如果您将检查包超时设置为 <literal>120</literal>，则请将 <literal>msgwait</literal> 超时设置为 <literal>240</literal>，并将 <literal>stonith-timeout</literal> 设置为 <literal>288</literal>。
+   </para>
+    <para>
+     如果您使用  <package>ha-cluster-bootstrap</package>  脚本设置群集并初始化 SBD 设备，则会自动考虑这些超时之间的关系。
+    </para>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.storage.protect.watchdog">
+  <title>设置检查包</title>
+  <para> <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 随附了几个内核模块用于提供硬件特定的检查包驱动程序。有关最常用检查包驱动程序列表，请参见<xref linkend="tab.ha.storage.protect.watchdog.drivers" xrefstyle="select:title    nopage"/>。
+ </para>
+ <para>
+  对于生产环境中的群集，建议使用硬件特定的检查包驱动程序。不过，如果没有与您的硬件匹配的检查包，则可以将 <systemitem class="resource">softdog</systemitem> 用作内核检查包模块。
+ </para>
+ <para>
+   High Availability Extension 使用 SBD 守护程序作为<quote>供给</quote>检查包的软件组件。</para>
+
+  <sect2 xml:id="sec.ha.storage.protect.hw-watchdog">
+   <title>使用硬件检查包</title>
+
+   <para>查找给定系统的正确检查包内核模块并非没有意义。自动探测常常会失败。因此，在装载正确的模块之前，许多模块就已装载。</para>
+
+  <para>
+   <xref linkend="tab.ha.storage.protect.watchdog.drivers" xrefstyle="select:label"/> 列出了最常用的检查包驱动程序。如果您的硬件未列在其中，也可从目录 <filename>/lib/modules/<replaceable>KERNEL_VERSION</replaceable>/kernel/drivers/watchdog</filename> 提供的列表中选择。另外，还可询问您的硬件供应商。</para>
+
+     <table xml:id="tab.ha.storage.protect.watchdog.drivers">
+        <title>常用检查包驱动程序</title>
+        <tgroup cols="2">
+         <thead>
+          <row>
+           <entry>硬件</entry>
+           <entry>驱动程序</entry>
+          </row>
+         </thead>
+         <tbody>
+          <row>
+           <entry>HP</entry>
+           <entry><systemitem class="resource">hpwdt</systemitem></entry>
+          </row>
+          <row>
+           <entry>Dell、Fujitsu、Lenovo (Intel TCO)</entry>
+           <entry><systemitem class="resource">iTCO_wdt</systemitem></entry>
+          </row>
+          <row>
+           <entry>IBM 大型机上的 VM 或 z/VM</entry>
+           <entry><systemitem class="resource">vmwatchdog</systemitem></entry>
+          </row>
+          <row>
+           <entry>Xen VM (DomU)</entry>
+           <entry><systemitem class="resource">xen_xdt</systemitem></entry>
+          </row>
+          <row>
+           <entry>通用</entry>
+           <entry><systemitem class="resource">softdog</systemitem></entry>
+          </row>
+         </tbody>
+        </tgroup>
+       </table>
+
+ <important>
+    <title>访问检查包计时器</title>
+    <para>有些硬件供应商交付的系统管理软件（例如 HP ASR 守护程序）会使用检查包来进行系统重设置。如果 SBD 使用了检查包，请禁用此类软件。不能有其他任何软件在访问检查包计时器。 </para>
+   </important>
+
+   <procedure xml:id="pro.ha.storage.protect.watchdog">
+    <title>装载正确的内核模块</title>
+    <para>要确保装载正确的检查包模块，请执行如下操作：</para>
+     <step>
+      <para>列出已随内核版本安装的驱动程序：</para>
+       <screen><prompt role="root">root # </prompt><command>rpm</command> -ql kernel-<replaceable>VERSION</replaceable> | <command>grep</command> watchdog</screen>
+      </step>
+      <step xml:id="st.ha.storage.listwatchdog.modules">
+       <para>列出内核中当前装载的任何检查包模块：</para>
+       <screen><prompt role="root">root # </prompt><command>lsmod</command> | <command>egrep</command> "(wd|dog)"</screen>
+      </step>
+      <step>
+       <para>如果返回了结果，请卸载错误的模块：</para>
+       <screen><prompt role="root">root # </prompt><command>rmmod</command> <replaceable>WRONG_MODULE</replaceable></screen>
+      </step>
+      <step>
+     <para> 启用与您的硬件匹配的检查包模块： </para>
+     <screen><prompt role="root">root # </prompt><command>echo</command> <replaceable>WATCHDOG_MODULE</replaceable> &gt; /etc/modules-load.d/watchdog.conf
+<prompt role="root">root # </prompt><command>systemctl</command> restart systemd-modules-load</screen>
+    </step>
+    <step>
+     <para>测试是否已正确装载检查包模块：</para>
+     <screen><prompt role="root">root # </prompt><command>lsmod</command> | <command>grep</command> dog</screen>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.storage.protect.sw-watchdog">
+   <title>使用软件检查包 (softdog)</title>
+   <para>
+    对于生产环境中的群集，建议使用硬件特定的检查包驱动程序。不过，如果没有与您的硬件匹配的检查包，则可以将 <systemitem class="resource">softdog</systemitem> 用作内核检查包模块。 </para>
+
+   <important>
+    <title>Softdog 限制</title>
+    <para>
+     Softdog 驱动程序假设至少有一个 CPU 仍然在运行。如果所有 CPU 均已阻塞，则 softdog 驱动程序中应该重引导系统的代码永远都不会执行。相反地，即使所有 CPU 均已阻塞，硬件检查包也仍然会继续工作。
+    </para>
+   </important>
+
+   <procedure xml:id="pro.ha.storage.protect.sw-watchdog">
+    <title>装载 Softdog 内核模块</title>
+    <step>
+     <para>启用 softdog 驱动程序：</para>
+     <screen><prompt role="root">root # </prompt><command>echo</command> softdog &gt; /etc/modules-load.d/watchdog.conf</screen>
+    </step>
+    <step>
+     <para>在 <filename>/etc/modules-load.d/watchdog.conf</filename> 中添加 <systemitem class="resource">softdog</systemitem> 模块并重启动服务：</para>
+         <screen><prompt role="root">root # </prompt><command>echo</command> softdog &gt; /etc/modules-load.d/watchdog.conf
+<prompt role="root">root # </prompt><command>systemctl</command> restart systemd-modules-load</screen>
+    </step>
+    <step>
+     <para>测试是否已正确装载 softdog 检查包模块：</para>
+     <screen><prompt role="root">root # </prompt><command>lsmod</command> | <command>grep</command> softdog</screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.storage.protect.fencing.setup">
+  <title>设置 SBD 与设备</title>
+  <para>
+   进行该设置必须执行以下步骤：
+  </para>
+ <procedure>
+   <step>
+    <para>
+     <xref linkend="pro.ha.storage.protect.sbd.create" xrefstyle="select:title"/>
+        </para>
+   </step>
+   <step>
+    <para>
+     <xref linkend="pro.ha.storage.protect.sbd.config" xrefstyle="select:title"/>
+    </para>
+   </step>
+   <step>
+    <para>
+     <xref linkend="pro.ha.storage.protect.sbd.services" xrefstyle="select:title"/>
+    </para>
+   </step>
+   <step>
+    <para>
+     <xref linkend="pro.ha.storage.protect.sbd.test" xrefstyle="select:title"/>
+    </para>
+   </step>
+   <step>
+    <para>
+     <xref linkend="pro.ha.storage.protect.fencing" xrefstyle="select:title"/>
+    </para>
+   </step>
+  </procedure>
+  <para>
+    在开始之前，请确保要用于 SBD 的一个或多个块设备满足在<xref linkend="sec.ha.storage.protect.req" xrefstyle="select:label"/>中指定的要求。
+  </para>
+  <para>
+   设置 SBD 设备时，您需要考虑几个超时值。有关细节，请参见<xref linkend="sec.ha.storage.protect.watchdog.timings"/>。
+  </para>
+  <para>
+   如果节点上运行的 SBD 守护程序未足够快速地更新检查包计时器，则节点会自行终止。设置超时后，请在您的特定环境中予以测试。
+  </para>
+
+  <procedure xml:id="pro.ha.storage.protect.sbd.create">
+   <title>初始化 SBD 设备</title>
+   <para>
+    要将 SBD 与共享储存搭配使用，必须先在一到三个块设备上创建讯息布局。<command>sbd create</command> 命令会将元数据头写入指定的一个或多个设备。它还将初始化最多 255 个节点的讯息槽。如果该命令不带任何其他选项，则执行时将使用默认的超时设置。</para>
+    <warning>
+     <title>覆盖现有数据</title>
+      <para> 确保要用于 SBD 的一个或多个设备未保存任何重要数据。执行 <command>sbd create</command> 命令时，会直接重写指定块设备的大约第一个 MB，而不会进一步发出请求或进行备份。
+      </para>
+    </warning>
+    <step>
+     <para>决定要将哪个块设备或哪些块设备用于 SBD。</para>
+    </step>
+    <step>
+     <para>使用以下命令初始化 SBD 设备： </para>
+     <screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> create</screen>
+     <para>（用实际的路径名称替换 <filename>/dev/<replaceable>SBD</replaceable></filename>，例如：<filename>/dev/disk/by-id/scsi-ST2000DM001-0123456_Wabcdefg</filename>）。</para>
+        <para> 要将多个设备用于 SBD，请多次指定 <option>-d</option> 选项，例如： </para>
+     <screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD1</replaceable> -d /dev/<replaceable>SBD2</replaceable> -d /dev/<replaceable>SBD3</replaceable> create</screen>
+    </step>
+    <step>
+     <para>如果您的 SBD 设备驻留在多路径组上，请使用 <option>-1</option> 和 <option>-4</option> 选项来调整要用于 SBD 的超时。有关详细信息，请参见<xref linkend="sec.ha.storage.protect.watchdog.timings"/>。所有超时均以秒为单位指定：</para>
+      <screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> -4 180<co xml:id="co.ha.sbd.msgwait"/> -1 90<co xml:id="co.ha.sbd.watchdog"/> create</screen>
+     <calloutlist>
+      <callout arearefs="co.ha.sbd.msgwait">
+       <para> <option>-4</option> 选项用于指定 <literal>msgwait</literal> 超时。在以上示例中，超时设置为 <literal>180</literal> 秒。 </para>
+      </callout>
+      <callout arearefs="co.ha.sbd.watchdog">
+       <para> <option>-1</option> 选项用于指定 <literal>watchdog</literal> 超时。在以上示例中，超时设置为 <literal>90</literal> 秒。模拟检查包的最小允许值为 <literal>15</literal> 秒。 </para>
+      </callout>
+     </calloutlist>
+    </step>
+    <step>
+     <para>检查已写入设备的内容： </para>
+     <screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> dump
+Header version     : 2.1
+UUID               : 619127f4-0e06-434c-84a0-ea82036e144c
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 5
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 10
+==Header on disk /dev/<replaceable>SBD</replaceable> is dumped</screen>
+    <para> 正如您看到的，超时数也储存在报头中，以确保所有参与的节点在这方面都一致。 </para>
+    </step>
+   </procedure>
+   <para>
+    初始化 SBD 设备之后，编辑 SBD 配置文件，然后启用并启动相应的服务以让更改生效。
+   </para>
+
+   <procedure xml:id="pro.ha.storage.protect.sbd.config">
+   <title>编辑 SBD 配置文件</title>
+    <step>
+     <para>打开文件 <filename>/etc/sysconfig/sbd</filename>。</para>
+    </step>
+    <step>
+     <para>搜索以下参数： <parameter>SBD_DEVICE</parameter>。
+     </para>
+     <para>该参数指定要监视和要用于交换 SBD 讯息的设备。
+     </para>
+   </step>
+   <step>
+    <para> 编辑此行，并用您的 SBD 设备替换 <replaceable>SBD</replaceable>：</para>
+    <screen>SBD_DEVICE="/dev/<replaceable>SBD</replaceable>"</screen>
+    <para> 如果您需要在第一行中指定多个设备，请使用分号分隔设备（设备顺序无关紧要）：</para>
+    <screen>SBD_DEVICE="/dev/<replaceable>SBD1</replaceable>; /dev/<replaceable>SBD2</replaceable>; /dev/<replaceable>SBD3</replaceable>"</screen>
+    <para> 如果无法访问 SBD 设备，守护程序将无法启动群集，并会禁止群集启动。 </para>
+   </step>
+   <step xml:id="st.ha.storage.protect.sbd_delay_start">
+    <para>搜索以下参数： <parameter>SBD_DELAY_START</parameter>。</para>
+    <para>
+      启用或禁用延迟。设置 <parameter>SBD_DELAY_START</parameter>
+      为 <literal>yes</literal>（如果 <literal>msgwait</literal> 相对较长，而群集节点引导很快）。将此参数设置为 <literal>yes</literal> 可在引导时延迟 SBD 启动。虚拟机有时候需要此项延迟。
+    </para>
+   </step>
+  </procedure>
+
+ <para>将您的 SBD 设备添加到 SBD 配置文件之后，启用 SBD 守护程序。SBD 守护程序是群集堆栈的关键部分。当群集堆栈正在运行时，需要运行该守护程序。因此，每当启动 <systemitem>pacemaker</systemitem> 服务时，作为依赖项，也要启动 <systemitem>sbd</systemitem> 服务。</para>
+
+  <procedure xml:id="pro.ha.storage.protect.sbd.services">
+   <title>启用和启动 SBD 服务</title>
+   <step>
+    <para>在每个节点，启用 SBD 服务：</para>
+    <screen><prompt role="root">root # </prompt><command>systemctl</command> enable sbd</screen>
+    <para>每当启动 Pacemaker 服务时，SBD 服务将与 Corosync 服务一起启动。</para>
+   </step>
+   <step>
+    <para>在每个节点上重启动群集堆栈：</para>
+    <screen><prompt role="root">root # </prompt><command>systemctl</command> stop pacemaker
+<prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+    <para> 此操作会自动触发 SBD 守护程序的启动。 </para>
+   </step>
+  </procedure>
+
+  <para>
+   下一步是测试 SBD 设备，请参见<xref linkend="pro.ha.storage.protect.sbd.test" xrefstyle="select:label"/>。
+  </para>
+
+  <procedure xml:id="pro.ha.storage.protect.sbd.test">
+   <title>测试 SBD 设备</title>
+    <step>
+     <para> 以下命令会将节点槽及其当前消息从 SBD 设备进行转储： </para>
+     <screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> list</screen>
+    <para> 现在，您应该会看到曾随 SBD 启动的所有群集节点都列在此处。例如，如果您拥有双节点群集，讯息槽对于两个节点都应显示 <literal>clear</literal>：</para>
+     <screen>0       alice        clear
+1       bob          clear</screen>
+    </step>
+    <step>
+     <para> 尝试将测试消息发送到节点之一： </para>
+     <screen><prompt role="root">root # </prompt><command>sbd</command> -d /dev/<replaceable>SBD</replaceable> message alice test</screen>
+    </step>
+    <step>
+     <para> 此节点将在系统日志文件中确认收到了该讯息： </para>
+     <screen>May 03 16:08:31 alice sbd[66139]: /dev/<replaceable>SBD</replaceable>: notice: servant: Received command test from bob on disk /dev/<replaceable>SBD</replaceable></screen>
+     <para> 这就确认了 SBD 确实在节点上正常运行，并已准备好接收消息。 </para>
+    </step>
+   </procedure>
+
+  <para>
+   在最后一步中，您需要调整群集配置，请参见<xref linkend="pro.ha.storage.protect.fencing" xrefstyle="select:label"/>。
+  </para>
+
+<procedure xml:id="pro.ha.storage.protect.fencing">
+ <title>将群集配置为使用 SBD</title>
+   <para>
+    要配置在群集中使用 SBD，您需要在群集配置中执行以下操作：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+       将  <parameter>stonith-timeout</parameter>  参数设置为与您的设置相匹配的值。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      配置 SBD STONITH 资源。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+     有关  <parameter>stonith-timeout</parameter>  的计算，请参见<xref linkend="sec.ha.storage.protect.watchdog.timings"/>。
+   </para>
+   <step>
+    <para>
+     启动壳层，并以 <systemitem class="username">root</systemitem> 用户身份或同等身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     运行 <command>crm</command> <option> configure</option>。
+    </para>
+   </step>
+   <step>
+    <para>输入以下内容：</para>
+    <screen>
+<prompt role="custom">crm(live)configure# </prompt><command>property</command> stonith-enabled="true" <co xml:id="co.ha.sbd.st.enabled"/>
+<prompt role="custom">crm(live)configure# </prompt><command>property</command> stonith-watchdog-timeout=0 <co xml:id="co.ha.sbd.watchdog-timeout"/>
+<prompt role="custom">crm(live)configure# </prompt><command>property</command> stonith-timeout="40s" <co xml:id="co.ha.sbd.st.timeout"/>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> stonith_sbd stonith:external/sbd <co xml:id="co.ha.sbd.st.rsc"/>\
+  params pcmk_delay_max=30 <co xml:id="co.ha.sbd.pm_delay_max"/></screen>
+    <calloutlist>
+     <callout arearefs="co.ha.sbd.st.enabled">
+      <para>
+       此为默认配置，因为不支持没有 STONITH 的群集。而如果出于测试目的停用了 STONITH，请确保再次将此参数设置为 <literal>true</literal>。</para>
+     </callout>
+     <callout arearefs="co.ha.sbd.watchdog-timeout">
+      <para>如果未显式设置，此值默认为 <literal>0</literal>，适用于 SBD 与一到三个设备搭配使用的情况。
+      </para>
+     </callout>
+     <callout arearefs="co.ha.sbd.st.timeout">
+      <para>
+       如果将 SBD 的 <literal>msgwait</literal> 超时值设置为 <literal>30</literal> 秒，则适合将 <systemitem>stonith-timeout</systemitem> 值设置为 <literal>40</literal>。</para>
+     </callout>
+     <callout arearefs="co.ha.sbd.st.rsc">
+      <para>
+       要用于 SBD 的 STONITH 资源。</para>
+     </callout>
+     <callout arearefs="co.ha.sbd.pm_delay_max">
+      <para>此参数防止在使用慢速设备（例如 SBD）时出现双重屏蔽。它会为屏蔽设备上的 STONITH 操作添加随机延迟。这对于双节点群集尤其重要，否则若发生节点分裂的情况，两个节点可能都会尝试相互屏蔽。</para>
+     </callout>
+   </calloutlist>
+   </step>
+  <step>
+    <para>
+     使用 <command>show</command> 复查更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>commit</command> 提交更改，并使用 <command>exit</command> 退出 crm 当前配置。
+    </para>
+   </step>
+  </procedure>
+
+   <para> 启动资源之后，群集即会成功配置为使用 SBD。如果需要屏蔽某个节点，将会使用此方法。</para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.storage.protect.diskless-sbd">
+   <title>设置无磁盘 SBD</title>
+   <para>SBD 可在无磁盘模式下操作。在此模式下，发生以下情况时，将使用检查包设备来重置节点：如果失去法定票数、如果任何受监视的守护程序丢失且未恢复，或者如果 Pacemaker 决定节点需要屏蔽。无磁盘 SBD 基于节点的<quote>自我屏蔽</quote>，具体取决于群集的状态、法定票数和一些合理的假设。</para>
+    <important>
+     <title>群集节点数</title>
+       <para>
+         <emphasis>不要</emphasis>将无磁盘 SBD 用作双节点群集的屏蔽机制。请仅在三节点或更多节点的群集中使用。无磁盘模式下的 SBD 无法处理双节点群集的节点分裂情况。
+      </para>
+   </important>
+
+   <procedure xml:id="pro.ha.storage.protect.confdiskless">
+    <title>配置无磁盘 SBD</title>
+    <step>
+     <para>打开文件 <filename>/etc/sysconfig/sbd</filename> 并使用以下项：</para>
+     <screen>SBD_PACEMAKER=yes
+SBD_STARTMODE=always
+SBD_DELAY_START=no
+SBD_WATCHDOG_DEV=/dev/watchdog
+SBD_WATCHDOG_TIMEOUT=5</screen>
+      <para>
+       此 <varname>SBD_DEVICE</varname>  项不需要，因为未使用共享磁盘。此参数缺失时，<systemitem>sbd</systemitem> 服务不会为 SBD 设备启动任何观察程序进程。
+      </para>
+    </step>
+    <step>
+     <para>在每个节点，启用 SBD 服务：</para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> enable sbd</screen>
+     <para>每当启动 Pacemaker 服务时，SBD 服务将与 Corosync 服务一起启动。</para>
+    </step>
+    <step>
+     <para>在每个节点上重启动群集堆栈：</para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> stop pacemaker
+<prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+     <para> 此操作会自动触发 SBD 守护程序的启动。 </para>
+    </step>
+    <step>
+      <para>
+       检查参数  <parameter>have-watchdog=true</parameter>  是否已自动设置：
+      </para>
+      <screen><prompt role="root">root # </prompt><command>crm</command> configure show | grep have-watchdog
+         have-watchdog=true</screen>
+    </step>
+    <step>
+     <para>运行 <command>crm configure</command> 并在 crm 外壳上设置以下群集属性：</para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>property</command> stonith-enabled="true" <co xml:id="co.ha.sbd.stonith.enabled"/>
+<prompt role="custom">crm(live)configure# </prompt><command>property</command> stonith-watchdog-timeout=10 <co xml:id="co.ha.sbd.diskless.watchdog-timeout"/></screen>
+    <calloutlist>
+     <callout arearefs="co.ha.sbd.stonith.enabled">
+      <para>
+       此为默认配置，因为不支持没有 STONITH 的群集。而如果出于测试目的停用了 STONITH，请确保再次将此参数设置为 <literal>true</literal>。</para>
+     </callout>
+     <callout arearefs="co.ha.sbd.diskless.watchdog-timeout">
+      <para>对于无磁盘 SBD，此参数不能为零。它定义了经过多长时间之后可以假定屏蔽目标已自我屏蔽。因此，其值必须大于等于 
+       <varname>SBD_WATCHDOG_TIMEOUT</varname> （<filename>/etc/sysconfig/sbd</filename> 中）的值。从 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 15 开始，如果您将  <parameter>stonith-watchdog-timeout</parameter>
+        设置为负值，Pacemaker 将自动计算此超时并将它设置为  <parameter>SBD_WATCHDOG_TIMEOUT</parameter> 值的两倍。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  <step>
+    <para>
+     使用 <command>show</command> 复查更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>commit</command> 提交更改，并使用 <command>exit</command> 退出 crm 当前配置。
+    </para>
+   </step>
+  </procedure>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.storage.protect.test">
+   <title>测试 SBD 和屏蔽</title>
+   <para>要测试 SBD 在节点屏蔽方面是否按预期工作，请使用以下其中一种或所有方法：
+   </para>
+  <variablelist>
+   <varlistentry>
+    <term>手动触发节点屏蔽</term>
+    <listitem>
+     <para>要针对节点 <replaceable>NODENAME</replaceable> 触发屏蔽操作，请执行以下操作：</para>
+ <screen><prompt role="root">root # </prompt><command>crm</command> node fence <replaceable>NODENAME</replaceable></screen>
+     <para>检查经过以下时间之后，节点是否已屏蔽，以及其他节点是否将该节点视为已屏蔽： <parameter>stonith-watchdog-timeout</parameter>。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>模拟 SBD 失败</term>
+    <listitem>
+     <procedure>
+      <step>
+       <para>识别 SBD inquisitor 的进程 ID：</para>
+       <screen><prompt role="root">root # </prompt><command>systemctl</command> status sbd
+● sbd.service - Shared-storage based fencing daemon
+
+   Loaded: loaded (/usr/lib/systemd/system/sbd.service; enabled; vendor preset: disabled)
+   Active: active (running) since Tue 2018-04-17 15:24:51 CEST; 6 days ago
+     Docs: man:sbd(8)
+  Process: 1844 ExecStart=/usr/sbin/sbd $SBD_OPTS -p /var/run/sbd.pid watch (code=exited, status=0/SUCCESS)
+ Main PID: 1859 (sbd)
+    Tasks: 4 (limit: 4915)
+   CGroup: /system.slice/sbd.service
+           ├─<emphasis role="strong">1859 sbd: inquisitor</emphasis>
+[...]</screen>
+      </step>
+      <step>
+       <para>通过终止 SBD inquisitor 进程模拟 SBD 失败。在我们的示例中，SBD inquisitor 的进程 ID 是 <literal>1859</literal>：</para>
+       <screen><prompt role="root">root # </prompt><command>kill</command> -9 1859 </screen>
+       <para>
+        节点主动自我屏蔽。经过以下时间之后，其他节点注意到该节点丢失并将它视为已自我屏蔽：
+        <parameter>stonith-watchdog-timeout</parameter>。
+       </para>
+      </step>
+     </procedure>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>通过监视操作失败触发屏蔽</term>
+    <listitem>
+     <para>对于正常配置，资源<emphasis>停止操作</emphasis>失败将触发屏蔽。要手动触发屏蔽，可以产生一个资源停止操作失败。或者，可以临时更改资源<emphasis>监视操作</emphasis>的配置，产生监视失败，如下所示：</para>
+     <procedure>
+      <step>
+       <para>配置资源监视操作的  <property>on-fail=fence</property>  属性：</para>
+       <screen>op monitor interval=10 on-fail=fence</screen>
+      </step>
+      <step>
+       <para>让监视操作失败（例如，如果资源与某个服务相关，则可通过终止相应的守护程序来实现）。</para>
+       <para>此失败会触发屏蔽操作。</para>
+      </step>
+     </procedure>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.storage.protect.rsc.fencing">
+  <title>储存保护的其他机制</title>
+  <remark>toms 2018-04-20: this can be improved...</remark>
+  <para>除了通过 STONITH 进行节点屏蔽之外，还可使用其他方法在资源级别实现储存保护。例如，SCSI-3 和 SCSI-4 使用永久保留，而 <literal>sfex</literal> 提供锁定机制。这两种方法将在下面的小节中介绍。
+  </para>
+  <sect2 xml:id="sec.ha.storage.protect.sgpersist">
+   <title>配置 sg_persist 资源</title>
+   <remark>toms 2018-04-20: I would like to see a little bit more background
+   information. </remark>
+   <para>
+    SCSI 规范 3 和 4 定义了<emphasis>永久保留</emphasis>。其属于 SCSI 协议功能，可用于 I/O 屏蔽和故障转移。此功能在 <command>sg_persist</command> Linux 命令中实施。
+   </para>
+   <note>
+    <title>SCSI 磁盘兼容性</title>
+    <para> 用于 <literal>sg_persist</literal> 的所有后备磁盘都必须与 SCSI 磁盘兼容。<literal>sg_persist</literal> 仅适用于 SCSI 磁盘或 iSCSI LUN 等设备。<remark>toms 2018-04-20: What about FCoE, FC, iSER, SRP, Serial Attached SCSI (SAR)?</remark><emphasis>不要</emphasis>将它用于 IDE、SATA 或不支持 SCSI 协议的任何块设备。 </para>
+   </note>
+   <para>继续之前，请检查您的磁盘是否支持永久保留。使用以下命令（用您的设备名称替换 <replaceable>DISK</replaceable>）：</para>
+    <screen><prompt role="root">root # </prompt><command>sg_persist</command> -n --in --read-reservation -d /dev/<replaceable>DISK</replaceable></screen>
+   <para>结果显示您的磁盘是否支持永久保留：</para>
+    <itemizedlist>
+     <listitem>
+      <para>支持的磁盘：</para>
+      <screen>PR generation=0x0, there is NO reservation held</screen>
+     </listitem>
+     <listitem>
+      <para>不支持的磁盘：</para>
+      <screen>PR in (Read reservation): command not supported
+Illegal request, Invalid opcode</screen>
+     </listitem>
+    </itemizedlist>
+
+   <remark>toms 2018-04-20: Do we need to prepare anything else with sg_persists?</remark>
+   <para>如果您收到错误讯息（如上面所示），请用 SCSI 兼容的磁盘替换旧磁盘。否则请执行如下操作：</para>
+   <procedure>
+    <step>
+     <para>
+      要创建原始资源 <literal>sg_persist</literal>，请以 <systemitem class="username">root</systemitem> 身份运行以下命令： </para>
+     <screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> sg sg_persist \
+    params devs="/dev/sdc" reservation_type=3 \
+    op monitor interval=60 timeout=60</screen>
+    </step>
+    <step>
+     <para> 将 <literal>sg_persist</literal> 原始资源添加到主从组：<remark>taroth 2018-03-05: ygao, should 'master-max' be replaced
+       with 'promoted-max' or does the screen below need more changes? - ygao
+       2018-03-13: the new names are not explicitly promoted in crmsh
+       yet</remark>
+     </para>
+     <screen><prompt role="custom">crm(live)configure# </prompt><command>ms</command> ms-sg sg \
+    meta master-max=1 notify=true</screen>
+    </step>
+    <step>
+     <para> 执行一些测试。当资源处于主/从状态时，在主服务器上，您可以在 <filename>/dev/sdc1</filename> 中执行装入和写入，而在从服务器上，则无法写入。 </para>
+    </step>
+    <step>
+     <para> 为 Ext4 添加文件系统原始资源： </para>
+     <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ext4 ocf:heartbeat:Filesystem \
+    params device="/dev/sdc1" directory="/mnt/ext4" fstype=ext4</screen>
+    </step>
+    <step>
+     <para> 在 <literal>sg_persist</literal> 主资源和文件系统资源之间添加以下顺序关系和并置： </para>
+     <screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-ms-sg-before-ext4 inf: ms-sg:promote ext4:start
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col-ext4-with-sg-persist inf: ext4 ms-sg:Master</screen>
+    </step>
+    <step>
+     <para> 使用 <command>show</command> 命令检查所有更改。
+     </para>
+    </step>
+    <step>
+     <para> 提交更改。 </para>
+    </step>
+   </procedure>
+   <para>有关详细信息，请参见 <command>sg_persist</command> 手册页。</para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.storage.protect.exstoract">
+   <title>使用 <literal>sfex</literal> 确保排它激活储存</title>
+    <para>
+     <remark>taroth 2018-04-26: ToDo - for next release, revise this section, too,
+     and flatten its structure</remark>此部分将介绍另一种低级别机制：<literal>sfex</literal>，可将对共享储存区的访问以排它的方式锁定于一个节点。请注意，sfex 不会替代 STONITH。由于 sfex 需要共享储存，因此建议将上述 SBD 节点屏蔽机制用于储存的另一个分区。
+   </para>
+
+   <para>
+    按照设计，sfex 不能与需要并发的工作负载（例如 OCFS2）配合使用。其可作为传统故障转移型工作负载的一层保护。实际效果与 SCSI-2 保留类似，但更具一般性。
+   </para>
+
+   <sect3 xml:id="sec.ha.storage.protect.exstoract.description">
+    <title>概述</title>
+    <para>
+     在共享储存环境中，储存区的一个小分区专门设置为储存一个或多个锁。
+    </para>
+    <para>
+     在获取受保护资源之前，节点必须先获取保护锁。此顺序由 Pacemaker 强制实施。sfex 组件可确保即使 Pacemaker 遇到了节点分裂情况，也不会被多次授予锁。
+    </para>
+    <para>
+     这些锁必须定期刷新，这样某个节点的终止才不会永久性地阻止此锁，其他节点仍可继续操作。
+    </para>
+   </sect3>
+
+   <sect3 xml:id="sec.ha.storage.protect.exstoract.requirements">
+    <title>设置</title>
+    <para>
+     以下内容可帮助您了解如何创建用于 sfex 的共享分区以及如何为 CIB 中的 sfex 锁配置资源。单个 sfex 分区可存放任意数量的锁，并需要为每个锁分配 1 KB 的储存空间。默认情况下，<command>sfex_init</command> 将在分区上创建一个锁。
+    </para>
+    <important>
+     <title>要求</title>
+     <itemizedlist>
+      <listitem>
+       <para>
+        sfex 的共享分区应和要保护的数据位于同一逻辑单元上。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        共享的 sfex 分区不得使用基于主机的 RAID 或 DRBD。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        可以使用 LVM2 逻辑卷。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </important>
+    <procedure>
+     <title>创建 sfex 分区</title>
+     <step>
+      <para>
+       创建用于 sfex 的共享分区。注意此分区的名称，并用它替代下面的 <filename>/dev/sfex</filename>。
+      </para>
+     </step>
+     <step>
+      <para>
+       使用以下命令创建 sfex 元数据：
+      </para>
+      <screen><prompt role="root">root # </prompt><command>sfex_init</command> -n 1 /dev/sfex</screen>
+     </step>
+     <step>
+      <para>
+       校验元数据是否正确创建：
+      </para>
+      <screen><prompt role="root">root # </prompt><command>sfex_stat</command> -i 1 /dev/sfex ; echo $?</screen>
+      <para>
+       此操作应返回 <literal>2</literal>，因为当前未保存锁。
+      </para>
+     </step>
+    </procedure>
+    <procedure>
+     <title>为 sfex 锁配置资源</title>
+     <step>
+      <para>
+       sfex 锁通过 CIB 中的资源表示，其配置如下：
+      </para>
+      <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> sfex_1 ocf:heartbeat:sfex \
+#	params device="/dev/sfex" index="1" collision_timeout="1" \
+      lock_timeout="70" monitor_interval="10" \
+#	op monitor interval="10s" timeout="30s" on-fail="fence"</screen>
+     </step>
+     <step>
+      <para>
+       要通过 sfex 锁保护资源，请在要保护的资源和 sfex 资源之间创建强制顺序和放置约束。如果要保护的资源 ID 是 <literal>filesystem1</literal>：
+      </para>
+      <screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> order-sfex-1 inf: sfex_1 filesystem1
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> colo-sfex-1 inf: filesystem1 sfex_1</screen>
+     </step>
+     <step>
+      <para>
+       如果使用组语法，请将 sfex 资源添加为组内的第一个资源：
+      </para>
+      <screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> LAMP sfex_1 filesystem1 apache ipaddr</screen>
+     </step>
+    </procedure>
+   </sect3>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.storage.protect.moreinfo">
+  <title>更多信息</title>
+
+  <itemizedlist>
+    <listitem>
+      <para><command>man sbd</command></para>
+    </listitem>
+     <listitem>
+      <para><link xlink:href="http://www.linux-ha.org/wiki/SBD_Fencing"/></para>
+    </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>
