@@ -1,0 +1,815 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_yast_cluster.xml" version="5.0" xml:id="cha.ha.ycluster">
+<?dbfo-need height="20em"?>
+
+
+ <title>使用 YaST 叢集模組</title>
+ <info>
+  <abstract>
+   <para>YaST 叢集模組可讓您手動從頭開始設定叢集，或修改現有叢集的選項。
+   </para>
+   <para>
+    不過，如果您希望採用自動方式設定叢集，請參閱<xref linkend="art.sleha.install.quick"/>。該指南介紹了如何安裝所需的套件，並會引導您建立基本的雙節點叢集，該叢集是使用 <systemitem>ha-cluster-bootstrap</systemitem> 程序檔設定的。
+   </para>
+   <para>
+    您還可以將這兩種設定方法結合起來使用，例如，使用 YaST 叢集設定一個節點，然後使用其中一個開機程序檔整合更多節點 (或反之)。
+   </para>
+  </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.installation.terms">
+  <title>術語定義</title>
+
+  <para>
+   下面定義了 YaST 叢集模組和本章中使用的多個關鍵術語。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>結合網路位址 (<systemitem>bindnetaddr</systemitem>)
+    </term>
+    <listitem>
+     <para>
+      Corosync 執行檔應該結合的網路位址。為方便在整個叢集中共享組態檔案，Corosync 使用了網路介面網路遮罩，以便僅遮罩用於路由網路的位址位元。例如，如果本地介面是 <literal>192.168.5.92</literal> 且網路遮罩是 <literal>255.255.255.0</literal>，請將 <systemitem>bindnetaddr</systemitem> 設為 <literal>192.168.5.0</literal>。如果本地介面是 <literal>192.168.5.92</literal> 且網路遮罩是 <literal>255.255.255.192</literal>，請將 <systemitem>bindnetaddr</systemitem> 設為 <literal>192.168.5.64</literal>。
+     </para>
+     <note>
+      <title>適用於所有節點的網路位址</title>
+      <para>
+       由於所有節點上將使用相同的 Corosync 組態，因此請務必使用 <systemitem>bindnetaddr</systemitem> 這樣的網路位址，而不要使用特定網路介面的位址。
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><systemitem class="resource">conntrack 工具</systemitem></term>
+    <listitem>
+     <para>
+      使用這些工具可與內核連接追蹤系統互動，以對 iptables 啟用<emphasis>陳述</emphasis>封包檢查。High Availability Extension 使用它來在叢集節點之間同步連接狀態。如需詳細資訊，請參閱 <link xlink:href="http://conntrack-tools.netfilter.org/"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      可用於在叢集中的所有節點間，甚至在 Geo 叢集間複製組態檔案的同步工具。Csync2 可以處理任意數量、分屬不同同步群組的主機。每個同步群組都有其自己的主機成員清單，以及定義同步群組中應同步之檔案的包含/排除模式。群組、屬於各個群組的主機名稱以及各個群組的包含/排除規則皆在 Csync2 組態檔案 <filename>/etc/csync2/csync2.cfg</filename> 中指定。
+     </para>
+     <para>
+      Csync2 使用 IP 位址和預先共用金鑰在同步群組內進行驗證。您需要為每個同步化群組產生一個金鑰檔案，並將其複製到群組中的所有成員。
+     </para>
+     <para>
+      如需有關 Csync2 的詳細資訊，請參閱 <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>現存叢集</term>
+    <listitem>
+     <para>
+        <quote>現存叢集</quote>一詞用於指代至少包含一個節點的任一叢集。現存叢集擁有定義了通訊通道的基本 Corosync 組態，但目前不必擁有資源組態。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>多點傳播</term>
+    <listitem>
+     <para>
+        網路內進行一對多通訊所採用的一種技術，可用於叢集通訊。Corosync 支援多點傳播與單點傳播。如果多點傳播不符合您的企業 IT 政策，請改用單點傳播。
+     </para>
+     <note>
+      <title>交換器與多點傳播</title>
+      <para>
+       若要使用多點傳播進行叢集通訊，請確定您的交換器支援多點傳播。
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.mcastaddr">
+    <term>多點傳播位址 (<systemitem>mcastaddr</systemitem>)
+   </term>
+    <listitem>
+     <para>
+        Corosync 可執行檔用於多點傳播的 IP 位址。IP 位址可以是 IPv4 或 IPv6。如果使用的是 IPv6 網路，則必須指定節點 ID。您可以使用您私人網路中的任何多點傳播位址。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>多點傳播埠 (<systemitem>mcastport</systemitem>)</term>
+    <listitem>
+     <para>
+        用於叢集通訊的連接埠。Corosync 使用兩個連接埠︰用於接收多點傳播的指定 <literal>mcastport</literal>，以及用於傳送多點傳播的 <literal>mcastport -1</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.rrp">
+    <term>備援環狀通訊協定 (RRP)</term>
+    <listitem>
+     <para>
+       允許使用多重備援區域網路，以針對部分或全部網路錯誤提供恢復功能。如此一來，只要有一個網路正常運作，便仍可進行叢集通訊。Corosync 支援 Totem 備援環狀通訊協定。系統會對所有參與節點施加一個邏輯記號傳遞環，以安全穩妥地傳遞訊息。只有持有記號的節點才允許廣播訊息。
+     </para>
+     <para>
+      如果 Corosync 中已定義備援通訊通道，請使用 RRP 告知叢集如何使用這些介面。RRP 有三種模式 (<literal>rrp_mode</literal>)︰
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        如果設為 <literal>active</literal>，Corosync 將會主動使用這兩個介面。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        如果設為 <literal>passive</literal>，Corosync 會選擇性地透過可用網路傳送訊息。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        如果設為 <literal>none</literal>，將會停用 RRP。
+       </para>
+      </listitem>
+     </itemizedlist>
+     
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>單點傳播</term>
+    <listitem>
+     <para>
+        一種將訊息傳送至單一網路目的地的技術。Corosync 支援多點傳播與單點傳播。在 Corosync 中，單點傳播是以 UDP 單點傳播 (UDPU) 的形式執行。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.setup.yast.overview">
+   <title>YaST 叢集模組</title>
+   <para>
+    啟動 YaST 並選取<menuchoice> <guimenu>高可用性</guimenu>
+    <guimenu>叢集</guimenu> </menuchoice>。也可以從指令行啟動模組︰
+   </para>
+  <screen>sudo yast2 cluster</screen>
+
+  <para>
+   下面的清單顯示了 YaST 叢集模組中可用螢幕的綜覽。它還指出了螢幕是否包含成功設定叢集<emphasis>所需</emphasis>的參數，或其參數是否為<emphasis>選擇性</emphasis>。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>通訊通道 (必需)</term>
+    <listitem>
+     <para> 允許您定義用於在叢集節點間進行通訊的一或兩個通訊通道。對於傳輸通訊協定，請使用多點傳播 (UDP) 或單點傳播 (UDPU)。如需詳細資料，請參閱<xref linkend="sec.ha.installation.setup.channels"/>。</para>
+     <important>
+      <title>備援通訊路徑</title>
+      <para>對於受支援的叢集設定，需要兩個或以上的備援通訊路徑。最好使用網路裝置結合，如<xref linkend="cha.ha.netbonding"/>所述。</para>
+      <para>如果不可行，您需要在 Corosync 中定義另一個通訊通道。</para>
+     </important>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+      <term>安全性 (選擇性但建議使用)</term>
+      <listitem>
+       <para>可讓您定義叢集的驗證設定。HMAC/SHA1 驗證需要使用共享密碼來保護和驗證訊息。如需詳細資料，請參閱<xref linkend="sec.ha.installation.setup.security"/>。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term>設定 Csync2 (選擇性但建議使用)</term>
+       <listitem>
+     <para>
+      Csync2 會幫助您追蹤組態變更，並在叢集節點之間保持檔案同步。如需詳細資料，請參閱<xref linkend="sec.ha.installation.setup.csync2"/>。
+     </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>設定 conntrackd (選擇性)</term>
+        <listitem>
+         <para>
+          可讓您設定使用者空間 <systemitem class="daemon">conntrackd</systemitem>。使用 conntrack 工具為 iptables 進行<emphasis>狀態</emphasis>封包檢測。如需詳細資料，請參閱<xref linkend="sec.ha.installation.setup.conntrackd"/>。
+         </para>
+        </listitem>
+      </varlistentry>
+   <varlistentry>
+    <term>服務 (必需)</term>
+    <listitem>
+     <para>
+      可讓您設定服務以使叢集節點變為線上狀態。定義是否在開機時啟動 Pacemaker 服務，以及是否在防火牆中開啟節點間通訊所需的連接埠。如需詳細資料，請參閱<xref linkend="sec.ha.installation.setup.services"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+   <para>
+    如果您是首次啟動叢集模組，它會顯示為精靈並引導您完成進行基本設定所需的所有步驟。如果並非第一次啟動，可以按一下左側面板上的類別，以存取每個步驟的組態選項。
+   </para>
+
+   <note>
+    <title>YaST 叢集模組中的設定</title>
+     <para>YaST 叢集模組中的一些設定僅適用於目前節點。其他設定可以透過 Csync2 自動傳輸到所有節點。如需詳細資訊，請參閱以下各節。
+    </para>
+   </note>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.channels">
+   <title>定義通訊通道</title>
+   <para>
+    若要讓叢集節點之間順利進行通訊，至少需定義一個通訊通道。對於傳輸通訊協定，請分別依<xref linkend="pro.ha.installation.setup.channel1.udp" xrefstyle="select:label"/> 或<xref linkend="pro.ha.installation.setup.channel1.udpu" xrefstyle="select:label"/> 所述使用多點傳播 (UDP) 或單點傳播 (UDPU)。如果要定義另一個備援通道 (<xref linkend="pro.ha.installation.setup.channel2" xrefstyle="select:label"/>)，則這兩個通訊通道必須使用<emphasis>相同的</emphasis>通訊協定。
+   </para>
+      
+   <para>YaST <guimenu>通訊通道</guimenu>螢幕中定義的所有設定都會寫入到 <filename>/etc/corosync/corosync.conf</filename> 中。可在 <filename>/usr/share/doc/packages/corosync/</filename> 中找到多點傳播和單路廣播設定的範例檔案。
+   </para>
+   
+   <para>如果您使用的是 IPv4 位址，則節點 ID 可以選填。如果使用的是 IPv6 位址，則必須填寫節點 ID。YaST 叢集模組提供了一個自動為每個叢集節點產生唯一 ID 的選項，使用者無需手動為每個節點指定 ID。</para>
+ 
+   <procedure xml:id="pro.ha.installation.setup.channel1.udp">
+    <title>定義第一個通訊通道 (多點傳播)</title>
+    <para>
+     使用多點傳播時，將對所有叢集節點使用相同的 <systemitem>bindnetaddr</systemitem>、<systemitem>mcastaddr</systemitem> 和 <systemitem>mcastport</systemitem>。叢集中的所有節點透過使用相同的多點傳播位址瞭解彼此的存在。對於不同的叢集，請使用不同的多點傳播位址。
+    
+    </para>
+    <step>
+     <para>
+       啟動 YaST 叢集模組，然後切換到<guimenu>通訊通道</guimenu>類別。
+      </para>
+    </step>
+    <step>
+     <para>
+      將<guimenu>傳輸</guimenu>通訊協定設定為<literal>多點傳播</literal>。
+     </para>
+    </step>
+    <step>
+     <para>
+      定義<guimenu>結合網路位址</guimenu>。將此值設定為要用於叢集多點傳播的子網路。
+     </para>
+    </step>
+    <step>
+     <para>
+      定義<guimenu>多點傳播位址</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      定義<guimenu>多點傳播埠</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      若要為每個叢集節點自動產生唯一的 ID，請將<guimenu>自動產生節點 ID</guimenu> 保留為啟用狀態。
+     </para>
+    </step>
+    <step>
+     <para>
+      定義<guimenu>叢集名稱</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入<guimenu>預期投票數</guimenu>。此值對 Corosync 非常重要，它要使用該值來為分割叢集計算<xref linkend="gloss.quorum"/>。依預設，每個節點的投票數為 <literal>1</literal>。<guimenu>預期投票數</guimenu>必須與叢集中的節點數相符。
+     </para>
+    </step>
+    <step>
+     <para>
+      確認您的變更。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果需要，請依<xref linkend="pro.ha.installation.setup.channel2"/>所述在 Corosync 中定義備援通訊通道。
+     </para>
+    </step>
+   </procedure>
+
+   <figure>
+    <title>YaST 叢集 — 多點傳播組態</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_comm_mcast.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_comm_mcast.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  <para>如果要使用單點傳播而非多點傳播進行叢集通訊，請依如下所述繼續操作。</para>
+   <procedure xml:id="pro.ha.installation.setup.channel1.udpu">
+    <title>定義第一個通訊通道 (單點傳播)</title>
+    <step>
+     <para>
+      啟動 YaST 叢集模組，然後切換到<guimenu>通訊通道</guimenu>類別。
+     </para>
+    </step>
+      <step>
+       <para>
+        將<guimenu>傳輸</guimenu>通訊協定設定為<literal>單點傳播</literal>。
+       </para>
+      </step>
+      <step>
+       <para>
+        定義<guimenu>結合網路位址</guimenu>。將此值設定為要用於叢集單點傳播的子網路。
+       </para>
+      </step>
+      <step>
+       <para>
+        定義<guimenu>多點傳播埠</guimenu>。
+       </para>
+      </step>
+      <step>
+       <para>
+        若要進行單點傳播通訊，Corosync 需要知道叢集中所有節點的 IP 位址。請對將成為叢集成員的每個節點按一下<guimenu>新增</guimenu>，然後輸入以下詳細資料︰
+       </para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          <guimenu>IP 位址</guimenu>
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>備援 IP 位址</guimenu> (僅當在 Corosync 中使用了第二個通訊通道時，才需要指定)
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>節點 ID</guimenu> (僅當停用了<guimenu>自動產生節點 ID</guimenu> 選項時，才需要指定)
+         </para>
+        </listitem>
+       </itemizedlist>
+       <para>
+        若要修改或移除叢集成員的任何位址，請使用<guimenu>編輯</guimenu>或<guimenu>刪除</guimenu>按鈕。
+       </para>
+      </step>
+    <step>
+     <para>
+      若要為每個叢集節點自動產生唯一的 ID，請將<guimenu>自動產生節點 ID</guimenu> 保留為啟用狀態。
+     </para>
+    </step>
+    <step>
+     <para>
+      定義<guimenu>叢集名稱</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入<guimenu>預期投票數</guimenu>。此值對 Corosync 非常重要，它要使用該值來為分割叢集計算<xref linkend="gloss.quorum"/>。依預設，每個節點的投票數為 <literal>1</literal>。<guimenu>預期投票數</guimenu>必須與叢集中的節點數相符。
+     </para>
+    </step>
+    <step>
+     <para>
+      確認您的變更。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果需要，請依<xref linkend="pro.ha.installation.setup.channel2"/>所述在 Corosync 中定義備援通訊通道。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaST 叢集 — 單點傳播組態</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_comm_ucast.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_comm_ucast.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   
+   <para>
+    如果網路裝置結合因某種原因而無法使用，次佳選擇就是在 Corosync 中定義備援通訊通道 (另一個環)。如此便可使用實體位置相互分隔的兩個網路進行通訊。如果一個網路發生故障，叢集節點仍可透過另一個網路進行通訊。
+   </para>
+   <para>Corosync 中的另一個通訊通道將會形成另一個記號傳遞環狀網路。在 <filename>/etc/corosync/corosync.conf</filename> 中，您設定的第一個通道就是主環，其環編號為 <literal>0</literal>。第二個環 (備援通道) 的環編號為 <literal>1</literal>。
+   </para>
+   <para>如果 Corosync 中已定義備援通訊通道，請使用 RRP 告知叢集如何使用這些介面。借助 RRP，可以使用實體位置相互分隔的兩個網路進行通訊。如果一個網路發生故障，叢集節點仍可透過另一個網路進行通訊。</para>
+   <para>RRP 可以有三種模式︰
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      如果設為 <literal>active</literal>，Corosync 將會主動使用這兩個介面。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果設為 <literal>passive</literal>，Corosync 會選擇性地透過可用網路傳送訊息。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果設為 <literal>none</literal>，將會停用 RRP。
+     </para>
+    </listitem>
+   </itemizedlist>
+   
+  <procedure xml:id="pro.ha.installation.setup.channel2">
+   <title>定義備援通訊通道</title>
+   <important>
+    <title>備援環狀網路與 <filename>/etc/hosts</filename></title>
+    <para> 如果 Corosync 中設定了多個環狀網路，則每個節點都可具有多個 IP 位址。這需要反映在所有節點的 <filename>/etc/hosts</filename> 檔案中。 </para>
+   </important>
+   <step>
+    <para> 啟動 YaST 叢集模組，然後切換到<guimenu>通訊通道</guimenu>類別。 </para>
+   </step>
+   <step>
+    <para> 啟用<guimenu>備援通道</guimenu>。備援通道必須使用您定義的第一個通訊通道所使用的相同通訊協定。
+    </para>
+   </step>
+   <step>
+    <para> 如果使用多點傳播，請輸入以下參數︰要使用的<guimenu>結合網路位址</guimenu>，以及備援通道的<guimenu>多點傳播位址</guimenu>和<guimenu>多點傳播連接埠</guimenu>。 </para>
+    <para> 如果使用單點傳播，請定義以下參數︰要使用的<guimenu>結合網路位址</guimenu>及<guimenu>多點傳播連接埠</guimenu>。輸入將加入叢集的所有節點的 IP 位址。 </para>
+   </step>
+   <step>
+    <para>若要指示 Corosync 如何以及何時使用其他通道，請選取要使用的 <guimenu>rrp_mode</guimenu>︰</para>
+    <itemizedlist>
+     <listitem>
+      <para> 如果只定義了一個通訊通道，則會自動停用<guimenu>rrp_mode</guimenu>(設為 <literal>none</literal> 值)。</para>
+     </listitem>
+     <listitem>
+      <para> 如果設為 <literal>active</literal>，Corosync 將會主動使用這兩個介面。 </para>
+     </listitem>
+     <listitem>
+      <para> 如果設為 <literal>passive</literal>，Corosync 會選擇性地透過可用網路傳送訊息。 </para>
+     </listitem>
+    </itemizedlist>
+    <para>使用 RRP 時，High Availability Extension 會監控目前環的狀態，並在發生故障後自動重新啟用備援環。</para>
+    <para>或者，使用 <command>corosync-cfgtool</command> 手動檢查環狀網路狀態。請使用 <option>-h</option> 檢視可用選項。 </para>
+   </step>
+   <step>
+    <para> 確認您的變更。 </para>
+   </step>
+  </procedure>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.security">
+   <title>定義驗證設定</title>
+   <para>
+    若要定義叢集的驗證設定，您可以使用 HMAC/SHA1 驗證。此方式需要使用共享密碼來保護和驗證訊息。您指定的驗證金鑰 (密碼) 將用於叢集中的所有節點。
+   </para>
+  <procedure xml:id="pro.ha.installation.setup.security">
+   <title>啟用安全驗證</title>
+   <step>
+    <para> 啟動 YaST 叢集模組，然後切換到<guimenu>安全性</guimenu>類別。 </para>
+   </step>
+   <step>
+    <para> 啟動<guimenu>啟用安全性驗證</guimenu>。 </para>
+   </step>
+   <step>
+    <para> 針對新建立的叢集按一下<guimenu>產生驗證金鑰檔案</guimenu>。系統即會建立一個驗證金鑰並將其寫入 <filename>/etc/corosync/authkey</filename>。 </para>
+    <para> 如果要讓目前機器加入現存叢集，請不要產生新的金鑰檔案，而是將現存叢集某個節點中的 <filename>/etc/corosync/authkey</filename> 複製到目前機器 (以手動方式或使用 Csync2)。 </para>
+   </step>
+   <step>
+    <para> 確認您的變更。YaST 會將此組態寫入 <filename>/etc/corosync/corosync.conf</filename>。 </para>
+   </step>
+  </procedure>
+
+   <figure>
+    <title>YaST 叢集 — 安全性</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_security.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_security.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.csync2">
+   <title>將組態傳輸至所有節點</title>
+   <para>
+    您應當使用 <command>csync2</command> 工具在叢集中的所有節點間複製產生的組態檔案，而不是手動將其複製到所有節點。
+   </para>
+   <para>
+    若要如此，您需要執行下列基本步驟︰
+   </para>
+   <procedure>
+    <step>
+     <para>
+      <xref linkend="pro.ha.installation.setup.csync2.yast" xrefstyle="select:title"/>。
+     </para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="pro.ha.installation.setup.csync2.start" xrefstyle="select:title"/>。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    Csync2 會幫助您追蹤組態變更，並在叢集節點之間保持檔案同步。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      您可以定義對操作而言非常重要的檔案清單。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      您可以顯示這些檔案的變更 (針對其餘叢集節點)。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      您可以使用單一指令同步化設定的檔案。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      透過 <filename>~/.bash_logout</filename> 中的一個簡單外圍程序程序檔，您在從系統登出之前可以收到變更未同步的提醒。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    <link xlink:href="http://oss.linbit.com/csync2/"/> 和 <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/> 上提供了關於 Csync2 的詳細資訊。
+   </para>
+
+  <sect2 xml:id="pro.ha.installation.setup.csync2.yast">
+   <title>使用 YaST 設定 Csync2</title>
+   <procedure>
+    <step>
+     <para> 啟動 YaST 叢集模組，然後切換到 <guimenu>Csync2</guimenu> 類別。 </para>
+    </step>
+    <step>
+     <para> 若要指定同步群組，請在<guimenu>同步主機</guimenu>群組中按一下<guimenu>新增</guimenu>，然後輸入叢集中所有節點的本地主機名稱。對於每個節點，都必須使用 <command>hostname</command> 指令傳回的字串。 </para>
+     
+     <tip>
+      <title>主機名稱解析</title>
+      <para> 如果您的網路中無法正常進行主機名稱解析，您也可以為每個叢集節點指定主機名稱與 IP 位址的組合。要這樣做，請使用字串<replaceable>主機名稱@IP</replaceable>，例如 <literal>alice@192.168.2.100</literal>。然後，Csync2 將在連接時使用 IP 位址。 </para>
+     </tip>
+    </step>
+    <step xml:id="step.csync2.generate.key">
+     <para> 按一下<guimenu>產生預先共用金鑰</guimenu>建立同步化群組的金鑰檔案。建立的金鑰檔案會寫入 <filename>/etc/csync2/key_hagroup</filename>。建立之後，必須手動將其複製到叢集的所有成員。 </para>
+    </step>
+    <step>
+     <para> 若要在<guimenu>同步化檔案</guimenu>清單中填入所有節點間執行同步化通常所需的檔案，請按一下<guimenu>新增建議的檔案</guimenu>。 </para>
+    </step>
+    <step>
+     <para> 若要在待同步檔案的清單中<guimenu>編輯</guimenu>、<guimenu>新增</guimenu>或<guimenu>刪除</guimenu>檔案，請使用相應的按鈕。您必須輸入各個檔案的絕對路徑名稱。 </para>
+    </step>
+    <step>
+     <para> 按一下<guimenu>開啟 Csync2</guimenu>以啟動 Csync2。如此會執行以下指令，以在開機時自動啟動 Csync2︰ </para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> enable csync2.socket</screen>
+    </step>
+    <step>
+     <para> 確認您的變更。YaST 會將 Csync2 組態寫入 <filename>/etc/csync2/csync2.cfg</filename>。</para>
+    </step>
+    <step>
+     <para>若現在要啟動同步程序，請繼續<xref linkend="sec.ha.setup.yast.csync2.sync"/>。 </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaST 叢集 — Csync2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_sync.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_sync.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec.ha.setup.yast.csync2.sync">
+   <title>使用 Csync2 同步變更</title>
+   <para> 若要成功使用 Csync2 來同步檔案，必須符合以下要求︰ </para>
+   <itemizedlist>
+    <listitem>
+     <para> 同一 Csync2 組態在所有叢集節點上均可用。 </para>
+    </listitem>
+    <listitem>
+     <para> 同一 Csync2 驗證金鑰在所有叢集節點上均可用。 </para>
+    </listitem>
+    <listitem>
+     <para> <emphasis>所有</emphasis>叢集節點上都必須正在執行 Csync2。 </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> 因此，在首次執行 Csync2 之前，需要做好以下準備︰ </para>
+
+   <procedure>
+    <title>使用 Csync2 準備初始同步</title>
+    <step>
+     <para>在依照<filename> 所述設定檔案 </filename>/etc/csync2/csync2.cfg<xref linkend="pro.ha.installation.setup.csync2.yast"/> 後，手動將其複製到所有節點。 </para>
+    </step>
+    <step>
+     <para> 將您執行<xref linkend="pro.ha.installation.setup.csync2.yast" xrefstyle="select:label"/> 的<xref linkend="step.csync2.generate.key"/> 時在一個節點上產生的 <filename>/etc/csync2/key_hagroup</filename> 檔案複製到叢集中的<emphasis>所有</emphasis>節點。Csync2 在進行驗證時需要使用該檔案。但請<emphasis>勿</emphasis>在其於節點上重新產生此檔案，因為在所有節點上，該檔案都必須相同。 </para>
+    </step>
+    
+    <step>
+     <para>在所有節點上執行以下指令，以便立即啟動服務︰ </para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> start csync2.socket</screen>
+    </step>
+   </procedure>
+
+   <procedure xml:id="pro.ha.installation.setup.csync2.start">
+    <title>使用 Csync2 同步組態檔案</title>
+
+    <step>
+     <para>若要對所有檔案執行一次初始同步，請在要<emphasis>從中</emphasis>複製組態的機器上執行以下指令︰ </para>
+     <screen><prompt role="root">root # </prompt><command>csync2</command> <option>-xv</option></screen>
+     <para> 此操作會將所有檔案推送到其餘節點，從而一次即同步所有檔案。如果成功同步了所有檔案，Csync2 完成時不會顯示任何錯誤。 </para>
+     <para> 如果在其他節點 (不僅在目前節點) 上對要同步的一或多個檔案進行了修改，則 Csync2 會報告有衝突。輸出內容與以下類似︰ </para>
+     <screen>While syncing file /etc/corosync/corosync.conf:
+ERROR from peer hex-14: File is also marked dirty here!
+Finished with 1 errors.</screen>
+    </step>
+    <step>
+     <para> 如果您確定目前節點上的是檔案的<quote>最佳</quote>版本，可以透過強制使用此檔案並重新同步來解決衝突︰ </para>
+     <screen><prompt role="root">root # </prompt><command>csync2</command> <option>-f</option> /etc/corosync/corosync.conf
+<prompt role="root">root # </prompt><command>csync2</command> <option>-x</option></screen>
+    </step>
+   </procedure>
+   <para> 如需 Csync2 選項的詳細資訊，請執行</para>
+   <screen>csync2 -help</screen>
+   <note>
+    <title>發生任何變更後推送同步</title>
+    <para> Csync2 僅會推送變更，而<emphasis>不會</emphasis>持續在機器間同步檔案。 </para>
+    <para> 每次對需要同步的檔案進行更新時，都需要將變更推入至其餘機器︰在您進行了變更的機器上執行 <command>csync2 </command>
+     <option>-xv</option>。如果在未變更檔案的任何其他機器上執行該指令，系統不會執行任何操作。 </para>
+   </note>
+  </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.conntrackd">
+   <title>同步叢集節點間的連接狀態</title>
+   <para>
+    若要對 iptables 啟用<emphasis>可設定狀態的</emphasis>封包檢查，請設定並使用 conntrack 工具。若要如此，您需要執行下列基本步驟︰
+   </para>
+   <procedure>
+    <step>
+     <para>
+      <xref linkend="pro.ha.installation.setup.conntrackd" xrefstyle="select:title"/>。
+     </para>
+    </step>
+    <step>
+     <para>
+      為 <systemitem class="daemon">conntrackd</systemitem> 設定資源 (類別︰<literal>ocf</literal>，提供者︰<literal>heartbeat</literal>)。如果使用 Hawk2 新增資源，請使用 Hawk2 建議的預設值。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    設定 conntrack 工具之後，可以將其用於 Linux 虛擬伺服器，請參閱<xref linkend="cha.ha.lb" xrefstyle="select:title"/>。
+   </para>
+
+   <procedure xml:id="pro.ha.installation.setup.conntrackd">
+    <title>使用 YaST 設定 <systemitem class="resource">conntrackd</systemitem></title>
+    <para>
+     使用 YaST 叢集模組設定使用者空間 <systemitem class="daemon">conntrackd</systemitem>。該工具需要一個不會用於其他通訊通道的專屬網路介面。之後，可透過資源代辦啟動該精靈。
+    </para>
+    <step>
+     <para>
+      啟動 YaST 叢集模組，然後切換到<guimenu>設定 conntrackd</guimenu> 類別。
+     </para>
+    </step>
+    <step>
+     <para>
+      選取一個用於同步連接狀態的<guimenu>專屬介面</guimenu>。系統會自動偵測到所選介面的 IPv4 位址並在 YaST 中顯示。該介面必須已設定並支援多點傳播。
+
+     </para>
+    </step>
+    <step>
+     <para>
+      定義用於同步連接狀態的<guimenu>多點傳播位址</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      在<guimenu>群組編號</guimenu>中，定義要與之同步連接狀態的群組數字 ID。 <remark>emap 2011-11-10: To where?
+       The other nodes? - taroth: good question :), will investigate</remark>
+     </para>
+    </step>
+    <step>
+     <para>
+      按一下<guimenu>產生 /etc/conntrackd/conntrackd.conf</guimenu>以建立 <systemitem class="daemon">conntrackd</systemitem> 的組態檔案。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果修改了現存叢集的任何選項，請確認您的變更並關閉叢集模組。
+     </para>
+    </step>
+    <step>
+     <para>
+      若要進一步設定叢集組態，請按<guimenu>下一步</guimenu>並繼續<xref linkend="sec.ha.installation.setup.services"/>。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaST 叢集 — <systemitem class="resource">conntrackd</systemitem></title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_conntrackd.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_conntrackd.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.services">
+   <title>設定服務</title>
+   <para>
+    在 YaST 叢集模組中定義是否要在節點開機時啟動某些服務。您還可以使用該模組手動啟動和停止服務。若要使叢集節點上線並啟動叢集資源管理員，必須以服務形式執行 Pacemaker。
+   </para>
+   <procedure xml:id="pro.ha.installation.setup.services">
+    <title>啟用 Pacemaker</title>
+    <step>
+     <para>
+      在 YaST 叢集模組中，切換至<guimenu>服務</guimenu>類別。
+     </para>
+    </step>
+    <step>
+     <para>
+      若要在此叢集節點每次開機時都啟動 Pacemaker，請在<guimenu>開機</guimenu>群組中選取相應的選項。如果在<guimenu>開機</guimenu>群組中選取<guimenu>關閉</guimenu>，則每次此節點開機後，您都必須手動啟動 Pacemaker。若要手動啟動 Pacemaker，請使用以下指令︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+    </step>
+    <step>
+     <para>
+      若要立即啟動或停止 Pacemaker，請按一下相應的按鈕。
+     </para>
+    </step>
+    <step>
+     <para>
+      若要在防火牆中開啟所需的連接埠，以便叢集能夠在目前機器上通訊，請啟用<guimenu>在防火牆中開啟埠</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      確認您的變更。請注意，該組態僅適用於目前機器，而非所有叢集節點。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaST 叢集 — 服務</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_services.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_services.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.start">
+   <title>連接叢集</title>
+   <para>
+    完成初始叢集組態設定之後，請在<emphasis>每個</emphasis>叢集節點上啟動 Pacemaker 服務，以使堆疊上線︰
+   </para>
+   <procedure>
+    <title>啟動 Pacemaker 並檢查狀態</title>
+    <step>
+     <para>
+      登入現存節點。
+     </para>
+    </step>
+    <step>
+     <para>
+      檢查該服務是否已在執行︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> status pacemaker</screen>
+     <para>
+      如果未在執行，請立即啟動 Pacemaker︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+    </step>
+    <step>
+     <para>
+      對每個叢集節點重複上述步驟。
+     </para>
+    </step>
+    <step>
+     <para>
+      在其中一個節點上，使用 <command>crm status</command> 指令檢查叢集狀態。如果所有節點都已上線，則輸出應如下所示︰
+     </para>
+<screen><prompt role="root">root # </prompt>crm status
+Last updated: Thu Jul  3 11:07:10 2014
+Last change: Thu Jul  3 10:58:43 2014
+Current DC: alice (175704363) - partition with quorum
+2 Nodes configured
+0 Resources configured
+
+Online: [ alice bob ]</screen>
+     <para>
+      此輸出表示叢集資源管理員已啟動，並可以管理資源。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    完成基本組態設定並使節點上線之後，便可開始設定叢集資源。使用其中一種叢集管理工具，例如 crm 外圍程序 (crmsh) 或 Hawk2。如需更多資訊，請參閱<xref linkend="cha.ha.manual_config"/>或<xref linkend="cha.conf.hawk2"/>。
+   </para>
+  </sect1>
+</chapter>

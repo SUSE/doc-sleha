@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" xml:base="ha_lb_haproxy.xml" xml:id="sec.ha.lb.haproxy" version="5.0">
+ <title>使用 HAProxy 設定負載平衡</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:translation>是</dm:translation>
+      </dm:docmanager>
+    </info>
+    <remark>
+  This is a straightforward explanation how to set up a HA openSUSE
+  13.1 http load balancer, but not using SLE HA tools, but plain
+  vanilla openSUSE with vi.
+ </remark>
+
+ <para>
+  下面的部分提供了 HAProxy 的綜覽，並介紹了如何在 High Availability 上進行設定。負載平衡器會將所有要求配送至其後端伺服器。它設定為主動/被動模式，也就是說，當主要節點失敗時，從屬節點就會變成主要節點。在這種情況下，使用者感受不到任何服務中斷的跡象。
+ </para>
+
+ <para>
+  在本節中，我們將使用以下設定︰
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    IP 位址為 <systemitem class="ipaddress">192.168.1.99</systemitem> 的負載平衡器。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    一個虛擬浮動 IP 位址 <systemitem class="ipaddress">192.168.1.99</systemitem>.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    伺服器 (通常用於代管 Web 內容) <systemitem class="server">www1.example.com</systemitem> (IP︰<systemitem class="ipaddress">192.168.1.200</systemitem>) 和 <systemitem class="server">www2.example.com</systemitem> (IP︰<systemitem class="ipaddress">192.168.1.201</systemitem>)
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <para>
+  若要設定 HAProxy，請執行以下程序︰
+ </para>
+
+ <procedure>
+  <step>
+   <para>
+    安裝 <package>haproxy</package> 套件中可用。
+   </para>
+  </step>
+  <step>
+   <para>
+    建立包含以下內容的 <filename>/etc/haproxy/haproxy.cfg</filename> 檔案︰
+   </para>
+   
+   <remark>toms 2014-09-17: Not sure about all the options.</remark>
+   <screen>global <co xml:id="co.ha.lb.global"/>
+  maxconn 256
+  daemon
+
+defaults <co xml:id="co.ha.lb.defaults"/>
+  log     global
+  mode    http
+  option  httplog
+  option  dontlognull
+  retries 3
+  option redispatch
+  maxconn 2000
+  timeout connect   5000  <co xml:id="co.ha.lb.timeout.connect"/>
+  timeout client    50s   <co xml:id="co.ha.lb.timeout.client"/>
+  timeout server    50000 <co xml:id="co.ha.lb.timeout.server"/>
+
+frontend LB
+  bind 192.168.1.99:80 <co xml:id="co.ha.lb.listen"/>
+  reqadd X-Forwarded-Proto:\ http
+  default_backend LB
+
+backend LB
+  mode http
+  stats enable
+  stats hide-version
+  stats uri /stats
+  stats realm Haproxy\ Statistics
+  stats auth haproxy:password	<co xml:id="co.ha.lb.stats.auth"/>
+  balance roundrobin	<co xml:id="co.ha.lb.balance"/>
+  option  httpclose
+  option forwardfor
+  cookie LB insert
+  option httpchk GET /robots.txt HTTP/1.0
+  server web1-srv 192.168.1.200:80 cookie web1-srv check
+  server web2-srv 192.168.1.201:80 cookie web2-srv check</screen>
+   <calloutlist>
+    <callout arearefs="co.ha.lb.global">
+     <para>
+      包含程序範圍選項和作業系統特定選項的區段。
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><option>maxconn</option>
+       </term>
+       <listitem>
+        <para>
+         每個程序的最大同時連接數。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><option>daemon</option>
+       </term>
+       <listitem>
+        <para>
+         建議的模式，HAProxy 將在背景中執行。
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </callout>
+    <callout arearefs="co.ha.lb.defaults">
+     <para>
+      用於為位於其宣告之後的所有其他區段設定預設參數的區段。一些重要的行︰
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><option>redispatch</option>
+       </term>
+       <listitem>
+        <para>
+         啟用或停用在連接失敗時重新配送工作階段的功能。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><option>log</option>
+       </term>
+       <listitem>
+        <para>
+         啟用事件和流量記錄。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><literal>mode http</literal>
+       </term>
+       <listitem>
+        <para>
+         以 HTTP 模式運作 (針對 HAProxy 建議的模式)。在此模式下，在連接到任一伺服器之前會先分析要求。不符合 RFC 的要求將會遭到拒絕。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><literal>option forwardfor</literal>
+       </term>
+       <listitem>
+        <para>
+         將 HTTP <option>X-Forwarded-For</option> 標頭新增至要求中。如果您想要保留用戶端的 IP 位址，則需要使用此選項。
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </callout>
+    <callout arearefs="co.ha.lb.timeout.connect">
+     <para>成功嘗試與伺服器建立連接之前可以等待的最長時間。
+     </para>
+    </callout>
+    <callout arearefs="co.ha.lb.timeout.client">
+     <para>用戶端可保持非活動狀態的最長時間。</para>
+    </callout>
+    <callout arearefs="co.ha.lb.timeout.server">
+     <para>伺服器端可保持非活動狀態的最長時間。</para>
+    </callout>
+    <callout arearefs="co.ha.lb.listen">
+     <para>
+      在該區段中，前端區段和後端區段合併成一個區段。
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><literal>balance leastconn</literal>
+       </term>
+       <listitem>
+        <para>
+         定義負載平衡演算法，請參閱 <link xlink:href="http://cbonte.github.io/haproxy-dconv/configuration-1.5.html#4-balance"/>。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><literal>stats enable</literal>
+       </term>
+       <term><literal>stats auth</literal>
+       </term>
+       <listitem>
+        <para>
+         啟用統計報告 (透過 <literal>stats enable</literal>)。<option>auth</option> 選項記錄有關特定帳戶的驗證的統計資料。
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </callout>
+    <callout arearefs="co.ha.lb.stats.auth">
+      <para>
+       HAProxy 統計資料報告頁面的身分證明。
+      </para>
+     </callout>
+    <callout arearefs="co.ha.lb.balance">
+      <para>
+       負載平衡將採用輪替式程序運作。
+      </para>
+    </callout>
+   </calloutlist>
+  </step>
+  <step>
+   <para>
+    測試組態檔案︰
+   </para>
+   <screen><prompt role="root">root # </prompt><command>haproxy</command> -f /etc/haproxy/haproxy.cfg -c</screen>
+  </step>
+  <step>
+   <para>
+    將以下行新增至 Csync2 的組態檔案 <filename>/etc/csync2/csync2.cfg</filename> 中，以確定包括 HAProxy 組態檔案︰
+   </para>
+   <screen>include /etc/haproxy/haproxy.cfg</screen>
+  </step>
+  <step>
+   <para>
+    同步該檔案︰
+   </para>
+   <screen><prompt role="root">root # </prompt><command>csync2</command> -f /etc/haproxy/haproxy.cfg
+<prompt role="root">root # </prompt><command>csync2</command> -xv</screen>
+   <note>
+    <para>
+     Csync2 組態部分假設 HA 節點是使用 <command>ha-cluster-bootstrap</command> 設定的。如需詳細資料，請參閱《安裝與設定快速入門》。
+    </para>
+   </note>
+  </step>
+  <step>
+   <para>
+    務必在兩個負載平衡器 (<systemitem class="server">alice</systemitem> 和 <systemitem class="server">bob</systemitem>) 上都停用 HAProxy，因為它會由 Pacemaker 啟動︰
+   </para>
+   <screen><prompt role="root">root # </prompt><command>systemctl</command> disable haproxy</screen>
+  </step>
+  <step>
+   <para>
+    設定新的 CIB︰
+   </para>
+   <screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)# </prompt><command>cib</command> new haproxy-config
+<prompt role="custom">crm(haproxy-config)# </prompt><command>primitive</command> haproxy systemd:haproxy \
+    op start timeout=120 interval=0 \
+    op stop timeout=120 interval=0 \
+    op monitor timeout=100 interval=5s \
+    meta target-role=Started
+<prompt role="custom">crm(haproxy-config)# </prompt><command>primitive</command> vip IPaddr2 \
+    params ip=192.168.1.99 nic=eth0 cidr_netmask=23 broadcast=192.168.1.255 \
+    op monitor interval=5s timeout=120 on-fail=restart \
+    meta target-role=Started
+<prompt role="custom">crm(haproxy-config)# </prompt><command>order</command> haproxy-after-IP Mandatory: vip haproxy
+<prompt role="custom">crm(haproxy-config)# </prompt><command>colocation</command> haproxy-with-public-IPs inf: haproxy vip
+<prompt role="custom">crm(haproxy-config)# </prompt><command>group</command> g-haproxy vip haproxy-after-IP</screen>
+  </step>
+  <step>
+   <para>
+    驗證新 CIB 並修正任何錯誤︰
+   </para>
+   <screen><prompt role="custom">crm(haproxy-config)# </prompt><command>verify</command></screen>
+  </step>
+  <step>
+   <para>
+    提交新的 CIB︰
+   </para>
+   <screen><prompt role="custom">crm(haproxy-config)# </prompt><command>cib</command> use live
+<prompt role="custom">crm(live)# </prompt><command>cib</command> commit haproxy-config</screen>
+  </step>
+ </procedure>
+</sect1>

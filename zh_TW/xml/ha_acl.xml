@@ -1,0 +1,538 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_acl.xml" version="5.0" xml:id="cha.ha.acl">
+ <title>存取控制清單</title>
+ <info>
+      <abstract>
+        <para>
+    Crm 外圍程序 (crmsh) 或 Hawk2 等叢集管理工具可由 <systemitem class="username">root</systemitem> 使用者或 <systemitem class="groupname">haclient</systemitem> 群組中的任何使用者使用。依預設，這些使用者擁有完整的讀取/寫入存取權。若要限制存取權或指定更精細的存取權限，可以使用<emphasis>存取控制清單</emphasis> (ACL)。
+   </para>
+        <para>
+    存取控制清單由一組排序的存取規則構成。每個規則允許對一部分叢集組態進行讀取或寫入存取，或者拒絕對該部分進行存取。多個規則通常會組合起來構成特定的角色，這樣便可以將使用者指定到與其任務相符的角色。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+
+ </para>
+ <note>
+  <title>CIB 語法驗證版本與 ACL 的差異</title>
+  <para>
+   僅當您的 CIB 是由 <literal>pacemaker-2.0</literal> 或更高 CIB 語法版本驗證時，此 ACL 文件才適用。如需關於如何檢查這一點以及升級 CIB 版本的詳細資料，請參閱<xref linkend="note.ha.cib.upgrade"/>。
+  </para>
+  <para>
+   如果您已從 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 11 SPx 升級並保留了以前的 CIB 版本，請參閱《<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 11 SP3 <citetitle>管理指南</citetitle>》(或更低版本的管理指南) 中的「<citetitle>存取控制清單</citetitle>」一章。此文件位於 <link xlink:href="http://www.suse.com/documentation/"/>。
+   </para>
+ </note>
+ <sect1 xml:id="sec.ha.acl.require">
+  <title>要求和先決條件</title>
+
+  <para>
+   在您開始對叢集使用 ACL 前，請確定符合下列條件︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     請使用 NIS、Active Directory 或者透過手動將相同使用者新增至所有節點的方式，來確保叢集中的所有節點上擁有相同的使用者。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     您要使用 ACL 修改其存取權限的所有使用者都必須屬於 <systemitem class="groupname">haclient</systemitem> 群組。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     所有使用者都需要使用 crmsh 的絕對路徑 <filename>/usr/sbin/crm</filename> 來執行 crmsh。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     如果非特權使用者要執行 crmsh，則需要使用 <filename>/usr/sbin</filename> 延伸其 <envar>PATH</envar> 變數。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <important>
+   <title>預設存取權限</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      ACL 是一個選擇性功能。ACL 預設處於停用狀態。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果未啟用 ACL，<systemitem class="username">root</systemitem> 以及屬於 <systemitem class="groupname">haclient</systemitem> 群組的所有使用者對於叢集組態將擁有完整的讀取/寫入存取權。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      即使啟用並設定了 ACL，<systemitem class="username">root</systemitem> 和預設 CRM 擁有者 <systemitem class="username">hacluster</systemitem> <emphasis>也永遠</emphasis>擁有對叢集組態的完整存取權。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </important>
+
+  <para>
+   若要使用 ACL，您需要瞭解一些 XPath 方面的知識。XPath 是一種用於在 XML 文件中選取節點的語言。請參閱 <link xlink:href="http://en.wikipedia.org/wiki/XPath"/> 或在 <link xlink:href="http://www.w3.org/TR/xpath/"/> 上查詢規格。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.acl.enable">
+  <title>在叢集中啟用 ACL</title>
+
+  <para>
+   在開始設定 ACL 之前，需要先<emphasis>啟用</emphasis> ACL。若要實現此目的，請在 crmsh 中使用以下指令︰
+  </para>
+
+<screen><prompt role="root">root # </prompt><command>crm</command> configure property enable-acl=true</screen>
+    <para>
+   或者，依<xref linkend="pro.ha.acl.enable.hawk2"/>所述使用 Hawk2。
+  </para>
+
+  <procedure xml:id="pro.ha.acl.enable.hawk2">
+   <title>使用 Hawk 啟用 ACL</title>
+   <step>
+    <para>
+     登入 Hawk2︰
+    </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中，選取<guimenu>叢集組態</guimenu>以顯示全域叢集選項及它們目前的值。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>叢集組態</guimenu>下方，按一下空下拉式方塊並選取 <guimenu>enable-acl</guimenu> 以新增該參數。系統即會新增該參數，且將其設為預設值 <literal>No</literal>。
+    </para>
+   </step>
+   <step>
+    <para>
+     將其值設定為 <literal>Yes</literal>，然後套用變更。
+    </para>
+   </step>
+  </procedure>
+  
+ </sect1>
+ <sect1 xml:id="sec.ha.acl.basics">
+  <title>ACL 的基本知識</title>
+
+  <para>
+   存取控制清單由一組排序的存取規則構成。每個規則允許對一部分叢集組態進行讀取或寫入存取，或者拒絕對該部分進行存取。多個規則通常會組合起來構成特定的角色，這樣便可以將使用者指定到與其任務相符的角色。ACL 角色是一組用於描述 CIB 存取權限的規則。規則由以下元素組成︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     存取權限，例如<literal>讀取</literal>、<literal>寫入</literal>或<literal>拒絕</literal>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     定義在何種情況下套用規則的規格。此規格可以是類型、ID 參考或 XPath 運算式。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   通常，便利的做法是將 ACL 綁定到角色，並將特定的角色指定給系統使用者 (ACL 目標)。建立 ACL 規則的方法有兩種︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.acl.config.xpath"/>。您需要瞭解基礎 XML 的結構才能建立 ACL 規則。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <xref linkend="sec.ha.acl.config.tag"/>。建立要套用至相符物件的簡寫語法與 ACL 規則。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <sect2 xml:id="sec.ha.acl.config.xpath">
+   <title>透過 XPath 運算式設定 ACL 規則</title>
+   <para>
+    若要透過 XPath 管理 ACL 規則，您需要瞭解基礎 XML 的結構。使用以下指令擷取結構，該指令將以 XML 格式顯示您的叢集組態 (請參閱<xref linkend="ex.ha.acl.excerpt" xrefstyle="select:label nopage"/>)︰
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure show xml</screen>
+   <remark>taroth 2014-08-13: filed https://bugzilla.novell.com/show_bug.cgi?id=891695 for a future "Show CIB"
+    option in Hawk</remark>
+   <example xml:id="ex.ha.acl.excerpt">
+    <title>XML 中的叢集組態摘錄</title>
+<screen>&lt;num_updates="59" 
+      dc-uuid="175704363"
+      crm_feature_set="3.0.9"
+      validate-with="pacemaker-2.0"
+      epoch="96"
+      admin_epoch="0"
+      cib-last-written="Fri Aug  8 13:47:28 2014"
+      have-quorum="1"&gt;
+  &lt;configuration&gt;
+    &lt;crm_config&gt;
+       &lt;cluster_property_set id="cib-bootstrap-options"&gt;
+        &lt;nvpair name="stonith-enabled" value="true" id="cib-bootstrap-options-stonith-enabled"/&gt;
+       [...]
+      &lt;/cluster_property_set&gt;
+    &lt;/crm_config&gt;
+    &lt;nodes&gt;
+      &lt;node id="175704363" uname="alice"/&gt;
+      &lt;node id="175704619" uname="bob"/&gt;
+    &lt;/nodes&gt;
+    &lt;resources&gt; [...]  &lt;/resources&gt;
+    &lt;constraints/&gt;
+    &lt;rsc_defaults&gt; [...] &lt;/rsc_defaults&gt;
+    &lt;op_defaults&gt; [...] &lt;/op_defaults&gt;
+  &lt;configuration&gt;
+&lt;/cib&gt;</screen>
+   </example>
+   <para>
+    您可以使用 XPath 語言在此 XML 文件中尋找節點。例如，若要選取根節點 (<literal>cib</literal>)，請使用 XPath 運算式 <literal>/cib</literal>。若要尋找全域叢集組態，請使用 XPath 運算式 <literal>/cib/configuration/crm_config</literal>。
+   </para>
+   <para>
+    例如，<xref linkend="tab.ha.acl.operator"/>顯示了用於建立<quote>operator</quote>角色的參數 (存取類型和 XPath 運算式)。具有此角色的使用者僅可執行第二欄中所述的任務 — 他們既不能重新設定任何資源 (例如，變更參數或操作)，也不能變更並存或順序條件約束的組態。
+   </para>
+   <table xml:id="tab.ha.acl.operator">
+    <title>Operator 角色 — 存取類型和 XPath 運算式</title>
+    <tgroup cols="2">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         類型
+        </para>
+       </entry>
+       <entry>
+        <para>
+         XPath/說明
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         寫入
+        </para>
+       </entry>
+       <entry>
+<screen>//crm_config//nvpair[@name='maintenance-mode']</screen>
+        <para>
+         開啟或關閉叢集維護模式。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         寫入
+        </para>
+       </entry>
+       <entry>
+<screen>//op_defaults//nvpair[@name='record-pending']</screen>
+        <para>
+         選擇是否要記錄待處理操作。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         寫入
+        </para>
+       </entry>
+       <entry>
+<screen>//nodes/node//nvpair[@name='standby']</screen>
+        <para>
+         將節點設定為線上模式或待命模式。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         寫入
+        </para>
+       </entry>
+       <entry>
+<screen>//resources//nvpair[@name='target-role']</screen>
+        <para>
+         啟動、停止、升級或降級任何資源。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         寫入
+        </para>
+       </entry>
+       <entry>
+<screen>//resources//nvpair[@name='maintenance']</screen>
+        <para>
+         選擇是否應將資源置於維護模式。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         寫入
+        </para>
+       </entry>
+       <entry>
+<screen>//constraints/rsc_location</screen>
+        <para>
+         將資源從一個節點移轉/移動到另一個節點。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         讀取
+        </para>
+       </entry>
+       <entry>
+<screen>/cib</screen>
+        <para>
+         檢視叢集的狀態。
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.acl.config.tag">
+   <title>透過縮寫設定 ACL 規則</title>
+   <para>
+    不想處理 XML 結構的使用者可以使用更簡單的方法，
+
+   </para>
+   <para>
+    例如，您可以考慮使用如下 Xpath︰
+   </para>
+<screen>//*[@id='rsc1']</screen>
+   <para>
+    它會尋找 ID 為 <literal>rsc1</literal> 的所有 XML 節點。
+   </para>
+   <para>
+    相應的簡寫語法如下︰
+   </para>
+<screen>ref:"rsc1"</screen>
+   <para>
+    這也適用於條件約束。以下是詳細的 XPath︰
+   </para>
+<screen>//constraints/rsc_location</screen>
+   <para>
+    相應的簡寫語法如下︰
+   </para>
+<screen>type:"rsc_location"</screen>
+   <para>
+    可以在 crmsh 和 Hawk2 中使用簡寫語法。CIB 精靈知道如何將 ACL 規則套用至相符物件。
+   </para>
+  </sect2>
+ </sect1>
+ 
+  <sect1 xml:id="sec.ha.acl.config.hawk2">
+  <title>使用 Hawk 設定 ACL2</title>
+  <para>
+   下面的程序說明如何透過定義 <literal>monitor</literal> 角色並將其指定給使用者，來設定對叢集組態的唯讀存取權限。您也可以依照<xref linkend="pro.ha.acl.crm"/>所述使用 crmsh 來實現此目的。
+  </para>
+
+  <procedure xml:id="pro.ha.acl.hawk2.role">
+   <title>使用 Hawk2 新增 Monitor 角色</title>
+   <step>
+    <para>
+     登入 Hawk2︰ </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中，選取<guimenu>角色</guimenu>。 
+    </para>
+   </step>
+   <step>
+    <para>
+      按一下<guimenu>建立</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入唯一的<guimenu>角色 ID</guimenu>，例如 <literal>monitor</literal>。
+    </para>
+   </step>
+   <step>
+    <para>
+      為存取<guimenu>權限</guimenu>選取<literal>讀取</literal>。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入 XPath 運算式 <guimenu>/cib</guimenu> 做為 <literal>Xpath</literal>。
+    </para>
+    <informalfigure>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-acl-role.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-acl-role.png" width="100%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </informalfigure>
+   </step>
+   <step>
+    <para>
+      按一下<guimenu>建立</guimenu>。
+    </para>
+    <para>
+     如此即會建立一個名為 <literal>monitor</literal> 的新角色，為其設定<literal>讀取</literal>權限，並透過使用 XPath 運算式 <literal>/cib</literal> 將其套用到 CIB 中的所有元素。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果需要，請按一下加號圖示並指定相應參數來新增更多規則。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用向上或向下箭頭按鈕對各規則排序。
+    </para>
+   </step>
+  </procedure>
+
+  <procedure xml:id="pro.ha.acl.hawk2.target">
+    <title>使用 Hawk2 將角色指定給目標</title>
+   <para>
+    若要將我們在<xref linkend="pro.ha.acl.hawk2.role" xrefstyle="select:label"/> 中建立的角色指定給系統使用者 (即目標)，請執行以下操作繼續︰
+   </para>
+   <step>
+    <para>
+     登入 Hawk2︰ </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中，選取<guimenu>目標</guimenu>。 
+    </para>
+   </step>
+   <step>
+    <para>
+     若要建立系統使用者 (即 ACL 目標)，請按一下<guimenu>建立</guimenu>，然後輸入一個唯一的<guimenu>目標 ID</guimenu>，例如 <literal>tux</literal>。請確定此使用者屬於 <systemitem class="groupname">haclient</systemitem> 群組。
+    </para>
+   </step>
+   <step>
+    <para>
+     若要將角色指定給目標，請選取一或多個<guimenu>角色</guimenu>。
+    </para>
+    <para>
+     在本範例中，請選取您在<xref linkend="pro.ha.acl.hawk2.role" xrefstyle="select:label"/> 中建立的 <literal>monitor</literal> 角色。
+     </para>
+    <informalfigure>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-acl-user-assign.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-acl-user-assign.png" width="80%" format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </step>
+     <step>
+      <para>
+       確認您的選擇。
+      </para>
+     </step>
+   </procedure>
+
+  <para>
+   若要設定對資源或條件約束的存取權限，也可以依照<xref linkend="sec.ha.acl.config.tag"/>所述使用簡寫語法。
+  </para>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.acl.config.crm">
+  <title>使用 crmsh 設定 ACL</title>
+
+  <para>
+   下面的程序說明如何透過定義 <literal>monitor</literal> 角色並將其指定給使用者，來設定對叢集組態的唯讀存取權。
+  </para>
+
+  <procedure xml:id="pro.ha.acl.crm">
+   <title>使用 crmsh 新增 Monitor 角色並指定使用者</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     啟動 crmsh 的互動模式︰
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)configure# </prompt></screen>
+   </step>
+   <step>
+    <para>
+     定義 ACL 角色︰
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       使用 <command>role</command> 指令定義新角色︰
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>role</command> monitor read xpath:"/cib"</screen>
+      <para>
+       上面的指令會建立一個名為 <literal>monitor</literal> 的新角色，為其設定<literal>讀取</literal>權限，並使用 XPath 運算式 <literal>/cib</literal> 將其套用至 CIB 中的所有元素。如果需要，您可以新增更多存取權限及 XPath 引數。
+      </para>
+     </step>
+     <step>
+      <para>
+       根據需要新增其他角色。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     將角色指定給一或多個 ACL 目標，即相應的系統使用者。請確定他們屬於 <systemitem class="groupname">haclient</systemitem> 群組。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>acl_target</command> tux monitor</screen>
+   </step>
+   <step>
+    <para>
+     檢查您的變更︰
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>show</command></screen>
+   </step>
+   <step>
+    <para>
+     提交您的變更︰
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+   </step>
+  </procedure>
+
+  <para>
+   若要設定對資源或條件約束的存取權限，也可以依照<xref linkend="sec.ha.acl.config.tag"/>所述使用簡寫語法。
+  </para>
+ </sect1>
+
+</chapter>
