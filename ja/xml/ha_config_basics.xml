@@ -1,0 +1,2119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_basics.xml" version="5.0" xml:id="cha.ha.config.basics">
+ <title>設定および管理の基本事項</title>
+ <info>
+      <abstract>
+        <para>
+    HAクラスタの主な目的はユーザサービスの管理です。ユーザサービスの典型的な例は、Apache Webサーバまたはデータベースです。サービスとは、ユーザの観点からすると、指示に基づいて特別な何かを行うことを意味していますが、クラスタにとっては開始や停止できるリソースにすぎません。サービスの性質はクラスタには無関係なのです。
+   </para>
+        <para>
+    この章では、リソースを設定しクラスタを管理する場合に知っておく必要のある基本概念を紹介します。後続の章では、High Availability Extensionが提供する各管理ツールを使用して、主要な設定および管理タスクを行う方法を説明します。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.config.basics.global">
+  <title>グローバルクラスタオプション</title>
+
+  <para>
+   グローバルクラスタオプションは、一定の状況下でのクラスタの動作を制御します。それらは、セットにグループ化され、Hawk2や<command>crm</command>シェルなどのクラスタ管理ツールで表示したり、変更することができます。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.global.all">
+   <title>概要</title>
+   <para>
+    すべてのグローバルクラスタオプションとそのデフォルト値の概要については、『<citetitle>Pacemaker Explained</citetitle>』(<link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>から入手可)を参照してください。特に、「<citetitle>Available Cluster Options</citetitle>」のセクションを参照してください。
+   </para>
+   <para>
+    事前に定義されている値は、通常は、そのまま保持できます。ただし、クラスタの主要機能を正しく機能させるには、クラスタの基本的なセットアップ後に、次のパラメータを調整する必要があります。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <xref linkend="sec.ha.config.basics.global.quorum" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="sec.ha.config.basics.global.stonith" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    これらのパラメータを調整する方法については、使用しているクラスタ管理ツールに応じて次のいずれかを参照してください。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2: <xref linkend="pro.conf.hawk2.global"/>
+     </para>
+    </listitem>
+   
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.global.quorum">
+   <title>オプション<literal>no-quorum-policy</literal></title>
+   <para>
+    このグローバルオプションは、クラスタパーティションにクォーラムがない(ノードの過半数がパーティションに含まれない)場合どうするかを定義します。
+   </para>
+   <para>
+    許容値は、次のとおりです。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>ignore</literal>
+     </term>
+     <listitem>
+      <para>
+       クォーラム状態がクラスタの動作に影響せず、リソース管理が続行されます。
+      </para>
+      <para>
+       この設定は、次のシナリオで有効です。
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         リソース駆動型クラスタ: 冗長な通信チャネルを持つローカルクラスタの場合、スプリットブレインシナリオには一定の確率しかありません。したがって、ノードとの通信の喪失は、ほとんどの場合、そのノードがクラッシュしていることを示します。残りのノードは回復して、リソースのサービスを再開する必要があります。
+        </para>
+        <para>
+         <literal>no-quorum-policy</literal>が<literal>ignore</literal>に設定されている場合、4ノードクラスタは、サービスが失われる前の3ノードの同時障害を克服できますが、他の設定値では、2ノードの同時障害後はクォーラムを失います。2ノードクラスタの場合、このオプションと値は設定されません。
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>freeze</literal>
+     </term>
+     <listitem>
+      <para>
+       クォーラムが失われた場合は、クラスタパーティションがフリーズします。リソース管理は続行されます。実行中のリソースは停止されません(ただし、イベントの監視に対応して再起動される可能性があります)。ただし、影響を受けたパーティション内では、以後のリソースが開始されません。
+      </para>
+      <para>
+       一定のリソースが他のノードとの通信に依存しているクラスタの場合(たとえば、OCFS2マウントなど)は、この設定が推奨されます。この場合、デフォルト設定<literal>no-quorum-policy=stop</literal>は、次のようなシナリオになるので有効でありません。つまり、ピアノードが到達不能な間はそれらのリソースを停止できなくなります。その代わり、停止の試行は最終的にタイムアウトし、<literal>stop failure</literal>になり、エスカレートされた復元とフェンシングを引き起こします。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>stop</literal> (デフォルト値)</term>
+     <listitem>
+      <para>
+       クォーラムが失われると、影響を受けるクラスタパーティション内のすべてのリソースが整然と停止します。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>suicide</literal>
+     </term>
+     <listitem>
+      <para>
+       クォーラムが失われると、影響を受けるクラスタパーティション内のすべてのノードがフェンシングされます。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.global.stonith">
+   <title>オプション<literal>stonith-enabled</literal></title>
+   <para>
+    このグローバルオプションは、フェンシングを適用して、STONITHデバイスによる、障害ノードや停止できないリソースを持つノードのダウンを許可するかどうか定義します。通常のクラスタ操作には、STONITHデバイスの使用が必要なので、このグローバルオプションは、デフォルトで<literal>true</literal>に設定されています。デフォルト値では、クラスタは、STONITHリソースが定義されていない場合にはリソースの開始を拒否します。
+   </para>
+   <para>
+    何らかの理由でフェンシングを無効にする必要がある場合は、<literal>stonith-enabled</literal>を<literal>false</literal>に設定しますが、これはご使用の製品のサポートステータスに影響を及ぼすことに注意してください。また、<literal>stonith-enabled="false"</literal>を指定すると、Distributed Lock Manager (DLM)のようなリソースやDLMによるすべてのサービス(LVM2、GFS2、OCFS2など)は開始できません。
+   </para>
+   <important>
+    <title>STONITHがない場合はサポートなし</title>
+    <para>
+     STONITHがないクラスタはサポートされません。
+    </para>
+   </important>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.resources">
+  <title>クラスタリソース</title>
+
+  <para>
+   クラスタの管理者は、クラスタ内のサーバ上の各リソースや、サーバ上で実行する各アプリケーションに対してクラスタリソースを作成する必要があります。クラスタリソースには、Webサイト、電子メールサーバ、データベース、ファイルシステム、仮想マシン、およびユーザが常時使用できるようにする他のサーバベースのアプリケーションまたはサービスなどが含まれます。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.management">
+   <title>リソース管理</title>
+   <para>
+    リソースは、クラスタで使用する前にセットアップする必要があります。たとえば、Apacheサーバをクラスタリソースとして使用するには、まず、Apacheサーバをセットアップし、Apacheの環境設定を完了してから、クラスタで個々のリソースを起動します。
+   </para>
+   <para>
+    リソースに特定の環境要件がある場合は、それらの要件がすべてのクラスタノードに存在し、同一であることを確認してください。この種の設定は、High Availability Extensionでは管理されません。これは、管理者自身が行う必要があります。
+   </para>
+   <note>
+    <title>クラスタによって管理されるサービスには介入しないでください。</title>
+    <para>
+     High Availability Extensionでリソースを管理しているときに、同じリソースを他の方法(クラスタ外で、たとえば、手動、ブート、再起動など)で開始したり、停止してはなりません。High Availability Extensionソフトウェアが、すべてのサービスの開始または停止アクションを実行します。
+    </para>
+    <para>
+     サービスがクラスタ制御下ですでに実行された後にテストまたは保守タスクを実行する必要がある場合は、リソース、ノード、またはクラスタ全体を保守モードに設定してから、これらのいずれかに手動でタッチしてください。詳細については、<xref linkend="sec.ha.config.basics.maint.mode"/>を参照してください。
+    </para>
+   </note>
+   <para>
+    クラスタ内でリソースを設定したら、クラスタ管理ツールを使用して、すべてのリソースを手動で起動、停止、クリーンアップ、削除、または移行します。これらの操作の詳細については、使用しているクラスタ管理ツールに応じて次のいずれかを参照してください。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2: <xref linkend="cha.conf.hawk2"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh: <xref linkend="cha.ha.manual_config"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.raclasses">
+   <title>サポートされるリソースエージェントクラス</title>
+   <para>
+    追加するクラスタリソースごとに、リソースエージェントが準拠する基準を定義する必要があります。リソースエージェントは、提供するサービスを抽象化して正確なステータスをクラスタに渡すので、クラスタは管理するリソースについてコミットする必要がありません。クラスタは、リソースエージェントに依存して、start、stop、またはmonitorのコマンドの発行に適宜対応します。
+   </para>
+   <para>
+    通常、リソースエージェントはシェルスクリプトの形式で配布されます。High Availability Extensionは、次のクラスのリソースエージェントをサポートしています。
+   </para>
+   <variablelist>
+    <varlistentry xml:id="vle.ha.resources.ocf.ra">
+     <term>Open Cluster Framework (OCF)リソースエージェント</term>
+     <listitem>
+      <para>
+       OCF RAエージェントは、High Availabilityでの使用に最適であり、特に、プロモータブルクローンリソースまたは特殊なモニタリング機能を必要とする場合に適しています。それらのエージェントは、通常、<filename>/usr/lib/ocf/resource.d/<replaceable>provider</replaceable></filename>にあります。この機能はLSBスクリプトの機能と同様です。ただし、環境設定では、常に、パラメータの受け入れと処理を容易にする環境変数が使用されます。OCF仕様には、アクション終了コードの厳密な定義があります。<xref linkend="sec.ha.errorcodes"/>を参照してください。クラスタは、それらの仕様に正確に準拠します。
+      </para>
+      <para>
+       すべてのOCFリソースエージェントは少なくとも<literal>start</literal>、<literal>stop</literal>、<literal>status</literal>、<literal>monitor</literal>、<literal>meta-data</literal>のアクションを持つ必要があります。<literal>meta-data</literal>アクションは、エージェントの設定方法についての情報を取得します。たとえば、プロバイダ<literal>heartbeat</literal>で<literal>IPaddr</literal>エージェントの詳細を知るには、次のコマンドを使用します。
+      </para>
+<screen>OCF_ROOT=/usr/lib/ocf /usr/lib/ocf/resource.d/heartbeat/IPaddr meta-data</screen>
+      <para>
+       出力は、XML形式の情報であり、いくつかのセクションを含みます(一般説明、利用可能なパラメータ、エージェント用の利用可能なアクション)。
+      </para>
+      <para>
+       または、crmshを使用して、OCFリソースエージェントに関する情報を表示します。詳細については、<xref linkend="sec.ha.manual_config.ocf"/>を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Linux Standards Base (LSB)スクリプト</term>
+     <listitem>
+      <para>
+       LSBリソースエージェントは一般にオペレーティングシステム/配布パッケージによって提供され、<filename>/etc/init.d</filename>にあります。リソースエージェントをクラスタで使用するには、それらのエージェントがLSB iniスクリプトの仕様に準拠している必要があります。たとえば、リソースエージェントには、いくつかのアクションが実装されている必要があります。それらのアクションとして、少なくとも<literal>start</literal>、<literal>stop</literal>、<literal>restart</literal>、<literal>reload</literal>、<literal>force-reload</literal>、<literal>status</literal>があります。詳細については、<link xlink:href="http://refspecs.linuxbase.org/LSB_4.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html"/>を参照してください。
+      </para>
+      <para>
+       これらのサービスの構成は標準化されていません。High AvailabilityでLSBスクリプトを使用する場合は、該当のスクリプトの設定方法を理解する必要があります。これに関する情報は、多くの場合、<filename>/usr/share/doc/packages/<replaceable>PACKAGENAME</replaceable></filename>内の該当パッケージのマニュアルに記載されています。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Systemd</term>
+     <listitem>
+      <para>
+       SUSE Linux Enterprise 12から、一般的なSystem V initデーモンがsystemdに置き代わりました。Pacemakerは、systemdサービスが存在する場合は、それを管理できます。initスクリプトの代わりに、systemdはユニットファイルを持ちます。一般的に、サービス(またはユニットファイル)は、オペレーティングシステムによって提供されます。既存のinitスクリプトを変換する場合は、<link xlink:href="http://0pointer.de/blog/projects/systemd-for-admins-3.html"/>で詳細情報を検索してください。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>サービス</term>
+     <listitem>
+      <para>
+       現在、並列に存在する<quote>通常</quote>タイプのシステムサービスが多数あります: <literal>LSB</literal> (System V initに属する)、<literal>systemd</literal>、および(一部のディストリビューションでは) <literal>upstart</literal>。そのため、Pacemakerは、どれが指定のクラスタノードに適用されるのかをインテリジェントに理解する特殊なエイリアスをサポートします。これは、クラスタにsystemd、upstart、およびLSBサービスが混在する場合には特に役立ちます。Pacemakerは、次の順番で指定されたサービスを検索しようとします: LSB (SYS-V) initスクリプト、systemdユニットファイル、またはUpstartジョブ。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Nagios</term>
+     <listitem>
+      <para>
+       モニタリングプラグイン(かつてはNagiosプラグインと呼ばれていた)により、リモートホスト上のサービスを監視できます。Pacemakerは、モニタリングプラグインが存在する場合は、これを使用してリモートモニタリングを実行できます。詳細については、<xref linkend="sec.ha.config.basics.remote.nagios"/>を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>STONITH(フェンシング)リソースエージェント</term>
+     <listitem>
+      <para>
+       このクラスは、フェンシング関係のリソース専用に使用されます。詳細については、<xref linkend="cha.ha.fencing"/>を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    High Availability Extensionで提供されるエージェントは、OCF仕様に従って作成されています。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.types">
+   <title>リソースのタイプ</title>
+   <para>
+    次のリソースタイプを作成できます。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>プリミティブ</term>
+     <listitem>
+      <para>
+       プリミティブリソースは、リソースの中で最も基本的なタイプです。
+      </para>
+      <para>
+       選択したクラスタ管理ツールでプリミティブリソースを作成する方法については、次を参照してください。
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         Hawk2: <xref linkend="pro.conf.hawk2.primitive.add"/>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         crmsh: <xref linkend="sec.ha.manual_config.create"/>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>グループ</term>
+     <listitem>
+      <para>
+       グループには、一緒の場所で見つけ、連続して開始し、逆の順序で停止する必要のあるリソースセットが含まれます。詳細については、<xref linkend="sec.ha.config.basics.resources.advanced.groups"/>を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>クローン</term>
+     <listitem>
+      <para>
+       クローンは、複数のホスト上でアクティブにできるリソースです。対応するリソースエージェントがサポートしていれば、どのようなリソースもクローン化できます。詳細については、<xref linkend="sec.ha.config.basics.resources.advanced.clones"/>を参照してください。
+      </para>
+      <para>
+       プロモータブルクローン(以前はマスタ/スレーブまたはマルチステートリソースと呼ばれていました)は、昇格できる特別なタイプのクローンリソースです。
+       </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.templates">
+   <title>リソーステンプレート</title>
+   <para>
+    類似した設定のリソースを多く作成する最も簡単な方法は、リソーステンプレートを定義することです。定義された後でテンプレートは、プリミティブ内で参照したり、<xref linkend="sec.ha.config.basics.constraints.templates"/>で説明するように、特定のタイプの制約内で参照することができます。
+   </para>
+   <para>
+    プリミティブ内でテンプレートを参照すると、そのテンプレートで定義されている操作、インスタンス属性(パラメータ)、メタ属性、使用属性がすべてプリミティブに継承されます。さらに、プリミティブに対して特定の操作または属性を定義することもできます。これらのいずれかがテンプレートとプリミティブの両方で定義されていた場合、プリミティブで定義した値の方が、テンプレートで定義された値よりも優先されます。
+   </para>
+   <para>
+    選択したクラスタ管理ツールでリソーステンプレートを定義する方法については、次を参照してください。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2: <xref linkend="pro.conf.hawk2.template.add"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh: <xref linkend="sec.ha.manual_config.rsc_template"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.resources.advanced">
+   <title>高度なリソースタイプ</title>
+   <para>
+    プリミティブは、最も単純なタイプのリソースなので、設定が容易ですが、クラスタ設定には、より高度なリソースタイプ(グループ、クローン、プロモータブルクローンリソースなど)が必要になることがあります。
+   </para>
+   <sect3 xml:id="sec.ha.config.basics.resources.advanced.groups">
+    <title>グループ</title>
+    <para>
+     クラスタリソースの中には、他のコンポーネントやリソースに依存しているものもあります。それぞれのコンポーネントやリソースが決められた順序で開始され、依存しているリソースと同じサーバ上で同時に実行していなければならない場合があります。この設定を簡素化するには、クラスタリソースグループを使用できます。
+    </para>
+    <example xml:id="ex.ha.config.resource.group">
+     <title>Webサーバのリソースグループ</title>
+     <para>
+      リソースグループの1例として、IPアドレスとファイルシステムを必要とするWebサーバがあります。この場合、各コンポーネントは、個々のリソースであり、それらが組み合わされてクラスタリソースグループを構成します。リソースグループは、1つ以上のサーバで実行されます。ソフトウェアまたはハードウェアが機能しない場合には、個々のクラスタリソースと同様に、グループはクラスタ内の別のサーバにフェールオーバーします。
+     </para>
+    </example>
+    <figure pgwide="0">
+     <title>グループリソース</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="webserver_groupresource_a.svg" width="70%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="webserver_groupresource_a.png" width="63%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+    <para>
+     グループには次のプロパティがあります。
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>開始/停止</term>
+      <listitem>
+       <para>
+        リソースは認識される順序で開始し、逆の順番で停止します。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>依存関係</term>
+      <listitem>
+       <para>
+        グループ内のリソースがどこかで開始できない場合は、グループ内のその後の全リソースは実行することができません。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>コンテンツ</term>
+      <listitem>
+       <para>
+        グループにはプリミティブクラスタリソースしか含むことができません。グループには1つ以上のリソースを含む必要があります。空の場合は設定は無効になります。グループリソースの子を参照するには、グループのIDではなく子のIDを使用します。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>制約</term>
+      <listitem>
+       <para>
+        制約でグループの子を参照することはできますが、通常はグループ名を使用することをお勧めします。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>固着性</term>
+      <listitem>
+       <para>
+        固着性はグループ内で統合可能なプロパティです。グループ内の<emphasis>アクティブな</emphasis>各メンバーは、グループの合計値に対して固着性を追加します。したがって、デフォルトの<literal>resource-stickiness</literal>が<literal>100</literal>で、グループに7つのメンバーがあり、そのうち5つがアクティブな場合は、グループが全体として、スコア<literal>500</literal>で、現在の場所を優先します。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>リソース監視</term>
+      <listitem>
+       <para>
+        グループのリソース監視を有効にするには、グループ内で監視の必要な各リソースに対して監視を設定する必要があります。
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     選択したクラスタ管理ツールでグループを作成する方法については、次を参照してください。
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Hawk2: <xref linkend="pro.conf.hawk2.group"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       crmsh: <xref linkend="sec.ha.manual_config.group"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+   <sect3 xml:id="sec.ha.config.basics.resources.advanced.clones">
+    <title>クローン</title>
+    <para>
+     クラスタ内の複数のノードで特定のリソースを同時に実行することができます。このためには、リソースをクローンとして設定する必要があります。クローンとして設定するリソースの一例として、OCFS2などのクラスタファイルシステムが挙げられます。提供されているどのリソースも、クローンとして設定できます。これは、リソースのリソースエージェントによってサポートされます。クローンリソースは、ホスティングされているノードによって異なる設定をすることもできます。
+    </para>
+    <para>
+     リソースクローンには次の3つのタイプがあります。
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>匿名クローン</term>
+      <listitem>
+       <para>
+        最も簡単なクローンタイプです。実行場所にかかわらず、同じ動作をします。このため、マシンごとにアクティブな匿名クローンのインスタンスは1つだけ存在できます。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>グローバルに固有なクローン</term>
+      <listitem>
+       <para>
+        このリソースは独自のエントリです。1つのノードで実行しているクローンのインスタンスは、別なノードの別なインスタンスとは異なり、同じノードの2つのインスタンスが同一になることもありません。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>プロモータブルクローン(マルチステートリソース)</term>
+      <listitem>
+       <para>
+        
+        このリソースのアクティブインスタンスは、アクティブとパッシブという2つの状態に分けられます。プライマリとセカンダリ、またはマスタとスレーブと呼ばれることもあります。プロモータブルクローンが、匿名またはグローバルに固有の場合もあります。<xref linkend="sec.ha.config.basics.resources.advanced.masters"/>も参照してください。
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     クローンは、グループまたは通常リソースを1つだけ含む必要があります。
+    </para>
+    <para>
+     リソースのモニタリングまたは制約を設定する場合、クローンには、単純なリソースとは異なる要件があります。詳細については、『<citetitle>Pacemaker Explained</citetitle>』(<link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>から入手可)を参照してください。特に、「<citetitle>Clones - Resources That Get Active on Multiple Hosts</citetitle>」のセクションを参照してください。
+    </para>
+    <para>
+     選択したクラスタ管理ツールでクローンを作成する方法については、次を参照してください。
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Hawk2: <xref linkend="pro.conf.hawk2.clone"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       crmsh: <xref linkend="sec.ha.manual_config.clone"/>。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+   <sect3 xml:id="sec.ha.config.basics.resources.advanced.masters">
+    <title>プロモータブルクローン(マルチステートリソース)</title>
+    <para>
+     プロモータブルクローン(以前はマルチステートリソースと呼ばれていました)は、クローンが得意とするところです。これにより、インスタンスを2つの動作モード(<literal>master</literal>または<literal>slave</literal>と呼ばれているが、任意の名前を割り当てることができる)のいずれかに設定できます。プロモータブルクローンは、グループまたは通常リソースを1つだけ含む必要があります。
+    </para>
+    <para>
+     リソースのモニタリングまたは制約を設定する場合、プロモータブルクローンには、単純なリソースとは異なる要件があります。詳細については、『<citetitle>Pacemaker Explained</citetitle>』を参照してください。Pacemaker 1.1のバージョンは<link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>から入手できます。特に、「<citetitle>Multi-state - Resources That Have Multiple Modes</citetitle>」のセクションを参照してください。
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.meta.attr">
+   <title>リソースオプション(メタ属性)</title>
+   <para>
+    追加した各リソースについて、オプションを定義できます。クラスタはオプションを使用して、リソースの動作方法を決定します。CRMに特定のリソースの処理方法を通知します。リソースオプションは、<command>crm_resource --meta</command>コマンドまたはHawk2を使用して設定できます(<xref linkend="pro.conf.hawk2.primitive.add"/>を参照)。
+   </para>
+   <table xml:id="tab.ha.basics.meta">
+    <title>プリミティブリソースのオプション</title>
+    <tgroup cols="3">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         オプション
+        </para>
+       </entry>
+       <entry>
+        <para>
+         説明
+        </para>
+       </entry>
+       <entry>
+        <para>
+         デフォルト
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         <literal>優先度</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         一部のリソースをアクティブにできない場合、クラスタは優先度の低いリソースを停止して、優先度の高いリソースをアクティブに維持します。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>0</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>target-role</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         クラスタが維持しようとするこのリソースの状態。使用できる値: <literal>stopped</literal>、<literal>started</literal>、<literal>master</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>開始日</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>is-managed</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         クラスタがリソースを開始して停止できるかどうか。使用できる値:<literal>true</literal>、<literal>false</literal>値が<literal>false</literal>に設定されていても、リソースの状態は引き続き監視され、障害が発生した場合は報告されます。これは、リソースを<literal>maintenance="true"</literal>に設定するのとは異なります。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>true</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>保守モード</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         リソースは手動でタッチできるかどうか。使用できる値:<literal>true</literal>、<literal>false</literal><literal>true</literal>に設定すると、すべてのリソースが非管理対象になり、クラスタによる監視が停止されるため、ステータスは追跡されなくなります。クラスタによってクラスタリソースの再起動が試行される代わりに、ユーザがクラスタリソースを停止または再起動できます。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>false</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>resource-stickiness</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         リソースが現在の状態をどの程度維持したいか。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         計算済み
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>migration-threshold</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         ノードがこのリソースをホストできなくなるまで、このリソースについてノード上で発生する失敗の回数。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>INFINITY</literal> (無効)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>multiple-active</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         複数のノードでアクティブなリソースを検出した場合のクラスタの動作。使用できる値: <literal>block</literal> (リソースを管理されていないとマークする)、<literal>stop_only</literal>、<literal>stop_start</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>stop_start</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>failure-timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         失敗が発生していないように動作する(リソースを失敗したノードに戻す)前に、待機する秒数
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>0</literal> (無効)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>allow-migrate</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>migrate_to</literal>または<literal>migrate_from</literal>のアクションをサポートするリソースにリソース移行を許可。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>false</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-node</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         このリソースが定義するリモートノードの名前。これにより、リモートノードのリソースが有効化されるだけでなく、リモートノードの識別に使用される固有の名前が定義されます。他のパラメータが設定されていない場合、この値はremote-portの接続先の
+         <varname>ホスト名とも</varname>見なされます。
+        </para>
+        <warning>
+         <title>固有のIDの使用</title>
+         <para>
+          この値は、既存のリソースやノードIDとは重複させないでください。
+         </para>
+        </warning>
+       </entry>
+       <entry>
+        <para>
+         なし(無効)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-port</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         pacemaker_remoteへのゲスト接続用のカスタムポート。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>3121</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-addr</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         リモートノードの名前がゲストのホスト名ではない場合に接続するIPアドレスまたはホスト名。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>remote-node</literal> (ホスト名として使用される値)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>remote-connect-timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         中断したゲスト接続がタイムアウトするまでの時間。
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>60s</literal>
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.inst.attr">
+   <title>インスタンス属性(パラメータ)</title>
+
+
+   <para>
+    すべてのリソースクラスのスクリプトでは、動作方法および管理するサービスのインスタンスを指定するパラメータを指定できます。リソースエージェントがパラメータをサポートする場合、それらのパラメータを<command>crm_resource</command>コマンドまたはHawk2を使用して追加できます(<xref linkend="pro.conf.hawk2.primitive.add"/>を参照)。インスタンス属性は、<command>crm</command>コマンドラインユーティリティでは<literal>params</literal>、Hawk2では<literal>Parameter</literal>と呼ばれます。OCFスクリプトでサポートされているインスタンス属性のリストは、次のコマンドを<systemitem class="username">root</systemitem>として実行すると参照できます。
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info <replaceable>[class:[provider:]]resource_agent</replaceable></screen>
+   <para>
+    または(オプション部分なし):
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info <replaceable>resource_agent</replaceable></screen>
+   <para>
+    出力には、サポートされているすべての属性、それらの目的、およびデフォルト値が一覧されます。
+   </para>
+   <para>
+    たとえば、次のコマンドを使用します。
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info IPaddr</screen>
+   <para>
+    次の出力が返されます。
+   </para>
+<screen>Manages virtual IPv4 addresses (portable version) (ocf:heartbeat:IPaddr)
+    
+This script manages IP alias IP addresses
+It can add an IP alias, or remove one.   
+    
+Parameters (* denotes required, [] the default):
+    
+ip* (string): IPv4 address
+The IPv4 address to be configured in dotted quad notation, for example
+"192.168.1.1".                                                        
+    
+nic (string, [eth0]): Network interface
+The base network interface on which the IP address will be brought
+online.                                                           
+    
+If left empty, the script will try and determine this from the    
+routing table.                                                    
+    
+Do NOT specify an alias interface in the form eth0:1 or anything here;
+rather, specify the base interface only.                              
+    
+cidr_netmask (string): Netmask
+The netmask for the interface in CIDR format. (ie, 24), or in
+dotted quad notation  255.255.255.0).                        
+    
+If unspecified, the script will also try to determine this from the
+routing table.                                                     
+    
+broadcast (string): Broadcast address
+Broadcast address associated with the IP. If left empty, the script will
+determine this from the netmask.                                        
+    
+iflabel (string): Interface label
+You can specify an additional label for your IP address here.
+    
+lvs_support (boolean, [false]): Enable support for LVS DR
+Enable support for LVS Direct Routing configurations. In case a IP
+address is stopped, only move it to the loopback device to allow the
+local node to continue to service requests, but no longer advertise it
+on the network.                                                       
+    
+local_stop_script (string): 
+Script called when the IP is released
+    
+local_start_script (string): 
+Script called when the IP is added
+    
+ARP_INTERVAL_MS (integer, [500]): milliseconds between gratuitous ARPs
+milliseconds between ARPs                                         
+    
+ARP_REPEAT (integer, [10]): repeat count
+How many gratuitous ARPs to send out when bringing up a new address
+    
+ARP_BACKGROUND (boolean, [yes]): run in background
+run in background (no longer any reason to do this)
+    
+ARP_NETMASK (string, [ffffffffffff]): netmask for ARP
+netmask for ARP - in nonstandard hexadecimal format.
+    
+Operations' defaults (advisory minimum):
+    
+start         timeout=90
+stop          timeout=100
+monitor_0     interval=5s timeout=20s</screen>
+   <note>
+    <title>グループ、クローン、またはプロモータブルクローンのインスタンス属性</title>
+    <para>
+     グループ、クローン、およびプロモータブルクローンリソースには、インスタンス属性がないので注意してください。ただし、インスタンス属性のセットは、グループ、クローン、またはプロモータブルクローンリソースの子によって継承されます。
+    </para>
+   </note>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.operations">
+   <title>リソース操作</title>
+   <para>
+    デフォルトで、クラスタはリソースが良好な状態であることを保証しません。クラスタにこれを行わせるには、リソースの定義に監視操作を追加する必要があります。監視操作は、すべてのクラスまたはリソースエージェントに追加できます。詳細については、<xref linkend="sec.ha.config.basics.monitoring"/>を参照してください。
+   </para>
+   <table>
+    <title>リソース操作のプロパティ</title>
+    <tgroup cols="2">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         操作
+        </para>
+       </entry>
+       <entry>
+        <para>
+         説明
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         <literal>id</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         アクションに指定する名前。一意にする必要があります。(IDは表示されません)
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>name</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         実行するアクション。共通の値: <literal>monitor</literal>、<literal>start</literal>、<literal>stop</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>interval</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         操作を実行する頻度。単位: 秒
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         アクションが失敗したと宣言する前に待機する長さ。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>requires</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         このアクションが発生する前に満たす必要のある条件。使用できる値: <literal>nothing</literal>、<literal>quorum</literal>、<literal>fencing</literal>デフォルトは、フェンシングが有効でリソースのクラスが<literal>stonith</literal>かどうかによります。STONITHリソースの場合、デフォルトは<literal>nothing</literal>です。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>on-fail</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         このアクションが失敗した場合に実行するアクション。使用できる値:
+        </para>
+        <itemizedlist>
+         <listitem>
+          <para>
+           <literal>ignore</literal>: リソースが失敗しなかったのように動作します。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>block</literal>: リソースにこれ以上の操作を実行しません。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>stop</literal>: リソースを停止して、他の場所でも開始しません。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>restart</literal>: リソースを停止して再起動します(別のノード上で)。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>fence</literal>: リソースが失敗したノードを停止します(STONITH)。
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>standby</literal>: リソースが失敗したノードから<emphasis>すべて</emphasis>のリソースを移動させます。
+          </para>
+         </listitem>
+        </itemizedlist>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>enabled</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         <literal>false</literal>の場合、操作は存在していない場合と同様に処理されます。使用できる値:<literal>true</literal>、<literal>false</literal>
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>role</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         リソースにこの役割がある場合のみ操作を実行します。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>record-pending</literal>
+        </para>
+       </entry>
+       <entry>
+
+        <para>
+         グローバルに設定したり、個々のリソースに対して設定できます。リソース上の<quote>in-flight</quote>操作の状態をCIBに反映させます。
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>description</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         操作について説明します。
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.timeouts">
+   <title>タイムアウト値</title>
+   <para>
+    リソースのタイムアウト値は次の3つのパラメータの影響を受けることがあります。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <varname>op_defaults</varname> (操作用のグローバルタイムアウト)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      リソーステンプレートに対して定義された特定のタイムアウト値
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      リソースに対して定義された特定のタイムアウト値
+     </para>
+    </listitem>
+   </itemizedlist>
+   <note>
+    <title>値の優先度</title>
+    <para>
+     リソースに対して「特定の」値が定義される場合、グローバルデフォルトより優先されます。<emphasis/>また、リソースに対して定義された特定の値は、リソーステンプレートで定義された値より優先されます。
+    </para>
+   </note>
+   <para>
+    タイムアウト値を適切に設定することは非常に重要です。これらの値を短くしすぎると、次のような理由で、多数の(不必要な)フェンシング処理が発生します。
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      リソースでタイムアウトが発生すると、リソースは失敗し、クラスタはリソースを停止しようとします。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      リソースの停止も失敗した場合(たとえば、停止のタイムアウト設定が短すぎる場合)、クラスタはノードをフェンシングします。クラスタは、このノードが制御できなくなっていると見なすからです。
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    操作に対するグローバルデフォルトを調整し、crmshおよびHawk2の両方で特定のタイムアウト値を設定できます。タイムアウト値の決定および設定のベストプラクティスは次のとおりです。
+   </para>
+   <procedure>
+    <title>タイムアウト値の決定</title>
+    <step>
+     <para>
+      負荷の下でリソースが開始および停止するためにかかる時間を確認します。
+     </para>
+    </step>
+    <step>
+     <para>
+      必要に応じて <varname>op_defaults</varname> パラメータを追加し、それに応じて(デフォルト)タイムアウト値を設定します。
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        たとえば、<literal>op_defaults</literal>を<literal>60</literal>秒に設定します。
+       </para>
+<screen><prompt role="custom">crm(live)configure# </prompt> op_defaults timeout=60</screen>
+      </step>
+      <step>
+       <para>
+        さらに長い時間を必要とするリソースについては、個別の値を定義します。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      あるリソースに対して操作を設定する場合には、個別の<literal>start</literal>および<literal>stop</literal>操作を追加します。Hawk2を使用して設定する場合、これらの操作に適したタイムアウト値候補が表示されます。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.monitoring">
+  <title>リソース監視</title>
+
+  <para>
+   リソースが実行中であるかどうか確認するには、そのリソースにリソースの監視を設定しておく必要があります。
+  </para>
+
+  <para>
+   リソースモニタが障害を検出すると、次の処理が行われます。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <filename>/etc/corosync/corosync.conf</filename>の<literal>logging</literal>セクションで指定された設定に従って、ログファイルメッセージが生成されます。
+
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     障害がクラスタ管理ツール(Hawk2、<command>crm status</command>)と、CIBステータスセクションに反映されます。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     クラスタが明瞭な復旧アクションを開始します。これらのアクションには、リソースを停止して障害状態を修復する、ローカルまたは別のノードでリソースを再起動するなどが含まれる場合があります。設定やクラスタの状態によっては、リソースが再起動されないこともあります。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+
+
+  <para>
+   リソースの監視を設定しなかった場合、開始成功後のリソース障害は通知されず、クラスタは常にリソース状態を良好として表示してしまいます。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>停止されたリソースの監視</term>
+    <listitem>
+     <para>
+      通常、リソースは動作している限り、クラスタのみによって監視されます。しかし、同時実行違反を検出するために、停止されるリソースの監視も設定する必要があります。次の例をご覧ください。
+     </para>
+<screen>primitive dummy1 ocf:heartbeat:Dummy \
+    op monitor interval="300s" role="Stopped" timeout="10s" \
+    op monitor interval="30s" timeout="10s"</screen>
+     <para>
+      この設定は、<literal>300</literal>秒ごとに、リソース<literal>dummy1</literal>に対する監視操作をトリガします。これは、リソースが<literal>role="Stopped"</literal>に入ると有効になります。実行中には、リソースは<literal>30</literal>秒ごとに監視されます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>プローブ</term>
+
+    <listitem>
+     <para>
+      CRMはすべてのノードの各リソースに対して、<literal>probe</literal>と呼ばれる初期監視を実行します。probeはリソースのクリーンアップ後にも実行されます。1つのリソースに対して複数の監視操作が定義されている場合、CRMは最も時間間隔の短い監視を1つ選択し、そのタイムアウト値をプローブのデフォルトタイムアウトとして使用します。監視操作が何も設定されていない場合は、クラスタ規模のデフォルトが適用されます。デフォルトは、<literal>20</literal>秒です( <varname>op_defaults</varname>
+      パラメータの設定で別途指定されない場合)。自動計算や<systemitem>op_defaults</systemitem>の値に依存したくない場合は、このリソースの<emphasis/>「プローブ」に対して特定の監視操作を定義します。<literal>interval</literal>を<literal>0</literal>に設定した監視操作を追加することで、この操作を行います。たとえば次のようになります。
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> rsc1 ocf:pacemaker:Dummy \
+    op monitor interval="0" timeout="60"</screen>
+     <para>
+      <systemitem>rsc1</systemitem>のプローブは<literal>60</literal>秒でタイムアウトになります。この値は、
+      <varname>op_defaults</varname>で定義されているグローバルタイムアウトや、その他の操作で設定されているタイムアウトとは無関係です。それぞれのリソースのプローブを指定するために<literal>interval="0"</literal>を設定していない場合、CRMは、そのリソースに定義されている監視操作がほかにないかどうかを自動的に確認し、上で説明されているようにプローブのタイムアウト値を計算します。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   選択したクラスタ管理ツールでリソースに対して監視操作を追加する方法については、次を参照してください。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Hawk2: <xref linkend="pro.hawk2.operations"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     crmsh: <xref linkend="sec.ha.manual_config.monitor"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.constraints">
+  <title>リソースの制約</title>
+
+  <para>
+   すべてのリソースを設定する以外にも、多くの作業が必要です。クラスタが必要なすべてのリソースを認識しても、正しく処理できるとは限りません。リソースの制約を指定して、リソースを実行可能なクラスタノード、リソースのロード順序、特定のリソースが依存している他のリソースを指定することができます。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.constraints.types">
+   <title>制約のタイプ</title>
+   <para>
+    使用可能な制約には3種類あります。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>リソースの場所
+    </term>
+     <listitem>
+      <para>
+       場所の制約はリソースを実行できるノード、できないノード、または実行に適したノードを定義するものです。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>リソースのコロケーション</term>
+     <listitem>
+      <para>
+       コロケーション制約は、ノード上で一緒に実行可能な、または一緒に実行することが禁止されているリソースをクラスタに伝えます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>リソースの順序</term>
+     <listitem>
+      <para>
+       アクションの順序を定義する、順序の制約です。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   
+   <important>
+    <title>制約および特定のタイプのリソースに関する制限</title>
+    <itemizedlist>
+     <listitem>
+      <para>リソースグループの「メンバー」<emphasis/>に対してコロケーション制約を作成しないでください。代わりに、リソースグループ全体を指すリソース制約を作成してください。その他のタイプの制約はすべて、リソースグループのメンバーに対して使用しても問題ありません。</para>
+     </listitem>
+     <listitem>
+      <para>クローンリソースまたはプロモータブルクローンリソースが適用されているリソースで制約を使用しないでください。制約はクローンまたはプロモータブルクローンリソースに適用する必要があり、その子リソースに適用することはできません。</para>
+     </listitem>
+    </itemizedlist>
+   </important>
+   
+   
+   <sect3 xml:id="sec.ha.config.basics.constraints.rscset">
+    <title>リソースセット</title>
+    <para/>
+    <sect4 xml:id="sec.ha.config.basics.constraints.rscset.constraints">
+     <title>制約を定義するためにリソースセットを使用する</title>
+     <para>
+      場所、コロケーション、または順序の制約を定義するための別のフォーマットとして、<literal>resource sets</literal>を使用することができます。リソースセットでは、プリミティブが1つのセットでグループ化されます。以前は、これはリソースグループを定義するか(デザインを正確に表現できない場合もあった)、個々の制約として各関係を定義することでこの操作が可能でした。個々の制約として定義した場合、多数のリソースとの組み合わせが増えるにつれて、制約が飛躍的に増加しました。リソースセットを介した設定で、冗長性が常に低減されるわけではありませんが、次の例が示すように、定義内容の把握と管理がより容易になります。
+     </para>
+     <example xml:id="ex.config.basic.resourceset.loc">
+      <title>場所制約のリソースセット</title>
+      <para>
+       たとえば、crmshでリソースセット(<varname>loc-alice</varname>)の次の設定を使用して、2つの仮想IP (<varname>vip1</varname> および <varname>vip2</varname>)を同じノード、 <varname>aliceに配置できます</varname>。
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=192.168.1.5
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> vip1 ocf:heartbeat:IPaddr2 params ip=192.168.1.6
+<prompt role="custom">crm(live)configure# </prompt><command>location</command> loc-alice { vip1 vip2 } inf: alice </screen>
+     </example>
+     <para>
+      リソースセットを使用してコロケーション制約の設定を置き換える場合は、次の2つの例を検討します。
+     </para>
+     <example>
+      <title>コロケートされたリソースのチェーン</title>
+<screen>&lt;constraints&gt;
+     &lt;rsc_colocation id="coloc-1" rsc="B" with-rsc="A" score="INFINITY"/&gt;
+     &lt;rsc_colocation id="coloc-2" rsc="C" with-rsc="B" score="INFINITY"/&gt;
+     &lt;rsc_colocation id="coloc-3" rsc="D" with-rsc="C" score="INFINITY"/&gt;
+&lt;/constraints&gt;</screen>
+     </example>
+     <para>
+      リソースセットで表される同一の設定:
+     </para>
+<screen>&lt;constraints&gt;
+    &lt;rsc_colocation id="coloc-1" score="INFINITY" &gt;
+     &lt;resource_set id="colocated-set-example" sequential="true"&gt;
+      &lt;resource_ref id="A"/&gt;
+      &lt;resource_ref id="B"/&gt;
+      &lt;resource_ref id="C"/&gt;
+      &lt;resource_ref id="D"/&gt;
+     &lt;/resource_set&gt;
+    &lt;/rsc_colocation&gt;
+&lt;/constraints&gt;</screen>
+     <para>
+      リソースセットを使用して順序の制約の設定を置き換える場合は、次の2つの例を検討します。
+     </para>
+     <example>
+      <title>順序付けされたリソースのチェーン</title>
+<screen>&lt;constraints&gt;
+     &lt;rsc_order id="order-1" first="A" then="B" /&gt;
+     &lt;rsc_order id="order-2" first="B" then="C" /&gt;
+     &lt;rsc_order id="order-3" first="C" then="D" /&gt;
+&lt;/constraints&gt;</screen>
+     </example>
+     <para>
+      順序付けされたリソースを持つリソースセットを使用して、同様な目的を達成できます。
+     </para>
+     <example>
+      <title>リソースセットとして表される順序付けされたリソースのチェーン</title>
+<screen>&lt;constraints&gt;
+     &lt;rsc_order id="order-1"&gt;
+     &lt;resource_set id="ordered-set-example" sequential="true"&gt;
+     &lt;resource_ref id="A"/&gt;
+     &lt;resource_ref id="B"/&gt;
+     &lt;resource_ref id="C"/&gt;
+     &lt;resource_ref id="D"/&gt;
+     &lt;/resource_set&gt;
+     &lt;/rsc_order&gt;
+&lt;/constraints&gt;</screen>
+     </example>
+     <para>
+      これらのセットは、順序付けされている(<literal>sequential=true</literal>)場合もあれば、順序付けされていない場合(<literal>sequential=false</literal>)場合もあります。また、<literal>require-all</literal>属性を使用して、<literal>AND</literal>および<literal>OR</literal>ロジック間を切り替えることができます。
+     </para>
+    </sect4>
+    <sect4 xml:id="sec.ha.config.basics.constraints.rscset.constraints.dep">
+     <title>依存関係のないコロケーション制約のリソースセット</title>
+     <para>
+      同じノード上にリソースのグループを配置する方が役立つ場合がありますが(コロケーション制約を定義)、リソース間に困難な依存関係を持つことはありません。たとえば、同じノード上に2つのリソースを配置したいが、それらの一方で障害が発生した場合に他方をクラスタで再起動したくない場合があります。<emphasis/>これは、<command>weak bond</command>コマンドを使用して、crmシェルで実行できます。
+     </para>
+     <para>
+      選択したクラスタ管理ツールでこれらの<quote>弱い結合</quote>を設定する方法については、次を参照してください。
+     </para>
+     <itemizedlist>
+
+
+      <listitem>
+       <para>
+        crmsh: <xref linkend="sec.ha.manual_config.constraints.weak-bond"/>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </sect4>
+   </sect3>
+   <sect3 xml:id="sec.ha.config.basics.constraints.more">
+    <title>その他の情報</title>
+    <para>
+     様々な種類の制約を追加する方法については、選択したクラスタ管理ツールに応じて次のいずれかを参照してください。
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Hawk2: <xref linkend="sec.conf.hawk2.cons"/>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       crmsh: <xref linkend="sec.ha.manual_config.constraints"/>
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     制約の設定の詳細や、順序付けおよびコロケーションの基本的な概念についての詳しいバックグラウンド情報は次のドキュメントを参照してください。これらのドキュメントは、<link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>で入手できます。
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+        『<citetitle>Pacemaker Explained</citetitle>』の「<citetitle>Resource Constraints</citetitle>」の章
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       『<citetitle>Colocation Explained</citetitle>』
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       『<citetitle>オーダーの概要</citetitle>』
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.constraints.scores">
+   <title>スコアと無限大</title>
+   <para>
+    制約を定義する際は、スコアも扱う必要があります。あらゆる種類のスコアはクラスタの動作方法と密接に関連しています。スコアの操作によって、リソースのマイグレーションから、速度が低下したクラスタで停止するリソースの決定まで、あらゆる作業を実行できます。スコアはリソースごとに計算され、リソースに対して負のスコアが付けられているノードは、そのリソースを実行できません。リソースのスコアを計算した後、クラスタはスコアが最も高いノードを選択します。
+   </para>
+   <para>
+    <literal>INFINITY</literal>は現在<literal>1,000,000</literal>と定義されています。この値の増減は、次の3つの基本ルールに従います。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      任意の値+ INFINITY = INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      任意の値- INFINITY = -INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      INFINITY - INFINITY = -INFINITY
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    リソース制約を定義する際は、各制約のスコアを指定します。スコアはこのリソース制約に割り当てる値を示します。スコアの高い制約は、それよりもスコアが低い制約より先に適用されます。1つのリソースに対して場所の制約を複数作成し、それぞれに異なるスコアを指定することで、リソースがフェールオーバーするノードの順序を指定できます。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.constraints.templates">
+   <title>リソーステンプレートと制約</title>
+   <para>
+    リソーステンプレートを定義したら(<xref linkend="sec.ha.config.basics.resources.templates"/>を参照)、次のタイプの制約で参照できます。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      順序の制約
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      コロケーション制約
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      rsc_ticket制約(Geoクラスタの場合)
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    ただし、コロケーション制約には、テンプレートへの参照を複数含めることはできません。リソースセットには、テンプレートへの参照を含めることはできません。
+   </para>
+   <para>
+    制約内で参照されたリソーステンプレートは、そのテンプレートから派生するすべてのプリミティブを表します。これは、そのリソーステンプレートを参照しているすべてのプリミティブリソースに、この制約が適用されることを意味します。制約内でリソーステンプレートを参照すれば、リソースセットの代替となり、クラスタ設定をかなりの程度単純化することができます。リソースセットの詳細については、<xref linkend="pro.hawk2.constraints.sets"/>を参照してください。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.failover">
+   <title>フェールオーバーノード</title>
+   <para>
+    リソースに障害が発生すると、自動的に再起動されます。現在のノードで再起動できない場合、または現在のノードで<literal>N</literal>回失敗した場合は、別のノードへのフェールオーバーが試行されます。リソースが失敗するたびに、その失敗回数が増加します。新しいノードへのマイグレートを行う基準(<literal>migration-threshold</literal>)となるリソースの失敗をいくつか定義できます。クラスタ内に3つ以上ノードがある場合、特定のリソースのフェールオーバー先のノードはHigh Availabilityソフトウェアが選択します。
+   </para>
+   <para>
+    ただし、リソースに1つ以上の場所の制約と<literal>migration-threshold</literal>を設定することで、そのリソースのフェールオーバー先にするノードを指定できます。
+   </para>
+   <para>
+    選択したクラスタ管理ツールでフェールオーバーノードを指定する方法については、次を参照してください。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2: <xref linkend="sec.conf.hawk2.failover"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh: <xref linkend="sec.ha.manual_config.failover"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <example xml:id="ex.ha.config.basics.failover">
+    <title>マイグレーションしきい値 - プロセスフロー</title>
+    <para>
+     たとえば、リソース「<literal>rsc1</literal>」に場所の制約を設定し、このリソースを「<literal>alice</literal>」で優先的に実行するように指定したと仮定します。そのノードで実行できなかった場合は、「<literal>migration-threshold</literal>」を確認して失敗回数と比較します。失敗回数 &gt;= マイグレーションしきい値の場合は、リソースは次の優先実行先として指定されているノードにマイグレートされます。
+    </para>
+    <para>
+     デフォルトでは、いったんしきい値に達すると、そのノードでは、リソースの失敗回数がリセットされるまで、失敗したリソースを実行できなくなります。これは、手動でクラスタ管理者が行うか、リソースに<literal>failure-timeout</literal>オプションを設定することで実行できます。
+    </para>
+    <para>
+     たとえば、<literal>migration-threshold=2</literal>と<literal>failure-timeout=60s</literal>を設定すると、リソースは、2回の失敗の後に新しいノードに移行します。そして、1分後に復帰できます(固着性と制約のスコアによる)。
+    </para>
+   </example>
+   <para>
+    移行しきい値の概念には2つの例外があり、これらの例外は、リソースの開始失敗か、停止失敗のどちらかで発生します。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      起動の失敗では、失敗回数が<literal>INFINITY</literal>に設定されるので、常に、即時に移行が行われます。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      停止時の失敗ではフェンシングが発生します(［<literal>stonith-enabled</literal>］がデフォルトである「<literal>true</literal>」に設定されている場合)。
+     </para>
+     <para>
+      STONITHリソースが定義されていない場合は(または<literal>stonith-enabled</literal>が<literal>false</literal>に設定されている場合)、リソースの移行は行われません。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    選択したクラスタ管理ツールでマイグレーションしきい値を使用し、失敗回数をリセットする方法については、次を参照してください。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2: <xref linkend="sec.conf.hawk2.failover"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh: <xref linkend="sec.ha.manual_config.failover"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.failback">
+   <title>フェールバックノード</title>
+   <para>
+    ノードがオンライン状態に戻り、クラスタ内にある場合は、リソースが元のノードにフェールバックすることがあります。リソースを実行していたノードにリソースをフェールバックさせたくない場合や、リソースのフェールバック先として別のノードを指定する場合は、リソースの固着性の値を変更します。リソースの固着性は、リソースの作成時でも、その後でも指定できます。
+   </para>
+   <para>
+    リソース固着性値の指定時には、次の予想される結果について考慮してください。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>0</literal>の値:</term>
+     <listitem>
+      <para>
+       デフォルトです。リソースはシステム内で最適な場所に配置されます。現在よりも<quote>状態のよい</quote>、または負荷の少ないノードが使用可能になると、移動することを意味しています。このオプションは自動フェールバックとほとんど同じですが、以前アクティブだったノード以外でもリソースをフェールバックできるという点が異なります。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>0</literal>より大きい値:</term>
+     <listitem>
+      <para>
+       リソースは現在の場所に留まることを望んでいますが、状態がよいノードが使用可能になると移動される可能性があります。値が大きくなるほど、リソースが現在の場所に留まることを強く望んでいることを示します。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>0</literal>より小さい値:</term>
+     <listitem>
+      <para>
+       リソースは現在の場所から別な場所に移動することを望んでいます。絶対値が大きくなるほど、リソースが移動を強く望んでいることを示します。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>INFINITY</literal>の値:</term>
+     <listitem>
+      <para>
+       ノードがリソースの実行権利がなくなったために強制終了される場合(ノードのシャットダウン、ノードのスタンバイ、<literal>migration-threshold</literal>に到達、または設定変更)以外は、リソースは常に現在の場所に留まります。このオプションは自動フェールバックを完全に無効にする場合とほとんど同じです。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>-INFINITY</literal>の値:</term>
+     <listitem>
+      <para>
+       リソースは現在の場所から常に移動されます。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.utilization">
+   <title>負荷インパクトに基づくリソースの配置</title>
+   <para>
+    すべてのリソースが同等ではありません。Xenゲストなどの一部のリソースでは、そのホストであるノードがリソースの容量要件を満たす必要があります。リソースの組み合わされたニーズが提供された容量より大きくなるようにリソースが配置されると、リソースのパフォーマンスが低下します(あるいは失敗することさえあります)。
+   </para>
+   <para>
+    これを考慮に入れて、High Availability Extensionでは、次のパラメータを指定できます。
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      一定のノードが<emphasis>提供する</emphasis>容量
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      一定のリソースが<emphasis>要求する</emphasis>容量
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      リソースの配置に関する全体的なストラテジ
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    選択したクラスタ管理ツールでこれらの設定を設定する方法については、次を参照してください。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2: <xref linkend="sec.config.hawk2.utilization"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh: <xref linkend="sec.ha.manual_config.utilization"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    ノードは、リソースの要件を満たすだけの空き容量があれば、そのリソースに対して資格があるとみなされます。High Availability Extensionにとって、容量の性質は重要ではありません。High Availability Extensionは、リソースをノードに移動する前に、リソースのすべての容量要件が満たされているかどうかを確認するだけです。
+   </para>
+   <para>
+    リソースの要件とノードが提供する容量を手動で設定するには、使用属性を使用します。使用属性に任意の名前を付け、設定に必要なだけ名前/値のペアを定義します。ただし、属性値は、整数にする必要があります。
+   </para>
+   <para>
+    使用属性を持つ複数のリソースがグループ化されていたり、これらにコロケーション制約がある場合、High Availability Extensionではそのことを考慮に入れます。可能な場合、これらのリソースは、<emphasis>すべての</emphasis>容量要件を満たすことができるノードに配置されます。
+   </para>
+   <note>
+    <title>グループの使用属性</title>
+    <para>
+     リソースグループに対して使用属性を直接設定することはできません。ただし、グループの設定を簡素化するために、グループ内のすべてのリソースに必要な合計容量を含む使用属性を追加することができます。
+    </para>
+   </note>
+   <para>
+    High Availability Extensionには、ノードの容量とリソースの要件を自動的に検出し、設定する手段も用意されています。
+   </para>
+   <para>
+    <systemitem>NodeUtilization</systemitem>リソースエージェントは、ノードの容量をチェックします(CPUとRAMについて)。 自動検出を設定するには、クラス、プロバイダ、タイプが<literal>ocf:pacemaker:NodeUtilization</literal>のクローンリソースを作成します。このクローンのインスタンスが各ノードに1つずつ実行している必要があります。インスタンスが開始すると、CIBでそのノードの設定にutilizationセクションが追加されます。
+   </para>
+   <para>
+    リソースの最小要件の自動検出(RAMとCPU)に配慮し、<systemitem>Xen</systemitem>リソースエージェントが改良されました。<systemitem>Xen</systemitem>リソースは、開始時点でRAMとCPUの消費状況を反映します。リソース設定には、使用属性が自動的に追加されます。
+   </para>
+   <note>
+    <title>Xenとlibvirtに異なるリソースエージェントを適用</title>
+    <para>
+     <systemitem>ocf:heartbeat:Xen</systemitem>リソースエージェントは、<literal>libvirt</literal>に使用するべきではありません。<literal>libvirt</literal>ではマシン記述ファイルの変更が想定されているためです。
+    </para>
+    <para>
+     <literal>libvirt</literal>には、<systemitem>ocf:heartbeat:VirtualDomain</systemitem>リソースエージェントを使用します。
+    </para>
+   </note>
+   <para>
+    最小要件を検出することに加え、High Availability Extensionは、<systemitem>VirtualDomain</systemitem>リソースエージェントを通して現在の利用状況を監視することができ、仮想マシンでのCPUとRAMの使用状況を検出します。この機能を使用するには、クラス、プロバイダ、およびタイプが<literal>ocf:heartbeat:VirtualDomain</literal>のリソースを設定します。次のインスタンス属性を使用できます:  <varname>autoset_utilization_cpu</varname> および
+    <varname>autoset_utilization_hv_memory</varname>。両方ともデフォルトは<literal>true</literal>です。これにより、監視サイクルのたびにCIBで使用値が更新されます。
+   </para>
+   <para>
+    容量と要件を手動と自動のどちらで設定する場合でも、<literal>placement-strategy</literal>プロパティ(グローバルクラスタオプション内)で、配置ストラテジを指定する必要があります。次の値を使用できます。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>default</literal> (デフォルト値)</term>
+     <listitem>
+      <para>
+       使用値は考慮しません。リソースは、場所のスコアに従って割り当てられます。スコアが同じであれば、リソースはノード間で均等に分散されます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>utilization</literal>
+     </term>
+     <listitem>
+      <para>
+       リソースの要件を満たすだけの空き容量がノードにあるかどうか決定する際に、利用率を確認します。ただし、負荷分散は、まだ、ノードに割り当てられたリソースの数に基づいて行われます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>minimal</literal>
+     </term>
+     <listitem>
+      <para>
+       リソースの要件を満たすだけの空き容量がノードにあるかどうか決定する際に、利用率を確認します。できるだけ少ない数のノードにリソースを集中しようとします(残りのノードの電力節約のため)。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>balanced</literal>
+     </term>
+     <listitem>
+      <para>
+       リソースの要件を満たすだけの空き容量がノードにあるかどうか決定する際に、利用率を確認します。リソースを均等に分散して、リソースのパフォーマンスを最適化しようとします。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <note>
+    <title>リソース優先度の設定</title>
+    <para>
+     使用できる配置ストラテジは、最善策であり、まだ、複雑なヒューリスティックソルバで、常に最適な割り当て結果を得るには至っていません。リソースの優先度を正しく設定して、最重要なリソースが最初にスケジュールされるようにしてください。
+    </para>
+   </note>
+   <example xml:id="ex.ha.config.basics.utilization">
+    <title>負荷分散型配置の設定例</title>
+    <para>
+     次の例は、同等のノードから成る3ノードクラスタと4つの仮想マシンを示しています。
+    </para>
+<screen>node alice utilization memory="4000"
+node bob utilization memory="4000"
+node  charlie utilization memory="4000"
+primitive xenA ocf:heartbeat:Xen utilization hv_memory="3500" \
+     params xmfile="/etc/xen/shared-vm/vm1"
+     meta priority="10" 
+primitive xenB ocf:heartbeat:Xen utilization hv_memory="2000" \
+     params xmfile="/etc/xen/shared-vm/vm2"
+     meta priority="1"
+primitive xenC ocf:heartbeat:Xen utilization hv_memory="2000" \
+     params xmfile="/etc/xen/shared-vm/vm3"
+     meta priority="1"
+primitive xenD ocf:heartbeat:Xen utilization hv_memory="1000" \
+     params xmfile="/etc/xen/shared-vm/vm4"
+     meta priority="5"
+property placement-strategy="minimal"</screen>
+    <para>
+     3ノードはすべてアクティブであり、まず、リソース<literal>xenA</literal>がノードに配置され、次に、<literal>xenD</literal>が配置されます。<literal>xenB</literal>と<literal>xenC</literal>は、一緒に割り当てられるか、またはどちらか1つが<literal>xenD</literal>とともに割り当てられます。
+    </para>
+    <para>
+     1つのノードに障害が発生した場合、残りのノード上で利用できるメモリ合計が少なすぎて、これらのリソースすべてはホストできません。<literal>xenA</literal>は確実に割り当てられ、<literal>xenD</literal>も同様です。ただし、残りのリソース<literal>xenB</literal>と<literal>xenC</literal>は、そのどちらかしか割り当てられません。xenBとxenCの優先度は同等なので、結果はまだ決められません。これを解決するためにも、どちらかに高い優先度を設定する必要があります。
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.tags">
+   <title>タグの使用によるリソースのグループ化</title>
+   <para>
+    タグは最近Pacemakerに追加された新機能です。タグは、コロケーションの作成や関係の順序付けを行わずに、複数のリソースをただちに参照する方法です。これは、概念的に関連するリソースをグループ化するのに役立つ場合があります。たとえば、データベースに関連するいくつかのリソースがある場合、<literal>databases</literal>というタグを作成し、データベースに関連するすべてのリソースをこのタグに追加します。これにより、1つのコマンドでそれらすべてのリソースを停止または起動できます。
+   </para>
+   <para>
+    タグは制約でも使用できます。たとえば、次の場所制約<literal>loc-db-prefer</literal>は、<literal>databases</literal>でタグ付けしたリソースのセットに適用されます。
+   </para>
+<screen>location loc-db-prefer databases 100: alice</screen>
+   <para>
+    選択したクラスタ管理ツールでタグを作成する方法については、次を参照してください。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+       Hawk2: <xref linkend="pro.conf.hawk2.tag"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh: <xref linkend="sec.ha.manual_config.tag"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.remote">
+  <title>リモートホストでのサービスの管理</title>
+
+ <para>
+   リモートホストでサービスを監視および管理できることが、ここ数年の間にますます重要になってきています。<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 11 SP3では、監視プラグインを介したリモートホスト上のサービスの詳細な監視機能を提供してきました。最近追加された<literal>pacemaker_remote</literal>サービスにより、<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>
+   <phrase role="productnumber"><phrase os="sles"> 15</phrase></phrase>では、リモートマシンへのクラスタスタックのインストールを必要とせずに、実際のクラスタノードと同様に、リモートホスト上でリソースを完全に管理および監視することができます。
+  </para>
+
+  <sect2 xml:id="sec.ha.config.basics.remote.nagios">
+   <title>監視プラグインを使用したリモートホストでのサービスの監視</title>
+   <para>
+    仮想マシンの監視はVMエージェント(ハイパーバイザにゲストが出現する場合のみチェックを行う)を使用して行うか、VirtualDomainまたはXenエージェントから呼び出される外部スクリプトによって行うことができます。これまでは、精度の高い監視を行うには、仮想マシン内にHigh Availabilityスタックを完全にセットアップするしか方法がありませんでした。
+   </para>
+   <para>
+    今回、High Availability Extensionでは、監視プラグイン(旧称はNagiosプラグイン)に対するサポートを提供することで、リモートホスト上のサービスを監視できるようになりました。ゲストイメージを変更することなく、ゲストの外部ステータスを収集できます。たとえば、VMゲストはWebサービスまたは単純なネットワークリソースを実行している可能性があり、これらはアクセス可能である必要があります。Nagiosリソースエージェントによって、ゲスト上のWebサービスまたはネットワークリソースを監視できるようになりました。これらのサービスにアクセスできなくなった場合は、High Availability Extensionがそれぞれのゲストの再起動またはマイグレーションをトリガします。
+   </para>
+   <para>
+    ゲストがサービス(そのゲストによって使用されるNFSサーバなど)に依存している場合、そのサービスは、クラスタによって管理される通常のリソースか、Nagiosリソースによって監視される外部サービスのどちらかにすることができます。
+   </para>
+   <para>
+    Nagiosリソースを設定するには、ホスト上に次のパッケージをインストールする必要があります:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <package>monitoring-plugins</package>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <package>monitoring-plugins-metadata</package>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    必要に応じて、YaSTまたはZypperが、これ以上のパッケージに対する依存性を解決します。
+   </para>
+   <para>
+    一般的な使用例としては、1つのリソースコンテナに属するリソースとして監視プラグインを設定します。このリソースコンテナは通常はVMです。いずれかのリソースに障害が発生したら、このコンテナが再起動されます。設定例については、<xref linkend="ex.ha.nagios.config"/>を参照してください。または、Nagiosリソースエージェントを使用してネットワーク経由でホストまたはサービスを監視する場合、このエージェントを通常のリソースとして設定することもできます。
+   </para>
+   <example xml:id="ex.ha.nagios.config">
+    <title>監視プラグインのリソースの設定</title>
+<screen>primitive vm1 ocf:heartbeat:VirtualDomain \
+    params hypervisor="qemu:///system" config="/etc/libvirt/qemu/vm1.xml" \
+    op start interval="0" timeout="90" \
+    op stop interval="0" timeout="90" \
+    op monitor interval="10" timeout="30"
+primitive vm1-sshd nagios:check_tcp \
+    params hostname="vm1" port="22" \ <co xml:id="co.nagios.hostname"/>
+    op start interval="0" timeout="120" \ <co xml:id="co.nagios.startinterval"/>
+    op monitor interval="10"
+group g-vm1-and-services vm1 vm1-sshd \
+    meta container="vm1" <co xml:id="co.nagios.container"/></screen>
+    <calloutlist>
+     <callout arearefs="co.nagios.hostname">
+      <para>
+       サポートされるパラメータは、監視プラグインの長いオプションと同じです。プラグインは、パラメータ<literal>hostname</literal>によってサービスと接続します。したがって、この属性の値は解決可能なホスト名かIPアドレスである必要があります。
+      </para>
+     </callout>
+     <callout arearefs="co.nagios.startinterval">
+      <para>
+       ゲストオペレーティングシステムが起動してサービスが実行されるまでには少し時間がかかるので、監視リソースの起動タイムアウトは十分な長さに設定する必要があります。
+      </para>
+     </callout>
+     <callout arearefs="co.nagios.container">
+      <para>
+       タイプが<literal>ocf:heartbeat:Xen</literal>、<literal>ocf:heartbeat:VirtualDomain</literal>、または<literal>ocf:heartbeat:lxc</literal>のクラスタリソースコンテナ。VMまたはLinuxコンテナのいずれかに設定できます。
+      </para>
+     </callout>
+    </calloutlist>
+    <para>
+     上の例には、<literal>check_tcp</literal>プラグイン用の1つのリソースしか含まれていませんが、様々なプラグインタイプ(たとえば、<literal>check_http</literal>や<literal>check_udp</literal>など)用に複数のリソースを設定することもできます。
+    </para>
+    <para>
+     複数のサービスのホスト名が同じである場合、<literal>hostname</literal>パラメータを個別のプリミティブに追加するのではなく、グループに対して指定することもできます。次に例を示します。
+    </para>
+<screen>group g-vm1-and-services vm1 vm1-sshd vm1-httpd \ 
+     meta container="vm1" \ 
+     params hostname="vm1" </screen>
+    <para>
+     監視プラグインによって監視されているいずれかのサービスに、VM内で障害が発生した場合は、クラスタがこれを検出し、コンテナリソース(VM)を再起動します。この場合に実行される操作は、サービスの監視操作に関する<literal>on-fail</literal>属性を指定することで設定できます。デフォルトでは、<literal>restart-container</literal>に設定されています。
+    </para>
+    <para>
+     VMのマイグレーションしきい値を検討する場合は、サービスの障害発生回数が考慮されます。
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.config.basics.remote.pace.remote">
+   <title><literal>pacemaker_remote</literal>を使用したリモートノードでのサービスの管理</title>
+   <para>
+    <literal>pacemaker_remote</literal>サービスを使用すると、High Availabilityクラスタを仮想ノードまたはリモートベアメタルマシンに拡張することができます。クラスタスタックを実行して、クラスタのメンバーになる必要はありません。
+   </para>
+   <para>
+    High Availability Ｅｘｔｅｎｓｉonでは現在、仮想環境(KVMおよびLXC)、およびこれらの仮想環境内に存在するリソースを起動できるようになりました(PacemakerまたはCorosyncの実行に仮想環境は必要としません)。
+   </para>
+   <para>
+    クラスタリソースとしての仮想マシンおよびVM内に存在するリソースの両方を管理する使用例では、次の設定を使用できるようになりました。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <quote>通常</quote>(ベアメタル)クラスタノードは、High Availability Extensionを実行します。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      仮想マシンは、<literal>pacemaker_remote</literal>サービスを実行します(VM側で必要な設定はほとんどありません)。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <quote>通常</quote>クラスタノード上のクラスタスタックはVMを起動し、VM上で実行されている<literal>pacemaker_remote</literal>サービスに接続して、それらをリモートノードとしてクラスタに統合します。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    リモートノードでクラスタスタックがインストールされていないときは、これには次の意味があります。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      リモートノードはクォーラムに参加しません。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      リモートノードはDCになることはできません。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      リモートノードは、スケーラビリティの制約に制限されません(Corosyncには32ノードのメンバー制限があります)。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    <literal>remote_pacemaker</literal>サービスに関する詳細については(詳細な設定手順からなる複数の使用例を含む)、<xref linkend="art.sleha.pmremote.quick"/>を参照してください。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.monitor.health">
+  <title>システムヘルスの監視</title>
+
+  <para>
+   ノードがディスク容量が使い尽くしたために、そこに割り当てられたリソースを管理できなくなることを避けるため、High Availability Extensionでは、<systemitem>ocf:pacemaker:SysInfo</systemitem>というリソースエージェントが提供されています。これを使用して、ディスクパーティションに関してノードのヘルスを監視します。SysInfo RAは、<literal>#health_disk</literal>という名前のノード属性を作成します。この属性は、監視対象のディスク空き容量が指定された制限を下回ると<literal>red</literal>に設定されます。
+  </para>
+
+  <para>
+   ノードのヘルスがクリティカルな状態に達した場合のCRMの対応方法を定義するには、グローバルなクラスタオプションである<systemitem>node-health-strategy</systemitem>を使用します。
+  </para>
+
+  <procedure xml:id="pro.ha.health.monitor">
+   <title>システムヘルスの監視設定</title>
+   <para>
+    ノードがディスク容量を使い尽くした場合に、リソースを自動的にノードから移動させるには、次の手順に従います。
+   </para>
+   <step>
+    <para>
+     <systemitem>ocf:pacemaker:SysInfo</systemitem>リソースを設定します。
+    </para>
+<screen><?dbsuse-fo font-size="0.71em"?>
+
+primitive sysinfo ocf:pacemaker:SysInfo \ 
+     params disks="/tmp /var"<co xml:id="co.disks"/> min_disk_free="100M"<co xml:id="co.min_disk_free"/> disk_unit="M"<co xml:id="co.disk_unit"/> \ 
+     op monitor interval="15s"</screen>
+    <calloutlist>
+     <callout arearefs="co.disks">
+      <para>
+       監視対象のディスクパーティション。たとえば、<filename>/tmp</filename>、<filename>/usr</filename>、<filename>/var</filename>、<filename>/dev</filename>など。複数のパーティションを属性値として指定するには、空白で区切ります。
+      </para>
+      <note>
+       <title><filename>/</filename>のファイルシステムは常に監視されます。</title>
+       <para>
+        <literal>disks</literal>でルートパーティション(<filename>/</filename>)を指定する必要はありません。これはデフォルトで常に監視されます。
+       </para>
+      </note>
+     </callout>
+     <callout arearefs="co.min_disk_free">
+      <para>
+       これらのパーティションの必要最小限の空きディスク容量。オプションで、計測に使用する単位を指定できます(上記の例では、メガバイトを表す<literal>M</literal>が使用されています)。指定しない場合、<systemitem>min_disk_free</systemitem>は<systemitem>disk_unit</systemitem>パラメータで定義されている単位にデフォルト設定されます。
+      </para>
+     </callout>
+     <callout arearefs="co.disk_unit">
+      <para>
+       ディスク容量をレポートする場合の単位。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>
+     リソース設定を完了するには、<systemitem>ocf:pacemaker:SysInfo</systemitem>のクローンを作成し、各クラスタノードでそれを起動します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <systemitem>node-health-strategy</systemitem>を<literal>migrate-on-red</literal>に設定します。
+    </para>
+<screen>property node-health-strategy="migrate-on-red"</screen>
+    <para>
+     <systemitem>#health_disk</systemitem>属性が<literal>red</literal>に設定されている場合、ポリシーエンジンによって、そのノードのリソースのスコアに<literal>-INF</literal>が追加されます。これにより、このノードからすべてのリソースが移動します。この処理はSTONITHリソースのところで停止しますが、STONITHリソースが実行されていない場合でも、ノードをフェンスすることができます。フェンスでCIBに直接アクセスすることで、動作を続行できるからです。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   ノードのヘルス状態が<literal>red</literal>になったら、原因となる問題を解決します。次に<literal>red</literal>ステータスをクリアして、ノードを再びリソースの実行に適した状態にします。クラスタノードにログインして、次のいずれかの方法を使用します。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     次のコマンドを実行します:
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> node status-attr <replaceable>NODE</replaceable> delete #health_disk</screen>
+   </listitem>
+   <listitem>
+    <para>
+     該当するノードでPacemakerを再起動します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ノードを再起動します。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   ノードがサービスに復帰し、再びリソースを実行できるようになります。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.config.basics.maint.mode">
+  <title>メンテナンスモード</title>
+
+  <para>
+   クラスタ設定の変更時、個々のノードに対するソフトウェアパッケージの更新時、または上位製品バージョンへのクラスタのアップグレード時であっても、個々のクラスタコンポーネント上、またはクラスタ全体でテストや保守タスクを実行する必要がある場合があります。
+  </para>
+  
+   <para>
+   それに関して、High Availability Extensionは、次のレベルで<literal>maintenance</literal>オプションを提供しています。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     リソース用
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ノード用
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     クラスタ全体用
+    </para>
+   </listitem>
+  </itemizedlist>
+  
+  <warning>
+   <title>データ損失の危険</title>
+   <para>クラスタ制御下でサービスを実行しているときにテストまたは保守タスクを実行する必要がある場合は、次のアウトラインに従ってください。</para>
+   <orderedlist>
+    <listitem>
+     <para>手順を開始する前に、個々のリソース、ノード、またはクラスタ全体を保守モードに設定します。これにより、順序正しくリソースを起動できないなどの望ましくない影響、クラスタノード間でCIBが同期されないリスク、またはデータ損失を避けることができます。 </para>
+    </listitem>
+    <listitem>
+     <para>保守タスクまたはテストを実行します。</para>
+    </listitem>
+    <listitem>
+     <para>完了したら、保守モードを解除して、通常のクラスタ操作を開始します。</para>
+    </listitem>
+   </orderedlist>
+  </warning>
+  
+  <para>
+   保守タスクを実行する必要があり、その間にクラスタによる通知を受信したくない場合は、保守モードを使用します。保守モードでは、ユーザがクラスタリソースを停止または再起動できます。High Availability Extensionでは、これらのリソースが再起動されません。すべてのリソースは自動的に非管理対象になります。High Availability Extensionは監視を終了するため、ステータスが追跡されなくなります。ノード上のすべてのPacemakerサービスを停止することもできます。その場合、Pacemakerの管理対象クラスタリソースとして最初に起動されたすべてのデーモンとプロセスの実行は継続されます。
+  </para>
+  <para>
+   ただし、Pacemakerサービスを停止するとCorosyncも停止するため、リソースによっては想定外の結果になる場合があります。たとえば、DLMはCorosyncが提供するメンバーシップおよびメッセージングのサービスに依存しています。Corosyncが停止した場合、DLMリソースではスプリットブレインシナリオが発生したと見なされ、フェンシング操作がトリガされます。これを回避するには、DLMなどのリソースを手動で停止するか、Pacemakerサービスを停止する前に保守モードを解除する必要があります。
+  </para>
+  <para>
+   クラスタが保守モードのときに、ノード上でPacemakerサービスを起動しようとする場合、Pacemakerはリソースごとに1つのワンショット監視操作(<quote>probe</quote>)を開始し、そのノードで現在どのリソースが実行されているかを評価します。ただし、リソースのステータスを決定する以外の操作は行いません。
+  </para>
+
+  <para>
+   個々のリソースの管理を一時停止したいが、引き続きクラスタでリソースを監視し、障害が発生したときに報告したい場合は、このリソースの<option>is-managed</option>メタ属性を<literal>false</literal>に設定します。この操作を行うには、Hawk2を使用するか、またはcrmシェルで次のコマンドを実行します。
+  </para>
+<screen><prompt role="root">root # </prompt>crm resource unmanage <replaceable>RESOURCE_ID</replaceable></screen>
+  <para>
+   保守モードと<option>is-managed</option>の違いについては、<xref linkend="tab.ha.basics.meta"/>も参照してください。
+  </para>
+  <para>
+   選択したクラスタ管理ツールを使用して保守モードを設定または設定解除する方法の詳細については、次を参照してください。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Hawk2: <xref linkend="sec.conf.hawk2.maintenance"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     crmsh: <xref linkend="sec.ha.manual_config.cli.maint.mode"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.config.basics.more">
+  <title>その他の情報</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/"/>
+    </term>
+    <listitem>
+     <para>
+      crmシェル(crmsh)、High Availabilityクラスタ管理用の高度なコマンドラインインタフェースのホームページ。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/documentation"/>
+    </term>
+    <listitem>
+     <para>
+      crmshを使用した基本的なクラスタ設定の『<citetitle>Getting Started</citetitle>』チュートリアルとcrmシェルの包括的なマニュアル<citetitle/>を含む、crmシェルに関するいくつかのドキュメント。マニュアルは<link xlink:href="http://crmsh.github.io/man-2.0/"/>で入手できます。チュートリアルは<link xlink:href="http://crmsh.github.io/start-guide/"/>に用意されています。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://clusterlabs.org/"/>
+    </term>
+    <listitem>
+     <para>
+      High Availability Extensionに含まれているクラスタリソースマネージャであるPacemakerのホームページ。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>
+    </term>
+    <listitem>
+     <para>
+      いくつかの包括的なマニュアルと一般的な概念を説明するより簡潔なドキュメント。次に例を示します。
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+         『<citetitle>Pacemaker Explained</citetitle>』: 参考として包括的で詳細な情報が記載されています。
+       </para>
+      </listitem>
+     
+      <listitem>
+       <para>
+        『<citetitle>Colocation Explained</citetitle>』
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        『<citetitle>オーダーの概要</citetitle>』
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>
