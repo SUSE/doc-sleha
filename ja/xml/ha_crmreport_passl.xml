@@ -1,1 +1,309 @@
-../../en/xml/ha_crmreport_passl.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_crmreport_passl.xml" xml:id="app.crmreport.nonroot" version="5.0">
+ <title><systemitem class="username">root</systemitem>アクセスなしでのクラスタレポートの実行</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  すべてのクラスタノードはSSHによって互いにアクセスできる必要があります。<command>crm report</command> (トラブルシューティング用)などのツールおよびHawk2の<guimenu>履歴エクスプローラ</guimenu>は、ノード間でパスワード不要のSSHアクセスを必要とします。それがない場合、現在のノードからしかデータを収集できません。
+ </para>
+ <para>
+  パスワード不要のSSH <systemitem class="username">root</systemitem>アクセスが規定要件を順守しない場合は、次善策を使用してクラスタレポートを実行できます。これは次の基本手順で構成されます。
+ </para>
+ <orderedlist>
+  <listitem>
+   <para>
+    専用のローカルユーザアカウント(<command>crm report</command>実行用)を作成する。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    できれば標準以外のSSHポートを使用して、そのユーザアカウントにパスワード不要のSSHアクセスを設定する。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    そのユーザに<command>sudo</command>を設定する。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    そのユーザとして<command>crm report</command>を実行する。
+   </para>
+  </listitem>
+ </orderedlist>
+ <para>
+  デフォルトでは、<command>crm report</command>を実行すると、まず<systemitem class="username">root</systemitem>としてリモートノードへのログインを試行し、続いてユーザ<systemitem class="username">hacluster</systemitem>としてログインを試行します。ただし、ローカルセキュリティポリシーによってSSHを使用した<systemitem class="username">root</systemitem>ログインが禁止されている場合、スクリプトの実行はすべてのリモートノードで失敗します。ユーザ<systemitem class="username">hacluster</systemitem>としてスクリプトを実行しようとしても失敗します。これはサービスアカウントであり、そのシェルはログインが禁止されている<filename>/bin/false</filename>に設定されているためです。High Availabilityクラスタのすべてのノードで<command>crm report</command>スクリプトを正常に実行する唯一のオプションは、専用のローカルユーザを作成することだけです。
+ </para>
+ <sect1 xml:id="sec.crmreport.nonroot.user">
+  <title>ローカルユーザアカウントの作成</title>
+
+  <para>
+   次の例では、コマンドラインから<systemitem class="username">hareport</systemitem>という名前のローカルユーザを作成します。パスワードは、セキュリティ要件を満たしていれば何でも構いません。または、YaSTでユーザアカウントを作成してパスワードを設定することもできます。
+  </para>
+
+  <procedure>
+   <title>クラスタレポート実行用の専用ローカルユーザアカウントの作成</title>
+   <step>
+    <para>
+     シェルを起動し、ホームディレクトリ<filename>/home/hareport</filename>を持つユーザ<systemitem class="username">hareport</systemitem>を作成します。
+    </para>
+<screen><prompt role="root">root # </prompt><command>useradd</command> -m -d /home/hareport -c "HA Report" hareport</screen>
+   </step>
+   <step>
+    <para>
+     ユーザのパスワードを設定します。
+    </para>
+<screen><prompt role="root">root # </prompt>passwd hareport</screen>
+   </step>
+   <step>
+    <para>
+     プロンプトが表示されたら、ユーザのパスワードを入力し、確認のために再度入力します。
+    </para>
+   </step>
+  </procedure>
+
+  <important>
+   <title>各クラスタノードで同じユーザが必要</title>
+   <para>
+    すべてのノードで同じユーザアカウントを作成するため、各ノードで上の手順を繰り返してください。
+   </para>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec.crmreport.nonroot.ssh">
+  <title>パスワード不要のSSHアカウントの設定</title>
+
+    <procedure>
+   <title>SSHデーモンに対する非標準ポートの設定</title>
+   <para>
+    デフォルトでは、SSHデーモンおよびSSHクライアントはポート<literal>22</literal>で通信およびリスンします。ネットワークセキュリティガイドラインによって、デフォルトのSSHポートを大きい番号の別のポートに変更することが要求されている場合は、デーモンの設定ファイル<filename>/etc/ssh/sshd_config</filename>を変更する必要があります。
+   </para>
+   <step>
+    <para>
+     デフォルトポートを変更するには、ファイルで<literal>Port</literal>行を検索してコメント解除し、目的に応じて編集します。たとえば、次のように設定します。
+    </para>
+<screen>Port 5022</screen>
+   </step>
+   <step>
+    <para>
+     組織において<systemitem class="username">root</systemitem>ユーザが他のサーバにアクセスすることが許可されていない場合、このファイルで<literal>PermitRootLogin</literal>エントリを検索してコメント解除し、<literal>no</literal>に設定します。
+    </para>
+<screen>PermitRootLogin no</screen>
+   </step>
+   <step>
+    <para>
+     または、次のコマンドを実行して、各行をファイルの末尾に追加します。
+    </para>
+<screen><prompt role="root">root # </prompt>echo “PermitRootLogin no” &gt;&gt; /etc/ssh/sshd_config
+<prompt role="root">root # </prompt>echo “Port 5022” &gt;&gt; /etc/ssh/sshd_config</screen>
+   </step>
+   <step>
+    <para>
+     <filename>/etc/ssh/sshd_config</filename>を変更したら、SSHデーモンを再起動して新しい設定を有効にします。
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl restart sshd</screen>
+   </step>
+  </procedure>
+
+  <important>
+   <title>各クラスタノードで同じ設定が必要</title>
+   <para>
+    各クラスタノードで、このSSHデーモンの設定を繰り返してください。
+   </para>
+  </important>
+
+  <procedure>
+   <title>SSHクライアントに対する非標準ポートの設定</title>
+   <para>
+    クラスタ内のすべてのノードでSSHポートを変更する場合、SSH設定ファイル<filename>/etc/ssh/sshd_config</filename>を変更するのが便利です。 
+    </para>
+   <step>
+    <para>
+     デフォルトポートを変更するには、ファイルで<literal>Port</literal>行を検索してコメント解除し、目的に応じて編集します。たとえば、次のように設定します。
+    </para>
+<screen>Port 5022</screen>
+   </step>
+   <step>
+    <para>
+     または、次のコマンドを実行して、各行をファイルの末尾に追加します。
+    </para>
+<screen><prompt role="root">root # </prompt>echo “Port 5022” &gt;&gt; /etc/ssh/ssh_config</screen>
+   </step>
+  </procedure>
+
+  <note>
+   <title>1つのノードでのみ設定が必要</title>
+   <para>
+    このSSHクライアントの設定は、クラスタレポートを実行するノードでのみ必要です。</para>
+   <para>または、<option>-X</option>オプションを使用してカスタムSSHポートで<command>crm report</command>を実行することも、<command>crm report</command>がデフォルトでカスタムSSHポートを使用するように設定することもできます。詳細については、<xref linkend="pro.crmreport.custom.ssh"/>を参照してください。</para>
+  </note>
+
+  <procedure>
+   <title>共有SSH鍵の作成</title>
+   <para>
+    パスワードを要求されずに、SSHを使用して他のサーバにアクセスできます。これは一見、安全ではないように見えますが、ユーザは自身の公開鍵が共有されているサーバにしかアクセスできないため、実際は非常に安全なアクセス方法です。共有鍵は、その鍵を使用するユーザとして作成する必要があります。
+   </para>
+   <step>
+    <para>
+     クラスタレポートの実行用に作成したユーザアカウントでノードの1つにログインします(上の例では、このユーザアカウントは<systemitem class="username">hareport</systemitem>です)。
+    </para>
+   </step>
+   <step>
+    <para>
+     新しい鍵を生成します。
+    </para>
+<screen><prompt role="user">hareport &gt; </prompt>ssh-keygen –t rsa</screen>
+    <para>
+     このコマンドは、デフォルトで2,048ビットの鍵を生成します。鍵のデフォルトの場所は<filename>~/.ssh/</filename>です。鍵にパスフレーズを設定するよう求められます。ただし、パスワードなしでログインする場合は、鍵にパスフレーズがあってはならないため、パスフレーズを入力しないでください。
+     </para>
+   </step>
+   <step>
+    <para>
+     鍵が生成されたら、公開鍵を他の「それぞれの」ノードにコピーします(鍵を作成したノードを「含む」)。<emphasis/><emphasis/>
+    </para>
+<screen><prompt role="user">hareport &gt; </prompt>ssh-copy-id -i ~/.ssh/id_rsa.pub <replaceable>HOSTNAME_OR_IP</replaceable></screen>
+    <para>
+     このコマンドでは、各サーバのDNS名、エイリアス、またはIPアドレスを使用できます。コピー中に、各ノードのホスト鍵を受諾するよう求められるので、<systemitem class="username">hareport</systemitem>ユーザアカウントのパスワードを入力する必要があります(パスワードを入力する必要があるのは、ここだけです)。
+    </para>
+   </step>
+   <step>
+    <para>
+     鍵をすべてのクラスタノードと共有したら、パスワード不要のSSHを使用して、ユーザ<systemitem class="username">hareport</systemitem>として他のノードにログインできるかどうかをテストします。
+     </para>
+<screen><prompt role="user">hareport &gt; </prompt>ssh <replaceable>HOSTNAME_OR_IP</replaceable></screen>
+    <para>
+     証明書の受諾やパスワードの入力を要求されることなく、自動的にリモートサーバに接続されます。
+    </para>
+   </step>
+  </procedure>
+
+  <note>
+   <title>1つのノードでのみ設定が必要</title>
+   <para>
+    毎回同じノードからクラスタレポートを実行する場合は、上の手順は、このノードでのみ実行すれば十分です。そうでない場合は、各ノードでこの手順を繰り返します。
+   </para>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec.crmreport.nonroot.sudo">
+  <title><command>sudo</command>の設定</title>
+
+  <para>
+   <command>sudo</command>コマンドは、通常のユーザを素早く<systemitem class="username">root</systemitem>にしてコマンドを発行できるようにします。パスワードの入力は、必要な場合と不要な場合があります。すべてのルートレベルのコマンドにsudoアクセスを付与することも、特定のコマンドにのみ付与することもできます。一般的には、sudoはエイリアスを使用してコマンド文字列全体を定義します。
+  </para>
+
+  <para>
+   sudoを設定するには、<command>visudo</command> (viでは「ありません」<emphasis/>)またはYaSTを使用します。
+  </para>
+
+  <warning>
+   <title>viは使用しない</title>
+   <para>
+    コマンドラインからsudoを設定するには、<command>visudo</command>を使用して、<systemitem class="username">root</systemitem>としてsudoersファイルを編集する必要があります。他のエディタを使用すると、構文エラーやファイルパーミッションエラーが発生し、sudoを実行できないことがあります。
+   </para>
+  </warning>
+
+  <procedure>
+   <step>
+    <para>
+     <systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     <filename>/etc/sudoers</filename>ファイルを開くため、「<command>visudo</command>」と入力します。
+    </para>
+   </step>
+   <step>
+    <para> カテゴリ<literal>Host alias specification</literal>、<literal>User alias specification</literal>、<literal>Cmnd alias specification</literal>、および<literal>Runas alias specification</literal>を探します。 </para>
+   </step>
+   <step>
+    <para>
+     次のエントリを<filename>/etc/sudoers</filename>内のそれぞれのカテゴリに追加します。
+    </para>
+<screen>Host_Alias	CLUSTER = alice,bob,charlie <co xml:id="ha.sudoers.host.alias"/>
+User_Alias HA = hareport <co xml:id="ha.sudoers.user.alias"/>
+Cmnd_Alias HA_ALLOWED = /bin/su, /usr/sbin/crm report *<co xml:id="ha.sudoers.cmd.alias"/>
+Runas_Alias R = root <co xml:id="ha.sudoers.runas.alias"/></screen>
+    <calloutlist>
+     <callout arearefs="ha.sudoers.host.alias">
+      <para>
+       ホストエイリアスは、sudoユーザがコマンド発行権利を持つサーバ(またはサーバの範囲)を定義します。ホストエイリアスでは、DNS名またはIPアドレスを使用するか、ネットワーク範囲全体を指定できます(例: <literal>172.17.12.0/24</literal>)。アクセスの範囲を制限するには、クラスタノードのホスト名のみを指定する必要があります。
+      </para>
+     </callout>
+     <callout arearefs="ha.sudoers.user.alias">
+      <para>
+       ユーザエイリアスでは、複数のローカルユーザアカウントを1つのエイリアスに追加できます。ただし、この場合、使用するアカウントは1つだけであるため、エイリアスの作成を避けることができます。上の例では、クラスタレポート実行用に作成した<systemitem class="username">hareport</systemitem>ユーザを追加しています。
+      </para>
+     </callout>
+     <callout arearefs="ha.sudoers.cmd.alias">
+      <para>
+       コマンドエイリアスは、ユーザが実行できるコマンドを定義します。これは、非ルートユーザが<command>sudo</command>を使用する際にアクセスできるコマンドを制限する場合に便利です。この場合、<systemitem class="username">hareport</systemitem>ユーザアカウントには、コマンド<command>crm report</command> および<command>su</command>に対するアクセスが必要です。
+      </para>
+     </callout>
+     <callout arearefs="ha.sudoers.runas.alias">
+      <para>
+       runasエイリアスは、コマンドの実行に使用するアカウントを指定します。この場合は、<systemitem class="username">root</systemitem>です。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>次の2行を検索します。</para>
+    <screen>Defaults targetpw
+ALL     ALL=(ALL) ALL
+    </screen>
+    <para>これらは、作成したい設定と衝突するため、無効にします。</para>
+    <screen>#Defaults targetpw
+#ALL     ALL=(ALL) ALL</screen>
+   </step>
+   <step>
+    <para><literal>User privilege specification</literal>を探します。</para>
+   </step>
+   <step>
+    <para>上のエイリアスを定義したら、そこに次のルールを追加できます。</para>
+    <screen>HA	CLUSTER = (R) NOPASSWD:HA_ALLOWED</screen>
+    <para><literal>NOPASSWORD</literal>オプションは、ユーザ<systemitem class="username">hareport</systemitem>がパスワードを入力せずにクラスタレポートを実行できるようにします。</para>
+   </step>
+  </procedure>
+
+  <important>
+   <title>各クラスタノードで同じsudo設定が必要</title>
+   <para>
+    クラスタ内のすべてのノードでこのsudo設定を行う必要があります。sudoに他の変更は必要なく、再起動が必要なサービスもありません。
+   </para>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec.crmreport.nonroot.execute">
+  <title>クラスタレポートの生成</title>
+  <para>上で行った設定でクラスタレポートを実行するには、ノードの1つにユーザ<systemitem class="username">hareport</systemitem>としてログインする必要があります。クラスタレポートを起動するには、<command>crm report</command>コマンドを使用します。次に例を示します。 </para>
+  <screen><prompt role="root">root # </prompt><command>crm report</command> -f 0:00 -n "alice bob charlie"</screen>
+  <para>このコマンドは、指定したノード上の<literal>午前0時</literal>以降の情報をすべて抽出し、現在のディレクトリに<filename>pcmk-<replaceable>DATE</replaceable>.tar.bz2</filename>という名前の<literal>*.tar.bz2</literal>アーカイブを作成します。</para>
+  <procedure xml:id="pro.crmreport.custom.ssh">
+   <title>カスタムSSHポートを使用したクラスタレポートの生成</title>
+   <step>
+    <para>カスタムSSHポートを使用する場合、<command>crm report</command>で<option>-X</option>を使用して、クライアントのSSHポートを変更します。たとえば、カスタムSSHポートが<literal>5022</literal>の場合、次のコマンドを使用します。</para>
+    
+    <screen><prompt role="root">root # </prompt>crm report -X "-p 5022" [...]</screen>
+   </step>
+   <step>
+    <para><command>crm report</command>のカスタムSSHポートを永続的に設定するには、crm対話型シェルを開始します。</para>
+     <screen>crm options</screen>
+   </step>
+   <step>
+    <para>
+     次のように入力します。
+    </para>
+    <screen><prompt role="custom">crm(live)options# </prompt> set core.report_tool_options "-X -oPort=5022"</screen>
+   </step>
+  </procedure>
+   </sect1>
+</appendix>
