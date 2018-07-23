@@ -162,24 +162,6 @@ booth[27900]: 2014/08/13_10:21:23 info: revoke succeeded!</screen>
     <literal>192.168.201.100</literal>) to site <literal>&cluster2;</literal>
     (with the virtual IP <literal>192.168.202.100</literal>), proceed as
     follows:
-<!--<remark>taroth 2018-06: the original introduction to the procedure was:
-
-'Let us assume that the (manually managed) ticket ticket-nfs had been granted to site
-amsterdam (with the virtual IP 192.168.201.100 . This site cannot be reached at the
-moment. Site berlin (with the virtual IP 192.168.202.100 ) is still available.
-If you manage to contact a local administrator on amsterdam , you can verify if the site is
-really down. In that case, the ticket on amsterdam cannot be revoked and the resources
-depending on this ticket cannot be started on berlin unless you manually grant the ticket
-ticket-nfs to berlin.
-
-ygao 2018-06-26: @taroth:How about to rephrase "In that case ...to cluster2" to be something like:
-"Make sure the ticket, or basically the relevant resources, have been relinquished
- from cluster1. If we are sure now it's safe and ready to grant the ticket to cluster2
- and host the relevant resources there, proceed as follows:"
-
-taroth 2018-07-03: @gyan: But how to make sure the ticket/resources have been
-relinquished from cluster1 if the site is already down?
-</remark>-->
    </para>
   <procedure>
    <step>
@@ -210,22 +192,25 @@ relinquished from cluster1 if the site is already down?
      <literal>&ticket1;</literal> to the site <literal>&cluster2;</literal> with:
     </para>
 <screen>&prompt.root;<command>booth</command> grant -s 192.168.202.100 &ticket1;</screen>
+    <para>This enables the resources which depend on this ticket to start on site
+    <literal>&cluster2;</literal>.</para>
    </step>
    <step>
     <para>
-     Activate <literal>&ticket1;</literal> on site <literal>&cluster1;</literal> with:
+     Remove the standby mode for <literal>&ticket1;</literal> on site <literal>&cluster1;</literal>:
     </para>
-<screen>&prompt.root;<command>crm_ticket</command> -t &ticket1; -a 192.168.202.100</screen>
-     <para>Resources depending on &ticket1; will automatically fail over to
-       <literal>&cluster1;</literal> in case
-       <literal>&cluster2;</literal> fails.</para>
+<screen>&prompt.root;<command>crm_ticket</command> -t &ticket1; -a</screen>
+     <para>In case <literal>&cluster2;</literal> fails, resources depending on
+       <literal>&ticket1;</literal> will automatically fail over to site
+       <literal>&cluster1;</literal>.
+     </para>
    </step>
   </procedure>
  </sect2>
  <sect2 xml:id="sec.ha.geo.manage.cli.booth.man-ticket.move">
   <title>Moving a Manual Ticket</title>
    <para>
-    Assuming that you want to move the manual ticket <literal>ticketnfs</literal> from
+    Assuming that you want to move the manual ticket <literal>&ticket3;</literal> from
     site <literal>&cluster1;</literal> (with the virtual IP
     <literal>192.168.201.100</literal>) to site <literal>&cluster2;</literal>
     (with the virtual IP <literal>192.168.202.100</literal>), proceed as
@@ -260,19 +245,16 @@ relinquished from cluster1 if the site is already down?
      <literal>&ticket3;</literal> to the site <literal>&cluster2;</literal> with:
     </para>
 <screen>&prompt.root;<command>booth</command> grant -s 192.168.202.100 &ticket3;</screen>
+    <para>This enables the resources which depend on this ticket to start on site
+     <literal>&cluster2;</literal>.</para>
    </step>
    <step>
     <para>
-     Activate <literal>&ticket3;</literal> on site <literal>&cluster1;</literal> with:
+     If you want to move the resources back to site <literal>&cluster1;</literal> at any point in
+     time, remove the standby mode for <literal>&ticket3;</literal> on site <literal>&cluster1;</literal>:
     </para>
-<screen>&prompt.root;<command>booth</command> grant -a 192.168.202.100 &ticket1;</screen>
-     <para>Resources depending on <literal>&ticket3;</literal> will automatically fail over to
-       <literal>&cluster1;</literal> in case
-       <literal>&cluster2;</literal> fails.</para>
+<screen>&prompt.root;<command>crm_ticket</command> -t &ticket3; -a</screen>
    </step>
-<!--It's not the case for "manual" tickets. Sorry for the misleading in my proposal.
-Put the ticket out of standby mode in cluster1 of course is an optional step for now :-)
-But it'd be something necessary whenever the ticket is moved back to cluster1 and if the resources are expected to run there immediately.-->
   </procedure>
  </sect2>
 
@@ -284,15 +266,29 @@ But it'd be something necessary whenever the ticket is moved back to cluster1 an
      <literal>192.168.201.100</literal>. This site cannot be reached at the
     moment. Site <literal>&cluster2;</literal> (with the virtual IP
      <literal>192.168.202.100</literal>) is still available. </para>
-   <para> If you manage to contact a local administrator on
-     <literal>&cluster1;</literal>, you can verify if the site is really down.
-    In that case, the ticket on <literal>&cluster1;</literal> cannot be revoked
-    and the resources depending on this ticket cannot be started on
-     <literal>&cluster2;</literal> unless you manually grant the ticket
-     <literal>&ticket3;</literal> to <literal>&cluster2;</literal>. To do so,
-    proceed as follows: </para>
- <procedure>
+  <procedure>
    <step>
+    <para>
+      Try to contact a local administrator on site <literal>&cluster1;</literal> and
+      check if the site is down.
+    </para>
+    <itemizedlist>
+     <listitem>
+       <para>If yes, proceed with <xref linkend="step.login" xrefstyle="select:label"/>.</para>
+     </listitem>
+     <listitem>
+       <para>If <literal>&cluster1;</literal> cannot be reached because of a
+        connectivity problem, but the nodes are still running, ask the local
+        cluster administrator to put <literal>&ticket3;</literal> into standby
+        mode on site <literal>&cluster1;</literal>:</para>
+<screen>&prompt.root;<command>crm_ticket</command> -t &ticket3; -s</screen>
+       <para>This will relinquish the resources which depend on <literal>&ticket3;</literal>.
+        Now the ticket can safely be granted to the other site.
+       </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step xml:id="step.login">
     <para> Log in to <literal>&cluster2;</literal>.</para>
    </step>
    <step>
@@ -312,7 +308,7 @@ But it'd be something necessary whenever the ticket is moved back to cluster1 an
    <step>
     <para>Before trying to bring back <literal>&cluster1;</literal> into the
      &geo; cluster again, make sure to revoke <literal>&ticket3;</literal>
-     from <literal>&cluster1;</literal>: </para>
+     on <literal>&cluster1;</literal>: </para>
     <screen>&prompt.root;<command>booth</command> revoke -s 192.168.201.100 &ticket3;</screen>
    </step>
   </procedure>
