@@ -149,7 +149,7 @@
  <sect1 xml:id="sec.ha.storage.protect.steps">
  <title>Overview of Manually Setting Up SBD</title>
  <para>
-  The following steps are necessary to manually set up storage-based protection.
+  The following steps are necessary to manually set up storage-based fencing.
   They must be executed as &rootuser;. Before you start, check <xref
   linkend="sec.ha.storage.protect.req" xrefstyle="sec.ha.storage.protect.req"/>.
   </para>
@@ -200,7 +200,12 @@
    </listitem>
    <listitem>
     <para>The shared storage can be connected via Fibre Channel (FC),
-     Fibre Channel over Ethernet (FCoE), or even iSCSI. </para>
+     Fibre Channel over Ethernet (FCoE), or even iSCSI. In virtualized
+     environments, the hypervisor might provide shared block devices. In any
+     case, content on that shared block device has to be consistant for
+     all cluster nodes. It has to be very shure caching does not brake that
+     consistancy.
+    </para>
    </listitem>
    <listitem>
     <para> The shared storage segment <emphasis>must not</emphasis>
@@ -359,13 +364,13 @@
   </para>
    <example xml:id="ex.ha.storage.protect.sbd-timings">
     <title>Formula for Timeout Calculation</title>
-    <screen>Timeout (msgwait) = (Timeout (watchdog) * 2)
-stonith-timeout = Timeout (msgwait) + 20%</screen>
+    <screen>Timeout (msgwait) = (Timeout (watchdog) * 0.5)
+stonith-timeout = Timeout (msgwait) + 1.2</screen>
    </example>
    <para>
-    For example, if you set the watchdog timeout to <literal>120</literal>,
-    set the <literal>msgwait</literal> timeout to <literal>240</literal> and the
-    <literal>stonith-timeout</literal> to <literal>288</literal>.
+    For example, if you set the watchdog timeout to <literal>180</literal>,
+    set the <literal>msgwait</literal> timeout to <literal>60</literal> and the
+    <literal>stonith-timeout</literal> to <literal>220</literal>.
    </para>
     <para>
      If you use the <package>ha-cluster-bootstrap</package> scripts to set up a
@@ -422,8 +427,12 @@ stonith-timeout = Timeout (msgwait) + 20%</screen>
            <entry><systemitem class="resource">hpwdt</systemitem></entry>
           </row>
           <row>
-           <entry>Dell, Fujitsu, Lenovo (Intel TCO)</entry>
+           <entry>Dell, Fujitsu, Supermicro</entry>
            <entry><systemitem class="resource">iTCO_wdt</systemitem></entry>
+          </row>
+          <row>
+           <entry>Lenovo</entry>
+           <entry><systemitem class="resource">ipmi_watchdog</systemitem></entry>
           </row>
           <row>
            <entry>VM on z/VM on IBM mainframe</entry>
@@ -431,7 +440,7 @@ stonith-timeout = Timeout (msgwait) + 20%</screen>
           </row>
           <row>
            <entry>Xen VM (DomU)</entry>
-           <entry><systemitem class="resource">xen_xdt</systemitem></entry>
+           <entry><systemitem class="resource">xen_wdt</systemitem></entry>
           </row>
           <row>
            <entry>Generic</entry>
@@ -471,7 +480,7 @@ stonith-timeout = Timeout (msgwait) + 20%</screen>
     </step>
     <step>
      <para>Test whether the watchdog module is loaded correctly:</para>
-     <screen>&prompt.root;<command>lsmod</command> | <command>grep</command> dog</screen>
+     <screen>&prompt.root;<command>lsmod</command> | <command>egrep</command> "(wd|dog)"</screen>
     </step>
    </procedure>
   </sect2>
@@ -597,7 +606,7 @@ stonith-timeout = Timeout (msgwait) + 20%</screen>
       and <option>-4</option> options to adjust the timeouts to use for SBD. For
       details, see <xref linkend="sec.ha.storage.protect.watchdog.timings"/>.
       All timeouts are given in seconds:</para>
-      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> -4 180<co xml:id="co.ha.sbd.msgwait"/> -1 90<co xml:id="co.ha.sbd.watchdog"/> create</screen>
+      <screen>&prompt.root;<command>sbd</command> -d /dev/<replaceable>SBD</replaceable> -4 180<co xml:id="co.ha.sbd.msgwait"/> -1 60<co xml:id="co.ha.sbd.watchdog"/> create</screen>
      <calloutlist>
       <callout arearefs="co.ha.sbd.msgwait">
        <para> The <option>-4</option> option is used to specify the
@@ -607,7 +616,7 @@ stonith-timeout = Timeout (msgwait) + 20%</screen>
       <callout arearefs="co.ha.sbd.watchdog">
        <para> The <option>-1</option> option is used to specify the
          <literal>watchdog</literal> timeout. In the example above, it is set
-        to <literal>90</literal> seconds. The minimum allowed value for the
+        to <literal>60</literal> seconds. The minimum allowed value for the
         emulated watchdog is <literal>15</literal> seconds. </para>
       </callout>
      </calloutlist>
@@ -619,10 +628,10 @@ Header version     : 2.1
 UUID               : 619127f4-0e06-434c-84a0-ea82036e144c
 Number of slots    : 255
 Sector size        : 512
-Timeout (watchdog) : 5
+Timeout (watchdog) : 60
 Timeout (allocate) : 2
 Timeout (loop)     : 1
-Timeout (msgwait)  : 10
+Timeout (msgwait)  : 180
 ==Header on disk /dev/<replaceable>SBD</replaceable> is dumped</screen>
     <para> As you can see, the timeouts are also stored in the header, to ensure
     that all participating nodes agree on them. </para>
@@ -760,7 +769,7 @@ Timeout (msgwait)  : 10
     <screen>
 &prompt.crm.conf;<command>property</command> stonith-enabled="true" <co xml:id="co.ha.sbd.st.enabled"/>
 &prompt.crm.conf;<command>property</command> stonith-watchdog-timeout=0 <co xml:id="co.ha.sbd.watchdog-timeout"/>
-&prompt.crm.conf;<command>property</command> stonith-timeout="40s" <co xml:id="co.ha.sbd.st.timeout"
+&prompt.crm.conf;<command>property</command> stonith-timeout="220s" <co xml:id="co.ha.sbd.st.timeout"
 /></screen>
     <calloutlist>
      <callout arearefs="co.ha.sbd.st.enabled">
@@ -776,7 +785,7 @@ Timeout (msgwait)  : 10
      </callout>
      <callout arearefs="co.ha.sbd.st.timeout">
       <para>
-       A <systemitem>stonith-timeout</systemitem> value of <literal>40</literal>
+       A <systemitem>stonith-timeout</systemitem> value of <literal>220</literal>
        would be appropriate if the <literal>msgwait</literal> timeout value for
        SBD was set to <literal>30</literal> seconds.</para>
      </callout>
@@ -1007,7 +1016,11 @@ SBD_WATCHDOG_TIMEOUT=5</screen>
 
  <sect1 xml:id="sec.ha.storage.protect.rsc.fencing">
   <title>Additional Mechanisms for Storage Protection</title>
-  <remark>toms 2018-04-20: this can be improved...</remark>
+  <remark>toms 2018-09-27: (lpinne): the whole SBD chapter should go to the
+   STONITH chapter.
+   SBD is the recommened method for general node fencing. It is not
+   particulraly related to storage protection. In opposite, sfex and
+   sg_persist are purely storage protection.</remark>
   <para>Apart from node fencing via &stonith; there are other methods to achieve
     storage protection at a resource level. For example, SCSI-3 and SCSI-4 use
     persistent reservations whereas <literal>sfex</literal> provides a locking
