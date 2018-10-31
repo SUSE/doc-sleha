@@ -1,0 +1,500 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_maintenance.xml" version="5.0" xml:id="cha.ha.maintenance">
+ <title>保守タスクの実行</title>
+ <info>
+  <abstract>
+   <para>
+    クラスタノードで保守タスクを実行するには、そのノードで実行中のリソースを停止し、それらを移動するか、あるいはそのノードをシャットダウンするか再起動する必要がある場合があります。また、クラスタからリソースの制御を一時的に引き継ぐか、またはリソースを実行中のままにしてクラスタサービスを停止することも必要な場合があります。
+   </para>
+   <para>
+    この章では、負の影響を及ぼすことなくクラスタノードを手動で切断する方法について説明します。また、クラスタスタックが保守タスクを実行するために提供するさまざまなオプションの概要についても説明します。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:maintainer/>
+   <dm:status>編集</dm:status>
+   <dm:deadline/>
+   <dm:priority/>
+   <dm:translation>yes</dm:translation>
+   <dm:languages/>
+   <dm:release/>
+   <dm:repository/>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec.ha.maint.shutdown.node">
+  <title>クラスタノードを切断する意味</title>
+
+  <para>
+   クラスタノードをシャットダウンまたは再起動する(またはノード上でPacemakerサービスを停止する)場合、次のプロセスがトリガされます。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     ノード上で実行されているリソースは停止されるか、ノードから移動します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     リソースの停止が失敗するか、タイムアウトする場合、STONITHメカニズムはノードをフェンシングし、シャットダウンします。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.maint.shutdown.node">
+   <title>クラスタノードの手動による再起動</title>
+   <para>
+    ノードをシャットダウンまたは再起動する前に、順序だった方法でノードのサービスをオフにしたい場合は、次の操作を実行します。
+   </para>
+   <step>
+    <para>
+     再起動またはシャットダウンするノードで、<systemitem class="username">root</systemitem>または同等な権限でログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     ノードを<literal>standby</literal>モードにします。
+    </para>
+<screen><prompt role="root">root # </prompt>crm node standby</screen>
+    <para>
+     このようにすると、サービスはPacemakerのシャットダウンタイムアウトによって制限されることなく、ノードをオフに移行できます。
+    </para>
+   </step>
+   <step>
+    <para>
+     以下を使用してクラスタの状態を確認します。
+    </para>
+<screen><prompt role="root">root # </prompt>crm status</screen>
+    <para>
+     <literal>standby</literal>モード状態の各ノードが示されます。
+    </para>
+<screen>[...]
+Node <replaceable>bob</replaceable>: standby
+[...]</screen>
+   </step>
+   <step>
+    <para>
+     そのノードでPacemakerサービスを停止します。
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl stop pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     ノードを再起動します。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   ノードが再びクラスタに参加しているかどうかを確認するには:
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     <systemitem class="username">root</systemitem>または同等の権限でノードにログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     Pacemakerサービスが開始されているかどうかを確認します。
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl status pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     開始されていない場合は、開始します。
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl start pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     以下を使用してクラスタの状態を確認します。
+    </para>
+<screen><prompt role="root">root # </prompt>crm status</screen>
+    <para>
+     ノードが再びオンラインになっていることが示されます。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.maint.overview">
+  <title>保守タスクのためのさまざまなオプション</title>
+
+  <para>
+   Pacemakerはシステム保守を実行するためのさまざまなオプションを提供しています。
+  </para>
+
+  <variablelist>
+   <varlistentry xml:id="vle.ha.maint.mode.cluster">
+    
+    <term><xref linkend="sec.ha.maint.mode.cluster" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      グローバルクラスタプロパティ<literal>maintenance-mode</literal>により、すべてのリソースを瞬時に保守状態にすることができます。クラスタはモニタリングを停止し、ステータスが追跡されなくなります。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.mode.node">
+    
+    <term><xref linkend="sec.ha.maint.mode.node" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      このオプションにより、特定のノードで実行されているすべてのリソースを瞬時に保守状態にすることができます。クラスタはモニタリングを停止し、ステータスが追跡されなくなります。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.node.standby">
+    
+    <term><xref linkend="sec.ha.maint.node.standby" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      スタンバイモードのノードはリソースを実行できなくなります。ノード上で実行されているすべてのリソースは移動するか停止されます(他のノードがリソースを実行する資格がない場合)。また、ノード上のすべての監視操作は停止されます(<literal>role="Stopped"</literal>に設定された操作を除く)。
+     </para>
+     <para>
+      別のノードで実行されているサービスを提供し続けながら、クラスタ内の1台のノードを停止する必要がある場合は、このオプションを使用できます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.mode.rsc">
+    
+    <term><xref linkend="sec.ha.maint.mode.rsc" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      リソースに対してこのモードが有効な場合、リソースの監視操作はトリガされません。
+     </para>
+     <para>
+      このリソースで管理されるサービスに手動で介入する必要があり、その間にリソースの監視操作をクラスタに実行させない場合は、このオプションを使用します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.rsc.unmanaged">
+    
+    <term><xref linkend="sec.ha.maint.rsc.unmanaged" xrefstyle="select:title"/></term>
+     <listitem>
+     <para>
+      <option>is-managed</option>メタ属性により、リソースを一時的にクラスタスタックによって管理されている状態から<quote>解放</quote>することができます。これは、このリソースによって管理されるサービスに手動で介入できることを意味します(たとえば、コンポーネントを調整するなど)。ただし、クラスタはリソースの「監視」<emphasis/>と障害の報告を継続して行います。
+     </para>
+     <para>
+      クラスタによるリソースの「監視」<emphasis/>を停止したい場合は、代わりにリソース単位の保守モードを使用します(<xref linkend="vle.ha.maint.mode.rsc"/>を参照してください)。
+     </para>
+    </listitem>
+   </varlistentry>
+   
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.maint.outline">
+  <title>保守作業の準備と終了</title>
+
+  <warning>
+   <title>データ損失の危険</title>
+   <para>
+    テストまたは保守作業を実行する必要がある場合は、以下の一般的な手順に従います。
+   </para>
+   <para>
+    従わない場合、リソースが順序だった方法で起動できない、クラスタノード間でCIBが同期されない、データ損失などの、望ましくない負の影響が及ぼされるリスクがあります。
+   </para>
+   <procedure>
+   <step>
+    <para>
+     開始する前に、<xref linkend="sec.ha.maint.overview" xrefstyle="select:label"/>で概説されている、自分の状況に適したオプションを選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     Hawk2またはcrmshを使用してこのオプションを適用します。
+    </para>
+   </step>
+   <step>
+    <para>
+     保守タスクまたはテストを実行します。
+    </para>
+   </step>
+   <step>
+    <para>
+     終了したら、リソース、ノードまたはクラスタを<quote>通常</quote>の操作状態に戻します。
+    </para>
+   </step>
+  </procedure>
+ </warning>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.maint.mode.cluster">
+  <title>クラスタを保守モードにする</title>
+   <para>
+    クラスタをcrmシェル上で保守モードにするには、次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=true</screen>
+  <para>
+    保守作業が完了した後で、クラスタを通常のモードに戻すには次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=false</screen>
+
+<procedure xml:id="pro.ha.maint.mode.cluster.hawk2">
+   <title>クラスタをHawk2を使用して保守モードにする</title>
+   <step>
+    <para>
+     <xref linkend="sec.conf.hawk2.login"/>で説明したように、Webブラウザを起動してクラスタにログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーで、<guimenu>クラスタ設定</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>CRMの環境設定</guimenu>グループで、空のドロップダウンボックスから<guimenu>maintenance-mode</guimenu>属性を選択し、プラスアイコンをクリックして追加します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <literal>maintenance-mode=true</literal>を設定するには、<literal>maintenance-mode</literal>の隣のチェックボックスをオンにして、変更を確認します。
+    </para>
+   </step>
+   <step>
+    <para>
+     クラスタ全体の保守作業が完了したら、<literal>maintenance-mode</literal>属性の隣のチェックボックスをオフにします。
+    </para>
+    <para>
+     この時点から、High Availability Extensionはクラスタ管理をもう一度引き継ぎます。
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+ <sect1 xml:id="sec.ha.maint.mode.node">
+  <title>ノードを保守モードにする</title>
+   <para>
+    crmシェル上でノードを保守モードにするには、次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> node maintenance <replaceable>NODENAME</replaceable></screen>
+  <para>
+    保守作業が完了した後で、ノードを通常のモードに戻すには、次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> node ready <replaceable>NODENAME</replaceable></screen>
+
+  <procedure xml:id="pro.ha.maint.mode.nodes.hawk2">
+   <title>ノードをHawk2を使用して保守モードにする</title>
+   <step>
+    <para>
+     <xref linkend="sec.conf.hawk2.login"/>で説明したように、Webブラウザを起動してクラスタにログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーで、<guimenu>クラスタステータス</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     個々のノードのビューのいずれかで、ノードの隣のレンチアイコンをクリックして、<guimenu>保守</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+      保守タスクが終了したら、ノードの横にあるレンチアイコンをクリックして、<guimenu>準備完了</guimenu>を選択します。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.maint.node.standby">
+  <title>ノードをスタンバイモードにする</title>
+   <para>
+    ノードをcrmシェル上でスタンバイモードにするには、次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt>crm node standby <replaceable>NODENAME</replaceable></screen>
+  <para>
+    保守作業が完了した後でノードをオンライン状態に戻すには、次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt>crm node online <replaceable>NODENAME</replaceable></screen>
+
+<procedure xml:id="pro.ha.maint.node.standby.hawk2">
+  <title>ノードをHawk2を使用してスタンバイモードにする</title>
+   <step>
+    <para>
+     <xref linkend="sec.conf.hawk2.login"/>で説明したように、Webブラウザを起動してクラスタにログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーで、<guimenu>クラスタステータス</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     個々のノードのビューのいずれかで、ノードの隣のレンチアイコンをクリックして、<guimenu>スタンバイ</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     ノードの保守タスクを完了します。
+    </para>
+   </step>
+   <step>
+    <para>
+     スタンバイモードを無効化するには、そのノードの隣のレンチアイコンをクリックして<guimenu>準備完了</guimenu>を選択します。
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+ <sect1 xml:id="sec.ha.maint.mode.rsc">
+  <title>リソースを保守モードにする</title>
+   <para>
+    crmシェル上でリソースを保守モードにするには、次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource maintenance <replaceable>RESOURCE_ID</replaceable> true</screen>
+  <para>
+    保守作業が完了した後で、リソースを通常のモードに戻すには次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource maintenance <replaceable>RESOURCE_ID</replaceable> false</screen>
+
+<procedure xml:id="pro.ha.maint.mode.rsc.hawk2">
+   <title>リソースをHawk2を使用して保守モードにする</title>
+   <step>
+    <para>
+     <xref linkend="sec.conf.hawk2.login"/>で説明したように、Webブラウザを起動してクラスタにログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーで、<guimenu>リソース</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     保守モードまたは非管理対象モードにするリソースを選択し、そのリソースの隣のレンチアイコンをクリックして、<guimenu>リソースの編集</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>メタ属性</guimenu>カテゴリが開きます。
+    </para>
+   </step>
+   <step>
+    <para>
+     空のドロップダウンボックスから<guimenu>maintenance</guimenu>属性を選択し、プラスアイコンをクリックして追加します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <literal>maintenance</literal>の隣のチェックボックスをオンにして、maintenance属性を<literal>yes</literal>に設定します。
+    </para>
+   </step>
+   <step>
+    <para>
+     変更内容を確認します。
+    </para>
+   </step>
+   <step>
+    <para>
+     該当するリソースの保守作業が完了したら、そのリソースの<literal>maintenance</literal>属性の隣のチェックボックスをオフにします。
+    </para>
+    <para>
+     リソースは、この時点から再びHigh Availability Extensionソフトウェアによって管理されます。
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+<sect1 xml:id="sec.ha.maint.rsc.unmanaged">
+  <title>リソースを非管理対象モードにする</title>
+   <para>
+    crmシェル上でリソースを非管理対象モードにするには、次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource unmanage <replaceable>RESOURCE_ID</replaceable></screen>
+  <para>
+    保守作業が完了した後で再び管理対象モードにするには、次のコマンドを使用します。</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource manage <replaceable>RESOURCE_ID</replaceable></screen>
+
+ <procedure xml:id="pro.ha.maint.rsc.unmanaged.hawk2">
+   <title>リソースをHawk2を使用して非管理対象モードにする</title>
+   <step>
+    <para>
+     <xref linkend="sec.conf.hawk2.login"/>で説明したように、Webブラウザを起動してクラスタにログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     左ナビゲーションバーから、<guimenu>状態</guimenu>を選択し、<guimenu>リソース</guimenu>リストに移動します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>操作</guimenu>列で、変更したいリソースの横にある下矢印アイコンをクリックして<guimenu>編集</guimenu>を選択します。
+    </para>
+    <para>
+     リソース設定画面が開きます。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>メタ属性</guimenu>の下で、空のドロップダウンボックスから<guimenu>is-managed</guimenu>エントリを選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     その値を<literal>No</literal>に設定し、<guimenu>適用</guimenu>をクリックします。
+    </para>
+   </step>
+   <step>
+    <para>
+     保守タスクが終了した後で、<guimenu>is-managed</guimenu>を<literal>Yes</literal>に設定し(デフォルト値です)、変更を適用します。
+    </para>
+    <para>
+     リソースは、この時点から再びHigh Availability Extensionソフトウェアによって管理されます。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+<sect1 xml:id="sec.ha.maint.shutdown.node.maint.mode">
+ <title>保守モード中のクラスタノードの再起動</title>
+    <note>
+      <title>意味</title>
+      <para>
+       クラスタまたはノードが保守モードの場合、クラスタリソースを任意に停止したり再起動したりできます。High Availability Extensionはこれらを再起動しようとしません。ノード上のPacemakerサービスを停止する場合、(Pacemakerの管理対象クラスタリソースとして最初に起動された)すべてのデーモンとプロセスの実行は継続されます。
+      </para>
+      <para>
+       クラスタまたはノードが保守モードのときに、ノード上でPacemakerサービスを起動しようとする場合、Pacemakerはリソースごとに1つのワンショット監視操作(<quote>probe</quote>)を開始し、そのノードで現在どのリソースが実行されているかを評価します。ただし、リソースのステータスを決定する以外の操作は行いません。
+      </para>
+     </note>
+
+   <procedure>
+    <para>
+    クラスタまたはノードが<literal>保守モード</literal>のときにノードを切断する場合は、次のようにします。
+    </para>
+    <step>
+    <para>
+     再起動またはシャットダウンするノードで、<systemitem class="username">root</systemitem>または同等な権限でログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     <literal>ocf:pacemaker:controld</literal>タイプのリソースを使用しているのか、またはこのタイプのリソースに依存しているリソースを使用しているのかどうかを確認します。<literal>ocf:pacemaker:controld</literal>タイプのリソースはDLMリソースです。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       その場合は、DLMリソースとそれに依存しているすべてのリソースを明示的に停止します。
+      </para>
+<screen><prompt role="custom">crm(live)resource# </prompt>stop <replaceable>RESOURCE_ID</replaceable></screen>
+      <para>
+       その理由は、Pacemakerを停止すると、DLMが依存するメンバーシップとメッセージングサービスを持つCorosyncサービスも停止するからです。Corosyncが停止した場合、DLMリソースではスプリットブレインシナリオが発生したと見なされ、フェンシング操作がトリガされます。
+      </para>
+     </step>
+     <step>
+       <para>
+        そうでない場合は、<xref linkend="step.stop.pcmkr.service"/>に進みます。
+       </para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="step.stop.pcmkr.service">
+    <para>
+     そのノードでPacemakerサービスを停止します。
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl stop pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     ノードをシャットダウンするか再起動します。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>

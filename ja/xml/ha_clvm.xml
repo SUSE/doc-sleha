@@ -1,0 +1,727 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_clvm.xml" version="5.0" xml:id="cha.ha.clvm">
+ <title>Cluster Logical Volume Manager(cLVM)</title>
+ <info>
+      <abstract>
+        <para>
+    クラスタ上の共有ストレージを管理する場合、ストレージサブシステムに行った変更を各ノードに伝える必要があります。Logical Volume Manager 2 (LVM2)はローカルストレージの管理に多用されており、クラスタ全体のボリュームグループのトランスペアレントな管理をサポートするために拡張されています。クラスタ化されたボリュームグループを、ローカルストレージと同じコマンドで管理できます。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.clvm.overview">
+  <title>概念の概要</title>
+
+
+
+  <para>
+   クラスタLVM2は、さまざまなツールと連携します。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>分散ロックマネージャ(DLM:Distributed Lock Manager)</term>
+    <listitem>
+     <para> ロックを通じてcLVMのディスクアクセスとメタデータへのアクセスを調整します。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>論理ボリュームマネージャ2(LVM2: Logical Volume Manager2)</term>
+    <listitem>
+     <para>
+      1つのファイルシステムをいくつかのディスクに柔軟に分散することができます。LVM2は、ディスクスペースの仮想プールを提供します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>クラスタ化論理ボリュームマネージャ(cLVM: Clustered Logical Volume Manager)</term>
+    <listitem>
+     <para>
+      すべてのノードが変更を知ることができるように、LVMメタデータへのアクセスを調整します。cLVMは、共有データ自体へのアクセスは調整しません。これをcLVMができるようにするには、OCFS2などのクラスタ対応アプリケーションをcLVMの管理対象ストレージの上に設定する必要があります。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec.ha.clvm.config">
+  <title>cLVMの環境設定</title>
+
+  <para>
+   ご使用のシナリオによっては、次のレイヤを使用して、ｃLVMでRAID 1デバイスを作成することができます。
+  </para>
+
+  <remark>toms 2010-03-12 (DEV): What are the advantages and disadvantages?</remark>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>LVM2</title>
+     <para>
+      ファイルシステムのサイズを増減したり、物理ストレージを追加したり、ファイルシステムのスナップショットを作成する場合に、高い柔軟性を提供するソリューションです。この方法については、<xref linkend="sec.ha.clvm.scenario.iscsi"/>に説明があります。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>DRBD</title>
+     <para>
+      RAID 0 (ストライピング)とRAID 1 (ミラーリング)のみを提供します。最後の方式については、<xref linkend="sec.ha.clvm.scenario.drbd"/>に説明があります。
+     </para>
+    </formalpara>
+   </listitem>
+    
+   
+  </itemizedlist>
+  <para>
+   次の前提条件を満たしていることを確認してください。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     共有ストレージデバイス(Fibre Channel、FCoE、SCSI、iSCSI SAN、DRBD*で提供されているデバイスなど)が使用できること
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     DRBDの場合は、両方のノードがプライマリであること(以降の手順で説明)。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LVM2のロックタイプがクラスタを認識するかどうか確認すること。<filename>/etc/lvm/lvm.conf</filename>内のキーワード<literal>locking_type</literal>に値<literal>3</literal>が含まれている必要があります(デフォルトは<literal>1</literal>です)。必要な場合は、この設定をすべてのノード にコピーします。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     cLVMで使用できないため、<systemitem class="daemon">lvmetad</systemitem>デーモンが無効になっているかどうかを確認します。<filename>/etc/lvm/lvm.conf</filename>で、キーワード<literal>use_lvmetad</literal>が<literal>0</literal>に設定される必要があります(デフォルトは<literal>1</literal>です)。必要な場合は、この設定をすべてのノード にコピーします。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <sect2 xml:id="sec.ha.clvm.config.resources">
+   <title>クラスタリソースの作成</title>
+   <para>
+    cLVMを使用するためのクラスタ準備には次の基本的な手順が含まれます。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <xref linkend="pro.ha.clvm.dlmresource" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="pro.ha.clvm.config.cmirrord" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <procedure xml:id="pro.ha.clvm.dlmresource">
+    <title>DLMリソースを作成する</title>
+    <step>
+     <para>
+      シェルを起動して、<systemitem class="username">root</systemitem>としてログインします。
+     </para>
+    </step>
+    <step>
+     <para>
+      クラスタリソースの現在の設定を確認します。</para>
+     <screen><prompt role="root">root # </prompt>crm configure show</screen>
+    </step>
+    <step>
+     <para>
+      すでにDLMリソース(および対応するベースグループおよびベースクローン)を設定済みである場合、<xref linkend="pro.ha.clvm.config.cmirrord"/>で継続します。
+     </para>
+     <para>
+      そうでない場合は、<xref linkend="pro.dlm.resources"/>で説明されているように、DLMリソース、および対応するベースグループとベースクローンを設定します。
+     </para>
+    </step>
+    <step>
+     <para>
+      crmライブ設定を<command>exit</command>で終了します。
+     </para>
+    </step>
+   </procedure>
+
+   
+  </sect2>
+
+  <sect2 xml:id="sec.ha.clvm.config.cmirrord">
+   <title>シナリオ: Cmirrordの設定</title>
+
+   <para>
+    クラスタのミラーログ情報を追跡するには、<systemitem class="daemon">cmirrord</systemitem>デーモンを使用します。このデーモンが実行されていないと、クラスタはミラーリングできません。
+   </para>
+   <para> <filename>/dev/sda</filename>と<filename>/dev/sdb</filename>は、DRBD、iSCSI、その他と同様の共有ストレージデバイスであると想定します。必要な場合は、これらを独自のデバイス名に置き換えます。次の手順に従います。 </para>
+   <procedure xml:id="pro.ha.clvm.config.cmirrord">
+    <title>DLM、CLVM、およびSTONITHの設定</title>
+    <step>
+     <para> 2つ以上のノードを持つクラスタの作成方法については、『<citetitle>インストールおよびセットアップクイックスタート</citetitle>』を参照してください。</para>
+    </step>
+    <step>
+     <para>
+      <command>dlm</command>、<command>clvmd</command>、およびSTONITHを実行するために、クラスタを構成します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> clvmd ocf:heartbeat:clvm \
+        params with_cmirrord=1 \
+        op stop interval=0 timeout=100 \
+	       op start interval=0 timeout=90 \
+	       op monitor interval=20 timeout=20
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dlm ocf:pacemaker:controld \
+        op start timeout="90" \
+        op stop timeout="100" \
+        op monitor interval="60" timeout="60"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> sbd_stonith stonith:external/sbd \
+        params pcmk_delay_max=30
+<prompt role="custom">crm(live)configure# </prompt><command>group</command> g-storage dlm clvmd
+<prompt role="custom">crm(live)configure# </prompt><command>clone</command> cl-storage g-storage \
+        meta interleave="true" ordered=true</screen>
+    </step>
+    <step>
+     <para>
+      <command>exit</command>でcrmshを終了し、変更内容をコミットします。
+     </para>
+    </step>
+   </procedure>
+
+   <para><xref linkend="pro.ha.clvm.config.cmirrord.disks" xrefstyle="select:label"/>を使用してディスクの構成を続行します。
+   </para>
+
+   <procedure xml:id="pro.ha.clvm.config.cmirrord.disks">
+    <title>cLVM用のディスクの構成</title>
+    <step>
+     <para>
+      クラスタ化されたボリュームグループ (VG) を作成します。
+
+     </para>
+<screen><prompt role="root">root # </prompt><command>pvcreate</command> /dev/sda /dev/sdb
+<prompt role="root">root # </prompt><command>vgcreate</command> -cy vg1 /dev/sda /dev/sdb</screen>
+    </step>
+    <step>
+     <para>
+      ミラーログの論理ボリューム (LV) をクラスタ内に作成します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>lvcreate</command> -n lv1 -m1 -l10%VG vg1 --mirrorlog mirrored</screen>
+    </step>
+    <step>
+     <para>
+      <command>lvs</command>を使用して進捗状況を表示します。パーセンテージの数値が100%に到達したら、ミラーディスクは正しく同期化されたということです。
+     </para>
+    </step>
+    <step xml:id="st.ha.clvm.config.cmirrord.test">
+     <para>
+      クラスタ化されたボリューム<filename>/dev/vg/lv1</filename>をテストするには、次の手順に従います。
+     </para>
+     <substeps>
+      <step>
+       <para>
+        <filename>/dev/vg/lv1</filename>を読み込むか、ここに書き込みます。
+       </para>
+      </step>
+      <step>
+       <para>
+        <command>lvchange</command>
+        <option> -an</option>でLVを非アクティブ化します。
+       </para>
+      </step>
+      <step>
+       <para>
+        <command>lvchange</command>
+        <option> -ay</option>でLVをアクティブ化します。
+       </para>
+      </step>
+      <step>
+       <para>
+        <command>lvconvert</command>を使用してミラーログをディスクログに変換します。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      別のクラスタVGにミラーログのLVを作成します。これは前のものとは別のボリュームグループです。
+     </para>
+    </step>
+   </procedure>
+
+   <para>
+    現在のcLVMは、ミラーサイドごとに1つの物理ボリューム (PV) しか処理できません。1つのミラーが実際には、連結またはストライプ化の必要がある複数のPVで構成されている場合、<command>lvcreate</command>はこのことを理解できません。このため、<command>lvcreate</command>および<systemitem>cmirrord</systemitem>メタデータは、複数のPVを1つのサイドに<quote>グループ化</quote>することを理解する必要があり、事実上RAID10をサポートすることになります。
+   </para>
+   <para>
+    <systemitem class="daemon">cmirrord</systemitem>に対してRAID10をサポートするには、次の手順を使用します(<filename>/dev/sda</filename>、<filename>/dev/sdb</filename>、<filename>/dev/sdc</filename>、および<filename>/dev/sdd</filename>は共有ストレージデバイスだとします)。
+   </para>
+   <procedure xml:id="pro.ha.clvm.config.raid10">
+
+    <step>
+     <para>
+      ボリュームグループ (VG) を作成します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>pvcreate</command> /dev/sda /dev/sdb /dev/sdc /dev/sdd
+  Physical volume "/dev/sda" successfully created
+  Physical volume "/dev/sdb" successfully created
+  Physical volume "/dev/sdc" successfully created
+  Physical volume "/dev/sdd" successfully created
+<prompt role="root">root # </prompt><command>vgcreate</command> vgtest /dev/sda /dev/sdb /dev/sdc /dev/sdd
+  Clustered volume group "vgtest" successfully created</screen>
+    </step>
+    <step>
+     <para>
+      ファイル<filename>/etc/lvm/lvm.conf</filename>を開き、<literal>allocation</literal>セクションに移動します。次の行を設定して、ファイルを保存します。
+     </para>
+<screen>mirror_logs_require_separate_pvs = 1</screen>
+    </step>
+    <step>
+     <para>
+      PVにタグを追加します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>pvchange</command> --addtag @a /dev/sda /dev/sdb
+<prompt role="root">root # </prompt><command>pvchange</command> --addtag @b /dev/sdc /dev/sdd</screen>
+     <para>
+      タグは、ストレージオブジェクトのメタデータに割り当てられる順序付けのないキーワードまたは用語です。タグを使用すると、順序付けのないタグのリストをLVM2ストレージオブジェクトのメタデータに添付することによって、それらのオブジェクトのコレクションを有用になるように分類できます。
+     </para>
+    </step>
+    <step>
+     <para>
+      タグを一覧します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>pvs</command> -o pv_name,vg_name,pv_tags /dev/sd{a,b,c,d}</screen>
+     <para>
+      次の出力を受信します。
+     </para>
+<screen>PV        VG   PV Tags
+/dev/sda  vgtest   a
+/dev/sdb  vgtest   a
+/dev/sdc  vgtest   b
+/dev/sdd  vgtest   b</screen>
+    </step>
+   </procedure>
+   <para>
+    LVM2に関する詳細情報が必要な場合は、『SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP4</phrase></phrase> <citetitle> ストレージ管理ガイド</citetitle>』の「<citetitle/>LVM2設定」の章を参照してください。<link xlink:href="http://www.suse.com/documentation/"/>から入手できます。
+   </para>
+  </sect2>
+
+
+  <sect2 xml:id="sec.ha.clvm.scenario.iscsi">
+   <title>シナリオ - SAN上でiSCSIを使用するｃLVM</title>
+   <para>
+    次のシナリオでは、iSCSIターゲットをいくつかのクライアントにエクスポートする2つのSANボックスを使用します。一般的なアイデアが、<xref linkend="fig.ha.clvm.scenario.iscsi"/>で説明されています。
+   </para>
+   <figure xml:id="fig.ha.clvm.scenario.iscsi">
+    <title>ｃLVMによるiSCSIのセットアップ</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="ha_clvm.svg" width="80%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="ha_clvm.png" width="45%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <warning>
+    <title>データ損失</title>
+    <para>
+     以降の手順を実行すると、ディスク上のデータはすべて破壊されます。
+    </para>
+   </warning>
+   <para>
+    まず、1つのSANボックスだけ設定します。各SANボックスは、そのiSCSIターゲットをエクスポートする必要があります。次の手順に従います。
+   </para>
+
+   <procedure xml:id="pro.ha.clvm.scenario.iscsi.targets">
+    <title>iSCSIターゲット(SAN上)を設定する</title>
+    <step>
+     <para>
+      YaSTを実行し、<menuchoice> <guimenu>ネットワークサービス</guimenu> <guimenu>iSCSI LIO Target (iSCSI LIOターゲット)</guimenu> </menuchoice>の順にクリックしてiSCSIサーバモジュールを起動します。
+     </para>
+    </step>
+    <step>
+     <para>
+      コンピュータがブートするたびにiSCSIターゲットを起動したい場合は、<guimenu>ブート時</guimenu>を選択し、そうでない場合は、<guimenu>手動</guimenu>を選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      ファイアウォールが実行中の場合は、<guimenu>ファイアウォールでポートを開く</guimenu>を有効にします。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>グローバル</guimenu>タブに切り替えます。認証が必要な場合は、受信または送信(あるいはその両方の)認証を有効にします。この例では、<guimenu>認証なし</guimenu>を選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      新しいiSCSIターゲットを追加します。
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        <guimenu>ターゲット</guimenu>タブに切り替えます。
+       </para>
+      </step>
+      <step>
+       <para>
+        <guimenu>追加</guimenu>をクリックします。
+       </para>
+      </step>
+      <step xml:id="st.ha.clvm.iscsi.iqn">
+       <para>
+        ターゲットの名前を入力します。名前は、次のようにフォーマットされます。
+       </para>
+<screen>iqn.<replaceable>DATE</replaceable>.<replaceable>DOMAIN</replaceable></screen>
+       <para>
+        フォーマットに関する詳細は、セクション3.2.6.3.1のタイプ「iqn」<citetitle/>(iSCSI修飾名)(<link xlink:href="http://www.ietf.org/rfc/rfc3720.txt"/>)を参照してください。
+       </para>
+      </step>
+      <step>
+       <para>
+        より説明的な名前にしたい場合は、さまざまなターゲットで一意であれば、識別子を変更できます。
+       </para>
+      </step>
+      <step>
+       <para>
+        <guimenu>追加</guimenu>をクリックします。
+       </para>
+      </step>
+      <step>
+       <para>
+        <guimenu>パス</guimenu>にデバイス名を入力し、<guimenu>Scsiid</guimenu>を使用します。
+       </para>
+      </step>
+      <step>
+       <para>
+        <guimenu>次へ</guimenu>を2回クリックします。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      警告ボックスで<guimenu>はい</guimenu>を選択して確認します。
+     </para>
+    </step>
+    <step>
+     <para>
+      環境設定ファイル<filename>/etc/iscsi/iscsid.conf</filename>を開き、パラメータ<literal>node.startup</literal>を<literal>automatic</literal>に変更します。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    次の手順に従って、iSCSIイニシエータを設定します。
+   </para>
+   <procedure xml:id="pro.ha.clvm.scenarios.iscsi.initiator">
+    <title>iSCSIイニシエータを設定する</title>
+    <step>
+     <para>
+      YaSTを実行し、<menuchoice> <guimenu>ネットワークサービス</guimenu> <guimenu>iSCSIイニシエータ</guimenu> </menuchoice>の順にクリックします。
+     </para>
+    </step>
+    <step>
+     <para>
+      コンピュータがブートするたびに、iSCSIイニシエータを起動したい場合は、<guimenu>ブート時</guimenu>を選択し、そうでない場合は、<guimenu>手動</guimenu>を選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>検出</guimenu>タブに切り替え、<guimenu>検出</guimenu>ボタンをクリックします。
+     </para>
+    </step>
+    <step>
+     <para>
+      自分のIPアドレスとiSCSIターゲットのポートを追加します(<xref linkend="pro.ha.clvm.scenario.iscsi.targets"/>参照)。通常は、ポートを既定のままにし、デフォルト値を使用できます。
+     </para>
+    </step>
+    <step>
+     <para>
+      認証を使用する場合は、受信および送信用のユーザ名およびパスワードを挿入します。そうでない場合は、<guimenu>認証なし</guimenu>を選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>次へ</guimenu>を選択します。検出された接続が一覧されます。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>完了</guimenu>をクリックして続行します。
+     </para>
+    </step>
+    <step>
+     <para>
+      シェルを開いて、<systemitem class="username">root</systemitem>としてログインします。
+     </para>
+    </step>
+    <step>
+     <para>
+      iSCSIイニシエータが正常に起動しているかどうかテストします。
+     </para>
+<screen><prompt role="root">root # </prompt><command>iscsiadm</command> -m discovery -t st -p 192.168.3.100
+192.168.3.100:3260,1 iqn.2010-03.de.jupiter:san1</screen>
+    </step>
+    <step>
+     <para>
+      セッションを確立します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>iscsiadm</command> -m node -l -p 192.168.3.100 -T iqn.2010-03.de.jupiter:san1
+Logging in to [iface: default, target: iqn.2010-03.de.jupiter:san1, portal: 192.168.3.100,3260]
+Login to [iface: default, target: iqn.2010-03.de.jupiter:san1, portal: 192.168.3.100,3260]: successful</screen>
+     <para>
+      <command>lsscsi</command>でデバイス名を表示します。
+     </para>
+<screen>...
+[4:0:0:2]    disk    IET      ...     0     /dev/sdd
+[5:0:0:1]    disk    IET      ...     0     /dev/sde</screen>
+     <para>
+      3番目の列に<literal>IET</literal>を含むエントリを捜します。この場合、該当するデバイスは、<filename>/dev/sdd</filename>と<filename>/dev/sde</filename>です。
+     </para>
+    </step>
+   </procedure>
+   <procedure xml:id="pro.ha.clvm.scenarios.iscsi.lvm">
+    <title>LVM2ボリュームグループを作成する</title>
+    <step>
+     <para>
+      <xref linkend="pro.ha.clvm.scenarios.iscsi.initiator"/>のiSCSIイニシエータを実行したノードの1つで、<systemitem class="username">root</systemitem>シェルを開きます。
+     </para>
+    </step>
+    <step>
+     <para>
+      ディスク<filename>/dev/sdd</filename>および<filename>/dev/sde</filename>でコマンド<command>pvcreate</command>を使用して、LVM2用に物理ボリュームを準備します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>pvcreate</command> /dev/sdd
+<prompt role="root">root # </prompt><command>pvcreate</command> /dev/sde</screen>
+    </step>
+    <step>
+     <para>
+      両方のディスク上でクラスタ対応のボリュームグループを作成します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>vgcreate</command> --clustered y clustervg /dev/sdd /dev/sde</screen>
+    </step>
+    <step>
+     <para>
+      必要に応じて、論理ボリュームを作成します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>lvcreate</command> -m1 --name clusterlv --size 500M clustervg</screen>
+    </step>
+    <step>
+     <para>
+      物理ボリュームを<command>pvdisplay</command>で確認します。
+     </para>
+<screen>  --- Physical volume ---
+      PV Name               /dev/sdd
+      VG Name               clustervg
+      PV Size               509,88 MB / not usable 1,88 MB
+      Allocatable           yes
+      PE Size (KByte)       4096
+      Total PE              127
+      Free PE               127
+      Allocated PE          0
+      PV UUID               52okH4-nv3z-2AUL-GhAN-8DAZ-GMtU-Xrn9Kh
+      
+      --- Physical volume ---
+      PV Name               /dev/sde
+      VG Name               clustervg
+      PV Size               509,84 MB / not usable 1,84 MB
+      Allocatable           yes
+      PE Size (KByte)       4096
+      Total PE              127
+      Free PE               127
+      Allocated PE          0
+      PV UUID               Ouj3Xm-AI58-lxB1-mWm2-xn51-agM2-0UuHFC</screen>
+    </step>
+    <step>
+     <para>
+      ボリュームグループを<command>vgdisplay</command>で確認します。
+     </para>
+<screen>  --- Volume group ---
+      VG Name               clustervg
+      System ID
+      Format                lvm2
+      Metadata Areas        2
+      Metadata Sequence No  1
+      VG Access             read/write
+      VG Status             resizable
+      Clustered             yes
+      Shared                no
+      MAX LV                0
+      Cur LV                0
+      Open LV               0
+      Max PV                0
+      Cur PV                2
+      Act PV                2
+      VG Size               1016,00 MB
+      PE Size               4,00 MB
+      Total PE              254
+      Alloc PE / Size       0 / 0
+      Free  PE / Size       254 / 1016,00 MB
+      VG UUID               UCyWw8-2jqV-enuT-KH4d-NXQI-JhH3-J24anD</screen>
+    </step>
+   </procedure>
+   <para>
+    ボリュームを作成してリソースを起動すると、<filename>/dev/dm-<replaceable>*</replaceable></filename>という名前で新しいデバイスが作成されています。LVM2リソースの上でクラスタ化されたファイルシステム(たとえば、OCFS)を使用することをお勧めします。詳細については、「<xref linkend="cha.ha.ocfs2"/>」を参照してください。
+   </para>
+
+
+  </sect2>
+
+
+
+  <sect2 xml:id="sec.ha.clvm.scenario.drbd">
+   <title>シナリオ - DRBDを使用するｃLVM</title>
+   <para>
+    市、国、または大陸の各所にデータセンターが分散している場合は、次のシナリオを使用できます。
+   </para>
+   <procedure xml:id="pro.ha.clvm.withdrbd">
+    <title>DRBDでクラスタ対応ボリュームグループを作成する</title>
+    <step>
+     <para>
+      プライマリ/プライマリDRBDリソースを作成する
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        まず、<xref linkend="pro.drbd.configure"/>の説明に従って、DRBDデバイスをプライマリ/セカンダリとしてセットアップします。ディスクの状態が両方のノードで<literal>up-to-date</literal>であることを確認します。<command>drbdadm status</command>を使用してこれをチェックします。
+       </para>
+      </step>
+      <step>
+       <para>
+        次のオプションを環境設定ファイル(通常は、<filename>/etc/drbd.d/r0.res</filename>)に追加します。
+       </para>
+<screen>resource r0 {
+  startup {
+    become-primary-on both;
+  }
+
+  net {
+     allow-two-primaries;
+  }
+  ...
+}</screen>
+      </step>
+      <step>
+       <para>
+        変更した設定ファイルをもう一方のノードにコピーします。たとえば、次のように指定します。
+       </para>
+<screen><prompt role="root">root # </prompt><command>scp</command> /etc/drbd.d/r0.res venus:/etc/drbd.d/</screen>
+      </step>
+      <step>
+       <para>
+        <emphasis>両方</emphasis>のノードで、次のコマンドを実行します。
+       </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> disconnect r0
+<prompt role="root">root # </prompt><command>drbdadm</command> connect r0
+<prompt role="root">root # </prompt><command>drbdadm</command> primary r0</screen>
+      </step>
+      <step>
+       <para>
+        ノードのステータスをチェックします。
+    </para>
+    <screen><prompt role="root">root # </prompt><command>drbdadm</command> status r0</screen>
+
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      clvmdリソースをペースメーカーの環境設定でクローンとして保存し、DLMクローンリソースに依存させます。詳細については、<xref linkend="pro.ha.clvm.dlmresource"/>を参照してください。次に進む前に、クラスタでこれらのリソースが正しく機動していることを確認してください。<command>crm status</command>またはWebインタフェースを使用して、実行中のサービスを確認できます。
+     </para>
+    </step>
+    <step>
+     <para>
+      <command>pvcreate</command>コマンドで、LVM2用に物理ボリュームを準備します。たとえば、<filename>/dev/drbd_r0</filename>デバイスでは、コマンドは次のようになります。
+     </para>
+<screen><prompt role="root">root # </prompt><command>pvcreate</command> /dev/drbd_r0</screen>
+    </step>
+    <step>
+     <para>
+      クラスタ対応のボリュームグループを作成します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>vgcreate</command> --clustered y myclusterfs /dev/drbd_r0</screen>
+    </step>
+    <step>
+     <para>
+      必要に応じて、論理ボリュームを作成します。論理ボリュームのサイズは変更できます。たとえば、次のコマンドで、4GBの論理ボリュームを作成します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>lvcreate</command> -m1 --name testlv -L 4G myclusterfs</screen>
+    </step>
+    <step>
+     <para>
+      <remark role="grammar">taroth 2011-10-24: comment by bwiedemann: as file system
+      mounts or raw usage - *as* raw usage passt nicht - for?</remark>VG内の論理ボリュームは、ファイルシステムのマウントまたはraw用として使用できるようになりました。論理ボリュームを使用しているサービスにコロケーションのための正しい依存性があることを確認し、VGをアクティブ化したら論理ボリュームの順序付けを行います。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    このような設定手順を終了すると、LVM2の環境設定は他のスタンドアロンワークステーションと同様に行えます。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.clvm.drbd">
+  <title>有効なLVM2デバイスの明示的な設定</title>
+
+  <para>
+   複数のデバイスが同じ物理ボリュームの署名を共有していると思われる場合(マルチパスデバイスやdrbdなどのように)、LVM2がPVを走査するデバイスを明示的に設定しておくことをお勧めします。
+  </para>
+
+  <para>
+   たとえばコマンド<command>vgcreate</command>がミラーブロックデバイスの代わりに物理デバイスを使用すると、DRBDは混乱してしまい、DRBDのスプリットブレイン状態が発生する場合があります。
+  </para>
+
+  <para>
+   LVM2用の単一のデバイスを非アクティブ化するには、次の手順に従います。
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     ファイル<filename>/etc/lvm/lvm.conf</filename>を編集し、<literal>filter</literal>から始まる行を検索します。
+    </para>
+   </step>
+   <step>
+    <para>
+     そこに記載されているパターンは正規表現として処理されます。冒頭の<quote>a</quote>は走査にデバイスパターンを受け入れることを、冒頭の<quote>r</quote>はそのデバイスパターンのデバイスを拒否することを意味します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <filename>/dev/sdb1</filename>という名前のデバイスを削除するには、次の表現をフィルタルールに追加します。
+    </para>
+<screen>"r|^/dev/sdb1$|"</screen>
+    <para>
+     完全なフィルタ行は次のようになります。
+    </para>
+<screen>filter = [ "r|^/dev/sdb1$|", "r|/dev/.*/by-path/.*|", "r|/dev/.*/by-id/.*|", "a/.*/" ]</screen>
+    <para>
+     DRBDとMPIOデバイスは受け入れ、その他のすべてのデバイスは拒否するフィルタ行は次のようになります。
+    </para>
+<screen>filter = [ "a|/dev/drbd.*|", "a|/dev/.*/by-id/dm-uuid-mpath-.*|", "r/.*/" ]</screen>
+   </step>
+
+   <step>
+    <para>
+     環境設定ファイルを書き込み、すべてのクラスタノードにコピーします。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.clvm.more">
+  <title>詳細</title>
+
+  <para>
+   詳細な情報は、<link xlink:href="http://www.clusterlabs.org/wiki/Help:Contents"/>にあるPacemakerメーリングリストから取得できます。
+  </para>
+
+  <para>
+   cLVMのFAQのオフィシャルサイトは<link xlink:href="http://sources.redhat.com/cluster/wiki/FAQ/CLVM"/>です。
+  </para>
+ </sect1>
+</chapter>

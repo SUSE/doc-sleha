@@ -1,0 +1,637 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_ocfs2.xml" version="5.0" xml:id="cha.ha.ocfs2">
+ <title>OCFS2</title>
+ <info>
+      <abstract>
+        <para>
+    OCFS 2 (Oracle Cluster File System 2)は、Linux 2.6以降のカーネルに完全に統合されている汎用ジャーナリングファイルシステムです。Oracle Cluster File System 2を利用すれば、アプリケーションバイナリファイル、データファイル、およびデータベースを、共有ストレージ中のデバイスに保管することができます。このファイルシステムには、クラスタ中のすべてのノードが同時に読み書きすることができます。ユーザスペース管理デーモンは、クローンリソースを介して管理され、HAスタック(特に、CorosyncおよびDLM (Distributed Lock Manager))との統合を実現します。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:translation>yes</dm:translation>
+      </dm:docmanager>
+    </info>
+    <indexterm class="startofrange" xml:id="idx.filesystems.ocfs2">
+ <primary> ファイルシステム</primary>
+ <secondary> OCFS2</secondary></indexterm> 
+ <sect1 xml:id="sec.ha.ocfs2.features">
+  <title>特長と利点</title>
+
+  <para>
+   OCFS2は、たとえば、次のストレージソリューションに使用できます。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     一般のアプリケーションとワークロード。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     クラスタ中のXENイメージ。Xen仮想マシンと仮想サーバは、クラスタサーバによってマウントされたOCFS2ボリュームに保存できます。これによって、サーバ間でXen仮想マシンを素早く容易に移植できます。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LAMP (Linux、Apache、MySQL、およびPHP | Perl | Python)スタック。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   OCF2は、高パフォーマンスでシンメトリックなパラレルクラスタファイルシステムとして、次の機能をサポートします。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     アプリケーションのファイルを、クラスタ内のすべてのノードで使用できます。ユーザは、クラスタ中のOracle Cluster File System 2ボリュームに1回インストールするだけで構いません。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     すべてのノードが、標準ファイルシステムインタフェースを介して、同時並行的に、ストレージに直接読み書きできるので、クラスタ全体に渡わたって実行されるアプリケーションの管理が容易になります。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ファイルアクセスがDLMを介して調整されます。ほとんどの場合、DLMによる制御は適切に機能しますが、アプリケーションの設計によっては、アプリケーションとDLMがファイルアクセスの調整で競合すると、スケーラビリティが制限されることがあります。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     すべてのバックエンドストレージで、ストレージのバックアップ機能を利用することができます。共有アプリケーションファイルのイメージを簡単に作成することができるため、災害発生時でも素早くデータを復元することができます。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Oracle Cluster File System 2には、次の機能も用意されています。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     メタデータのキャッシュ処理。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     メタデータのジャーナル処理。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ノード間にまたがるファイルデータの整合性。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     最大4KBのマルチブロックサイズ、最大1MBのクラスタサイズ、4PB(ペタバイト)の最大ボリュームサイズをサポートします。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     32台までのクラスタノードをサポート。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     データベースのパフォーマンスを向上する非同期、直接I/Oのサポート。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <note>
+   <title>OCFS2用サポート</title>
+   <para>
+    OCFS2は、<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>によって提供される、pcmk (Pacemaker)スタックと併用する場合にのみ、SUSEによってサポートされます。o2cbスタックと組み合わせた場合、SUSEはOCFS2をサポートしません。
+   </para>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec.ha.ocfs2.utils">
+  <title>OCFS2のパッケージと管理ユーティリティ</title>
+
+  <para>
+   SUSE® Linux Enterprise Server <literal/>12 SP4<phrase role="productnumber"><phrase os="sles">上のHigh Availability Extensionには、OCFS2カーネルモジュール(</phrase></phrase>ocfs2)が自動的にインストールされます。OCFS2を使用するには、<systemitem class="resource">ocfs2-tools</systemitem>と、ご使用のカーネルに適合する<systemitem class="resource">ocfs2-kmp-*</systemitem>パッケージが、クラスタの各ノードにインストールされていることを確認してください。
+  </para>
+
+  <para>
+   <systemitem class="resource">ocfs2-tools</systemitem>パッケージには、次に示すOCFS2ボリュームの管理ユーティリティがあります。構文については、各マニュアルページを参照してください。
+  </para>
+
+  <table>
+   <title>OCFS2ユーティリティ</title>
+   <tgroup cols="2">
+    <thead>
+     <row>
+      <entry>
+       <para>
+        OCFS2ユーティリティ
+       </para>
+      </entry>
+      <entry>
+       <para>
+        説明
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        debugfs.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        デバッグのために、OCFSファイルシステムの状態を調査します。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        fsck.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        ファイルシステムにエラーがないかをチェックし、必要に応じてエラーを修復します。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        mkfs.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        デバイス上にOCFS2ファイルシステムを作成します。通常は、共有物理/論理ディスク上のパーティションに作成します。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        mounted.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        クラスタシステム上のすべてのOCFS2ボリュームを検出、表示します。OCFS2デバイスをマウントしているシステム上のすべてのノードを検出、表示するか、またはすべてのOCFS2デバイスを表示します。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        tunefs.ocfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        ボリュームラベル、ノードスロット数、すべてのノードスロットのジャーナルサイズ、およびボリュームサイズなど、OCFS2ファイルのシステムパラメータを変更します。
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+ <sect1 xml:id="sec.ha.ocfs2.create.service">
+  <title>OCFS2サービスとSTONITHリソースの設定</title>
+
+
+
+  <para>
+   OCFS2ボリュームを作成する前に、DLMおよびSTONITHリソースをクラスタ内のサービスとして設定する必要があります。
+  </para>
+
+  <para>
+   次の手順では、<command>crm</command>シェルを使用してクラスタリソースを設定します。<xref linkend="sec.ha.ocfs2.rsc.hawk2"/>で説明されているように、リソースの設定にはHawk2を使用することもできます。
+  </para>
+
+  <procedure xml:id="pro.ocfs2.stonith">
+   <title>STONITHリソースの設定</title>
+   <note>
+    <title>必要なSTONITHデバイス</title>
+    <para>
+     フェンシングデバイスを設定する必要があります。STONITHなしでは、設定内に配置されたメカニズム(<literal>external/sbd</literal>など)は失敗します。
+    </para>
+   </note>
+   <step>
+    <para>
+     シェルを起動し、<systemitem class="username">root</systemitem>または同等のものとしてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     <xref linkend="pro.ha.storage.protect.sbd.create"/>で説明されるとおり、SBDパーティションを作成します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>crm</command> <option> configure</option>を実行します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <literal>external/sdb</literal>をフェンシングデバイスとして設定し、<literal>/dev/sdb2</literal>を共有ストレージ上のハートビートとフェンシング専用のパーティションにします。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> sbd_stonith stonith:external/sbd \
+  params pcmk_delay_max=30 meta target-role="Started"</screen>
+   </step>
+   <step>
+    <para>
+     <command>show</command>で変更内容をレビューします。
+    </para>
+   </step>
+   <step>
+    <para>
+     すべて正しければ、<command>commit</command>で変更を送信し、<command>exit</command>でcrmライブ設定を終了します。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+    DLMに対するリソースグループの設定の詳細については、<xref linkend="pro.dlm.resources"/>を参照してください。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.ocfs2.create">
+  <title>OCFS2ボリュームの作成</title>
+
+  <para>
+   <xref linkend="sec.ha.ocfs2.create.service"/>で説明されているように、DLMクラスタリソースを設定したら、システムがOCFS2を使用できるように設定し、OCFs2ボリュームを作成します。
+  </para>
+
+  <note>
+   <title>アプリケーションファイルとデータファイル用のOCFS2ボリューム</title>
+   <para>
+    一般に、アプリケーションファイルとデータファイルは、異なるOCFS2ボリュームに保存することを推奨します。アプリケーションボリュームとデータボリュームのマウント要件が異なる場合は、必ず、異なるボリュームに保存します。
+   </para>
+  </note>
+
+  <para>
+   作業を始める前に、OCFS2ボリュームに使用するブロックデバイスを準備します。デバイスは空き領域のままにしてください。
+  </para>
+
+  <para>
+   次に、<xref linkend="pro.ocfs2.volume"/>で説明されているように、<command>mkfs.ocfs2</command>で、OCFS2ボリュームを作成し、フォーマットします。そのコマンドの重要なパラメータは、<xref linkend="tab.ha.ofcs2.mkfs.ocfs2.params"/>に一覧されています。詳細情報とコマンド構文については、<command>mkfs.ocfs2</command>のマニュアルページを参照してください。
+  </para>
+
+  <table xml:id="tab.ha.ofcs2.mkfs.ocfs2.params">
+   <title>重要なOCFS2パラメータ </title>
+   <tgroup cols="2">
+    <thead>
+     <row>
+      <entry>
+       <para>
+        OCFS2パラメータ
+       </para>
+      </entry>
+      <entry>
+       <para>
+        説明と推奨設定
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        ボリュームラベル(<option>-L</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        異なるノードへのマウント時に、正しく識別できるように、一意のわかりやすいボリューム名を指定します。ラベルを変更するには、<command>tunefs.ocfs2</command>ユーティリティを使用します。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        クラスタサイズ(<option>-C</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        クラスタサイズは、ファイルに割り当てられる、データ保管領域の最小単位です。使用できるオプションと推奨事項については、<command>mkfs.ocfs2</command>のマニュアルページを参照してください。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        ノードスロット数(<option>-N</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        同時にボリュームをマウントできる最大ノード数を指定します。各ノードについて、OCFS2はジャーナルなどの個別のシステムファイルを作成します。ボリュームにアクセスするノードに、リトルエンディアン形式のノード(AMD64/Intel 64など)とビッグエンディアン形式のノード(System zなど)が混在しても構いません。
+       </para>
+       <para>
+        ノード固有のファイルは、ローカルファイルと呼ばれます。ローカルファイルには、ノードスロット番号が付加されます。たとえば、<literal>journal:0000</literal>は、スロット番号<literal>0</literal>に割り当てられたノードに属します。
+       </para>
+       <para>
+        各ボリュームを同時にマウントすると予期されるノード数に従って、各ボリュームの作成時に、そのボリュームの最大ノードスロット数を設定します。<command>tunefs.ocfs2</command>ユーティリティを使用して、必要に応じてノードスロットの数を増やします。ただし、この値は減らすことはできません。
+       </para>
+       <para>
+        <option>-N</option>パラメータを指定しない場合、スロット数はファイルシステムのサイズに基づいて決定されます。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        ブロックサイズ(<option>-b</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        ファイルシステムがアドレス可能な領域の最小単位を指定します。ブロックサイズは、ボリュームの作成時に指定します。使用できるオプションと推奨事項については、<command>mkfs.ocfs2</command>のマニュアルページを参照してください。
+
+       </para>
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <para>
+        特定機能のオン/オフ(<option>--fs-features</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        カンマで区切った機能フラグリストを指定できます。<systemitem>mkfs.ocfs2</systemitem>は、そのリストに従って、それらの機能セットを含むファイルシステムを作成しようとします。機能をオンにするには、その機能をリストに入れます。機能をオフにするには、その名前の前に<literal>no</literal>を付けます。
+       </para>
+       <para>
+        使用できるすべてのフラグの概要については、<command>mkfs.ocfs2</command>のマニュアルページを参照してください。
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        事前定義機能(<option>--fs-feature-level</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        事前定義されたファイルシステム機能セットから選択できます。使用できるオプションについては、<command>mkfs.ocfs2</command>のマニュアルページを参照してください。
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+
+
+
+  <para>
+   <command>mkfs.ocfs2</command>によるボリュームの作成およびフォーマット時に機能を指定しない場合は、<option>backup-super</option>、<option>sparse</option>、<option>inline-data</option>、<option>unwritten</option>、<option>metaecc</option>、<option>indexed-dirs</option>、および<option>xattr</option>の各機能がデフォルトで有効になります。
+  </para>
+
+  <procedure xml:id="pro.ocfs2.volume">
+   <title>OCFS2ボリュームを作成し、フォーマットする</title>
+   <para>
+    クラスタノードの<emphasis>1つ</emphasis>だけで、次の手順を実行します。
+   </para>
+   <step>
+    <para>
+     端末ウィンドウを開いて、<systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     クラスタがオンラインであることをコマンド<command>crm status</command>で確認します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>mkfs.ocfs2</command>ユーティリティを使用して、ボリュームを作成およびフォーマットします。このコマンドの指定形式については、<command>mkfs.ocfs2</command>マニュアルページを参照してください。
+    </para>
+    <para>
+     たとえば、最大32台のクラスタノードをサポートする新しいOCFS2ファイルシステムを<filename>/dev/sdb1</filename>上に作成するには、次のコマンドを使用します。
+    </para>
+<screen><prompt role="root">root # </prompt> mkfs.ocfs2 -N 32 /dev/sdb1</screen>
+
+
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.ocfs2.mount">
+  <title>OCFS2ボリュームのマウント</title>
+
+  <para>
+   OCFS2ボリュームは、手動でマウントするか、クラスタマネージャでマウントできます(<xref linkend="pro.ocfs2.mount.cluster"/>参照)。
+  </para>
+
+  <procedure xml:id="pro.ocfs2.mount.manual">
+   <title>OCFS2ボリュームを手動でマウントする</title>
+   <step>
+    <para>
+     端末ウィンドウを開いて、<systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     クラスタがオンラインであることをコマンド<command>crm status</command>で確認します。
+    </para>
+   </step>
+   <step>
+    <para>
+     コマンドラインから、<command>mount</command>コマンドを使ってボリュームをマウントします。
+    </para>
+   </step>
+  </procedure>
+
+  <warning>
+   <title>手動マウントによるOCFS2デバイス</title>
+   <para>
+    OCFS2ファイルシステムをテスト目的で手動マウントした場合、そのファイルシステムは、いったんマウント解除してから、クラスタリソースで使用してください。
+   </para>
+  </warning>
+
+  <procedure xml:id="pro.ocfs2.mount.cluster">
+   <title>クラスタリソースマネージャでOCFS2ボリュームをマウントする</title>
+   <para>
+    High AvailabilityソフトウェアでOCFS2ボリュームをマウントするには、クラスタ内でocfs2ファイルシステムのリソースを設定します。次の手順では、<command>crm</command>シェルを使用してクラスタリソースを設定します。<xref linkend="sec.ha.ocfs2.rsc.hawk2"/>で説明されているように、リソースの設定にはHawk2を使用することもできます。
+   </para>
+   <step>
+    <para>
+     シェルを起動し、<systemitem class="username">root</systemitem>または同等のものとしてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>crm</command> <option>configure</option>を実行します。
+    </para>
+   </step>
+   <step>
+    <para>
+     OCFS2ファイルシステムをクラスタ内のすべてのノードにマウントするように、Pacemakerを設定します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ocfs2-1 ocf:heartbeat:Filesystem \
+  params device="/dev/sdb1" directory="/mnt/shared" \
+  fstype="ocfs2" options="acl" \
+  op monitor interval="20" timeout="40" \
+  op start timeout="60" op stop timeout="60" \
+  meta target-role="Stopped"</screen>
+   </step>
+   <step>
+    <para>
+     <literal>ocfs2-1</literal>プリミティブを<xref linkend="pro.dlm.resources"/>で作成した<literal>g-storage</literal>グループに追加します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup</command> g-storage add ocfs2-1</screen>
+    <para><command>add</command>サブコマンドは、デフォルトで新しいグループメンバーを追加します。ベースグループの内部コロケーションおよび順序付けによって、Pacemakerは、すでに実行している<literal>dlm</literal>リソースも持つノード上で<systemitem class="resource">ocfs2-1</systemitem>リソースのみ起動します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>show</command>で変更内容をレビューします。
+
+    </para>
+   </step>
+   <step>
+    <para>
+     すべて正しければ、<command>commit</command>で変更を送信し、<command>exit</command>でcrmライブ設定を終了します。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.ocfs2.rsc.hawk2">
+  <title>Hawk2でのOCFS2リソースの設定</title>
+
+  <para>
+   crmシェルを使用して、DLM、およびOCFS2のファイルシステムリソースを手動で設定する代わりに、Hawk2の<guimenu>セットアップウィザード</guimenu>のOCFS2テンプレートを使用することもできます。
+  </para>
+
+  <important>
+   <title>手動設定とHawk2との相違点</title>
+   <para>
+    <guimenu>セットアップウィザード</guimenu>のOCFS2テンプレートには、STONITHリソースの設定が含まれません<emphasis/>。ウィザードを使用する場合でも、<xref linkend="pro.ocfs2.stonith"/>で説明されているように、共有ストレージ上でSBDパーティションを作成し、STONITHリソースを設定する必要があります。
+   </para>
+   <remark>taroth 2014-08-15: todo for next release: unify manual configuration
+    and configuration via Hawk (use same resources, same options
+    etc.), filed https://bugzilla.novell.com/show_bug.cgi?id=892116 for this</remark>
+   <para>
+    また、Hawk<guimenu>セットアップウィザード</guimenu>のOCFS2テンプレートを使用すると、<xref linkend="pro.dlm.resources"/>および<xref linkend="pro.ocfs2.mount.cluster"/>で説明されている手動設定とは若干異なるリソース設定になります。
+   </para>
+  </important>
+
+  <procedure xml:id="pro.ha.ocfs2.rsc.hawk">
+   <title>Hawk2の<guimenu>ウィザード</guimenu>でのOCFS2リソースの設定</title>
+   <step>
+    <para>
+     Hawk2にログインします。
+    </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーで、<guimenu>ウィザード</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>ファイルシステム</guimenu>カテゴリを展開して、<literal>OCFS2 File System</literal>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     画面の指示に従います。オプションについての情報が必要な場合には、オプションをクリックすると、Hawk2は簡単なヘルプテキストを表示します。最後の設定手順が完了したら、<guimenu>Verify (検証)</guimenu>を選択して、入力した値を検証します。
+    </para>
+    <para>
+     CIBに適用する設定スニペットやその他の必要な変更がウィザードに表示されます。
+    </para>
+    <informalfigure>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-wizard-ocfs2-verify.png" width="70%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-wizard-ocfs2-verify.png" width="70%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </informalfigure>
+   </step>
+   <step>
+    <para>
+     適用予定の変更を確認します。すべてが希望どおりの場合は、変更を適用します。
+    </para>
+    <para>
+     画面上のメッセージが、アクションに成功したかどうかを示します。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.ocfs2.quota">
+  <title>OCFS2ファイルシステム上でクォータを使用する</title>
+
+
+
+  <para>
+   OCFS2ファイルシステム上でクォータを使用するには、適切なクォータ機能またはオプションを使用して、ファイルシステムを作成し、マウントします。オプションは<literal>ursquota</literal> (個々のユーザのためのクォータ)または<literal>grpquota</literal> (グループのためのクォータ)です。これらの機能は後ほど、<command>tunefs.ocfs2</command>を使用して、マウントされていないファイルシステムで有効にすることもできます。
+  </para>
+
+  <para>
+   ファイルシステムで適切なクォータ機能が有効にされている場合、ファイルシステムは、そのメタデータで、各ユーザ(または)グループが使用しているスペースの量とファイルの数を追跡します。OCFS2はクォータ情報をファイルシステムの内部メタデータとして扱うので、<command>quotacheck</command>(8)プログラムを実行する必要はありません。すべての機能はfsck.ocf2、およびファイルシステムドライバ自体に組み込まれています。
+  </para>
+
+  <para>
+   各ユーザまたはグループに課せられている制限の強制を有効にするには、他のファイルシステムでの場合と同様に、<command>quotaon</command>(8)を実行します。
+  </para>
+
+
+
+
+
+  <para>
+   パフォーマンス上の理由で、各クラスタノードはクォータの計算をローカルに行い、この情報を、10秒ごとに共通の中央ストレージに同期するようになっています。この間隔は、<command>tunefs.ocfs2</command>と、<option>usrquota-sync-interval</option>および<option>grpquota-sync-interval</option>オプションで調整することができます。クォータ情報は必ずしも常に正確というわけではないので、複数のクラスタノードを並列に運用している場合、ユーザまたはグループがクォータ制限をいくらか超えることもあります。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.ocfs2.more">
+  <title>詳細情報</title>
+
+  <para>
+   OCFS2の詳細については、次のリンクを参照してください。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term><link xlink:href="https://ocfs2.wiki.kernel.org/"/>
+    </term>
+    <listitem>
+     <para>
+      OCFS2プロジェクトホームページ。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://oss.oracle.com/projects/ocfs2/"/>
+    </term>
+    <listitem>
+     <para>
+      Oracleサイトにある以前のOCFS2プロジェクトのホームページ
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://oss.oracle.com/projects/ocfs2/documentation"/>
+    </term>
+    <listitem>
+     <para>
+      プロジェクトの以前のドキュメントホームページ。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist><indexterm class="endofrange" startref="idx.filesystems.ocfs2"/>
+ </sect1>
+</chapter>

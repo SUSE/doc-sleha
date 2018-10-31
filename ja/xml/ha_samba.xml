@@ -1,0 +1,550 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_samba.xml" version="5.0" xml:id="cha.ha.samba">
+ <title>Sambaクラスタリング</title>
+ <info>
+      <abstract>
+        <para>
+    クラスタ対応のSambaサーバは、異種混合ネットワークにHigh Availabilityソリューションを提供します。この章では、背景情報とクラスタ対応Sambaサーバの設定方法を説明します。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.samba.overview">
+  <title>概念の概要</title>
+
+  <para>
+   TDB (Trivial Database)は、長年にわたって、Sambaによって使用されてきました。TDBでは、複数のアプリケーションが同時に書き込むことができます。すべての書き込み操作を正常に実行し、互いに衝突させないため、TDBは、内部ロッキングメカニズムを使用しています。
+  </para>
+
+  <para>
+   CTDB (Cluster Trivial Database)は、既存のTDBの小規模な拡張です。CTDBは、プロジェクトによって、<quote>一時データの保存のために、Sambaなどのプロジェクトによって使用されるTDBデータベースのクラスタ実装</quote>として説明されています。
+  </para>
+
+  <para>
+   各クラスタノードは、ローカルCTDBデーモンを実行します。Sambaは、そのTDBに直接書き込むのではなく、そのローカルCTDBデーモンと通信します。それらのデーモンは、ネットワークを介してメタデータを交換しますが、実際の読み取り/書き込み操作は、高速ストレージでローカルコピー上で行われます。CTDBの概念は、<xref linkend="fig.ha.samba.overview"/>に表示されています。
+  </para>
+
+  <note>
+   <title>Samba専用CTDB</title>
+   <para>
+    CTDBリソースエージェントの現在の実装では、Sambaの管理のためだけにCTDBを設定します。他の機能(IPフェールオーバーなど)はすべて、Pacemakerで設定する必要があります。
+   </para>
+   <para>
+    CTDBは、完全に同種のクラスタに関してのみサポートされます。たとえば、クラスタのすべてのノードが同じアーキテクチャを持つ必要があります。x86とAMD64/Intel 64を混合することはできません。
+   </para>
+  </note>
+
+  <figure xml:id="fig.ha.samba.overview">
+   <title>CTDBクラスタの構造</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_samba.svg" width="80%"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_samba.png" width="80%"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   クラスタ対応Sambaサーバは、一定のデータを共有する必要があります。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     UnixのユーザとグループIDをWindowsのユーザとグループに関連付けるマッピングテーブル。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ユーザデータベースをすべてのノード間で同期する必要があります。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Windowsドメイン内のメンバサーバの参加情報をすべてのノードで利用できる必要があります。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     メタデータをすべてのノードで利用できる必要があります(アクティブSMBセッション、共有接続、各ロックなど)。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   クラスタ対応SambaサーバがN+1ノードを持っている場合、Nノードだけのサーバより高速になることを目的としています。1つのノードは、クラスタ非対応のSambaサーバより遅くなることはありません。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.samba.basicconf">
+  <title>基本的な設定</title>
+
+  <remark>toms 2014-02-28: From "Tim": "I want to see if we can change this 
+    to match what's described in fate#316336 (i.e. separate samba and winbind resources).  
+    This is largely a testing/validation effort."</remark>
+
+  <note>
+   <title>変更された設定ファイル</title>
+   <para>
+    CTDBリソースエージェントは、自動的に<filename>/etc/sysconfig/ctdb</filename>を変更します。<command>crm ra</command> <option>info CTDB</option>を使用して、CTDBリソースに指定できるすべてのパラメータを一覧表示してください。
+   </para>
+  </note>
+
+  <para>
+   クラスタ対応Sambaサーバをセットアップするには、次の手順に従います。
+  </para>
+
+  <procedure xml:id="pro.ha.samba.basicconf">
+   <title>クラスタ対応Sambaサーバの基本セットアップ</title>
+   <step>
+    <para>
+     クラスタを準備します。
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       次のパッケージがインストールされていることを確認してから進んでください: <systemitem class="resource">ctdb</systemitem>、<systemitem class="resource">tdb-tools</systemitem>、および<systemitem class="resource">samba</systemitem> (<literal>smb</literal>および<literal>nmb</literal>リソースに必要)。
+      </para>
+     </step>
+     <step>
+      <para>
+       このガイドの<xref linkend="part.config"/>で説明されているように、クラスタ(Pacemaker、OCFS2)を設定します。
+      </para>
+     </step>
+     <step>
+      <para>
+       OCFS2などの共有ファイルシステムを設定し、マウントします(たとえば、<filename>/srv/clusterfs</filename>にマウント)。詳細については、<xref linkend="cha.ha.ocfs2"/>を参照してください。
+      </para>
+     </step>
+     <step>
+      <para>
+       POSIX ACLをオンにする場合は、それを有効にします。
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         新しいOCFS2ファイルシステムの場合は、次のコマンドを使用します。
+        </para>
+<screen><prompt role="root">root # </prompt><command>mkfs.ocfs2</command> --fs-features=xattr ...</screen>
+       </listitem>
+       <listitem>
+        <para>
+         既存のOCFS2ファイルシステムの場合は、次のコマンドを使用します。
+        </para>
+<screen><prompt role="root">root # </prompt><command>tunefs.ocfs2</command> --fs-feature=xattr <replaceable>DEVICE</replaceable></screen>
+        <para>
+         ファイルシステムリソースには、必ず、<option>acl</option>オプションを指定します。次のように、<command>crm</command>シェルを使用します。
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ocfs2-3 ocf:heartbeat:Filesystem params options="acl" ...</screen>
+       </listitem>
+      </itemizedlist>
+     </step>
+     <step>
+      <para>
+       <systemitem class="service">ctdb</systemitem>、<systemitem class="service">smb</systemitem>、<systemitem class="service">nmb</systemitem>の各サービスが無効になるようにします。
+      </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> disable ctdb
+<prompt role="root">root # </prompt><command>systemctl</command> disable smb
+<prompt role="root">root # </prompt><command>systemctl</command> disable nmb</screen>
+     </step>
+     <step>
+      <para>
+       すべてのノードのファイアウォールのポート<literal>4379</literal>を開きます。これは、CTDBが他のクラスタノードと通信するために必要です。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     共有ファイルシステムにCTDBロックのディレクトリを作成します。
+    </para>
+<screen><prompt role="root">root # </prompt><command>mkdir</command> -p /srv/clusterfs/samba/</screen>
+   </step>
+   <step>
+    <para>
+     <filename>/etc/ctdb/nodes</filename>に、クラスタ内の各ノードの全プライベートIPアドレスを含むすべてのノードを挿入します。
+    </para>
+<screen>192.168.1.10
+192.168.1.11</screen>
+   </step>
+   <step>
+    <para>
+     Sambaを設定します。<literal>/etc/samba/smb.conf</literal>の<filename>[global]</filename>セクションに次の行を追加します。「CTDB-SERVER」の代わりに、選択したホスト名を使用します(クラスタ内のすべてのノードは、この名前を持つ1つの大きなノードとして表示されます)。
+    </para>
+<screen>[global]
+    # ...
+    # settings applicable for all CTDB deployments
+    netbios name = CTDB-SERVER
+    clustering = yes
+    idmap config * : backend = tdb2
+    passdb backend = tdbsam
+    ctdbd socket = /var/lib/ctdb/ctdb.socket
+    # settings necessary for CTDB on OCFS2
+    fileid:algorithm = fsid
+    vfs objects = fileid
+    # ...</screen>
+   </step>
+   <step>
+    <para>
+     <command>csync2</command>を使用して、設定ファイルをすべてのノードにコピーします。
+    </para>
+<screen><prompt role="root">root # </prompt><command>csync2</command> <option>-xv</option></screen>
+    <para>
+     詳細については、<xref linkend="pro.ha.installation.setup.csync2.start"/>を参照してください。
+    </para>
+   </step>
+   <step>
+    <para>
+     CTDBリソースをクラスタに追加します。
+    </para>
+
+<screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ctdb ocf:heartbeat:CTDB params \
+    ctdb_manages_winbind="false" \ 
+    ctdb_manages_samba="false" \
+    ctdb_recovery_lock="/srv/clusterfs/samba/ctdb.lock" \
+    ctdb_socket="/var/lib/ctdb/ctdb.socket" \ 
+      op monitor interval="10" timeout="20" \
+      op start interval="0" timeout="90" \
+      op stop interval="0" timeout="100"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> nmb systemd:nmb \
+    op start timeout="60" interval="0" \
+    op stop timeout="60" interval="0" \
+    op monitor interval="60" timeout="60"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> smb systemd:smb \
+    op start timeout="60" interval="0" \
+    op stop timeout="60" interval="0" \
+    op monitor interval="60" timeout="60"
+<prompt role="custom">crm(live)configure# </prompt><command>group</command> g-ctdb ctdb nmb smb
+<prompt role="custom">crm(live)configure# </prompt><command>clone</command> cl-ctdb g-ctdb meta interleave="true"
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col-ctdb-with-clusterfs inf: cl-ctdb cl-clusterfs
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o-clusterfs-then-ctdb inf: cl-clusterfs cl-ctdb
+<prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+   </step>
+   <step>
+    <para>
+     クラスタ対応のIPアドレスを追加します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip ocf:heartbeat:IPaddr2 params ip=192.168.2.222 \
+    unique_clone_address="true" \
+    op monitor interval="60" \
+    meta resource-stickiness="0"
+<prompt role="custom">crm(live)configure# </prompt><command>clone</command> cl-ip ip \
+    meta interleave="true" clone-node-max="2" globally-unique="true"
+<prompt role="custom">crm(live)configure# </prompt><command>colocation</command> col-ip-with-ctdb 0: cl-ip cl-ctdb
+<prompt role="custom">crm(live)configure# </prompt><command>order</command> o-ip-then-ctdb 0: cl-ip cl-ctdb
+<prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+    <para>
+     <literal>unique_clone_address</literal>が<literal>true</literal>に設定されている場合、IPaddr2リソースエージェントはクローンIDを指定のアドレスに追加し、3つの異なるIPアドレスを設定します。これらは通常必要とされませんが、負荷分散に役立ちます。この項目の詳細については、<xref linkend="sec.ha.lb.lvs"/>を参照してください。
+    </para>
+   </step>
+   <step>
+    <para>
+     変更をコミットします。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+   </step>
+   <step>
+    <para>
+     結果を確認します。
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> status
+Clone Set: cl-storage [dlm]
+     Started: [ factory-1 ]
+     Stopped: [ factory-0 ]
+Clone Set: cl-clusterfs [clusterfs]
+     Started: [ factory-1 ]
+     Stopped: [ factory-0 ]
+ Clone Set: cl-ctdb [g-ctdb]
+     Started: [ factory-1 ]
+     Started: [ factory-0 ]
+ Clone Set: cl-ip [ip] (unique)
+     ip:0       (ocf:heartbeat:IPaddr2):       Started factory-0
+     ip:1       (ocf:heartbeat:IPaddr2):       Started factory-1</screen>
+   </step>
+   <step>
+    <para>
+     クライアントコンピュータからテストを行います。次のコマンドをLinuxクライアントで実行して、システムからファイルをコピーしたり、システムにファイルをコピーできるかどうか確認します。
+    </para>
+<screen><prompt role="root">root # </prompt><command>smbclient</command> <option>//192.168.2.222/myshare</option></screen>
+   </step>
+
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.samba.ad">
+  <title>Active Directoryドメインへの追加</title>
+
+  <remark>toms 2013-04-02: Needs changes</remark>
+
+  <para>
+   Active Directory (AD)は、Windowsサーバシステムのディレクトリサービスです。
+  </para>
+
+  <para>
+   次の手順は、CTDBクラスタをActive Directoryドメインに追加する方法を概説しています。
+  </para>
+
+  <procedure xml:id="pro.ha.samba.ad.join">
+   <step>
+    <para>
+     <xref linkend="pro.ha.samba.basicconf"/>の説明に従って、CTDBリソースを作成します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <systemitem class="resource">samba-winbind</systemitem>パッケージをインストールします。
+    </para>
+   </step>
+   <step>
+    <para>
+     <systemitem class="service">winbind</systemitem>サービスを無効にします。
+    </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> disable winbind</screen>
+   </step>
+   <step>
+    <para>
+     winbindクラスタリソースを定義します。
+    </para>
+
+<screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> winbind systemd:winbind \
+    op start timeout="60" interval="0" \
+    op stop timeout="60" interval="0" \
+    op monitor interval="60" timeout="60"
+<prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+   </step>
+   <step>
+    <para>
+     <literal>g-ctdb</literal>グループを編集して、<literal>nmb</literal>と<literal>smb</literal>リソースの間に<literal>winbind</literal>を挿入します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>edit</command> g-ctdb</screen>
+    <para>
+     <keycombo> <keycap>:</keycap>
+     <keycap>w</keycap> </keycombo> (<command>vim</command>)でエディタを保存して閉じます。
+    </para>
+   </step>
+   <step>
+    <para>
+     Active Directoryドメインのセットアップ方法については、Windows Serverのマニュアルを参照してください。この例では、次のパラメータを使用します。
+    </para>
+    <informaltable>
+     <tgroup cols="2">
+      <tbody>
+       <row>
+        <entry>
+         <para>
+          ADおよびDNSサーバ
+         </para>
+        </entry>
+        <entry>
+<screen>win2k3.2k3test.example.com</screen>
+        </entry>
+       </row>
+       <row>
+        <entry>
+         <para>
+          ADドメイン
+         </para>
+        </entry>
+        <entry>
+<screen>2k3test.example.com</screen>
+        </entry>
+       </row>
+       <row>
+        <entry>
+         <para>
+          クラスタADメンバーのNETBIOS名
+         </para>
+        </entry>
+        <entry>
+<screen>CTDB-SERVER</screen>
+        </entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </informaltable>
+
+   </step>
+   <step>
+    <para>
+     <xref linkend="pro.ha.samba.config.join-ad"/>
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   最後に、クラスタをActive Directoryサーバに参加させます。
+  </para>
+
+  <procedure xml:id="pro.ha.samba.config.join-ad">
+   <title>Active Directoryへの参加</title>
+   <step>
+    <para>
+     次のファイルが、すべてのクラスタホストにインストールされるように、Csync2設定に含まれていることを確認します。
+    </para>
+<screen>/etc/samba/smb.conf
+/etc/security/pam_winbind.conf
+/etc/krb5.conf
+/etc/nsswitch.conf
+/etc/security/pam_mount.conf.xml
+/etc/pam.d/common-session</screen>
+    <para>
+     この作業には、YaSTの<guimenu>Csync2の設定</guimenu>モジュールを使用することもできます。<xref linkend="sec.ha.installation.setup.csync2"/>を参照してください。
+    </para>
+   </step>
+   <step>
+    <para>
+     YaSTを実行し、<guimenu>ネットワークサービス</guimenu>エントリから<guimenu>Windowsドメインメンバーシップ</guimenu>モジュールを開きます。
+    </para>
+   </step>
+   <step>
+    <para>
+     ドメインまたはワークグループの設定を入力して、<guimenu>OK</guimenu>をクリックして終了します。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.samba.testing">
+  <title>クラスタ対応Sambaのデバッグとテスト</title>
+
+  <para>
+   クライアント対応Sambaサーバのデバッグには、次のツールを使用できます。これらのツールは、さまざまなレベルで動作します。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term><command>ctdb_diagnostics</command>
+    </term>
+    <listitem>
+     <para>
+      このツールを実行して、クラスタ対応Sambaサーバを診断します。詳細なデバッグメッセージが出力されるので、発生している問題を追跡するのに役立ちます。
+     </para>
+     <para>
+      <command>ctdb_diagnostics</command>コマンドは、次のファイルを検索します。これらのファイルは、すべてのノードで利用できる必要があります。
+     </para>
+<screen>/etc/krb5.conf
+/etc/hosts
+/etc/ctdb/nodes
+/etc/sysconfig/ctdb
+/etc/resolv.conf
+/etc/nsswitch.conf
+/etc/sysctl.conf
+/etc/samba/smb.conf
+/etc/fstab
+/etc/multipath.conf
+/etc/pam.d/system-auth
+/etc/sysconfig/nfs
+/etc/exports
+/etc/vsftpd/vsftpd.conf</screen>
+     <para>
+      <filename>/etc/ctdb/public_addresses</filename>ファイルと<filename>/etc/ctdb/static-routes</filename>ファイルが存在する場合は、それらもチェックされます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><command>ping_pong</command>
+    </term>
+    <listitem>
+     <para>
+      <command>ping_pong</command>では、ファイルシステムがCTDBに適合しているかどうかチェックできます。このコマンドは、クラスタファイルシステムの一定のテスト(コヒーレンスやパフォーマンスなどのテスト)を実行して(<link xlink:href="http://wiki.samba.org/index.php/Ping_pong"/>参照)、高負荷の状況下におけるクラスタの動作を示す情報を提供します。
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><command>send_arp</command>ツールおよび<systemitem class="resource">SendArp</systemitem>リソースエージェント</term>
+    <listitem>
+     <para>
+      <systemitem class="resource">SendArp</systemitem>リソースエージェントは、<filename>/usr/lib/heartbeat/send_arp</filename>(または<filename>/usr/lib64/heartbeat/send_arp</filename>)にあります。<command>send_arp</command>ツールはGratuitous ARP (余計なアドレス解決プロトコル)パケットを送信し、他のマシンのARPテーブルを更新するために使用できます。これは、フェールオーバープロセス後の通信問題の識別に役立ちます。Sambaのクラスタ化されたIPアドレスを表示しているのにも関わらず、ノードに接続またはpingできない場合は、<command>send_arp</command>コマンドを使用して、ノードはARPテーブルの更新のみが必要であるのかをテストします。
+     </para>
+     <para>
+      詳細については、<link xlink:href="http://wiki.wireshark.org/Gratuitous_ARP"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   クラスタファイルシステムの特定の側面をテストするには、次の手順に従います。
+  </para>
+
+  <procedure>
+   <title>クラスタファイルシステムのコヒーレンスとパフォーマンスをテストする</title>
+   <step>
+    <para>
+     1つのノードで<command>ping_pong</command>コマンドを開始します。プレースホルダ<replaceable>N</replaceable>はノード数+1で置き換えます。共有ストレージでは<filename><replaceable>ABSPATH</replaceable>/data.txt</filename>ファイルが使用可能で、すべてのノード上でアクセスできます(<replaceable>ABSPATH</replaceable>は絶対パスを示しています)。
+    </para>
+<screen><command>ping_pong</command> <replaceable>ABSPATH</replaceable>/data.txt <replaceable>N</replaceable></screen>
+    <para>
+     1つのノードでだけ実行しているので、ロッキングレートは非常に高いと予想してください。プログラムがロッキングレートを出力しない場合は、クラスタファイルシステムを置き換えます。
+    </para>
+   </step>
+   <step>
+    <para>
+     同じパラメータを使用して、別のノードで<command>ping_pong</command>の2つ目のコピーを開始します。
+    </para>
+    <para>
+     ロッキングレートが大幅に下がることを予想できます。使用しているクラスタファイルシステムに次のどれかが当てはまる場合は、クラスタファイルシステムを置き換えます。
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <command>ping_pong</command>がロッキングレート(秒単位)を出力しない。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       2つのインスタンスのロッキングレートがほぼ同じではない。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       2つ目のインスタンスの開始後にロッキングレートが下がらなかった。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+    <para>
+     <command>ping_pong</command>の3つ目のコピーを開始します。もう1つノードを追加し、ロッキングレートの変化に注目します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>ping_pong</command>コマンドを1つずつ終了させます。単一ノードの状態に戻るまで、ロッキングレートの増加が観察されるはずです。予想したような振る舞いが見られなかった場合には、<xref linkend="cha.ha.ocfs2"/>に記されている詳細を参照してください。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.samba.moreinfo">
+  <title>その他の情報</title>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <link xlink:href="http://wiki.samba.org/index.php/CTDB_Setup"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <link xlink:href="http://ctdb.samba.org"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <link xlink:href="http://wiki.samba.org/index.php/Samba_%26_Clustering"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>
