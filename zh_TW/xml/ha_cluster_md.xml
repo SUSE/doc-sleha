@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_cluster_md.xml" xml:id="cha.ha.cluster-md" version="5.0">
+ <title>叢集多裝置 (叢集 MD)</title>
+ <info>
+      <abstract>
+        <para>叢集多裝置 (叢集 MD) 是一項基於軟體的叢集 RAID 儲存解決方案。叢集 MD 為叢集提供了 RAID1 鏡像的備援。目前只支援 RAID1。本章介紹如何建立和使用叢集 MD。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.cluster-md.overview">
+  <title>概念綜覽</title>
+  <para>叢集 MD 提供了在叢集環境中使用 RAID1 的支援。每個節點都會存取叢集 MD 使用的磁碟或裝置。如果叢集 MD 的一部裝置失敗，則在執行時期可以由另一部裝置取代它，並且系統會對其進行重新同步以提供相同量的備援。叢集 MD 需要使用 Corosync 和分散式鎖定管理員 (DLM) 進行協調和通訊。
+  </para>
+  <para>
+   叢集 MD 裝置不會如同其他常規 MD 裝置一般在開機時自動啟動。需要使用資源代辦來啟動叢集裝置，以便確定 DLM 資源已啟動。
+  </para>
+  
+ </sect1>
+ <sect1 xml:id="sec.ha.cluster-md.create">
+  <title>建立叢集 MD RAID 裝置</title>
+  <itemizedlist>
+   <title>要求</title>
+   <listitem>
+    <para>一個安裝了 Pacemaker 的執行中叢集。</para>
+   </listitem>
+   <listitem>
+    <para>DLM 的資源代辦 (請參閱<xref linkend="pro.dlm.resources"/>瞭解如何設定 DLM)。</para>
+   </listitem>
+   <listitem>
+    <para>至少兩個共用磁碟裝置。您可以使用另外一部裝置做為備用裝置，該備用裝置會在裝置失敗時自動進行容錯移轉。</para>
+   </listitem>
+   <listitem>
+    <para>一個已安裝的套件 <package>cluster-md-kmp-default</package>。</para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure>
+   <step>
+    <para>
+     請確認 DLM 資源在叢集的每個節點上都正常執行，並使用以下指令檢查資源狀態︰
+    </para>
+    <screen><prompt role="root">root # </prompt><command>crm_resource</command> -r dlm -W</screen>
+    
+   </step>
+   <step>
+    <para>建立叢集 MD 裝置︰</para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       如果您沒有現有的常規 RAID 裝置，請使用以下指令在執行 DLM 資源的節點上建立叢集 MD 裝置︰
+      </para>
+      <screen><prompt role="root">root # </prompt><command>mdadm</command> --create /dev/md0 --bitmap=clustered \
+   --metadata=1.2 --raid-devices=2 --level=mirror /dev/sda /dev/sdb</screen>
+      <para>
+       由於叢集 MD 只能與 1.2 版的中繼資料配合使用，因此建議使用 <option>--metadata</option> 選項來指定版本。如需其他有用選項的資訊，請參閱 <command>mdadm</command> man 頁面。在 <filename>/proc/mdstat</filename> 中監控重新同步進度。 </para>
+      
+     </listitem>
+     <listitem>
+      <para>
+       如果您有現有的常規 RAID，請先清除現有點陣圖，然後再建立叢集點陣圖︰
+      </para>
+      <screen><prompt role="root">root # </prompt><command>mdadm</command> --grow /dev/md<replaceable>X</replaceable> --bitmap=none
+<prompt role="root">root # </prompt><command>mdadm</command> --grow /dev/md<replaceable>X</replaceable> --bitmap=clustered</screen>
+     </listitem>
+     <listitem>
+      <para>(選擇性) 若要建立帶有備用裝置 (用於自動容錯移轉) 的叢集 MD 裝置，請在一個叢集節點上執行以下指令︰
+      </para>
+     <screen><prompt role="root">root # </prompt><command>mdadm</command> --create /dev/md0 --bitmap=clustered --raid-devices=2 \
+      --level=mirror --spare-devices=1 /dev/sda /dev/sdb /dev/sdc --metadata=1.2</screen>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+     <para>獲取 UUID 以及相關的 MD 路徑︰</para>
+     <screen><prompt role="root">root # </prompt><command>mdadm</command> --detail --scan</screen>
+     <para>該 UUID 必須與超級區塊中儲存的 UUID 相符。如需 UUID 的詳細資料，請參閱 <command>mdadm.conf</command> man 頁面。
+     </para>
+   </step>
+   <step>
+    <para>開啟 <filename>/etc/mdadm.conf</filename> 並新增 MD 裝置名稱及與其關聯的裝置。使用上一步中獲得的 UUID︰ </para>
+      <screen>DEVICE /dev/sda /dev/sdb
+ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
+   </step>
+   <step>
+    <para>開啟 Csync2 的組態檔案 <filename>/etc/csync2/csync2.cfg</filename>，並新增 <filename>/etc/mdadm.conf</filename>︰</para>
+    <screen>group ha_group
+{
+   # ... list of files pruned ...
+   include /etc/mdadm.conf
+}</screen>
+   </step>
+  </procedure>
+
+
+
+ </sect1>
+ 
+ <sect1 xml:id="sec.ha.cluster-md.ra">
+  <title>設定資源代辦</title>
+  <para>依如下所示設定 CRM 資源︰</para>
+  <procedure>
+   <step>
+    <para>建立 <systemitem>Raid1</systemitem> 基本資源︰</para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> raider Raid1 \
+  params raidconf="/etc/mdadm.conf" raiddev=/dev/md0 \
+  force_clones=true \
+  op monitor timeout=20s interval=10 \
+  op start timeout=20s interval=0 \
+  op stop timeout=20s interval=0 </screen>
+   </step>
+   <step>
+    <para>將 <systemitem>raider</systemitem> 資源新增至您為 DLM 建立的儲存基礎群組︰</para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup</command> g-storage add raider</screen>
+    <para><command>add</command> 子指令預設會附加新的群組成員。 </para>
+   <para>
+    如果尚未複製 <literal>g-storage</literal> 群組，請執行該操作，以使其在所有節點上執行︰
+   </para>
+   <screen><prompt role="custom">crm(live)configure# </prompt><command>clone</command> cl-storage g-storage \
+    meta interleave=true target-role=Started</screen>
+    </step>
+   <step>
+    <para>使用 <command>show</command> 檢閱所做的變更。</para>
+   </step>
+   <step>
+    <para>如果所有組態正確無誤，請使用 <command>commit</command> 提交您的變更。</para>
+   </step>
+  </procedure>
+ </sect1>
+ 
+ <sect1 xml:id="sec.ha.cluster-md.dev.add">
+  <title>新增裝置</title>
+  <para>若要將某部裝置新增到現有的使用中叢集 MD 裝置，請先使用指令 <command>cat /proc/mdstat</command> 確認該裝置在每個節點上均<quote>可見</quote>。如果裝置不可見，則指令將會失敗。
+  </para>
+  <para>
+   在一個叢集節點上使用以下指令︰
+  </para>
+  <screen><prompt role="root">root # </prompt><command>mdadm</command> --manage /dev/md0 --add /dev/sdc</screen>
+
+  <para>新增的新裝置的行為取決於叢集 MD 裝置的狀態︰</para>
+  <itemizedlist>
+   <listitem>
+    <para>如果只有一個鏡像裝置處於使用中狀態，則新裝置將會成為鏡像裝置中的第二部裝置，並且會啟動復原程序。</para>
+   </listitem>
+   <listitem>
+    <para>如果叢集 MD 裝置的兩部裝置都處於使用中狀態，則新增的裝置將會成為備用裝置。</para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.cluster-md.dev.readd">
+  <title>重新新增暫時發生故障的裝置</title>
+  <para>故障常常是短暫發生的，並且僅限於一個節點。如果在 I/O 操作期間有任何節點發生了故障，則會針對整個叢集將該裝置標示為失敗。
+  </para>
+  <para> 例如，其中一個節點發生纜線故障，可能就會出現這種情況。修正此問題後，您可以重新新增該裝置。與新增新裝置會同步整部裝置不同，這樣只會同步過時的部件。
+  </para>
+  <para>
+   若要重新新增裝置，請在一個叢集節點上執行以下指令︰ </para>
+  <screen><prompt role="root">root # </prompt><command>mdadm</command> --manage /dev/md0 --re-add /dev/sdb</screen>
+ </sect1>
+ 
+ 
+ <sect1 xml:id="sec.ha.cluster-md.dev.remove">
+  <title>移除裝置</title>
+  <para>在執行時期移除裝置以將其取代之前，請執行以下操作︰</para>
+
+  <procedure>
+   <step>
+    <para>檢查 <filename>/proc/mdstat</filename> 以確定裝置處於失敗狀態。尋找裝置前面有無 <literal> (F)</literal>。</para>
+   </step>
+   <step>
+    <para>在一個叢集節點上執行以下指令，以使裝置失敗︰</para>
+    <screen><prompt role="root">root # </prompt><command>mdadm</command> --manage /dev/md0 --fail /dev/sda</screen>
+   </step>
+   <step>
+    <para>在一個叢集節點上使用以下指令移除失敗的裝置︰</para>
+    <screen><prompt role="root">root # </prompt><command>mdadm</command> --manage /dev/md0 --remove /dev/sda</screen>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>

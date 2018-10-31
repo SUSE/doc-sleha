@@ -1,0 +1,972 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_drbd.xml" version="5.0" xml:id="cha.ha.drbd">
+ <title>DRBD</title>
+ <info>
+      <abstract>
+        <para>
+    <emphasis>分散式複製區塊裝置</emphasis> (DRBD*) 可讓您跨 IP 網路為位於兩個不同站台的兩部區塊裝置建立鏡像。與 Corosync 搭配使用時，DRBD 支援分散式高可用性 Linux 叢集。本章將介紹如何安裝及設定 DRBD。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.drbd.overview">
+  <title>概念綜覽</title>
+
+  <para>
+   DRBD 能在將資料從主要裝置複製到次要裝置時，確保兩份資料保持一致。您可以將其視為網路 RAID 1。它會即時執行資料的鏡像複製，因此其複製會持續進行。應用程式無須知曉其資料實際上儲存在其他磁碟上。
+
+  </para>
+
+  <para>
+   DRBD 是 Linux 核心模組，位於下層的 I/O 規劃程式和上層的檔案系統之間，請參閱<xref linkend="fig.ha.drbd.concept"/>。若要與 DRBD 通訊，使用者需使用高階指令 <command>drbdadm</command>。為最大限度地提升靈活性，DRBD 隨附有低階工具 <command>drbdsetup</command>。
+  </para>
+
+  <figure xml:id="fig.ha.drbd.concept">
+   <title>DRBD 在 Linux 中的位置</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_drbd.svg" width="80%"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_drbd.png" width="80%"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <important>
+   <title>未加密資料</title>
+   <para>
+    鏡像複製間的資料流量不會加密。為了保證資料交換的安全，您應該為連接部署虛擬私人網路 (VPN) 解決方案。
+   </para>
+  </important>
+
+
+  <para>
+   藉由 DRBD，使用者可以使用 Linux 支援的任何區塊裝置，通常包括︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     分割區或完整硬碟
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     軟體 RAID
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     邏輯磁碟區管理 (Logical Volume Manager，LVM)
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     企業卷冊管理系統 (EVMS)
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   依預設，DRBD 使用 <literal>7788</literal> 及更高的 TCP 埠來處理 DRBD 節點之間的通訊。請確定您的防火牆不會阻止所用連接埠上的通訊。
+  </para>
+
+  <para>
+   您必須先對 DRBD 裝置進行設定，然後才能在其上建立檔案系統。所有與使用者資料相關的操作都只應透過 <filename>/dev/drbd<replaceable>N</replaceable></filename> 裝置執行，不能在原始裝置上執行，因為 DRBD 會將原始裝置最後的部分用於儲存中繼資料。使用原始裝置會導致資料不一致。
+  </para>
+
+  <para>
+   憑藉 udev 整合，您還可以獲得 <filename>/dev/drbd/by-res/<replaceable>RESOURCES</replaceable></filename> 格式的符號連結，這種連結更易於使用，而且還能預防在記錯裝置次要編號的情況下出現安全問題。
+  </para>
+
+  <para>
+   例如，如果原始裝置的大小為 1024 MB，則 DRBD 裝置只能使用 1023 MB 來儲存資料，另有大約 70 KB 隱藏留做儲存中繼資料之用。透過原始磁碟存取其餘 KB 的任何嘗試都會失敗，因為這些空間不用於儲存使用者資料。
+   
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.install">
+  <title>安裝 DRBD 服務</title>
+  <para>
+   依照<xref linkend="part.install"/>所述，在網路叢集中的兩台 SUSE Linux Enterprise Server 機器上都安裝 High Availability Extension。安裝 High Availability Extension 時會安裝 DRBD 程式檔案。
+  </para>
+
+  <para>
+   如果您不需要完整的叢集堆疊，而只想使用 DRBD，請安裝套件 <package>drbd</package>、
+    <package>drbd-kmp-<replaceable>FLAVOR</replaceable></package>、
+    <package>drbd-utils</package> 和 <package>yast2-drbd</package>。
+  </para>
+
+  <para>
+   若要簡化 <command>drbdadm</command> 的使用，可以使用 Bash 補完支援。如果要在目前的外圍程序工作階段中將其啟用，請插入以下指令︰
+  </para>
+
+<screen><prompt role="root">root # </prompt><command>source</command> /etc/bash_completion.d/drbdadm.sh</screen>
+
+  <para>
+   若要將其永久用於 <systemitem class="username">root</systemitem>，請建立或延伸檔案 <filename>/root/.bashrc</filename>，並插入上面的指令行。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.configure">
+  <title>設定 DRBD 服務</title>
+  <note>
+   <title>所需的調整</title>
+   <para>
+    下面的程序使用伺服器名稱 alice 與 bob，以及叢集資源名稱 <literal>r0</literal>。它會將 alice 設定為主要節點，並使用 <filename>/dev/sda1</filename> 儲存資料。請務必修改指示，以使用您自己的節點與檔案名稱。
+   </para>
+  </note>
+
+  <remark>toms 2014-02-13: phil: perhaps the example should be changed to
+    use an LV instead;band eg. "nfs" instead of "r0".</remark>
+
+  <para>
+   以下章節假設您擁有 alice 與 bob 兩個節點，並且它們應使用 TCP 連接埠 <literal>7788</literal>。請確定您的防火牆中已開啟此連接埠。
+  </para>
+
+  <procedure>
+    <step>
+      <para>準備系統︰</para>
+      <substeps>
+        <step>
+          <para>確定 Linux 節點中的區塊裝置已就緒並已分割 (如果需要)。</para>
+        </step>
+        <step>
+          <para>
+            如果磁碟包含您已不再需要的檔案系統，請使用以下指令損毀檔案系統結構︰
+          </para>
+          <screen><prompt role="root">root # </prompt><command>dd</command> if=/dev/zero of=<replaceable>YOUR_DEVICE</replaceable> count=16 bs=1M</screen>
+          <para>如果有多個檔案系統需要摧毀，請在您希望包含到 DRBD 設定中的所有裝置上重複此步驟。</para>
+        </step>
+          <step>
+            <para>如果叢集已在使用 DRBD，請將叢集置於維護模式︰ </para>
+            <screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=true</screen>
+            <para> 如果叢集已在使用 DRBD，而您跳過了此步驟，即時組態中的語法錯誤會導致服務關閉。 </para>
+            <para>或者，也可以使用 <command>drbdadm</command>
+              <option> -c <replaceable>檔案</replaceable></option>來測試組態檔案。</para>
+          </step>
+      </substeps>
+    </step>
+    <step>
+      <para>使用所選的方法來設定 DRBD︰</para>
+      <itemizedlist>
+        <listitem>
+          <para><xref linkend="sec.ha.drbd.configure.manually"/></para>
+        </listitem>
+        <listitem>
+          <para><xref linkend="sec.ha.drbd.configure.yast"/></para>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+      <para>
+        如果您之前已設定 Csync2 (這應該是預設設定)，則 DRBD 組態檔案現已包含在需要同步的檔案清單中。若要同步化這些檔案，請使用︰
+      </para>
+      <screen><prompt role="root">root # </prompt><command>csync2</command> -xv /etc/drbd.d/</screen>
+      <para>
+        如果您未設定或不想使用 Csync2，請手動將 DRBD 組態檔案複製到另一個節點︰
+      </para>
+      <screen><prompt role="root">root # </prompt><command>scp</command> /etc/drbd.conf bob:/etc/
+<prompt role="root">root # </prompt><command>scp</command> /etc/drbd.d/*  bob:/etc/drbd.d/</screen>
+    </step>
+    <step>
+      <para>執行啟始同步 (請參閱<xref linkend="sec.ha.drbd.configure.init"/>)。</para>
+    </step>
+    <step>
+      <para>
+        重設叢集的維護模式旗標︰
+      </para>
+      <screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=false</screen>
+    </step>
+  </procedure>
+
+  <sect2 xml:id="sec.ha.drbd.configure.manually">
+    <title>手動設定 DRBD</title>
+    <note>
+     <title><quote>自動升級</quote>功能支援受限</title>
+     <para>
+      DRBD9 的<quote>自動升級</quote>功能可以使用複製和檔案系統資源，而非主要/從屬連接。如果使用此功能時正在掛接某個檔案系統，DRBD 會自動變為主要模式。
+     </para>
+     <para>
+      目前，自動升級功能僅具有受限支援。使用 DRBD 9 時，SUSE 支援的使用案例與使用 DRBD 8 時相同。除此以外的使用案例 (例如所包含節點超過兩個的設定) 不受支援。
+     </para>
+    </note>
+    <para>
+     若要手動設定 DRBD，請執行下列步驟︰
+    </para>
+
+  <procedure xml:id="pro.drbd.configure">
+   <title>手動設定 DRBD</title>
+    <para>從 DRBD 版本 8.3 開始，以前的組態檔案會分割為多個獨立檔案，位於 <filename>/etc/drbd.d/</filename> 目錄下。</para>
+   <step>
+      <para>
+       開啟檔案 <filename>/etc/drbd.d/global_common.conf</filename>。該檔案中已包含一些全域預定義值。轉至 <literal>startup</literal> 區段，並插入以下幾行︰
+      </para>
+<screen>startup {
+    # wfc-timeout degr-wfc-timeout outdated-wfc-timeout
+    # wait-after-sb;
+    wfc-timeout 100;
+    degr-wfc-timeout 120;
+}</screen>
+      <para>
+       這些選項可用於減少開機過程中的逾時，詳細資料請參閱 <link xlink:href="https://docs.linbit.com/docs/users-guide-9.0/#ch-configure"/>。
+      </para>
+     </step>
+     <step>
+      <para>
+       建立檔案 <filename>/etc/drbd.d/r0.res</filename>。依據具體情況變更以下幾行，然後儲存︰
+      </para>
+<screen>resource r0 { <co xml:id="co.drbd.config.r0"/>
+  device /dev/drbd0; <co xml:id="co.drbd.config.device"/>
+  disk /dev/sda1; <co xml:id="co.drbd.config.disk"/>
+  meta-disk internal; <co xml:id="co.drbd.config.meta-disk"/>
+  on alice { <co xml:id="co.drbd.config.resname"/>
+    address  192.168.1.10:7788; <co xml:id="co.drbd.config.address"/>
+    node-id 0; <co xml:id="co.drbd.config.node-id"/>
+  }
+  on bob { <xref linkend="co.drbd.config.resname" xrefstyle="selec:nopage"/>
+    address 192.168.1.11:7788; <xref linkend="co.drbd.config.address" xrefstyle="selec:nopage"/>
+    node-id 1; <xref linkend="co.drbd.config.node-id"/>
+  }
+  disk {
+    resync-rate 10M; <co xml:id="co.drbd.config.syncer-rate"/>
+  }
+  connection-mesh { <co xml:id="co.drbd.config.connection-mesh"/>
+    hosts alice bob;
+  }
+}</screen>
+      <calloutlist>
+       <callout arearefs="co.drbd.config.r0">
+        <para>
+         方便與需要資源的服務建立某種關聯的 DRBD 資源名稱。例如 <systemitem>nfs</systemitem>、<systemitem>http</systemitem>、<systemitem>mysql_0</systemitem>、<systemitem>postgres_wal</systemitem>，等等。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.device">
+        
+        <para>
+         DRBD 的裝置名稱及其次要編號。
+        </para>
+        <para>
+         上面的範例為 DRBD 使用了次要編號 0。Udev 整合程序檔將會為您提供一個符號連結 <filename>/dev/drbd/by-res/nfs/0</filename>。或者，在組態中省略裝置節點名稱，改為使用下行︰
+        </para>
+        <para>
+         <literal>drbd0 minor 0</literal> (<literal>/dev/</literal> 為選擇性) 或 <literal>/dev/drbd0</literal>
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.disk">
+        <para>
+         在兩個節點間複製的原始裝置。請注意，本範例中兩個節點上的裝置是<emphasis>相同的</emphasis>。如果您需要不同的裝置，請將 <literal>disk</literal> 參數移至 <literal>on</literal> 主機。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.meta-disk">
+        <para>
+         meta-disk 參數通常包含值 <literal>internal</literal>，但您也可以指定具體的裝置來儲存中繼資料。如需相關資訊，請參閱 <link xlink:href="https://docs.linbit.com/docs/users-guide-9.0/#s-metadata"/>。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.resname">
+        <para>
+         <literal>On</literal> 區段指定要對其套用此組態陳述式的主機。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.address">
+        <para>
+         各節點的 IP 位址與埠號。每個資源都需要各自的連接埠，通常從 <literal>7788</literal> 開始。DRBD 資源的兩個連接埠必須相同。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.node-id">
+         <para>
+        設定兩個以上的節點時，需要節點 ID。該 ID 是用於區分不同節點的唯一非負整數。
+      </para>
+       </callout>
+       <callout arearefs="co.drbd.config.syncer-rate">
+        <para>
+         同步速率。將其設定為磁碟空間和網路頻寬中較小者的三分之一。此設定只能限制重新同步操作，對複製不起作用。
+        </para>
+       </callout>
+       <callout arearefs="co.drbd.config.connection-mesh">
+        <para>
+       定義網格的所有節點。<option>hosts</option> 參數包含共用相同 DRBD 設定的所有主機名稱。
+    </para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step>
+      <para>
+      檢查組態檔案的語法。若以下指令傳回錯誤，請檢查您的檔案︰
+      </para>
+      <screen><prompt role="root">root # </prompt><command>drbdadm</command> dump all</screen>
+     </step>
+    <step>
+      <para>繼續執行<xref linkend="sec.ha.drbd.configure.init"/>。</para>
+    </step>
+  </procedure>
+  </sect2>
+  <sect2 xml:id="sec.ha.drbd.configure.yast">
+    <title>使用 YaST 設定 DRBD</title>
+    <para>可以使用 YaST 來啟動 DRBD 的啟始設定。建立 DRBD 設定後，可以手動微調產生的檔案。
+    </para>
+    <para>
+        但是，當變更組態檔案後，請不要再使用 YaST DRBD 模組。DRBD 模組僅支援有限的一組基本組態。如果您再次使用該模組，它很有可能不會顯示所做的變更。
+    </para>
+    <para>
+      若要使用 YaST 來設定 DRBD，請執行以下步驟︰</para>
+  <procedure xml:id="pro.drbd.configure.yast">
+   <title>使用 YaST 設定 DRBD</title>
+   <step>
+    <para>
+     啟動 YaST 並選取組態模組<menuchoice>
+     <guimenu>高可用性</guimenu> <guimenu> DRBD</guimenu>
+     </menuchoice>。如果您已設定了 DRBD 組態，YaST 會向您發出警告。YaST 將會變更您的組態，並將原來的 DRBD 組態檔案另存為 <filename>*.YaSTsave</filename>。
+    </para>
+   </step>
+   <step>
+    <para>
+     將<menuchoice><guimenu>啟動組態</guimenu><guimenu>開機</guimenu></menuchoice>中的開機旗標保留原樣 (預設為 <literal>off</literal>)；請不要變更該設定，因為 Pacemaker 會管理此服務。
+    </para>
+   </step>
+   <step>
+     <remark>toms 2015-09-29: FATE#318391</remark>
+     <para>如果有防火牆在執行，則啟用<guimenu>在防火牆中開啟埠</guimenu>。</para>
+   </step>
+   <step>
+    <para>移至<guimenu>資源組態</guimenu>項目。按一下<guimenu>新增</guimenu>以建立新資源 (請參閱<xref linkend="fig.ha.drbd.yast.resconfig"/>)。
+    </para>
+    <figure xml:id="fig.ha.drbd.yast.resconfig">
+     <title>資源組態</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="yast2_drbd-resconfig.png" width="90%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="yast2_drbd-resconfig.png" width="90%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+    <para>
+      需要設定以下參數︰
+    </para>
+
+    <variablelist>
+      <varlistentry>
+        <term><guimenu>資源名稱</guimenu></term>
+        <listitem>
+          <para>DRBD 資源的名稱 (強制)</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>名稱</guimenu></term>
+        <listitem>
+          <para>相關節點的主機名稱</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>位址:埠</guimenu></term>
+        <listitem>
+          <para>
+          相應節點的 IP 位址和連接埠號 (預設為 <systemitem>7788</systemitem>)
+         </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>裝置</guimenu></term>
+        <listitem>
+          <para>
+          用於存取所複製資料的區塊裝置路徑。如果裝置包含次要編號，則關聯的區塊裝置通常命名為 <filename>/dev/drbdX</filename>，其中，<replaceable>X</replaceable> 是裝置次要編號。如果裝置不包含次要編號，請務必在裝置名稱後面新增 <literal>minor 0</literal>。
+         </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>磁碟</guimenu></term>
+        <listitem>
+          <para>
+          在兩個節點間複製的原始裝置。如果您使用 LVM，請插入 LVM 裝置名稱。
+         </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><guimenu>中繼磁碟</guimenu></term>
+        <listitem>
+          <para>
+          <guimenu>中繼磁碟</guimenu>可設定為 <literal>internal</literal> 值，或指定由索引定義的具體裝置，以存放 DRBD 所需的中繼資料。
+         </para>
+         <para>
+          也可為多重 drbd 資源使用一個真實裝置。例如，如果第一個資源使用的<guimenu>中繼磁碟</guimenu>為 <filename>/dev/sda6[0]</filename>，您可以將 <filename>/dev/sda6[1]</filename> 用於第二個資源。不過，此磁碟上必須為每個資源至少預留 128 MB 的空間。固定中繼資料大小會限制您可複製的最大資料大小。
+         </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+
+    
+    <para>
+     上述所有選項在 <filename>/usr/share/doc/packages/drbd/drbd.conf</filename> 檔案與 <command>drbd.conf(5)</command> 線上文件中都以範例進行了說明。
+    </para>
+   </step>
+   <step>
+    <para>按一下<guimenu>儲存</guimenu>。</para>
+   </step>
+   <step>
+    <para>按一下<guimenu>新增</guimenu>以輸入第二個 DRBD 資源，然後按一下<guimenu>儲存</guimenu>完成。
+    </para>
+   </step>
+   <step>
+     <para>依次按一下<guimenu>確定</guimenu>和<guimenu>完成</guimenu>關閉資源組態。
+     </para>
+   </step>
+   <step>
+     <remark>toms 2015-09-30: FATE#317957</remark>
+     <para>如果您在 DRBD 中使用 LVM，則需要在 LVM 組態檔案中變更一些選項 (請參閱 <guimenu>LVM 組態</guimenu>項目)。YaST DRBD 模組可自動完成此項變更。
+     </para>
+     <para>
+       LVM 過濾器將會拒絕 DRBD 資源的 localhost 磁碟名稱和預設過濾器。只能在 <filename>/dev/drbd</filename> 中掃描 LVM 裝置。</para>
+     <para>
+       例如，如果將 <filename>/dev/sda1</filename> 用做 DRBD 磁碟，則會插入裝置名稱做為 LVM 過濾器中的第一個項目。若要手動變更過濾器，請按一下<guimenu>自動修改 LVM 裝置過濾器</guimenu>核取方塊。
+     </para>
+   </step>
+   <step>
+     <para>按一下<guimenu>完成</guimenu>儲存您的變更。</para>
+   </step>
+    <step>
+      <para>繼續執行<xref linkend="sec.ha.drbd.configure.init"/>。</para>
+    </step>
+  </procedure>
+  </sect2>
+  <sect2 xml:id="sec.ha.drbd.configure.init">
+    <title>啟始化和格式化 DRBD 資源</title>
+    <para>準備系統並設定 DRBD 後，請執行磁碟的首次啟始化︰
+    </para>
+    <procedure>
+        <step>
+          <para>
+           在 alice 和 bob 這<emphasis>兩個</emphasis>節點上，啟始化中繼資料儲存︰
+          </para>
+          <screen><prompt role="root">root # </prompt><command>drbdadm</command> create-md r0
+<prompt role="root">root # </prompt><command>drbdadm</command> up r0</screen>
+        </step>
+        <step>
+         <para>
+          若要縮短 DRBD 資源的初始重新同步時間，請檢查以下項目︰
+         </para>
+         <itemizedlist>
+          <listitem>
+           <para>
+            如果所有節點上的 DRBD 裝置都具有相同資料 (例如，透過使用<xref linkend="sec.ha.drbd.configure"/>中所述的 <command>dd</command> 指令損毀檔案系統結構)，則請在這兩個節點上使用以下指令跳過初始重新同步步驟︰
+           </para>
+           <screen><prompt role="root">root # </prompt><command>drbdadm</command> new-current-uuid --clear-bitmap r0/0</screen>
+           <para>狀態將為 <literal>Secondary/Secondary UpToDate/UpToDate</literal></para>
+          </listitem>
+          <listitem>
+           <para>
+            否則，請繼續下一步。
+           </para>
+          </listitem>
+         </itemizedlist>
+        </step>
+        <step>
+         <para>
+          在主要節點 alice 上，啟動重新同步程序︰
+         </para>
+         <screen><prompt role="root">root # </prompt><command>drbdadm</command> primary --force r0</screen>
+        </step>
+        <step>
+         <para> 使用以下指令檢查狀態︰ </para>
+         <screen><prompt role="root">root # </prompt><command>drbdadm</command> status r0
+r0 role:Primary
+  disk:UpToDate
+  bob role:Secondary
+  peer-disk:UpToDate</screen>
+        </step>
+        <step>
+          <para> 在您的 DRBD 裝置上建立檔案系統，例如︰ </para>
+          <screen><prompt role="root">root # </prompt><command>mkfs.ext3</command> /dev/drbd0</screen>
+        </step>
+        <step>
+          <para> 掛接檔案系統並投入使用︰ </para>
+          <screen><prompt role="root">root # </prompt><command>mount</command> /dev/drbd0 /mnt/</screen>
+        </step>
+    </procedure>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.drbd.migrate">
+  <title>從 DRBD 8 移轉到 DRBD 9</title>
+  <para>
+   從 DRBD 8 (隨附於 SUSE Linux Enterprise High Availability Extension 12 SP1 中) 到 DRBD 9 (隨附於 SUSE Linux Enterprise High Availability Extension 12 SP2 中)，中繼資料格式已發生變化。DRBD 9 不會自動將之前的中繼資料檔案轉換為新格式。
+  </para>
+  <para>
+   移轉到 12 SP2 之後，在啟動 DRBD 之前，請先將 DRBD 中繼資料手動轉換為版本 9 格式。請使用 <command>drbdadm</command> <option>create-md</option> 執行此操作。不需要變更任何組態。
+  </para>
+  
+  
+  <note>
+   <title>支援受限</title>
+   <para>使用 DRBD 9 時，SUSE 支援的使用案例與使用 DRBD 8 時相同。除此以外的使用案例 (例如所包含節點超過兩個的設定) 不受支援。</para>
+  </note>
+  <para>
+   DRBD 9 將會退回到與版本 8 相容的狀態。如果有三個或更多節點，您需要重新建立中繼資料才能使用 DRBD 版本 9 的特定選項。
+  </para>
+  <para>
+   如果具有堆疊式 DRBD 資源，另請參閱<xref linkend="sec.ha.drbd.resource-stacking"/>瞭解詳細資訊。
+  </para>
+  <para>
+   若要保留資料並允許在無需重新建立新資源的情況下新增新的節點，請執行以下操作︰
+  </para>
+  <procedure>
+   <step>
+    <para>
+     將一個節點設定為待命模式。
+    </para>
+   </step>
+   <step>
+    <para>
+     更新所有節點上的所有 DRBD 套件，請參閱<xref linkend="sec.ha.drbd.install"/>。
+    </para>
+   </step>
+   <step>
+    <para>將新節點資訊新增至資源組態中︰</para>
+    <itemizedlist>
+     <listitem>
+      <para><parameter>node-id</parameter> (針對每個 <literal>on</literal> 區段)。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <parameter>connection-mesh</parameter> 區段在 <parameter>hosts</parameter> 參數中包含所有主機名稱。
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     請參閱<xref linkend="pro.drbd.configure"/>中的範例組態。
+    </para>
+   </step>
+   <step>
+    <para>
+     在使用 <literal>internal</literal> 做為 <literal>meta-disk</literal> 索引鍵時增大 DRBD 磁碟的空間。使用支援增大空間的裝置，例如 LVM。或者，更換為用於中繼資料的外部磁碟，並使用 <literal>meta-disk <replaceable>裝置</replaceable>;</literal>。
+    </para>
+   </step>
+   <step>
+    <para>
+     根據新組態重新建立中繼資料︰
+    </para>
+    <screen><prompt role="root">root # </prompt><command>drbdadm</command> create-md <replaceable>RESOURCE</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     取消待命模式。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.drbd.resource-stacking">
+  <title>建立堆疊式 DRBD 裝置</title>
+  <para>
+   堆疊式 DRBD 裝置包含兩部其他裝置，其中至少有一部裝置也是 DRBD 資源。換言之，DRBD 在一個現有 DRBD 資源的基礎上又另外新增了一個節點 (請參閱<xref linkend="fig.ha.drbd.resource-stacking"/>)。此類複製設定可用於備份和災難備援用途。
+  </para>
+ 
+  <figure xml:id="fig.ha.drbd.resource-stacking">
+   <title>資源堆疊</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata width="80%" fileref="ha_stacked_drbd.png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata width="50%" fileref="ha_stacked_drbd.png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   三向複製使用了非同步 (DRBD 通訊協定 A) 和同步複製 (DRBD 通訊協定 C)。非同步部分用於堆疊的資源，而同步部分用於備用資源。
+  </para>
+
+  <para>
+   您的線上環境使用堆疊裝置。例如，如果您有一個 DRBD 裝置 <filename>/dev/drbd0</filename> 和一個堆疊在其上的裝置 <filename>/dev/drbd10</filename>，則將會在 <filename>/dev/drbd10</filename> 上建立檔案系統 (請參閱<xref linkend="exa.ha.drbd.stacked-drbd"/>瞭解更多詳細資料)。
+  </para>
+
+  <example xml:id="exa.ha.drbd.stacked-drbd">
+   <title>三節點堆疊 DRBD 資源的組態</title>
+   <screen># /etc/drbd.d/r0.res
+resource r0 {
+  protocol C;
+  device    /dev/drbd0;
+  disk      /dev/sda1;
+  meta-disk internal;
+
+  on amsterdam-alice {
+    address    192.168.1.1:7900;
+  }
+
+  on amsterdam-bob {
+    address    192.168.1.2:7900;
+  }
+}
+
+resource r0-U {
+  protocol A;
+  device     /dev/drbd10;
+
+  stacked-on-top-of r0 {
+    address    192.168.2.1:7910;
+  }
+
+  on berlin-charlie {
+    disk       /dev/sda10;
+    address    192.168.2.2:7910; # Public IP of the backup node
+    meta-disk  internal;
+  }
+}</screen>
+  </example>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.drbd.fencing">
+  <title>使用資源層級圍籬區隔</title>
+  <para>
+   當 DRBD 複製連結中斷時，Pacemaker 會嘗試將 DRBD 資源升級至另一個節點。為防止 Pacemaker 使用過時的資料啟動服務，請依<xref linkend="ex.ha.drbd.fencing"/>中所示，在 DRBD 組態檔案中啟用資源層級圍籬區隔。
+  </para>
+  <example xml:id="ex.ha.drbd.fencing">
+   <title>使用叢集資訊庫 (CIB) 啟用資源層級圍籬區隔的 DRBD 組態</title>
+   <screen>resource <replaceable>RESOURCE</replaceable> {
+  net {
+    fencing resource-only;
+    # ...
+  }
+  handlers {
+    fence-peer "/usr/lib/drbd/crm-fence-peer.9.sh";
+    after-resync-target "/usr/lib/drbd/crm-unfence-peer.9.sh";
+    # ...
+  }
+  ...
+}</screen>
+  </example>
+  <para>如果 DRBD 複製連結中斷，DRBD 會執行以下操作︰</para>
+  <orderedlist>
+   <listitem>
+    <para>DRBD 會呼叫 <command>crm-fence-peer.9.sh</command> 程序檔。</para>
+   </listitem>
+   <listitem>
+    <para>該程序檔會聯絡叢集管理員。
+    </para>
+   </listitem>
+   <listitem>
+    <para>該程序檔會確定與此 DRBD 資源關聯的 Pacemaker 資源。</para>
+   </listitem>
+   <listitem>
+    <para>該程序檔會確定 DRBD 資源不再升級至其他任何節點。DRBD 資源將保留在目前使用中的節點上。</para>
+   </listitem>
+   <listitem>
+    <para>如果複製連結恢復連接並且 DRBD 完成了其同步程序，則會移除該條件約束。現在，叢集管理員可以不受約束地升級資源。
+    </para>
+   </listitem>
+  </orderedlist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.drbd.test">
+  <title>測試 DRBD 服務</title>
+
+  <para>
+   如果安裝與組態程序按預期執行，您現在就可以執行基本的 DRBD 功能測試。此測試也有助於瞭解軟體的工作原理。
+  </para>
+
+  <procedure xml:id="pro.drbd.test">
+   <step>
+    <para>
+     測試 alice 上的 DRBD 服務。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       開啟終端機主控台，然後以 <systemitem>root</systemitem> 身分登入。
+      </para>
+     </step>
+     <step>
+      <para>
+       在 alice 上建立掛接點，如 <filename>/srv/r0</filename>︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>mkdir</command> -p /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       掛接 <command>drbd</command> 裝置︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>mount</command> -o rw /dev/drbd0 /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       從主要節點建立檔案︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>touch</command> /srv/r0/from_alice</screen>
+     </step>
+     <step>
+      <para>
+       卸載 alice 上的磁碟︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>umount</command> /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       在 alice 上輸入以下指令，將 alice 上的 DRBD 服務降級︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> secondary r0</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     測試 bob 上的 DRBD 服務。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       在 bob 上開啟終端機主控台，然後以 <systemitem>root</systemitem> 身分登入。
+      </para>
+     </step>
+     <step>
+      <para>
+       在 bob 上將 DRBD 服務升級為主要服務︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> primary r0</screen>
+     </step>
+     <step>
+      <para>
+       在 bob 上檢查 bob 是否為主要節點︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> status r0</screen>
+     </step>
+     <step>
+      <para> 在 bob 上建立掛接點，如 <filename>/srv/r0</filename>︰ </para>
+<screen><prompt role="root">root # </prompt><command>mkdir</command> /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       在 bob 上掛接 DRBD 裝置︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>mount</command> -o rw /dev/drbd0 /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       驗證您在 alice 上建立的檔案是否存在︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>ls</command> /srv/r0/from_alice</screen>
+      <para> 此時應列出 <filename>/srv/r0/from_alice</filename> 檔案。 </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     如果服務在兩個節點上都可執行，即表示 DRBD 設定已完成。
+    </para>
+   </step>
+   <step>
+    <para>
+     再次將 alice 設為主要節點。
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       在 bob 上輸入以下指令，卸下 bob 上的磁碟︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>umount</command> /srv/r0</screen>
+     </step>
+     <step>
+      <para>
+       在 bob 上輸入以下指令，將 bob 上的 DRBD 服務降級︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> secondary</screen>
+     </step>
+     <step>
+      <para>
+       在 alice 上將 DRBD 服務升級為主要服務︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> primary</screen>
+     </step>
+     <step>
+      <para>
+       在 alice 上檢查 alice 是否為主要節點︰
+      </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> status r0</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     若要讓服務在伺服器出現問題時自動啟動並容錯移轉，您可以使用 Pacemaker/Corosync 將 DRBD 設定為高可用性服務。如需關於如何安裝和設定 SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">12 SP4</phrase></phrase> 的資訊，請參閱<xref linkend="part.config"/>。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.tuning">
+  <title>調整 DRBD</title>
+
+  <para>
+   調整 DRBD 的方法有多種︰
+  </para>
+
+  <orderedlist>
+   <listitem>
+    <para>
+     使用外部磁碟儲存中繼資料。這可能會有所幫助，不過會降低維護方便性。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     透過 <command>sysctl</command> 變更接收和傳送緩衝區設定，以調整網路連接。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     在 DRBD 組態中變更 <systemitem>max-buffers</systemitem> 和/或 <systemitem>max-epoch-size</systemitem>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     根據您的 IO 模式增大 <systemitem>al-extents</systemitem> 值。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     如果您有一個配備了 BBU (<emphasis>電池備份單元</emphasis>) 的硬體 RAID 控制器，設定 <systemitem>no-disk-flushes</systemitem>、<systemitem>no-disk-barrier</systemitem> 和/或 <systemitem>no-md-flushes</systemitem> 可能會有所幫助。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     根據工作負載啟用讀取平衡。請參閱 <link xlink:href="https://www.linbit.com/en/read-balancing/"/>，以取得詳細資料。
+    </para>
+   </listitem>
+  </orderedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.trouble">
+  <title>DRBD 疑難排解</title>
+
+  <para>
+   DRBD 設定涉及眾多元件，因此導致問題發生的原因多種多樣。以下各節將介紹幾種常見的情況並提供了多種解決方案。
+  </para>
+
+  <sect2 xml:id="sec.ha.drbd.trouble.config">
+   <title>組態</title>
+   <para>
+    如果初始的 DRBD 設定未依預期運作，則可能是由於組態有問題。
+   </para>
+   <para>
+    若要獲取有關組態的資訊，請執行下列步驟︰
+   </para>
+   <procedure>
+    <step>
+     <para>
+      開啟終端機主控台，然後以 <systemitem class="username">root</systemitem> 身分登入。
+     </para>
+    </step>
+    <step>
+     <para>
+      執行 <command>drbdadm</command> (含 <command>-d</command> 選項)，測試組態檔案。輸入下列指令︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> -d adjust r0</screen>
+     <para>
+      在 <command>adjust</command> 選項的試執行 (dry run) 期間，<command>drbdadm</command> 會將 DRBD 資源的實際組態與 DRBD 組態檔案進行比較，但不會執行呼叫。檢閱輸出，以確定您瞭解所有錯誤的來源及原因。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果檔案 <filename>/etc/drbd.d/*</filename> 與 <filename>drbd.conf</filename> 中存在錯誤，請更正後再繼續。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果分割區與設定均正確，請再次執行 <command>drbdadm</command> (不含 <command>-d</command> 選項)。
+     </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> adjust r0</screen>
+     <para>
+      此指令會將組態檔案套用於 DRBD 資源。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.drbd.hostnames">
+   <title>主機名稱</title>
+   <para>
+    與核心中儲存的主機名稱相比 (請參閱 <command>uname -n</command> 輸出)，DRBD 的主機名稱區分大小寫 (<systemitem>Node0</systemitem> 是不同於 <systemitem>node0</systemitem> 的主機)。
+   </para>
+   <para>
+    如果您擁有多個網路裝置，並希望使用專屬的網路裝置，主機名稱可能不會解析成所使用的 IP 位址。在這種情況下，可以使用參數 <literal>disable-ip-verification</literal>。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.drbd.port">
+   <title>TCP 埠 7788</title>
+   <para>
+    如果您的系統無法連接至對等系統，可能是因為本地防火牆有問題。依預設，DRBD 使用 TCP 埠 <literal>7788</literal> 存取其他節點。請確定在兩個節點上均可存取此連接埠。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.drbd.trouble.broken">
+   <title>DRBD 裝置在重新開機後損毀</title>
+   <para>
+    如果 DRBD 不知道存放最新資料的真實裝置，就會導致電腦分裂狀態。在這種情況下，各個 DRBD 子系統將會做為次要項目出現，並且不會相互連接。在這種情況下，可以在記錄資料中尋找以下訊息︰
+   </para>
+<screen>Split-Brain detected, dropping connection!</screen>
+   <para>
+    若要解決此問題，請在要丟棄資料的節點上輸入以下指令︰
+   </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> secondary r0</screen>
+   <para>
+    如果狀態為 <literal>WFconnection</literal>，請先中斷連接︰
+   </para>
+   <screen><prompt role="root">root # </prompt><command>drbdadm</command> disconnect r0</screen>
+   <para>
+    在含有最新資料的節點上，輸入以下指令︰
+   </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> connect  --discard-my-data r0</screen>
+   <para>
+    如此會將一個節點的資料覆寫為對等節點的資料，因此兩個節點上的檢視窗將會保持一致，從而使問題得到解決。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.drbd.more">
+  <title>更多資訊</title>
+
+  <para>
+   下列開放原始碼資源適用於 DRBD︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     專案首頁 <link xlink:href="http://www.drbd.org"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     請參閱 <xref linkend="art_ha_quick_nfs"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <link xlink:href="http://clusterlabs.org/wiki/DRBD_HowTo_1.0"/>，由 Linux Pacemaker Cluster Stack Project 提供。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     套裝作業系統中包含 DRBD 的以下man 頁面︰<command>drbd (8)</command>、<command>drbdmeta (8)</command>、<command>drbdsetup (8)</command>、<command>drbdadm (8)</command>、<command>drbd.conf (5)</command>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>/usr/share/doc/packages/drbd-utils/drbd.conf.example</filename> 中提供了註解的 DRBD 範例組態。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     此外，為了更方便地在整個叢集中進行儲存管理，請參閱 <link xlink:href="https://www.linbit.com/en/drbd-manager/"/> 上關於 <citetitle>DRBD-Manager</citetitle> 的最新宣告。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>
