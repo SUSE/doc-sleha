@@ -1,0 +1,542 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_fencing.xml" version="5.0" xml:id="cha.ha.fencing">
+
+ <title>屏障和 STONITH</title>
+ <info>
+      <abstract>
+        <para>
+    屏蔽在 HA（高可用性）计算机群集中是一个非常重要的概念。群集有时会检测到某个节点行为异常，需要删除此节点。这称为<emphasis>屏蔽</emphasis>，通常使用 STONITH 资源实现。屏蔽可以定义为一种使 HA 群集具有已知状态的方法。
+   </para>
+        <para>
+    群集中的每个资源均带有状态。例如：<quote>资源 r1 已在 alice 上启动</quote>。在 HA 群集中，这种状态暗示了<quote>资源 r1 在除 alice 外的所有节点上都处于停止状态</quote>，因为群集必须确保每个资源只能在一个节点上启动。每个节点都必须报告资源发生的每个更改。这样群集状态就是资源状态和节点状态的集合。
+   </para>
+        <para>
+    当节点或资源的状态无法十分肯定地确立时，将进行屏蔽。即使在群集未感知到给定节点上发生的事件时，屏蔽也可确保此节点不会运行任何重要资源。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    
+ 
+ <sect1 xml:id="sec.ha.fencing.classes">
+  <title>屏蔽分类</title>
+
+  <para>
+   有两类屏蔽：资源级别屏蔽和节点级别屏蔽。后者是本章的主题。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>资源级别屏蔽</term>
+    <listitem>
+     <para>资源级别屏蔽可确保对给定资源的排它访问。此情况的常见示例就是通过 SAN 光纤通道开关（用于锁定节点不让访问其磁盘）或 SCSI 保留之类的方法更改节点的区域。有关示例，请参见<xref linkend="sec.ha.storage.protect.rsc.fencing"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>节点级别屏蔽</term>
+    <listitem>
+     <para>
+      节点级别屏蔽可彻底防止故障节点访问共享资源。这种屏蔽通常采用一种简单但却粗暴的方式来完成，即重设置或关闭节点。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec.ha.fencing.nodes">
+  <title>节点级别屏蔽</title>
+
+  <para>
+   在 Pacemaker 群集中，节点级别屏蔽的实施方式是 STONITH（关闭其他节点）。High Availability Extension 包括 <command>stonith</command> 命令行工具，一个能远程关闭群集中节点的可扩展界面。有关可用选项的概述，请运行 <command>stonith --help</command> 或参见 <command>stonith</command> 的手册页了解更多信息。
+  </para>
+
+  <sect2 xml:id="sec.ha.fencing.nodes.devices">
+   <title>STONITH 设备</title>
+   <para>
+    要使用节点级屏蔽，首先需要有屏蔽设备。要获取 High Availability Extension 所支持的 STONITH 设备的列表，请在任何节点上运行以下命令之一：
+   </para>
+<screen><prompt role="root">root # </prompt>stonith -L</screen>
+   <para>
+    或者
+   </para>
+<screen><prompt role="root">root # </prompt>crm ra list stonith</screen>
+   <para>
+    STONITH 设备可分为以下类别：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>电源分配单元 (PDU)</term>
+     <listitem>
+      <para>
+       电源分发单元是管理关键网络、服务器和数据中心设备的电源容量和功能的基本元素。它可以提供对已连接设备的远程负载监视和独立电源出口控制，以实现远程电源循环。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>不间断电源 (UPS)</term>
+     <listitem>
+      <para>
+       公共用电出现故障时，通过其他来源供电的稳定电源可为连接的设备提供应急电源。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>刀片电源控制设备</term>
+     <listitem>
+      <para>
+       如果是在刀片组上运行群集，则刀片外壳中的电源控制设备就是提供屏蔽的唯一候选。当然，此设备必须能够管理单个刀片计算机。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>无人值守设备 </term>
+     <listitem>
+      <para>
+       无人值守设备（IBM RSA、HP iLO 和 Dell DRAC）正变得越来越普遍，在未来它们甚至可能成为现成可用计算机上的标准配置。但是，如果这些设备与其主机（一个群集节点）共享电源，则它们可能无法按需工作。如果节点持续断电，则认为控制该节点的设备失去作用。因此，我们强烈建议使用带备用电池的无人值守设备。另一方面，此设备是通过网络访问的。这意味着可能存在单一故障点或安全隐患。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>测试设备</term>
+     <listitem>
+      <para>
+       测试设备仅用于测试目的。它们通常对硬件更加友好。将群集投放到生产环境之前，必须以真实的屏蔽设备进行替换。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    对 STONITH 设备的选择主要取决于您的预算和所用硬件的种类。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.fencing.nodes.implementation">
+   <title>STONITH 实施</title>
+   <para>
+    <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> 的 STONITH 实施由两个组件组成：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>stonithd</term>
+     <listitem>
+      <para>
+       stonithd 是可由本地进程或通过网络访问的守护程序。它接受与屏蔽操作（重设置、关闭电源和打开电源）对应的命令。它还可以检查屏蔽设备的状态。
+      </para>
+      <para>
+       stonithd 守护程序在 CRM HA 群集中的每个节点上运行。在 DC 节点上运行的 stonithd 实例从 CRM 接收屏蔽请求。它会对请求作出响应，其他 stonithd 程序将执行所需的屏蔽操作。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>STONITH 插件</term>
+     <listitem>
+      <para>
+       对于每个受支持的屏蔽设备，都有一个能够控制所述设备的 STONITH 插件。STONITH 插件是屏障设备的界面。<systemitem>cluster-glue</systemitem> 包中的 STONITH 插件位于每个节点上的 <filename>/usr/lib64/stonith/plugins</filename> 中（如果您还安装了 <systemitem class="resource">fence-agents</systemitem> 包，该包中的插件将安装在 <filename>/usr/sbin/fence_*</filename> 中）。所有 STONITH 插件看上去都与 stonithd 一样，但显著区别在于反映了屏障设备的性质。
+      </para>
+      <para>
+       某些插件支持多个设备。<literal>ipmilan</literal>（或 <literal>external/ipmi</literal>)就是一个典型的示例，它实施 IPMI 协议并可以控制任何支持此协议的设备。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.fencing.config">
+  <title>STONITH 资源和配置</title>
+
+  <para>
+   要设置屏蔽，需要配置一个或多个 STONITH 资源 - stonithd 守护程序不需要配置。所有配置都储存在 CIB 中。STONITH 资源属于 <literal>stonith</literal> 类的资源（请参见<xref linkend="sec.ha.config.basics.raclasses"/>）。STONITH 资源是 STONITH 插件在 CIB 中的代表。除了屏蔽操作，还可以启动、停止和监视 STONITH 资源，就像任何其他资源一样。启动或停止 STONITH 资源意味着装载或卸载节点上的 STONITH 设备驱动程序。启动和停止仅是管理操作，不会转换成对屏蔽设备自身的任何操作。然而，监视操作却会转换成将其记录到设备（以校验设备能否在需要时正常运行）。STONITH 资源故障转移到另一个节点时，它通过装载相应的驱动程序允许当前节点与 STONITH 设备对话。
+  </para>
+
+  <para>
+   STONITH 资源可像任何其他资源一样进行配置。有关如何使用首选群集管理工具执行此操作的细节：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Hawk2：<xref linkend="sec.conf.hawk2.rsc.stonith"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     crmsh：<xref linkend="sec.ha.manual_create.stonith"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   参数（属性）列表取决于相应的 STONITH 类型。要查看特定设备的参数列表，请使用 <command>stonith</command> 命令：
+  </para>
+
+<screen>stonith -t <replaceable>stonith-device-type</replaceable> -n</screen>
+
+  <para>
+   例如，要查看 <literal>ibmhmc</literal> 设备类型的参数，请输入以下命令：
+  </para>
+
+<screen>stonith -t ibmhmc -n</screen>
+
+
+
+  <para>
+   要获取设备的简短帮助文本，请使用 <option>-h</option> 选项：
+  </para>
+
+<screen>stonith -t <replaceable>stonith-device-type</replaceable> -h</screen>
+
+  <sect2 xml:id="sec.ha.fencing.config.examples">
+   <title>STONITH 资源配置示例</title>
+   <para>
+    在以下部分中，可了解一些用 <command>crm</command> 命令行工具的语法编写的示例配置。要应用这些配置，请将示例放进文本文件（例如 <filename>sample.txt</filename>）并运行：
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> &lt; sample.txt</screen>
+   <para>
+    有关使用 <command>crm</command> 命令行工具配置资源的更多信息，请参见<xref linkend="cha.ha.manual_config"/>。
+   </para>
+   <example>
+    <title>IBM RSA 无人值守设备的配置</title>
+    <para>
+     可以如下配置 IBM RSA 无人值守设备：
+    </para>
+<screen>configure
+primitive st-ibmrsa-1 stonith:external/ibmrsa-telnet \
+params nodename=alice ip_address=192.168.0.101 \
+username=USERNAME password=PASSW0RD
+primitive st-ibmrsa-2 stonith:external/ibmrsa-telnet \
+params nodename=bob ip_address=192.168.0.102 \
+username=USERNAME password=PASSW0RD
+location l-st-alice st-ibmrsa-1 -inf: alice
+location l-st-bob st-ibmrsa-2 -inf: bob
+commit</screen>
+    <para>
+     在此示例中，由于以下原因使用了位置约束：STONITH 操作始终有失败的可能性。因此，在同时兼作执行程序的节点上操作 STONITH 并不可靠。如果重设置节点，则它将无法发送有关屏蔽操作结果的通知。唯一的方法是假设操作会成功并提前发送通知。不过，如果操作失败，可能会出现问题。因此，按惯例 stonithd 会拒绝终止其主机。
+    </para>
+   </example>
+   <example>
+    <title>UPS 屏蔽设备的配置</title>
+    <para>
+     UPS 类型屏蔽设置的配置类似于上面的示例。此处不作详细介绍。所有 UPS 设备均使用相同的机制屏蔽。访问设备的方式有所不同。旧的 UPS 设备只有一个串行端口，通常使用特殊的串行电缆以 1200 波特的速率进行连接。许多新的 UPS 设备仍有一个串行端口，但它们一般还使用 USB 或以太网接口。可以使用的连接类型取决于插件支持的连接。
+    </para>
+    <para>
+     例如，通过使用 <literal>stonith -t </literal><literal>stonith 设备类型</literal> -n 命令比较 <command>apcmaster</command> <replaceable> 与 apcsmart</replaceable> 设备：
+    </para>
+<screen>stonith -t apcmaster -h</screen>
+    <para>
+     返回以下信息：
+    </para>
+<screen>STONITH Device: apcmaster - APC MasterSwitch (via telnet)
+NOTE: The APC MasterSwitch accepts only one (telnet)
+connection/session a time. When one session is active,
+subsequent attempts to connect to the MasterSwitch will fail.
+For more information see http://www.apc.com/
+List of valid parameter names for apcmaster STONITH device:
+ipaddr
+login
+ password</screen>
+    <para>
+     使用
+    </para>
+<screen>stonith -t apcsmart -h</screen>
+    <para>
+     得到以下输出：
+    </para>
+<screen>STONITH Device: apcsmart - APC Smart UPS
+(via serial port - NOT USB!). 
+Works with higher-end APC UPSes, like
+Back-UPS Pro, Smart-UPS, Matrix-UPS, etc.
+(Smart-UPS may have to be &gt;= Smart-UPS 700?).
+See http://www.networkupstools.org/protocols/apcsmart.html
+for protocol compatibility details.
+For more information see http://www.apc.com/
+List of valid parameter names for apcsmart STONITH device:
+ttydev
+hostlist</screen>
+    <para>
+     第一个插件支持带有一个网络端口的 APC UPS 和 telnet 协议。第二个插件使用 APC SMART 协议（通过许多 APC UPS 产品系列都支持的串行线路）。
+    </para>
+   </example>
+   <example xml:id="ex.ha.fencing.kdump">
+    <title>Kdump 设备的配置</title>
+    <para>Kdump 属于<xref linkend="sec.ha.fencing.special" xrefstyle="select:title"/>，实际上与屏蔽设备相反。该插件检查节点上是否正在进行内核转储。如果是，它将返回 true，并<emphasis>如同</emphasis>节点已被屏蔽那样进行操作。
+    </para>
+    <para>
+     使用 <literal>stonith:fence_kdump</literal> 资源代理（由 <systemitem class="resource">fence-agents</systemitem> 包提供）来监视启用了 Kdump 功能的所有节点。下面提供了资源的配置示例：
+    </para>
+<screen>configure
+  primitive st-kdump stonith:fence_kdump \
+  params nodename="alice "\ <co xml:id="co.ha.fenc.kdump.nodename"/>
+  pcmk_host_check="static-list" \
+  pcmk_reboot_action="off" \
+  pcmk_monitor_action="metadata" \
+  pcmk_reboot_retries="1" \
+  timeout="60"
+  commit</screen>
+    <calloutlist>
+     <callout arearefs="co.ha.fenc.kdump.nodename">
+      <para>
+       要监控的节点的名称。如果您需要监视多个节点，请配置更多 STONITH 资源。要防止特定节点使用屏蔽设备，请添加位置约束。
+      </para>
+     </callout>
+    </calloutlist>
+    <para>
+     当资源超时后，屏蔽操作将会启动。
+    </para>
+    <para>
+     在每个节点上的 <filename>/etc/sysconfig/kdump</filename> 中，将 <literal>KDUMP_POSTSCRIPT</literal> 配置为在 Kdump 进程完成后向所有节点发送通知。例如：
+    </para>
+<screen>/usr/lib/fence_kdump_send -i <replaceable>INTERVAL</replaceable> -p <replaceable>PORT</replaceable> -c 1 alice bob charlie [...]</screen>
+    <para>
+     执行 Kdump 的节点将在完成 Kdump 后自动重启动。请记得在防火墙中为 <literal>fence_kdump</literal> 资源打开一个端口。默认端口为 <literal>7410</literal>。
+    </para>
+    <para>必须以与其他真实的 STONITH 设备（例如 <literal>external/ipmi</literal>）一致的方式使用 Kdump 插件。屏蔽设备的顺序必须由 <command>crm configure fencing_topology</command> 指定。为了能够在触发真实的屏蔽机制（例如 <literal>external/ipmi</literal>）之前检查 Kdump，请使用类似以下的配置：</para>
+    <screen>fencing_topology \
+  alice: kdump-node1 ipmi-node1 \
+  bob: kdump-node2 ipmi-node2</screen>
+    <para>有关 <option>fencing_topology</option> 的详细信息：
+    </para>
+   <screen>crm configure help fencing_topology</screen>
+   </example>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.fencing.monitor">
+  <title>监视屏蔽设备</title>
+
+  <para>
+   与任何其他资源一样，STONITH 类代理还支持使用监视操作检查状态。
+  </para>
+
+
+
+  <note>
+   <title>监视 STONITH 资源</title>
+   <para>
+    请定期而谨慎地监视 STONITH 资源。对于大多数设备而言，至少 1800 秒（30 分钟）的监视间隔应已足够。
+   </para>
+  </note>
+
+  <para>
+   屏蔽设备是 HA 群集不可缺少的组成部分，但越少需要使用它们越好。电源管理设备常常会受广播流量过多的影响。某些设备无法处理每分钟多于十个左右连接的情况。如果两个客户端同时尝试进行连接，一些设备会分辨不清。大多数设备不能同时处理多个会话。
+  </para>
+
+  <para>
+   通常，每隔几小时检查一次屏蔽设备的状态应已足够。需要执行屏蔽操作和电源开关故障的情况是较少的。
+  </para>
+
+  <para>
+   有关如何配置监视操作的详细信息，请参见针对命令行方法的<xref linkend="sec.ha.manual_config.monitor"/>。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.fencing.special">
+  <title>特殊的屏蔽设备</title>
+
+  <para>
+   除了处理真实 STONITH 设备的插件外，还有特殊用途的 STONITH 插件。
+  </para>
+
+  <warning>
+   <title>仅供测试</title>
+   <para>
+    下面提到的一些 STONITH 插件仅供演示和测试之用。不要在实际情境中使用以下任何设备，因为这可能导致数据损坏和无法预料的结果：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <literal>external/ssh </literal>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <literal>ssh </literal>
+     </para>
+    </listitem>
+
+   </itemizedlist>
+  </warning>
+
+  <variablelist>
+
+   <varlistentry xml:id="vle.fence.kdump">
+    <term><literal>fence_kdump</literal>
+    </term>
+    <listitem>
+     <para>
+      此插件检查节点上是否正在进行内核转储。如果有，它将返回 <literal>true</literal>，并按节点已被屏蔽那样进行操作。在转储过程中，此节点不能运行任何资源。这可避免屏蔽已关闭但正在进行转储的节点，从而节省屏蔽所需时间。此插件必须与另一个实际 STONITH 设备一同使用。
+     </para>
+     <para>
+      有关配置细节，请参见<xref linkend="ex.ha.fencing.kdump"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>external/sbd</literal>
+    </term>
+    <listitem>
+     <para>
+      这是一个自屏蔽设备。它对可以插入共享磁盘的所谓的<quote>毒药</quote>作出反应。当中断共享储存区连接时，它将停止节点运行。要了解如何使用此 STONITH 代理实施基于储存的屏蔽，请参见<xref linkend="cha.ha.storage.protect" xrefstyle="select:label nopage"/>、<xref linkend="pro.ha.storage.protect.fencing"/>。有关更多细节，另请参见 <link xlink:href="https://github.com/ClusterLabs/sbd/blob/master/man/sbd.8.pod"/>。
+     </para>
+
+     <important>
+      <title><literal>external/sbd</literal> 和 DRBD</title>
+      <para>
+       <literal>external/sbd</literal> 屏蔽机制要求能直接从每个节点读取 SBD 分区。因此，SBD 分区中不得使用 DRBD* 设备。
+      </para>
+      <para>
+       但是，如果 SBD 分区位于未镜像或未复制的共享磁盘上，则可以对 DRBD 群集使用该屏蔽机制。
+      </para>
+     </important>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>external/ssh</literal>
+    </term>
+    <listitem>
+     <para>
+      另一个基于软件的<quote>屏蔽</quote>机制。节点必须能够以 <systemitem class="username">root</systemitem> 身份相互登录，而且无需密码。它使用一个参数 <literal>hostlist</literal> 指定它将指向的目标节点。由于不能重设置已确实失败的节点，它不得用于实际群集 - 仅供测试和演示之用。将其用于共享储存将导致数据损坏。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>meatware</literal>
+    </term>
+    <listitem>
+     <para>
+      <literal>meatware</literal> 需要用户操作才能运行。调用 <literal>meatware</literal> 时，它会记录一条 CRIT 严重性消息，显示在节点的控制台上。然后操作员确认节点已关闭，并发出 <command>meatclient(8)</command> 命令。此命令指示 <literal>meatware</literal> 通知群集将该节点视为已出现故障。有关更多信息，请参见 <filename>/usr/share/doc/packages/cluster-glue/README.meatware</filename>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>suicide</literal>
+    </term>
+    <listitem>
+     <para>
+      这是一个仅有软件的设备，它可以使用 <command>reboot</command> 命令重引导它运行所处的节点。这需要节点的操作系统的操作，在某些情况下可能失败。因此，如果可能，请避免使用此设备。然而，在单节点群集上使用此设备是很安全的。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>无磁盘 SBD</term>
+    <listitem>
+     <para>如果您想要建立一个不含共享储存的屏蔽机制，则此配置十分有用。在此无磁盘模式下，SBD 会使用硬件检查包来屏蔽节点，而不依赖于任何共享设备。不过，无磁盘 SBD 不能处理双节点群集的节点分裂情况。因此，要使用无磁盘 SBD，群集需要有三个或更多节点。</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   <literal>suicide</literal> 是<quote>I do not shoot my host</quote>（我自己不关闭我的主机）规则的唯一例外。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.fencing.recommend">
+  <title>基本建议</title>
+
+  <para>
+   请查看以下建议列表以避免常见错误：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     不要并行配置多个电源开关。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     要测试 STONITH 设备及其配置，请从每个节点拔出一次插头，并校验该节点是否会被屏蔽。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     在负载状态下测试资源，并校验超时值是否合适。超时值设置得过短会触发（不必要的）屏蔽操作。有关详细信息，请参见<xref linkend="sec.ha.config.basics.timeouts"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     对您的设置使用合适的屏蔽设备。有关细节，另请参见<xref linkend="sec.ha.fencing.special"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     配置一个或多个 STONITH 资源。默认情况下，全局群集选项 <literal>stonith-enabled</literal> 设置为 <literal>true</literal>。如果未定义任何 STONITH 资源，群集将拒绝启动任何资源。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     不要将全局群集选项 <systemitem>stonith-enabled</systemitem> 设置为 <literal>false</literal>，原因如下：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       未启用 STONITH 的群集不受支持。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       DLM/OCFS2 将会阻止一直等待不会发生的屏蔽操作。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     不要将全局群集选项 <systemitem>startup-fencing</systemitem> 设置为 <literal>false</literal>。默认情况下，会因以下原因将其设置为 <literal>true</literal>：如果节点在群集启动期间状态未知，则它将会被屏蔽一次以明确其状态。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.fencing.more">
+  <title>更多信息</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><filename>/usr/share/doc/packages/cluster-glue</filename>
+    </term>
+    <listitem>
+     <para>
+      在已安装系统中，此目录包含多个 STONITH 插件和设备的自述文件。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://clusterlabs.org/pacemaker/doc/crm_fencing.html"/>
+    </term>
+    <listitem>
+     <para>
+      有关 STONITH 的信息。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://www.clusterlabs.org/doc/"/>
+    </term>
+    <listitem>
+     <itemizedlist>
+
+      <listitem>
+       <para>
+         《<citetitle>Pacemaker Explained</citetitle>》（Pacemaker 配置说明）：说明用于配置 Pacemaker 的概念。包含全面而非常详细的信息供参考。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://techthoughts.typepad.com/managing_computers/2007/10/split-brain-quo.html"/>
+    </term>
+    <listitem>
+     <para>
+      说明 HA 群集中节点分裂、法定票数和屏蔽的概念的文章。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>
