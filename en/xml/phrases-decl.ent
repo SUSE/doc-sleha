@@ -1,0 +1,601 @@
+<!ENTITY abstract-admin
+" This guide is intended for administrators who need to set up, configure,
+  and maintain clusters with &productnamereg;. For quick and efficient 
+  configuration and administration, the &hasi; includes both a graphical user
+  interface (GUI) and a command line interface (CLI). For performing key tasks,
+  both approaches (GUI and CLI) are covered in detail in this guide. Thus,
+  administrators can choose the appropriate tool that matches their needs.">
+
+<!ENTITY abstract-instquick
+" This document guides you through the setup of a very basic two-node cluster,
+    using the bootstrap scripts provided by the
+    <systemitem xmlns='http://docbook.org/ns/docbook'
+    class='resource'>ha-cluster-bootstrap</systemitem> package.
+    This includes the configuration of a virtual IP address as a cluster
+    resource and the use of SBD on shared storage as fencing mechanism.
+    <!--You can use the two-node cluster for testing purposes or as a minimal
+    cluster configuration that you can extended later on. Before using the
+    cluster in a production environment, modify it according to your requirements.-->">
+
+<!ENTITY abstract-nfsquick
+" This document describes how to set up highly available NFS storage in a
+    two-node cluster, using the following components of
+    &productname; &productnumber;: DRBD* (Distributed Replicated Block Device),
+    LVM (Logical Volume Manager), and Pacemaker, the cluster resource management
+    framework.">
+
+<!ENTITY abstract-geoquick
+ " &geo; clustering allows you to have
+   multiple, geographically dispersed sites with a local cluster each.
+   Failover between these clusters is coordinated by a higher level entity:
+   the booth cluster ticket manager.">
+
+<!ENTITY def-existing-cluster 
+"  The term <quote xmlns='http://docbook.org/ns/docbook'>existing
+    cluster</quote> is used to refer to any
+    cluster that consists of at least one node. Existing clusters have a basic
+    &corosync; configuration that defines the communication channels, but
+    they do not necessarily have resource configuration yet.">
+    
+ <!ENTITY def-multicast
+ '  A technology used for a one-to-many communication within a network that
+    can be used for cluster communication. &corosync; supports both
+    multicast and unicast.'>
+   
+<!ENTITY def-unicast
+'  A technology for sending messages to a single network destination.
+    &corosync; supports both multicast and unicast. In &corosync;, unicast
+    is implemented as UDP-unicast (UDPU).'>
+   
+<!ENTITY def-mcastaddr
+'  IP address to be used for multicasting by the &corosync; executive. The IP
+   address can either be IPv4 or IPv6. '>   
+   
+<!ENTITY def-mcastport
+'  The port to use for cluster communication.'>   
+
+<!ENTITY def-bindnetaddr
+'The network address the &corosync; executive should bind to. '>
+
+<!ENTITY def-rrp 
+' Allows the  use of multiple redundant local area networks for resilience
+   against partial or total network faults. This way, cluster communication can
+   still be kept up as long as a single network is operational.
+   &corosync; supports the Totem Redundant Ring Protocol.'>
+   
+ <!ENTITY def-csync2 
+ 'A synchronization tool that can be used to replicate configuration files
+    across all nodes in the cluster, and even across &geo; clusters.'>  
+    
+<!ENTITY def-conntrack
+"Allow interaction with the in-kernel connection tracking system for
+    enabling <emphasis
+    xmlns='http://docbook.org/ns/docbook'>stateful</emphasis> packet
+    inspection for iptables. Used by the &hasi; to synchronize the connection
+    status between cluster nodes.">    
+    
+<!ENTITY def-ay
+'&ay; is a system for installing one or more &sle; systems automatically
+    and without user intervention. '>    
+    
+
+<!ENTITY maint-mode-basics
+" <para xmlns='http://docbook.org/ns/docbook'>
+   Every now and then, you need to perform testing or maintenance tasks on
+   individual cluster components or the whole cluster&mdash;be it changing the
+   cluster configuration, updating software packages for individual nodes, or
+   upgrading the cluster to a higher product version.
+  </para>">
+   
+ <!ENTITY booth-port
+ 'The port to be used for communication between the booth instances at each
+ site.'>
+   
+ <!ENTITY booth-transport
+ 'The transport protocol used for communication between the sites. 
+   Only UDP is supported, but other transport layers will follow in
+   the future.'>
+ 
+ <!ENTITY booth-site
+ 'The IP address used for the &boothd; on a site. '>
+ 
+ <!ENTITY booth-arbitrator
+' The IP address of the machine to use as arbitrator. '>
+
+ <!ENTITY booth-ticket
+ 'The ticket to be managed by booth.'> 
+ 
+ <!ENTITY booth-auth
+ 'Enables booth authentication for clients and servers on the basis 
+  of a shared key. This parameter specifies the path to the
+  key file.'>
+  
+ <!ENTITY booth-key-req
+ "<itemizedlist xmlns='http://docbook.org/ns/docbook'>
+      <title>Key Requirements</title>
+      <listitem>
+       <para>The key can be either binary or text.</para>
+       <para>If it is text, the following characters are ignored: leading and trailing white space,
+        new lines.</para>
+      </listitem>
+      <listitem>
+       <para>The key must be between 8 and 64 characters long.</para>
+      </listitem>
+      <listitem>
+        <para>The key must belong to the user <systemitem
+          class='username'>hacluster</systemitem> and the group <systemitem
+          class='groupname'>haclient</systemitem>.
+        </para>
+      </listitem>
+      <listitem>
+       <para>The key must be readable only by the file owner.</para>
+      </listitem>
+     </itemizedlist>">
+
+ <!ENTITY booth-multi-tenancy
+ " For setups including multiple &geo; clusters, it is possible to <quote
+ xmlns='http://docbook.org/ns/docbook'>share</quote> the same arbitrator (as
+ of &productname; 12). By providing several booth configuration files, you can
+ start multiple booth instances on the same arbitrator, with each booth
+ instance running on a different port. That way, you can use <emphasis
+ xmlns='http://docbook.org/ns/docbook'>one</emphasis> machine to serve as
+ arbitrator for <emphasis
+ xmlns='http://docbook.org/ns/docbook'>different</emphasis> &geo; clusters.">
+   
+ <!ENTITY ticket-dependency-loss-policy
+ "<para xmlns='http://docbook.org/ns/docbook'>
+     For &geo; clusters, you can specify which resources depend on a
+     certain ticket. Together with this special type of constraint, you can
+     set a <literal>loss-policy</literal> that defines what should happen to
+     the respective resources if the ticket is revoked. The attribute
+     <literal>loss-policy</literal> can have the following values:
+    </para>
+    <itemizedlist xmlns='http://docbook.org/ns/docbook'>
+     <listitem>
+      <para>
+       <literal>fence</literal>: Fence the nodes that are running the
+       relevant resources.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>stop</literal>: Stop the relevant resources.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>freeze</literal>: Do nothing to the relevant resources.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>demote</literal>: Demote relevant resources that are running
+       in <literal>master</literal> mode to <literal>slave</literal> mode.
+      </para>
+     </listitem>
+    </itemizedlist>">
+    
+<!ENTITY boothd-resource-group
+"<para xmlns='http://docbook.org/ns/docbook'>
+      Each site needs to run one instance of
+      <systemitem class='daemon'>boothd</systemitem> that communicates
+      with the other booth daemons. The daemon can be started on any node,
+      therefore it should be configured as primitive resource. To make the
+      <systemitem>boothd</systemitem> resource stay on the same node, if
+      possible, add resource stickiness to the configuration. As each daemon
+      needs a persistent IP address, configure another primitive with a
+      virtual IP address. Group both primitives:</para>">
+      
+      
+<!ENTITY booth-order-constraint     
+   "<para xmlns='http://docbook.org/ns/docbook'>
+      If a ticket has been granted to a site but all nodes of that site
+      should fail to host the <systemitem class='daemon'>boothd</systemitem>
+      resource group for any reason, a <quote>split-brain</quote> situation
+      among the geographically dispersed sites may occur. In that case, no
+      &boothd; instance would be available to safely manage failover of the
+      ticket to another site. To avoid a potential concurrency violation of the
+      ticket (the ticket is granted to multiple sites simultaneously), add an
+      ordering constraint: 
+     </para> ">  
+     
+<!ENTITY failback-nodes
+"  <para xmlns='http://docbook.org/ns/docbook'>
+    A resource might fail back to its original node when that node is back
+    online and in the cluster. To prevent a resource from
+    failing back to the node that it was running on, or
+    to specify a different node for the resource to fail back to,
+    change its resource stickiness value. You can
+    either specify resource stickiness when you are creating a resource or
+    afterward.
+   </para>">     
+   
+<!ENTITY placement-strategy-values
+" <variablelist xmlns='http://docbook.org/ns/docbook'>
+    <varlistentry>
+     <term><literal>default</literal> (default value)</term>
+     <listitem>
+      <para>
+       Utilization values are not considered. Resources are allocated
+       according to location scoring. If scores are equal, resources are
+       evenly distributed across nodes.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>utilization</literal>
+     </term>
+     <listitem>
+      <para>
+       Utilization values are considered when deciding if a node has enough
+       free capacity to satisfy a resource&apos;s requirements. However,
+       load-balancing is still done based on the number of resources
+       allocated to a node.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>minimal</literal>
+     </term>
+     <listitem>
+      <para>
+       Utilization values are considered when deciding if a node has enough
+       free capacity to satisfy a resource&apos;s requirements. An attempt is
+       made to concentrate the resources on as few nodes as possible 
+       (to achieve power savings on the remaining nodes).
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>balanced</literal>
+     </term>
+     <listitem>
+      <para>
+       Utilization values are considered when deciding if a node has enough
+       free capacity to satisfy a resource&apos;s requirements. An attempt is
+       made to distribute the resources evenly, thus optimizing resource
+       performance.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <note xmlns='http://docbook.org/ns/docbook'>
+    <title>Configuring Resource Priorities</title>
+    <para>
+     The available placement strategies are best-effort&mdash;they do not
+     yet use complex heuristic solvers to always reach optimum allocation
+     results. Ensure that resource priorities are properly set so that
+     your most important resources are scheduled first.
+    </para>
+   </note>">   
+   
+   <!ENTITY drbd-resource
+   " <para xmlns='http://docbook.org/ns/docbook'>
+      A resource name that allows some association to the
+      respective service (here: NFS). By including the site name too,
+      the complete DRBD configuration can be synchronized across
+      the sites without causing name conflicts.
+     </para>" >
+      
+ <!ENTITY drbd-disk
+   "  <para xmlns='http://docbook.org/ns/docbook'>
+       The device that is replicated between the nodes. In our example, LVM
+       is used as a storage layer below DRBD, and the volume group name is
+       <literal>volgroup</literal>.
+      </para>" >   
+      
+      
+ <!ENTITY drbd-device
+   "  <para xmlns='http://docbook.org/ns/docbook'>
+       The device name for DRBD and its minor number. To differentiate
+       between the lower layer DRBD for the local replication and the upper
+       layer DRBD for replication between the &geo; cluster sites, the device
+       minor numbers <literal>0</literal> and <literal>10</literal> are used.
+   </para>" >    
+      
+<!ENTITY drbd-protocol-c
+   "  <para xmlns='http://docbook.org/ns/docbook'>
+       DRBD is running in protocol <literal>C</literal>, a synchronous
+       replication protocol. Local write operations on the primary node are
+       considered completed only after both the local and the remote disk write
+       have been confirmed. As a result, loss of a single node is guaranteed not
+       to lead to any data loss. Data loss is, of course, inevitable even with
+       this replication protocol if both nodes (or their storage subsystems) are
+       irreversibly destroyed at the same time.
+     </para>" >    
+      
+<!ENTITY drbd-shared-secret
+   "  <para xmlns='http://docbook.org/ns/docbook'>
+       A shared-secret is used to validate connection pairs. You need a
+       different shared-secret for each connection pair. You can get unique
+       values with the <command>uuidgen</command> program.
+      </para>" >     
+      
+<!ENTITY drbd-on
+   "  <para xmlns='http://docbook.org/ns/docbook'>
+       The <literal>on</literal> section states which host this
+       configuration statement applies to.
+      </para>" >   
+
+<!ENTITY drbd-address
+   " <para xmlns='http://docbook.org/ns/docbook'>
+      The local IP address and port number of the respective node. Each
+      DRBD resource needs an individual port.
+     </para>" >
+
+<!ENTITY drbd-node-id
+    " <para xmlns='http://docbook.org/ns/docbook'>
+        The node ID is required when configuring more than two nodes. It
+        is a unique, non-negative integer to distinguish the different
+        nodes.
+      </para>">
+
+<!ENTITY drbd-connection-mesh
+    "<para xmlns='http://docbook.org/ns/docbook'>
+       Defines all nodes of a mesh.
+       The <option>hosts</option> parameter contains all host names that
+       share the same DRBD setup.
+    </para>">
+
+<!ENTITY sbd-diskless
+    "This configuration is useful if you want a fencing mechanism without
+     shared storage. In this diskless mode, SBD fences nodes by using the
+     hardware watchdog without relying on any shared device.
+     However, diskless SBD cannot handle a split brain scenario for
+     a two-node cluster. Therefore, three or more nodes are required for
+     using diskless SBD.">
+
+<!ENTITY sys-req-hw-comm-channels
+   " <para xmlns='http://docbook.org/ns/docbook'>
+       At least two TCP/IP communication media per cluster node.
+       The network equipment must support the communication means you want to use
+       for cluster communication: multicast or unicast. The communication
+       media should support a data rate of 100 Mbit/s or higher.
+       For a supported cluster setup two or more redundant communication paths
+       are required. This can be done via:</para>
+       <itemizedlist xmlns='http://docbook.org/ns/docbook'>
+        <listitem>
+         <para>
+          Network Device Bonding (to be preferred).
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          A second communication channel in &corosync;.
+         </para>
+        </listitem>
+        <listitem>
+          <para>
+            Network fault tolerance on infrastructure layer (for example, hypervisor).
+          </para>
+        </listitem>
+       </itemizedlist>" >
+
+<!ENTITY sys-req-hw-stonith
+   " <para xmlns='http://docbook.org/ns/docbook'>
+      To avoid a <quote>split brain</quote> scenario,
+      clusters need a node fencing mechanism. In a split brain scenario, cluster
+      nodes are divided into two or more groups that do not know about each other
+      (because of a hardware or software failure or because of a cut network
+      connection). A fencing mechanism isolates the node in question
+      (usually by resetting or powering off the node). This is also called
+      &stonith; (<quote>Shoot the other node in the head</quote>). A node fencing
+      mechanism can be either a physical device (a power  switch) or a mechanism
+      like SBD (&stonith; by disk) in combination with a watchdog. Using SBD
+      requires shared storage.
+     </para>" >
+
+<!ENTITY sys-req-hw-nodes
+     "<para xmlns='http://docbook.org/ns/docbook'>
+      The servers can be bare metal or virtual machines. They do not require
+      identical hardware (memory, disk space, etc.), but they must have the
+      same architecture. Cross-platform clusters are not supported.
+     </para>">
+
+<!ENTITY sys-req-sw-sles
+" <para xmlns='http://docbook.org/ns/docbook'>
+   &slsreg; &productnumber; (with all available online updates)
+  </para>">
+
+ <!ENTITY sys-req-sw-sleha
+" <para xmlns='http://docbook.org/ns/docbook'>
+   &productname; &productnumber; (with all available online updates)
+  </para>">
+
+<!ENTITY sys-req-other-ntp
+" <listitem xmlns='http://docbook.org/ns/docbook'
+   xmlns:xlink='http://www.w3.org/1999/xlink'>
+   <para>
+     Cluster nodes must synchronize to an NTP server outside the cluster.
+     For more information, see the <citetitle>&admin;</citetitle> for
+     &sls; &productnumber;:
+     <link xlink:href='http://www.suse.com/documentation/sles-12/book_sle_admin/data/cha_netz_xntp.html'/>.
+    </para>
+    <para>
+     If nodes are not synchronized, the cluster may not work properly.
+     In addition, log files and cluster reports are very hard to analyze
+     without synchronization.
+     If you use the bootstrap scripts, you will be
+     warned if NTP is not configured yet.
+    </para>
+  </listitem>">
+
+<!ENTITY sys-req-other-etc-hosts
+ " <para xmlns='http://docbook.org/ns/docbook'>
+     List all cluster nodes in the <filename>/etc/hosts</filename> file
+     with their fully qualified host name and short host name. It is essential that
+     members of the cluster can find each other by name. If the names are not
+     available, internal cluster communication will fail.
+   </para>">
+
+<!ENTITY sys-req-other-ssh
+" <para xmlns='http://docbook.org/ns/docbook'>
+    All cluster nodes must be able to access each other via SSH. Tools
+    like <command>crm report</command> (for troubleshooting) and
+    &hawk2;'s <guimenu>History Explorer</guimenu> require passwordless
+    SSH access between the nodes,
+    otherwise they can only collect data from the current node.
+  </para>">
+
+
+<!ENTITY drbd-restricted-support
+"With DRBD&nbsp;9, &suse; supports the same use cases that were also supported
+ with DRBD&nbsp;8. Use cases beyond that, such as setups with more than two
+ nodes, are not supported.">
+
+ <!ENTITY important-stonith
+   " <important xmlns='http://docbook.org/ns/docbook'>
+      <title>No Support Without &stonith;</title>
+      <itemizedlist>
+       <listitem>
+        <para>You must have a node fencing
+        mechanism for your cluster.</para>
+       </listitem>
+       <listitem>
+        <para>The global cluster options
+          <systemitem>stonith-enabled</systemitem> and
+          <systemitem>startup-fencing</systemitem> must be set to
+          <literal>true</literal>.
+          When you change them, you lose support.</para>
+       </listitem>
+      </itemizedlist>
+      </important>">
+
+<!ENTITY geo-join-clusters
+ " <para xmlns='http://docbook.org/ns/docbook'>
+    The names of the cluster sites (as defined in &corosync.conf;) and the virtual
+    IP addresses you want to use for each cluster site. In this case, we have
+    two cluster sites (<literal xmlns='http://docbook.org/ns/docbook'>&cluster1;</literal> and
+    <literal>&cluster2;</literal>) with a virtual IP address each.
+   </para>">
+
+<!ENTITY geo-clusters-concept
+ "<para xmlns='http://docbook.org/ns/docbook'>
+   &geo; clusters based on &productnamereg; can be considered
+   <quote>overlay</quote> clusters where each cluster site corresponds to a
+   cluster node in a traditional cluster. The overlay cluster is managed by the
+   booth cluster ticket manager (in the following called booth). Each of the
+   parties involved in a &geo; cluster runs a service, the &boothd;. It
+   connects to the booth daemons running on the other sites and exchanges
+   connectivity details. For making cluster resources highly available across
+   sites, booth relies on cluster objects called tickets. A ticket grants the
+   right to run certain resources on a specific cluster site. Booth guarantees
+   that every ticket is granted to no more than one site at a time.
+  </para>
+  <para xmlns='http://docbook.org/ns/docbook'>
+   If the communication between two booth instances breaks down, it might be
+   because of a network breakdown between the cluster sites <emphasis
+   xmlns='http://docbook.org/ns/docbook'>or</emphasis>
+   because of an outage of one cluster site. In this case, you need an additional
+   instance (a third cluster site or an <literal
+   xmlns='http://docbook.org/ns/docbook'>arbitrator</literal>) to reach
+   consensus about decisions (such as failover of resources across sites).
+   Arbitrators are single machines (outside of the clusters) that run a booth
+   instance in a special mode. Each &geo; cluster can have one or multiple
+   arbitrators.
+  </para>">
+
+<!ENTITY geo-clusters-req-sw
+ "<itemizedlist xmlns='http://docbook.org/ns/docbook'>
+  <title>Software Requirements</title>
+  <listitem>
+   <para>
+    All machines (cluster nodes and arbitrators) that will be part of the
+    &geo; cluster have the following software installed:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      &slsreg; &productnumber;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      &productname; &productnumber;
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      &hageo; &productnumber;
+      <!--<remark>taroth 2014-08-20: booth package would be enough (GEO pattern only consists of the booth
+       package) but to make it clear where to get the package from, phrasing like this</remark>-->
+     </para>
+    </listitem>
+   </itemizedlist>
+  </listitem>
+ </itemizedlist>">
+
+<!ENTITY geo-clusters-req-netw-vip
+"<listitem xmlns='http://docbook.org/ns/docbook'>
+   <para>
+    The virtual IPs to be used for each cluster site must be accessible across
+    the &geo; cluster.
+   </para>
+  </listitem>">
+
+<!ENTITY geo-clusters-req-netw-ports
+"<listitem xmlns='http://docbook.org/ns/docbook'>
+   <para>
+     The sites must be reachable on one UDP and TCP port per booth instance.
+     That means any firewalls or IPsec tunnels in between must be configured
+     accordingly.
+    </para>
+   </listitem>">
+
+<!ENTITY geo-clusters-req-netw-ports-drbd
+"<listitem xmlns='http://docbook.org/ns/docbook'>
+    <para>
+     Other setup decisions may require to open more ports (for example, for DRBD
+     or database replication).
+    </para>
+   </listitem>">
+
+<!ENTITY geo-clusters-req-other
+"<itemizedlist xmlns='http://docbook.org/ns/docbook'
+               xmlns:xlink='http://www.w3.org/1999/xlink'>
+  <title>Other Requirements and Recommendations</title>
+  <listitem>
+   <para>
+    All cluster nodes on all sites should synchronize to an NTP server outside
+    the cluster. For more information, see the <citetitle>&admin;</citetitle>
+    for &sls; &productnumber;, available at
+    <link xlink:href='http://www.suse.com/documentation/'/>. Refer to the
+    chapter <citetitle>Time Synchronization with NTP</citetitle>.
+   </para>
+   <para>
+    If nodes are not synchronized, log files and cluster reports are very hard
+    to analyze.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Use an <emphasis>uneven</emphasis> number of members in your &geo;
+    cluster. In case the network connection breaks down, this makes sure that
+    there still is a majority of sites (to avoid a split brain scenario). In
+    case you have an even number of cluster sites, use an arbitrator.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    The cluster on each site has a meaningful name, for example:
+    <literal>&cluster1;</literal> and <literal>&cluster2;</literal>.
+   </para>
+   <para>
+    The cluster names for each site are defined in the respective
+    &corosync.conf; files:
+   </para>
+<screen>totem {
+    [...]
+    cluster_name: &cluster1;
+    }
+</screen>
+   <para>
+    This can either be done manually (by editing &corosync.conf;) or with the
+    &yast; cluster module (by switching to the <guimenu>Communication
+    Channels</guimenu> category and defining a <guimenu>Cluster
+    Name</guimenu>). Afterward, stop and start the <systemitem
+    class='service'>pacemaker</systemitem> service for the changes to take effect:
+   </para> <screen>&prompt.root;<command>systemctl</command> stop pacemaker
+&prompt.root;<command>systemctl</command> start pacemaker</screen>
+  </listitem>
+ </itemizedlist>">

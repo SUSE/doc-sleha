@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+
+<!--taroth 2011-11-25: maintainer of ipvsadmin: marius tomaschewski-->
+<!-- 
+toms 2014-05-27:
+* Restructured file to make it easier to describe both LVS and HAProxy
+* Let Darix/Lars proofread that file.
+-->
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="cha.ha.lb">
+<!--taroth 090519: see http://www.linuxvirtualserver.org/-->
+ <title>Load Balancing</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+ <abstract>
+  <para>
+  <emphasis>Load Balancing</emphasis> makes a cluster of servers appear as
+  one large, fast server to outside clients. This apparent single server is
+  called a <emphasis>virtual server</emphasis>. It consists of one or more
+  load balancers dispatching incoming requests and several real servers
+  running the actual services. With a load balancing setup of &hasi;, you
+  can build highly scalable and highly available network services, such as
+  Web, cache, mail, FTP, media and VoIP services.
+ </para>
+ </abstract>
+ </info>
+    <!--taroth 090519: see http://www.linuxvirtualserver.org/-->
+ <sect1 xml:id="sec.ha.lb.overview">
+  <title>Conceptual Overview</title>
+  <para>
+   &hasi; supports two technologies for load balancing: &lvs; (LVS) and
+   &haproxy;. The key difference is &lvs; operates at OSI layer 4
+   (Transport), configuring the network layer of kernel, while &haproxy;
+   operates at layer 7 (Application), running in user space. Thus &lvs;
+   needs fewer resources and can handle higher loads, while &haproxy; can
+   inspect the traffic, do SSL termination and make dispatching decisions
+   based on the content of the traffic.
+  </para>
+  <para>
+   On the other hand, &lvs; includes two different software:
+   IPVS (IP Virtual Server) and KTCPVS (Kernel TCP Virtual Server).
+   IPVS provides layer 4 load balancing whereas KTCPVS provides layer 7
+   load balancing.
+  </para>
+  <para>
+   This section gives you a conceptual overview of load balancing
+   in combination with high availability, then briefly introduces you
+   to &lvs; and &haproxy;. Finally, it points you to further reading.
+  </para>
+  <para>
+   The real servers and the load balancers may be interconnected by either
+   high-speed LAN or by geographically dispersed WAN. The load balancers
+   dispatch requests to the different servers. They make parallel services
+   of the cluster appear as one virtual service on a single IP address (the
+   virtual IP address or VIP). Request dispatching can use IP load balancing
+   technologies or application-level load balancing technologies.
+   Scalability of the system is achieved by transparently adding or removing
+   nodes in the cluster.
+  </para>
+
+  <para>
+   High availability is provided by detecting node or service failures and
+   reconfiguring the whole virtual server system appropriately, as usual.
+  </para>
+
+  <remark>Most of the following items are taken from FATE#316459. Not
+  sure if this is really correct. Needs technical proofreading by an
+  expert.</remark>
+
+  <para>
+   There are several load balancing strategies. Here are some Layer 4
+   strategies, suitable for &lvs;:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>Round Robin</title>
+     <para>
+      The simplest strategy is to direct each connection to a different
+      address, taking turns. For example, a DNS server can have several
+      entries for a given host name. With DNS roundrobin, the DNS server
+      will return all of them in a rotating order. Thus different clients
+      will see different addresses.
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>Selecting the <quote>best</quote> server</title>
+     <para>
+      Although this has several drawbacks, balancing could be implemented
+      with an <quote>the first server who responds</quote> or <quote>the
+      least loaded server</quote> approach.
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>Balance number of connections per server</title>
+     <para>
+      A load balancer between users and servers can divide the number of
+      users across multiple servers.
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>Geo Location</title>
+     <para>
+      It is possible to direct clients to a server nearby.
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Here are some Layer 7 strategies, suitable for &haproxy;:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>URI</title>
+     <para>
+      Inspect the HTTP content and dispatch to a server most suitable for
+      this specific URI.
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>URL parameter, RDP cookie</title>
+     <para>
+      Inspect the HTTP content for a session parameter, possibly in post
+      parameters, or the RDP (remote desktop protocol) session cookie, and
+      dispatch to the server serving this session.
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Although there is some overlap, &haproxy; can be used in scenarios
+   where LVS/<command>ipvsadm</command> is not adequate and vice versa:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>SSL termination</title>
+     <para>
+      The front-end load balancers can handle the SSL layer. Thus the cloud
+      nodes do not need to have access to the SSL keys, or could take
+      advantage of SSL accelerators in the load balancers.
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>Application level</title>
+     <para>
+      &haproxy; operates at the application level, allowing the load
+      balancing decisions to be influenced by the content stream. This
+      allows for persistence based on cookies and other such filters.
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   On the other hand, LVS/<command>ipvsadm</command> cannot be fully
+   replaced by &haproxy;:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     LVS supports <quote>direct routing</quote>, where the load balancer is
+     only in the inbound stream, whereas the outbound traffic is routed to
+     the clients directly. This allows for potentially much higher
+     throughput in asymmetric environments.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LVS supports stateful connection table replication (via
+     <systemitem class="daemon">conntrackd</systemitem>). This allows for
+     load balancer failover that is transparent to the client and server.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <xi:include href="ha_lb_lvs.xml"/>
+ <xi:include href="ha_lb_haproxy.xml"/>
+
+ <sect1 xml:id="sec.ha.lb.more">
+  <title>For More Information</title>
+
+  <itemizedlist>
+    <listitem>
+      <para><link xlink:href="http://www.haproxy.org"/></para>
+    </listitem>
+    <listitem>
+      <para>Project home page at <link xlink:href="http://www.linuxvirtualserver.org/"/>.
+  </para>
+    </listitem>
+    <listitem>
+      <para>For more information about <systemitem class="daemon">ldirectord</systemitem>, refer to its
+        comprehensive man page.</para>
+    </listitem>
+    <listitem>
+      <para>LVS Knowledge Base: <link xlink:href="http://kb.linuxvirtualserver.org/wiki/Main_Page"/></para>
+    </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>

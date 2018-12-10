@@ -1,0 +1,591 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+<chapter xmlns="http://docbook.org/ns/docbook"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+ xml:id="cha.ha.maintenance">
+ <title>Executing Maintenance Tasks</title>
+ <info>
+  <abstract>
+   <para>
+    To perform maintenance tasks on the cluster nodes, you might need to stop
+    the resources running on that node, to move them, or to shut down or reboot
+    the node. It might also be necessary to temporarily take over the control of
+    resources from the cluster, or even to stop the cluster service while resources
+    remain running.
+   </para>
+   <para>
+    This chapter explains how to manually take down a cluster node without
+    negative side effects. It also gives an overview of different options the
+    cluster stack provides for executing maintenance tasks.
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:maintainer/>
+   <dm:status>editing</dm:status>
+   <dm:deadline/>
+   <dm:priority/>
+   <dm:translation>yes</dm:translation>
+   <dm:languages/>
+   <dm:release/>
+   <dm:repository/>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec.ha.maint.shutdown.node">
+  <title>Implications of Taking Down a Cluster Node</title>
+
+  <para>
+   When you shut down or reboot a cluster node (or stop the &pace; service on a
+   node), the following processes will be triggered:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     The resources that are running on the node will be stopped or moved off
+     the node.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     If stopping the resources should fail or time out, the &stonith; mechanism
+     will fence the node and shut it down.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.maint.shutdown.node">
+   <title>Manually Rebooting a Cluster Node</title>
+   <para>
+    If your aim is to move the services off the node in an orderly fashion
+    before shutting down or rebooting the node, proceed as follows:
+   </para>
+   <step>
+    <para>
+     On the node you want to reboot or shut down, log in as &rootuser; or
+     equivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Put the node into <literal>standby</literal> mode:
+    </para>
+<screen>&prompt.root;crm node standby</screen>
+    <para>
+     That way, services can migrate off the node without being limited by the
+     shutdown timeout of &pace;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check the cluster status with:
+    </para>
+<screen>&prompt.root;crm status</screen>
+    <para>
+     It shows the respective node in <literal>standby</literal> mode:
+    </para>
+<screen>[...]
+Node <replaceable>&node2;</replaceable>: standby
+[...]</screen>
+   </step>
+   <step>
+    <para>
+     Stop the &pace; service on that node:
+    </para>
+<screen>&prompt.root;systemctl stop pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     Reboot the node.
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   To check if the node joins the cluster again:
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     Log in to the node as &rootuser; or equivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check if the &pace; service has started:
+    </para>
+<screen>&prompt.root;systemctl status pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     If not, start it:
+    </para>
+<screen>&prompt.root;systemctl start pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     Check the cluster status with:
+    </para>
+<screen>&prompt.root;crm status</screen>
+    <para>
+     It should show the node coming online again.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.maint.overview">
+  <title>Different Options for Maintenance Tasks</title>
+
+  <para>
+   &pace; offers a variety of options for performing system maintenance:
+  </para>
+
+  <variablelist>
+   <varlistentry xml:id="vle.ha.maint.mode.cluster">
+    <!--<term>Putting the Cluster into Maintenance Mode</term>-->
+    <term><xref linkend="sec.ha.maint.mode.cluster" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      The global cluster property <literal>maintenance-mode</literal> allows
+      you to put all resources into maintenance state at once. The cluster will
+      cease monitoring them and thus become oblivious to their status.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.mode.node">
+    <!--<term>Putting a Node into Maintenance Mode</term>-->
+    <term><xref linkend="sec.ha.maint.mode.node" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      This option allows you to put all resources running on a specific node into
+      maintenance state at once. The cluster will cease monitoring them and thus
+      become oblivious to their status.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.node.standby">
+    <!--<term>Putting a Node into Standby Mode</term>-->
+    <term><xref linkend="sec.ha.maint.node.standby" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      A node that is in standby mode can no longer run resources. Any resources
+      running on the node will be moved away or stopped (in case no other node
+      is eligible to run the resource). Also, all monitoring operations will be
+      stopped on the node (except for those with
+      <literal>role="Stopped"</literal>).
+     </para>
+     <para>
+      You can use this option if you need to stop a node in a cluster while
+      continuing to provide the services running on another node.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.mode.rsc">
+    <!--<term>Putting a Resource into Maintenance Mode</term>-->
+    <term><xref linkend="sec.ha.maint.mode.rsc" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      When this mode is enabled for a resource, no monitoring operations will be
+      triggered for the resource.
+     </para>
+     <para>
+      Use this option if you need to manually touch the service that is managed
+      by this resource and do not want the cluster to run any monitoring
+      operations for the resource during that time.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.rsc.unmanaged">
+    <!--<term>Putting a Resource into Unmanaged Mode</term>-->
+    <term><xref linkend="sec.ha.maint.rsc.unmanaged" xrefstyle="select:title"/></term>
+     <listitem>
+     <para>
+      The <option>is-managed</option> meta attribute allows you to temporarily
+      <quote>release</quote> a resource from being managed by the cluster
+      stack. This means you can manually touch the service that is managed by
+      this resource (for example, to adjust any components). However, the
+      cluster will continue to <emphasis>monitor</emphasis> the resource and to
+      report any failures.
+     </para>
+     <para>
+      If you want the cluster to also cease <emphasis>monitoring</emphasis> the
+      resource, use the per-resource maintenance mode instead (see
+      <xref 
+      linkend="vle.ha.maint.mode.rsc"/>).
+     </para>
+    </listitem>
+   </varlistentry>
+   
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.maint.outline">
+  <title>Preparing and Finishing Maintenance Work</title>
+
+  <warning>
+   <title>Risk of Data Loss</title>
+   <para>
+    If you need to do testing or maintenance work, follow the general steps
+    below.
+   </para>
+   <para>
+    Otherwise you risk unwanted side effects, like resources not starting in an
+    orderly fashion, unsynchronized CIBs across the cluster nodes, or even data loss.
+   </para>
+   <procedure>
+   <step>
+    <para>
+     Before you start, choose which of the options outlined in
+     <xref linkend="sec.ha.maint.overview" xrefstyle="select:label"
+     /> is appropriate for your situation.
+    </para>
+   </step>
+   <step>
+    <para>
+     Apply this option with &hawk2; or &crmsh;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Execute your maintenance task or tests.
+    </para>
+   </step>
+   <step>
+    <para>
+     After you have finished, put the resource, node or cluster back to
+     <quote>normal</quote> operation.
+    </para>
+   </step>
+  </procedure>
+ </warning>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.maint.mode.cluster">
+  <title>Putting the Cluster into Maintenance Mode</title>
+   <para>
+    To put the cluster into maintenance mode on the &crmshell;, use the following command:</para>
+<screen>&prompt.root;<command>crm</command> configure property maintenance-mode=true</screen>
+  <para>
+    To put the cluster back into normal mode after your maintenance work is done, use the following command:</para>
+<screen>&prompt.root;<command>crm</command> configure property maintenance-mode=false</screen>
+
+<procedure xml:id="pro.ha.maint.mode.cluster.hawk2">
+   <title>Putting the Cluster into Maintenance Mode with &hawk2;</title>
+   <step>
+    <para>
+     Start a Web browser and log in to the cluster as described in
+     <xref linkend="sec.conf.hawk2.login"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     In the left navigation bar, select <guimenu>Cluster
+     Configuration</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     In the <guimenu>CRM Configuration</guimenu> group, select the
+     <guimenu>maintenance-mode</guimenu> attribute from the empty drop-down box
+     and click the plus icon to add it.
+    </para>
+   </step>
+   <step>
+    <para>
+     To set <literal>maintenance-mode=true</literal>, activate the check box
+     next to <literal>maintenance-mode</literal> and confirm your changes.
+    </para>
+   </step>
+   <step>
+    <para>
+     After you have finished the maintenance task for the whole cluster,
+     deactivate the check box next to the <literal>maintenance-mode</literal>
+     attribute.
+    </para>
+    <para>
+     From this point on, &hasi; will take over cluster management again.
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+ <sect1 xml:id="sec.ha.maint.mode.node">
+  <title>Putting a Node into Maintenance Mode</title>
+   <para>
+    To put a node into maintenance mode on the &crmshell;, use the following command:</para>
+<screen>&prompt.root;<command>crm</command> node maintenance <replaceable>NODENAME</replaceable></screen>
+  <para>
+    To put the node back into normal mode after your maintenance work is done, use the following command:</para>
+<screen>&prompt.root;<command>crm</command> node ready <replaceable>NODENAME</replaceable></screen>
+
+  <procedure xml:id="pro.ha.maint.mode.nodes.hawk2">
+   <title>Putting a Node into Maintenance Mode with &hawk2;</title>
+   <step>
+    <para>
+     Start a Web browser and log in to the cluster as described in
+     <xref linkend="sec.conf.hawk2.login"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     In the left navigation bar, select <guimenu>Cluster Status</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     In one of the individual nodes' views, click the wrench icon next to the
+     node and select <guimenu>Maintenance</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+      After you have finished your maintenance task, click the wrench icon next to the node
+     and select <guimenu>Ready</guimenu>.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.maint.node.standby">
+  <title>Putting a Node into Standby Mode</title>
+   <para>
+    To put a node into standby mode on the &crmshell;, use the following command:</para>
+<screen>&prompt.root;crm node standby <replaceable>NODENAME</replaceable></screen>
+  <para>
+    To bring the node back online after your maintenance work is done, use the following command:</para>
+<screen>&prompt.root;crm node online <replaceable>NODENAME</replaceable></screen>
+
+<procedure xml:id="pro.ha.maint.node.standby.hawk2">
+  <title>Putting a Node into Standby Mode with &hawk2;</title>
+   <step>
+    <para>
+     Start a Web browser and log in to the cluster as described in
+     <xref linkend="sec.conf.hawk2.login"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     In the left navigation bar, select <guimenu>Cluster Status</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     In one of the individual nodes' views, click the wrench icon next to the
+     node and select <guimenu>Standby</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Finish the maintenance task for the node.
+    </para>
+   </step>
+   <step>
+    <para>
+     To deactivate the standby mode, click the wrench icon next to the node
+     and select <guimenu>Ready</guimenu>.
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+ <sect1 xml:id="sec.ha.maint.mode.rsc">
+  <title>Putting a Resource into Maintenance Mode</title>
+   <para>
+    To put a resource into maintenance mode on the &crmshell;, use the following command:</para>
+<screen>&prompt.root;<command>crm</command> resource maintenance <replaceable>RESOURCE_ID</replaceable> true</screen>
+  <para>
+    To put the resource back into normal mode after your maintenance work is done, use the following command:</para>
+<screen>&prompt.root;<command>crm</command> resource maintenance <replaceable>RESOURCE_ID</replaceable> false</screen>
+
+<procedure xml:id="pro.ha.maint.mode.rsc.hawk2">
+   <title>Putting a Resource into Maintenance Mode with &hawk2;</title>
+   <step>
+    <para>
+     Start a Web browser and log in to the cluster as described in
+     <xref linkend="sec.conf.hawk2.login"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     In the left navigation bar, select <guimenu>Resources</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Select the resource you want to put in maintenance mode or unmanaged mode,
+     click the wrench icon next to the resource and select <guimenu>Edit
+     Resource</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Open the <guimenu>Meta Attributes</guimenu> category.
+    </para>
+   </step>
+   <step>
+    <para>
+     From the empty drop-down box, select the <guimenu>maintenance</guimenu>
+     attribute and click the plus icon to add it.
+    </para>
+   </step>
+   <step>
+    <para>
+     Activate the check box next to <literal>maintenance</literal> to set the
+     maintenance attribute to <literal>yes</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Confirm your changes.
+    </para>
+   </step>
+   <step>
+    <para>
+     After you have finished the maintenance task for that resource, deactivate
+     the check box next to the <literal>maintenance</literal> attribute for
+     that resource.
+    </para>
+    <para>
+     From this point on, the resource will be managed by the &hasi; software
+     again.
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+<sect1 xml:id="sec.ha.maint.rsc.unmanaged">
+  <title>Putting a Resource into Unmanaged Mode</title>
+   <para>
+    To put a resource into unmanaged mode on the &crmshell;, use the following command:</para>
+<screen>&prompt.root;<command>crm</command> resource unmanage <replaceable>RESOURCE_ID</replaceable></screen>
+  <para>
+    To put it into managed mode again after your maintenance work is done, use the following command:</para>
+<screen>&prompt.root;<command>crm</command> resource manage <replaceable>RESOURCE_ID</replaceable></screen>
+
+ <procedure xml:id="pro.ha.maint.rsc.unmanaged.hawk2">
+   <title>Putting a Resource into Unmanaged Mode with &hawk2;</title>
+   <step>
+    <para>
+     Start a Web browser and log in to the cluster as described in
+     <xref
+      linkend="sec.conf.hawk2.login"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     From the left navigation bar, select <guimenu>Status</guimenu> and go to
+     the <guimenu>Resources</guimenu> list.
+    </para>
+   </step>
+   <step>
+    <para>
+     In the <guimenu>Operations</guimenu> column, click the arrow down icon
+     next to the resource you want to modify and select
+     <guimenu>Edit</guimenu>.
+    </para>
+    <para>
+     The resource configuration screen opens.
+    </para>
+   </step>
+   <step>
+    <para>
+     Below <guimenu>Meta Attributes</guimenu>, select the
+     <guimenu>is-managed</guimenu> entry from the empty drop-down box.
+    </para>
+   </step>
+   <step>
+    <para>
+     Set its value to <literal>No</literal> and click <guimenu>Apply</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     After you have finished your maintenance task, set
+     <guimenu>is-managed</guimenu> to <literal>Yes</literal> (which is the
+     default value) and apply your changes.
+    </para>
+    <para>
+     From this point on, the resource will be managed by the &hasi; software
+     again.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+<sect1 xml:id="sec.ha.maint.shutdown.node.maint.mode">
+ <title>Rebooting a Cluster Node While In Maintenance Mode</title>
+    <note>
+      <title>Implications</title>
+      <para>
+       If the cluster or a node is in maintenance mode, you can stop or restart cluster
+       resources at will&mdash;the &hasi; will not attempt to restart them. If
+       you stop the &pace; service on a node, all daemons and processes
+       (originally started as &pace;-managed cluster resources) will continue
+       to run.
+      </para>
+      <para>
+       If you attempt to start &pace; services on a node while the cluster or
+       node is in maintenance mode, &pace; will initiate a single one-shot monitor
+       operation (a <quote>probe</quote>) for every resource to evaluate which
+       resources are currently running on that node. However, it will take no
+       further action other than determining the resources' status.
+      </para>
+     </note>
+
+   <procedure>
+    <para>
+    If you want to take down a node while either the cluster or the node is in
+    <literal>maintenance mode</literal>, proceed as follows:
+    </para>
+    <step>
+    <para>
+     On the node you want to reboot or shut down, log in as &rootuser; or
+     equivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check if you have resources of the type <literal>ocf:pacemaker:controld</literal>
+     or any dependencies on this type of resource. Resources of the type
+     <literal>ocf:pacemaker:controld</literal> are DLM resources.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       If yes, explicitly stop the DLM resources and any resources
+       depending on them:
+      </para>
+<screen>&prompt.crm.res;stop <replaceable>RESOURCE_ID</replaceable></screen>
+      <para>
+       The reason is that stopping &pace; also stops the &corosync; service, on
+       whose membership and messaging services DLM depends. If &corosync; stops,
+       the DLM resource will assume a split brain scenario and trigger a fencing
+       operation.
+      </para>
+     </step>
+     <step>
+       <para>
+        If no, continue with <xref linkend="step.stop.pcmkr.service"/>.
+       </para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="step.stop.pcmkr.service">
+    <para>
+     Stop the &pace; service on that node:
+    </para>
+<screen>&prompt.root;systemctl stop pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     Shut down or reboot the node.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>

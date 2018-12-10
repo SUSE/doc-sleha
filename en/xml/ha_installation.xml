@@ -1,0 +1,1082 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+<!-- Converted by suse-upgrade version 1.1 -->
+<chapter xmlns="http://docbook.org/ns/docbook"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink"
+ version="5.0" xml:id="cha.ha.setup">
+<?dbfo-need height="20em"?>
+ <title>Using the &yast; Cluster Module</title>
+ <info>
+  <abstract>
+   <para>The &yast; cluster module allows you to set up a cluster manually
+    (from scratch) or to modify options for an existing cluster.
+   </para>
+   <para>
+    However, if you prefer an automated approach for setting up a cluster,
+    see the <citetitle>&instquick;</citetitle>, available from
+    <link xlink:href="https://www.suse.com/documentation/"/>. It describes how to install the
+    needed packages and leads you to a basic two-node cluster, which is
+    set up with the <systemitem>ha-cluster-bootstrap</systemitem> scripts.
+   </para>
+   <para>
+    You can also use a combination of both setup methods, for example: set up
+    one node with &yast; cluster and then use one of the bootstrap scripts
+    to integrate more nodes (or vice versa).
+   </para>
+  </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.installation.terms">
+  <title>Definition of Terms</title>
+
+  <para>
+   Several key terms used in the &yast; cluster module and in this chapter are
+   defined below.
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>Bind Network Address (<systemitem>bindnetaddr</systemitem>)
+    </term>
+    <listitem>
+     <para>
+      &def-bindnetaddr; To simplify sharing configuration files across
+      the cluster, &corosync; uses network interface netmask to mask only
+      the address bits that are used for routing the network. For example,
+      if the local interface is <literal>192.168.5.92</literal> with netmask
+      <literal>255.255.255.0</literal>, set
+      <systemitem>bindnetaddr</systemitem> to
+      <literal>192.168.5.0</literal>. If the local interface is
+      <literal>192.168.5.92</literal> with netmask
+      <literal>255.255.255.192</literal>, set
+      <systemitem>bindnetaddr</systemitem> to
+      <literal>192.168.5.64</literal>.
+     </para>
+     <note>
+      <title>Network Address for All Nodes</title>
+      <para>
+       As the same &corosync; configuration will be used on all nodes,
+       make sure to use a network address as
+       <systemitem>bindnetaddr</systemitem>, not the address of a specific
+       network interface.
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><systemitem class="resource">conntrack</systemitem> Tools</term>
+    <listitem>
+     <para>
+      &def-conntrack; For detailed information, refer to
+      <link xlink:href="http://conntrack-tools.netfilter.org/"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>&csync;</term>
+    <listitem>
+     <para>
+      &def-csync2; &csync; can handle any number of hosts, sorted into
+      synchronization groups. Each synchronization group has its own list of
+      member hosts and its include/exclude patterns that define which ﬁles
+      should be synchronized in the synchronization group. The groups, the
+      host names belonging to each group, and the include/exclude rules for
+      each group are specified in the &csync; configuration file,
+      <filename>/etc/csync2/csync2.cfg</filename>.
+     </para>
+     <para>
+      For authentication, &csync; uses the IP addresses and pre-shared
+      keys within a synchronization group. You need to generate one key file
+      for each synchronization group and copy it to all group members.
+     </para>
+     <para>
+      For more information about &csync;, refer to
+      <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Existing Cluster</term>
+    <listitem>
+     <para>
+      &def-existing-cluster;
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Multicast</term>
+    <listitem>
+     <para>
+      &def-multicast; If multicast does not comply with your corporate IT
+      policy, use unicast instead.
+     </para>
+     <note>
+      <title>Switches and Multicast</title>
+      <para>
+       To use multicast for cluster communication, make sure
+       your switches support multicast.
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.mcastaddr">
+    <term>Multicast Address (<systemitem>mcastaddr</systemitem>)
+   </term>
+    <listitem>
+     <para>
+      &def-mcastaddr; If IPv6 networking is used, node IDs must be
+      specified. You can use any multicast address in your private network.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Multicast Port (<systemitem>mcastport</systemitem>)</term>
+    <listitem>
+     <para>
+      &def-mcastport; &corosync; uses two ports: the specified
+      <literal>mcastport</literal> for receiving multicast, and
+      <literal>mcastport -1</literal> for sending multicast.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.rrp">
+    <term>Redundant Ring Protocol (RRP)</term>
+    <listitem>
+     <para>
+      &def-rrp; A logical token-passing ring is imposed on all
+      participating nodes to deliver messages in a reliable and sorted
+      manner. A node is allowed to broadcast a message only if it holds the
+      token.
+     </para>
+     <para>
+      When having defined redundant communication channels in &corosync;,
+      use RRP to tell the cluster how to use these interfaces. RRP can have
+      three modes (<literal>rrp_mode</literal>):
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        If set to <literal>active</literal>, &corosync; uses both
+        interfaces actively.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        If set to <literal>passive</literal>, &corosync; sends messages
+        alternatively over the available networks.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        If set to <literal>none</literal>, RRP is disabled.
+       </para>
+      </listitem>
+     </itemizedlist>
+     <!--With RRP, two physically separate networks are used for communication. In case one
+      network fails, the cluster nodes can still communicate via the other network.-->
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Unicast</term>
+    <listitem>
+     <para>
+      &def-unicast;
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.setup.yast.overview">
+   <title>&yast; Cluster Module</title>
+   <para>
+    Start &yast; and select <menuchoice> <guimenu>&ha;</guimenu>
+    <guimenu>Cluster</guimenu> </menuchoice>. Alternatively, start the
+    module from command line:
+   </para>
+  <screen>sudo yast2 cluster</screen>
+
+  <para>
+   The following list shows an overview of the available screens in the
+   &yast; cluster module. It also mentions whether the screen contains parameters that
+   are <emphasis>required</emphasis> for successful cluster setup or whether its
+   parameters are <emphasis>optional</emphasis>.
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>Communication Channels (required)</term>
+    <listitem>
+     <para> Allows you to define one or two communication channels for
+      communication between the cluster nodes. As transport protocol,
+      either use multicast (UDP) or unicast (UDPU). For details, see
+      <xref linkend="sec.ha.installation.setup.channels"/>.</para>
+     <important>
+      <title>Redundant Communication Paths</title>
+      <para>For a supported cluster setup two or more redundant communication
+       paths are required. The preferred way is to use network device bonding as
+       described in <xref linkend="cha.ha.netbonding"/>.</para>
+      <para>If this is impossible, you need to define a second communication
+       channel in &corosync;.</para>
+     </important>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+      <term>Security (optional but recommended)</term>
+      <listitem>
+       <para>Allows you to define the authentication settings for the cluster.
+        HMAC/SHA1 authentication requires a shared secret used
+        to protect and authenticate messages. For details, see
+        <xref linkend="sec.ha.installation.setup.security"/>.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term>Configure &csync; (optional but recommended)</term>
+       <listitem>
+     <para>
+      &csync; helps you to keep track of configuration changes and to
+      keep files synchronized across the cluster nodes. For details, see
+      <xref linkend="sec.ha.installation.setup.csync2"/>.
+     </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>Configure conntrackd (optional)</term>
+        <listitem>
+         <para>
+          Allows you to configure the user space
+          <systemitem class="daemon">conntrackd</systemitem>. Use the conntrack
+          tools for <emphasis>stateful</emphasis> packet inspection for iptables.
+          For details, see <xref linkend="sec.ha.installation.setup.conntrackd"/>.
+         </para>
+        </listitem>
+      </varlistentry>
+   <varlistentry>
+    <term>Service (required)</term>
+    <listitem>
+     <para>
+      Allows you to configure the service for bringing the cluster node online.
+      Define whether to start the &pace; service at boot time and whether to open the
+      ports in the firewall that are needed for communication between the nodes.
+      For details, see <xref linkend="sec.ha.installation.setup.services"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+   <para>
+    If you start the cluster module for the first time, it appears as a
+    wizard, guiding you through all the steps necessary for basic setup.
+    Otherwise, click the categories on the left panel to access the
+    configuration options for each step.
+   </para>
+
+   <note>
+    <title>Settings in the &yast; Cluster Module</title>
+     <para>Some settings in the &yast; cluster module apply only to the
+      current node. Other settings may automatically be transferred to all nodes
+      with &csync;. Find detailed information about this in the following
+      sections.
+    </para>
+   </note>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.channels">
+   <title>Defining the Communication Channels</title>
+   <para>
+    For successful communication between the cluster nodes, define at least
+    one communication channel. As transport protocol, either use multicast (UDP)
+    or unicast (UDPU) as described in <xref
+    linkend="pro.ha.installation.setup.channel1.udp" xrefstyle="select:label"/>
+    or <xref linkend="pro.ha.installation.setup.channel1.udpu"
+     xrefstyle="select:label"/>, respectively.
+    If you want to define a second, redundant channel
+    (<xref linkend="pro.ha.installation.setup.channel2"
+     xrefstyle="select:label"/>),
+    both communication channels must use the <emphasis>same</emphasis> protocol.
+   </para>
+      
+   <para>All settings defined in the &yast;
+    <guimenu>Communication Channels</guimenu>
+    screen are written to &corosync.conf;. Find example
+    files for a multicast and a unicast setup in
+    <filename>/usr/share/doc/packages/corosync/</filename>.
+   </para>
+   
+   <para>If you are using IPv4 addresses, node IDs are optional. If you are using
+    IPv6 addresses, node IDs are required. Instead of specifying IDs manually
+    for each node, the &yast; cluster module contains an option to automatically
+    generate a unique ID for every cluster node.</para>
+ 
+   <procedure xml:id="pro.ha.installation.setup.channel1.udp">
+    <title>Defining the First Communication Channel (Multicast)</title>
+    <para>
+     When using multicast, the same <systemitem>bindnetaddr</systemitem>,
+    <systemitem>mcastaddr</systemitem>, and <systemitem>mcastport</systemitem>
+     will be used for all cluster nodes. All nodes in the cluster will know each
+     other by using the same multicast address. For different clusters, use
+     different multicast addresses.
+    <!--taroth 2011-10-26: for the records a statement by lmb: Setting up two or more
+     clusters that use the same multicast address, but a different port, also works, 
+     but is less efficient)-->
+    </para>
+    <step>
+     <para>
+       Start the &yast; cluster module and switch to the <guimenu>Communication
+        Channels</guimenu> category.
+      </para>
+    </step>
+    <step>
+     <para>
+      Set the <guimenu>Transport</guimenu> protocol to
+      <literal>Multicast</literal>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Define the <guimenu>Bind Network Address</guimenu>. Set the value to
+      the subnet you will use for cluster multicast.
+     </para>
+    </step>
+    <step>
+     <para>
+      Define the <guimenu>Multicast Address</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Define the <guimenu>Port</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      To automatically generate a unique ID for every cluster node keep
+      <guimenu>Auto Generate Node ID</guimenu> enabled.
+     </para>
+    </step>
+    <step>
+     <para>
+      Define a <guimenu>Cluster Name</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter the number of <guimenu>Expected Votes</guimenu>. This is
+      important for &corosync; to calculate
+      <xref linkend="gloss.quorum"/> in case of a partitioned cluster. By
+      default, each node has <literal>1</literal> vote. The number of
+      <guimenu>Expected Votes</guimenu> must match the number of nodes in
+      your cluster.
+     </para>
+    </step>
+    <step>
+     <para>
+      Confirm your changes.
+     </para>
+    </step>
+    <step>
+     <para>
+      If needed, define a redundant communication channel in &corosync; as
+      described in <xref linkend="pro.ha.installation.setup.channel2"/>.
+     </para>
+    </step>
+   </procedure>
+
+   <figure>
+    <title>&yast; Cluster&mdash;Multicast Configuration</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_comm_multicast.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_comm_multicast.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  <para>If you want to use unicast instead of multicast for cluster
+   communication, proceed as follows.</para>
+   <procedure xml:id="pro.ha.installation.setup.channel1.udpu">
+    <title>Defining the First Communication Channel (Unicast)</title>
+    <step>
+     <para>
+      Start the &yast; cluster module and switch to the <guimenu>Communication
+       Channels</guimenu> category.
+     </para>
+    </step>
+      <step>
+       <para>
+        Set the <guimenu>Transport</guimenu> protocol to
+        <literal>Unicast</literal>.
+       </para>
+      </step>
+      <step>
+       <para>
+        Define the <guimenu>Port</guimenu>.
+       </para>
+      </step>
+      <step>
+       <para>
+        For unicast communication, &corosync; needs to know the IP
+        addresses of all nodes in the cluster. For each node that will be
+        part of the cluster, click <guimenu>Add</guimenu> and enter the
+        following details:
+       </para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          <guimenu>IP Address</guimenu>
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>Redundant IP Address</guimenu> (only required if you use
+          a second communication channel in &corosync;)
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>Node ID</guimenu> (only required if the option
+          <guimenu>Auto Generate Node ID</guimenu> is disabled)
+         </para>
+        </listitem>
+       </itemizedlist>
+       <para>
+        To modify or remove any addresses of cluster members, use the
+        <guimenu>Edit</guimenu> or <guimenu>Del</guimenu> buttons.
+       </para>
+      </step>
+    <step>
+     <para>
+      To automatically generate a unique ID for every cluster node keep
+      <guimenu>Auto Generate Node ID</guimenu> enabled.
+     </para>
+    </step>
+    <step>
+     <para>
+      Define a <guimenu>Cluster Name</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter the number of <guimenu>Expected Votes</guimenu>. This is
+      important for &corosync; to calculate
+      <xref linkend="gloss.quorum"/> in case of a partitioned cluster. By
+      default, each node has <literal>1</literal> vote. The number of
+      <guimenu>Expected Votes</guimenu> must match the number of nodes in
+      your cluster.
+     </para>
+    </step>
+    <step>
+     <para>
+      Confirm your changes.
+     </para>
+    </step>
+    <step>
+     <para>
+      If needed, define a redundant communication channel in &corosync; as
+      described in <xref linkend="pro.ha.installation.setup.channel2"/>.
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>&yast; Cluster&mdash;Unicast Configuration</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_comm_unicast.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_comm_unicast.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   
+   <para>
+    If network device bonding cannot be used for any reason, the second
+    best choice is to define a redundant communication channel (a second
+    ring) in &corosync;. That way, two physically separate networks can
+    be used for communication. If one network fails, the cluster nodes
+    can still communicate via the other network.
+   </para>
+   <para>The additional communication channel in
+    &corosync; will form a second token-passing ring. In
+    <filename>/etc/corosync/corosync.conf</filename>, the first channel you
+    configured is the primary ring and gets the ringnumber
+   <literal>0</literal>. The second ring (redundant channel) gets the ringnumber
+    <literal>1</literal>.
+   </para>
+   <para>When having defined redundant communication channels in &corosync;,
+    use RRP to tell the cluster how to use these interfaces. With RRP, two
+    physically separate networks are used for communication. If one
+    network fails, the cluster nodes can still communicate via the other
+    network.</para>
+   <para>RRP can have three modes:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      If set to <literal>active</literal>, &corosync; uses both
+      interfaces actively.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      If set to <literal>passive</literal>, &corosync; sends messages
+      alternatively over the available networks.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      If set to <literal>none</literal>, RRP is disabled.
+     </para>
+    </listitem>
+   </itemizedlist>
+   
+  <procedure xml:id="pro.ha.installation.setup.channel2">
+   <title>Defining a Redundant Communication Channel</title>
+   <important>
+    <title>Redundant Rings and <filename>/etc/hosts</filename></title>
+    <para> If multiple rings are configured in &corosync;, each node can
+     have multiple IP addresses. This needs to be reflected in the
+      <filename>/etc/hosts</filename> file of all nodes. </para>
+   </important>
+   <step>
+    <para> Start the &yast; cluster module and switch to the
+      <guimenu>Communication Channels</guimenu> category. </para>
+   </step>
+   <step>
+    <para> Activate <guimenu>Redundant Channel</guimenu>. The redundant channel
+     must use the same protocol as the first communication channel you defined.
+    </para>
+   </step>
+   <step>
+    <para> If you use multicast, enter the following parameters: the
+      <guimenu>Bind Network Address</guimenu> to use, the <guimenu>Multicast
+      Address</guimenu> and the <guimenu>Port</guimenu> for the
+     redundant channel. </para>
+    <para> If you use unicast, define the following parameters: the
+      <guimenu>Bind Network Address</guimenu> to use, and the
+     <guimenu>Port</guimenu>. Enter the IP addresses of all nodes that will be part of
+     the cluster. </para>
+   </step>
+   <step>
+    <para>To tell &corosync; how and when to use the different channels,
+     select the <guimenu>rrp_mode</guimenu> to use:</para>
+    <itemizedlist>
+     <listitem>
+      <para> If only one communication channel is defined,
+        <guimenu>rrp_mode</guimenu> is automatically disabled (value
+        <literal>none</literal>).</para>
+     </listitem>
+     <listitem>
+      <para> If set to <literal>active</literal>, &corosync; uses both
+       interfaces actively. </para>
+     </listitem>
+     <listitem>
+      <para> If set to <literal>passive</literal>, &corosync; sends messages
+       alternatively over the available networks. </para>
+     </listitem>
+    </itemizedlist>
+    <para>When RRP is used, the &hasi; monitors the status of the current
+     rings and automatically re-enables redundant rings after faults.</para>
+    <para>Alternatively, check the ring status manually with
+     <command>corosync-cfgtool</command>. View the available options with
+      <option>-h</option>. </para>
+   </step>
+   <step>
+    <para> Confirm your changes. </para>
+   </step>
+  </procedure>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.security">
+   <title>Defining Authentication Settings</title>
+   <para>
+    To define the authentication settings for the cluster, you can use HMAC/SHA1
+    authentication. This requires a shared secret used
+    to protect and authenticate messages. The authentication key (password)
+    you specify will be used on all nodes in the cluster.
+   </para>
+  <procedure xml:id="pro.ha.installation.setup.security">
+   <title>Enabling Secure Authentication</title>
+   <step>
+    <para> Start the &yast; cluster module and switch to the
+      <guimenu>Security</guimenu> category. </para>
+   </step>
+   <step>
+    <para> Activate <guimenu>Enable Security Auth</guimenu>. </para>
+   </step>
+   <step>
+    <para> For a newly created cluster, click <guimenu>Generate Auth Key
+      File</guimenu>. An authentication key is created and written to
+      <filename>/etc/corosync/authkey</filename>. </para>
+    <para> If you want the current machine to join an existing cluster, do not
+     generate a new key file. Instead, copy the
+      <filename>/etc/corosync/authkey</filename> from one of the nodes to the
+     current machine (either manually or with &csync;). </para>
+   </step>
+   <step>
+    <para> Confirm your changes. &yast; writes the configuration to
+      <filename>/etc/corosync/corosync.conf</filename>. </para>
+   </step>
+  </procedure>
+
+   <figure>
+    <title>&yast; Cluster&mdash;Security</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_security.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_security.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.csync2">
+   <title>Transferring the Configuration to All Nodes</title>
+   <para>
+    Instead of copying the resulting configuration files to all nodes
+    manually, use the <command>csync2</command> tool for replication across
+    all nodes in the cluster.
+   </para>
+   <para>
+    This requires the following basic steps:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      <xref linkend="pro.ha.installation.setup.csync2.yast" xrefstyle="select:title"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="pro.ha.installation.setup.csync2.start" xrefstyle="select:title"/>.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    &csync; helps you to keep track of configuration changes and to keep
+    files synchronized across the cluster nodes:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      You can define a list of files that are important for operation.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      You can show changes to these files (against the other cluster nodes).
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      You can synchronize the configured files with a single command.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      With a simple shell script in <filename>~/.bash_logout</filename>, you
+      can be reminded about unsynchronized changes before logging out of the
+      system.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    Find detailed information about &csync; at
+    <link xlink:href="http://oss.linbit.com/csync2/"/> and
+    <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>.
+   </para>
+
+  <sect2 xml:id="pro.ha.installation.setup.csync2.yast">
+   <title>Configuring &csync; with &yast;</title>
+   <procedure>
+    <step>
+     <para> Start the &yast; cluster module and switch to the
+       <guimenu>&csync;</guimenu> category. </para>
+    </step>
+    <step>
+     <para> To specify the synchronization group, click <guimenu>Add</guimenu>
+      in the <guimenu>Sync Host</guimenu> group and enter the local host names
+      of all nodes in your cluster. For each node, you must use exactly the
+      strings that are returned by the <command>hostname</command> command. </para>
+     <!--https://fate.suse.com/314956: csync2-->
+     <tip>
+      <title>Host Name Resolution</title>
+      <para> If host name resolution does not work properly in your
+       network, you can also specify a combination of host name and IP address
+       for each cluster node. To do so, use the string
+        <replaceable>HOSTNAME@IP</replaceable> such as
+        <literal>&node1;@&wsIip;</literal>, for example. &csync;
+       will then use the IP addresses when connecting. </para>
+     </tip>
+    </step>
+    <step xml:id="step.csync2.generate.key">
+     <para> Click <guimenu>Generate Pre-Shared-Keys</guimenu> to create a key
+      file for the synchronization group. The key file is written to
+       <filename>/etc/csync2/key_hagroup</filename>. After it has been created,
+      it must be copied manually to all members of the cluster. </para>
+    </step>
+    <step>
+     <para> To populate the <guimenu>Sync File</guimenu> list with the files
+      that usually need to be synchronized among all nodes, click <guimenu>Add
+       Suggested Files</guimenu>. </para>
+    </step>
+    <step>
+     <para> If you want to <guimenu>Edit</guimenu>, <guimenu>Add</guimenu> or
+       <guimenu>Remove</guimenu> files from the list of files to be synchronized
+      use the respective buttons. You must enter the absolute path name for each
+      file. </para>
+    </step>
+    <step>
+     <para> Activate &csync; by clicking <guimenu>Turn &csync;
+       ON</guimenu>. This will execute the following command to start
+      &csync; automatically at boot time: </para>
+     <screen>&prompt.root;<command>systemctl</command> enable csync2.socket</screen>
+    </step>
+    <step>
+     <para> Confirm your changes. &yast; writes the &csync;
+      configuration to <filename>/etc/csync2/csync2.cfg</filename>.</para>
+    </step>
+    <step>
+     <para>To start the synchronization process now, proceed with <xref
+       linkend="sec.ha.setup.yast.csync2.sync"/>. </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>&yast; Cluster&mdash;&csync;</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_sync.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_sync.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec.ha.setup.yast.csync2.sync">
+   <title>Synchronizing Changes with &csync;</title>
+   <para> To successfully synchronize the files with &csync;, the following
+    requirements must be met: </para>
+   <itemizedlist>
+    <listitem>
+     <para> The same &csync; configuration is available on all cluster
+      nodes. </para>
+    </listitem>
+    <listitem>
+     <para> The same &csync; authentication key is available on all cluster
+      nodes. </para>
+    </listitem>
+    <listitem>
+     <para> &csync; must be running on <emphasis>all</emphasis> cluster
+      nodes. </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> Before the first &csync; run, you therefore need to make the
+    following preparations: </para>
+
+   <procedure>
+    <title>Preparing for Initial Synchronization with &csync;</title>
+    <step>
+     <para>Copy the file <filename>/etc/csync2/csync2.cfg</filename>
+      manually to all nodes after you have configured it as described in <xref
+       linkend="pro.ha.installation.setup.csync2.yast"/>. </para>
+    </step>
+    <step>
+     <para> Copy the file <filename>/etc/csync2/key_hagroup</filename> that you
+      have generated on one node in <xref linkend="step.csync2.generate.key"/>
+      of <xref linkend="pro.ha.installation.setup.csync2.yast"
+       xrefstyle="select:label"/>
+      to <emphasis>all</emphasis> nodes in the cluster. It is needed for
+      authentication by &csync;. However, do <emphasis>not</emphasis>
+      regenerate the file on the other nodes&mdash;it needs to be the same
+      file on all nodes. </para>
+    </step>
+    <!--taroth 2016-10-13. in contrast to csync2 section in GEO Quick, not needed
+    here because this is done in the yast csync2 conf step already:
+    <step>
+     <para>Execute the following command on all nodes to make the csync2
+      service start automatically at boot time:</para>
+     <screen>&prompt.root;<command>systemctl</command> enable csync2.socket</screen>
+    </step>-->
+    <step>
+     <para>Execute the following command on all nodes to start the service now: </para>
+     <screen>&prompt.root;<command>systemctl</command> start csync2.socket</screen>
+    </step>
+   </procedure>
+
+   <procedure xml:id="pro.ha.installation.setup.csync2.start">
+    <title>Synchronizing the Configuration Files with &csync;</title>
+
+    <step>
+     <para>To initially synchronize all files once, execute the following
+      command on the machine that you want to copy the configuration
+       <emphasis>from</emphasis>: </para>
+     <screen>&prompt.root;<command>csync2</command> <option>-xv</option></screen>
+     <para> This will synchronize all the files once by pushing them to the
+      other nodes. If all files are synchronized successfully, &csync; will
+      finish with no errors. </para>
+     <para> If one or several files that are to be synchronized have been
+      modified on other nodes (not only on the current one), &csync;
+      reports a conflict. You will get an output similar to the one below: </para>
+     <screen>While syncing file /etc/corosync/corosync.conf:
+ERROR from peer hex-14: File is also marked dirty here!
+Finished with 1 errors.</screen>
+    </step>
+    <step>
+     <para> If you are sure that the file version on the current node is the
+       <quote>best</quote> one, you can resolve the conflict by forcing this
+      file and resynchronizing: </para>
+     <screen>&prompt.root;<command>csync2</command> <option>-f</option> /etc/corosync/corosync.conf
+&prompt.root;<command>csync2</command> <option>-x</option></screen>
+    </step>
+   </procedure>
+   <para> For more information on the &csync; options, run</para>
+   <screen>csync2&nbsp;-help</screen>
+   <note>
+    <title>Pushing Synchronization After Any Changes</title>
+    <para> &csync; only pushes changes. It does <emphasis>not</emphasis>
+     continuously synchronize files between the machines. </para>
+    <para> Each time you update files that need to be synchronized, you need to
+     push the changes to the other machines: Run <command>csync2&nbsp;</command>
+     <option>-xv</option> on the machine where you did the changes. If you run
+     the command on any of the other machines with unchanged files, nothing will
+     happen. </para>
+   </note>
+  </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.conntrackd">
+   <title>Synchronizing Connection Status Between Cluster Nodes</title>
+   <para>
+    To enable <emphasis>stateful</emphasis> packet inspection for iptables,
+    configure and use the conntrack tools. This requires the following basic
+    steps:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      <xref linkend="pro.ha.installation.setup.conntrackd" xrefstyle="select:title"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Configuring a resource for
+      <systemitem class="daemon">conntrackd</systemitem> (class:
+      <literal>ocf</literal>, provider: <literal>heartbeat</literal>). If
+      you use &hawk2; to add the resource, use the default values proposed
+      by &hawk2;.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    After having configured the conntrack tools, you can use them for &lvs;,
+    see <xref linkend="cha.ha.lb" xrefstyle="select:title"/>.
+   </para>
+<!--from fate#311872: It supports the only FTFW syncing mode now.-->
+   <procedure xml:id="pro.ha.installation.setup.conntrackd">
+    <title>Configuring the <systemitem class="resource">conntrackd</systemitem> with &yast;</title>
+    <para>
+     Use the &yast; cluster module to configure the user space
+     <systemitem class="daemon">conntrackd</systemitem>. It needs a
+     dedicated network interface that is not used for other communication
+     channels. The daemon can be started via a resource agent afterward.
+    </para>
+    <step>
+     <para>
+      Start the &yast; cluster module and switch to the <guimenu>Configure
+      conntrackd</guimenu> category.
+     </para>
+    </step>
+    <step>
+     <para>
+      Select a <guimenu>Dedicated Interface</guimenu> for synchronizing the
+      connection status. The IPv4 address of the selected interface is
+      automatically detected and shown in &yast;. It must already be
+      configured and it must support multicast.
+<!--taroth 2011-11-09: for the records, this has nothing to do with the
+       corosync conf-->
+     </para>
+    </step>
+    <step>
+     <para>
+      Define the <guimenu>Multicast Address</guimenu> to be used for
+      synchronizing the connection status.
+     </para>
+    </step>
+    <step>
+     <para>
+      In <guimenu>Group Number</guimenu>, define a numeric ID for the group
+      to synchronize the connection status to.
+      <remark>emap 2011-11-10: To where?
+       The other nodes? - taroth: good question :), will investigate</remark>
+     </para>
+    </step>
+    <step>
+     <para>
+      Click <guimenu>Generate /etc/conntrackd/conntrackd.conf</guimenu> to
+      create the configuration file for
+      <systemitem class="daemon">conntrackd</systemitem>.
+     </para>
+    </step>
+    <step>
+     <para>
+      If you modified any options for an existing cluster, confirm your
+      changes and close the cluster module.
+     </para>
+    </step>
+    <step>
+     <para>
+      For further cluster configuration, click <guimenu>Next</guimenu> and
+      proceed with <xref linkend="sec.ha.installation.setup.services"/>.
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>&yast; Cluster&mdash;<systemitem class="resource">conntrackd</systemitem></title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_conntrackd.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_conntrackd.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.setup.services">
+   <title>Configuring Services</title>
+   <para>
+    In the &yast; cluster module define whether to start certain services
+    on a node at boot time. You can also use the module to start and stop
+    the services manually. To bring the cluster nodes online and start the
+    cluster resource manager, &pace; must be running as a service.
+   </para>
+   <procedure xml:id="pro.ha.installation.setup.services">
+    <title>Enabling &pace;</title>
+    <step>
+     <para>
+      In the &yast; cluster module, switch to the
+      <guimenu>Service</guimenu> category.
+     </para>
+    </step>
+    <step>
+     <para>
+      To start &pace; each time this cluster node is booted, select the
+      respective option in the <guimenu>Booting</guimenu> group. If you
+      select <guimenu>Off</guimenu> in the <guimenu>Booting</guimenu> group,
+      you must start &pace; manually each time this node is booted. To
+      start &pace; manually, use the command:
+     </para>
+<screen>&prompt.root;<command>systemctl</command> start pacemaker</screen>
+    </step>
+    <step>
+     <para>
+      To start or stop &pace; immediately, click the respective button.
+     </para>
+    </step>
+    <step>
+     <para>
+      To open the ports in the firewall that are needed for cluster
+      communication on the current machine, activate <guimenu>Open Port in
+      Firewall</guimenu>. The configuration is written to
+      <filename>/etc/sysconfig/SuSEfirewall2.d/services/cluster</filename>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Confirm your changes. Note that the configuration only
+      applies to the current machine, not to all cluster nodes.
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>&yast; Cluster&mdash;Services</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_services.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_services.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.installation.start">
+   <title>Bringing the Cluster Online</title>
+   <para>
+    After the initial cluster configuration is done, start the &pace;
+    service on <emphasis>each</emphasis> cluster node to bring the stack
+    online:
+   </para>
+   <procedure>
+    <title>Starting &pace; and Checking the Status</title>
+    <step>
+     <para>
+      Log in to an existing node.
+     </para>
+    </step>
+    <step>
+     <para>
+      Check if the service is already running:
+     </para>
+<screen>&prompt.root;<command>systemctl</command> status pacemaker</screen>
+     <para>
+      If not, start &pace; now:
+     </para>
+<screen>&prompt.root;<command>systemctl</command> start pacemaker</screen>
+    </step>
+    <step>
+     <para>
+      Repeat the steps above for each of the cluster nodes.
+     </para>
+    </step>
+    <step>
+     <para>
+      On one of the nodes, check the cluster status with the
+      <command>crm&nbsp;status</command> command. If all nodes are
+      online, the output should be similar to the following:
+     </para>
+<screen>&prompt.root;crm status
+Last updated: Thu Jul  3 11:07:10 2014
+Last change: Thu Jul  3 10:58:43 2014
+Current DC: alice (175704363) - partition with quorum
+2 Nodes configured
+0 Resources configured
+
+Online: [ alice bob ]</screen>
+     <para>
+      This output indicates that the cluster resource manager is started and
+      is ready to manage resources.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    After the basic configuration is done and the nodes are online, you can
+    start to configure cluster resources. Use one of the cluster management
+    tools like the &crmshell; (&crmsh;) or the &haweb;. For more
+    information, see <xref linkend="cha.ha.manual_config"/> or
+    <xref linkend="cha.conf.hawk2"/>.
+   </para>
+  </sect1>
+</chapter>
