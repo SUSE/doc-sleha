@@ -812,17 +812,64 @@ vdc                                   253:32   0   20G  0 disk
 │   └─cluster--vg2-test--lv           254:5    0   12G  0 lvm
 └─cluster--vg2-test--lv_mimage_1      254:4    0   12G  0 lvm
   └─cluster--vg2-test--lv             254:5    0   12G  0 lvm</screen>
-</example>
-<note>
- <title>Adjustments Needed</title>
+ </example>
+ 
+ <important>
+  <title>Avoiding Migration Failures</title>
+  <para>
+   Before you start the migration procedure, check the capacity and degree
+   of utilization of your logical and physical volumes. If the logical volume
+   uses 100% of the physical volume capacity, the migration might fail with an
+   <literal>insufficient free space</literal> error on the target volume.
+   How to prevent this migration failure, depends on the options used for
+   mirror log:
+  </para>
+  <qandaset>
+   <qandaentry>
+    <question>
+     <para>
+      Is the mirror log written to a different device (<option>disk</option>
+      option) or kept in memory (<option>core</option> option)?
+     </para>
+    </question>
+    <answer>
+     <para>
+      Before starting the migration, either enlarge the size of the physical
+      volume or reduce the size of the logical volume (to free more space for
+      the physical volume).
+     </para>
+    </answer>
+   </qandaentry>
+   <qandaentry>
+    <question>
+     <para>
+      Is the mirror log itself mirrored (<option>mirrored</option> option)
+      and allocated on the same device as the mirror leg?
+     </para>
+    </question>
+    <answer>
+     <para>
+      During migration, reduce unused padding space from the cluster MD array,
+      so LVM metadata and data fit in. By default, <command>mdadm</command>
+      reserves 16 MB space at the start of a device. This space can be used for
+      reshaping (re-striping) the array. If you do not need the space, reduce it
+      by adding the <option>data-offset</option> option to the
+      <command>mdadm</command> command. See <xref linkend="step.data-offset"/>
+      for details.
+     </para>
+    </answer>
+   </qandaentry>
+  </qandaset>
+ </important>
+
  <para>
   The following procedure is based on <xref linkend="ex.ha.clvm.setup.before"
   xrefstyle="select:label"/>. Adjust the instructions to match your setup
   and replace the names for the LVs, VGs, disks and the cluster MD device
   accordingly.
  </para>
-</note>
-  <procedure>
+
+ <procedure>
    <step>
     <para>
      On node <literal>&node1;</literal>, execute the following steps:
@@ -856,33 +903,25 @@ vdb                     253:16   0   20G  0 disk
 └─cluster--vg2-test--lv 254:5    0   12G  0 lvm
 vdc                     253:32   0   20G  0 disk</screen>
    </step>
-   <step>
+   <step xml:id="step.data-offset">
     <para>
       Create a cluster MD device <filename>/dev/md0</filename> with the disk
      <filename>/dev/vdc</filename>:
     </para>
     <screen>&prompt.root;mdadm --create /dev/md0 --bitmap=clustered \
-    --metadata=1.2 --raid-devices=1 --force --level=mirror --data-offset=??? /dev/vdc</screen>
-    <!--
-     https://bugzilla.suse.com/show_bug.cgi?id=1123496: waiting for details to
-     be confirmed - please also check syntax of the above command, because I
-     don't have access to an HA VM right now and cannot check
-    -->
+    --metadata=1.2 --raid-devices=1 --force --level=mirror /dev/vdc</screen>
     <para>
-     When <command>mdadm</command> creates an array, it reserves space at the
-     start of devices, which can be used for reshaping (re-striping) the array.
-     If you do not need this space, reduce it by adding the
-     <option>data-offset</option> option.<remark>taroth 2019-03-01:
-     just a draft explanation for now - please review. Because of the size
-     of the explanation, I will probably move it to a different place, so
-     it does not 'bow up' the procedure too much)</remark>
-     The data offset must be large enough for cluster MD
-     to write its data to it. We recommend 128 KB. On the other hand, the offset
-     must be small enough for the remaining capacity of the device to accommodate
-     all physical volume extents of the migrated volume. Because the volume can
-     have spanned the complete device minus the mirror log, the offset must be
-     smaller than the size of the mirror log. If no unit is specified for the
-     offset, its default value is 1 KB (1024 bytes).
+    <!--
+     https://bugzilla.suse.com/show_bug.cgi?id=1123496
+    -->
+     To reduce unneeded padding space from the array, use the
+     <option>--data-offset</option> option. The offset must be large enough for
+     cluster MD to write its data to it. We recommend 128 KB. On the other hand,
+     the offset must be small enough for the remaining capacity of the device
+     to accommodate all physical volume extents of the migrated volume. Because
+     the volume can have spanned the complete device minus the mirror log, the
+     offset must be smaller than the size of the mirror log. If no unit is
+     specified for the offset, its default value is 1 KB (1024 bytes).
       </para>
    </step>
   </substeps>
