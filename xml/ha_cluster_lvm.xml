@@ -771,7 +771,16 @@ Login to [iface: default, target: iqn.2010-03.de.&wsI;:san1, portal: &wwwip;,326
    recommend to migrate the mirror logical volumes in your cluster to cluster MD.
    Cluster MD stands for cluster multi-device and is a software-based
    RAID storage solution for a cluster.
- </para>
+  </para>
+  <note>
+   <title>Online Migration</title>
+   <para>
+   The procedure described in <xref
+   linkend="pro.ha.clvm.migrate.lv2clustermd"/> is an online migration and
+   does not involve any downtime. The file system can be still mounted during
+   the procedure.
+   </para>
+  </note>
  <example xml:id="ex.ha.clvm.setup.before">
  <title>Setup Before Migration</title>
 <para>Let us assume you have the following example setup:</para>
@@ -812,17 +821,66 @@ vdc                                   253:32   0   20G  0 disk
 │   └─cluster--vg2-test--lv           254:5    0   12G  0 lvm
 └─cluster--vg2-test--lv_mimage_1      254:4    0   12G  0 lvm
   └─cluster--vg2-test--lv             254:5    0   12G  0 lvm</screen>
-</example>
-<note>
- <title>Adjustments Needed</title>
- <para>
-  The following procedure is based on <xref linkend="ex.ha.clvm.setup.before"
-  xrefstyle="select:label"/>. Adjust the instructions to match your setup
-  and replace the names for the LVs, VGs, disks and the cluster MD device
-  accordingly.
- </para>
-</note>
-  <procedure>
+ </example>
+ 
+ <important>
+  <title>Avoiding Migration Failures</title>
+  <para>
+   Before you start the migration procedure, check the capacity and degree
+   of utilization of your logical and physical volumes. If the logical volume
+   uses 100% of the physical volume capacity, the migration might fail with an
+   <literal>insufficient free space</literal> error on the target volume.
+   How to prevent this migration failure depends on the options used for
+   mirror log:
+  </para>
+  <qandaset>
+   <qandaentry>
+    <question>
+     <para>
+      Is the mirror log itself mirrored (<option>mirrored</option> option)
+      and allocated on the same device as the mirror leg? (For example, this
+      might be the case if you have created the logical volume for a cmirrord setup
+      on &productname; 11 or 12 as described in <link
+      xlink:href="https://www.suse.com/documentation/sle-ha-12/singlehtml/book_sleha/book_sleha.html#sec.ha.clvm.config.cmirrord"/>).
+     </para>
+    </question>
+    <answer>
+     <para>
+      During migration, reduce unused padding space from the cluster MD array
+      by running the <command>mdadm</command> command with
+      <option>--data-offset</option>. See <xref linkend="step.data-offset"/>
+      for details. By default, <command>mdadm</command> reserves 16&nbsp;MB space at
+      the start of a device, which can be used for reshaping (re-striping) the
+      array. Reducing this space allows to fit in the LVM data and metadata.
+     </para>
+    </answer>
+   </qandaentry>
+   <qandaentry>
+    <question>
+     <para>
+      Is the mirror log written to a different device (<option>disk</option>
+      option) or kept in memory (<option>core</option> option)?
+     </para>
+    </question>
+    <answer>
+     <para>
+      Before starting the migration, either enlarge the size of the physical
+      volume or reduce the size of the logical volume (to free more space for
+      the physical volume).
+     </para>
+    </answer>
+   </qandaentry>
+  </qandaset>
+ </important>
+
+ <procedure xml:id="pro.ha.clvm.migrate.lv2clustermd">
+  <title>Migrating a Mirror LV to Cluster MD</title>
+   <para>
+    The following procedure is based on <xref linkend="ex.ha.clvm.setup.before"
+    xrefstyle="select:label"/>. Adjust the instructions to match your setup
+    and replace the names for the LVs, VGs, disks and the cluster MD device
+    accordingly.
+   </para>
    <step>
     <para>
      On node <literal>&node1;</literal>, execute the following steps:
@@ -856,13 +914,27 @@ vdb                     253:16   0   20G  0 disk
 └─cluster--vg2-test--lv 254:5    0   12G  0 lvm
 vdc                     253:32   0   20G  0 disk</screen>
    </step>
-   <step>
+   <step xml:id="step.data-offset">
     <para>
       Create a cluster MD device <filename>/dev/md0</filename> with the disk
      <filename>/dev/vdc</filename>:
     </para>
     <screen>&prompt.root;mdadm --create /dev/md0 --bitmap=clustered \
-  --metadata=1.2 --raid-devices=1 --force --level=mirror /dev/vdc</screen>
+    --metadata=1.2 --raid-devices=1 --force --level=mirror --data-offset=128 \
+    /dev/vdc</screen>
+    <para>
+    <!--
+     https://bugzilla.suse.com/show_bug.cgi?id=1123496
+    -->
+     The <option>--data-offset</option> option reduces unneeded padding space
+     from the array. The offset must be large enough for cluster MD to write its
+     data to it. We recommend 128&nbsp;KB. On the other hand, the offset must be small
+     enough for the remaining capacity of the device to accommodate all physical
+     volume extents of the migrated volume. Because the volume can have spanned
+     the complete device minus the mirror log, the offset must be smaller than
+     the size of the mirror log. If no value is specified for the offset,
+     its default value is 1&nbsp;KB (1024&nbsp;bytes).
+      </para>
    </step>
   </substeps>
   </step>
