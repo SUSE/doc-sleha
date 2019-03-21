@@ -845,12 +845,11 @@ vdc                                   253:32   0   20G  0 disk
        />). </para>
      </formalpara>
      <para>
-      During migration, reduce unused padding space from the cluster MD
-      array by running the <command>mdadm</command> command with
-      <option>--data-offset</option>. See <xref linkend="step.data-offset"/>
-      for details. By default, <command>mdadm</command> reserves a certain
-      amount of space at the start of a device, which can be used for reshaping
-      (re-striping) the array. Reducing this space allows to fit in the LVM data
+      By default, <command>mdadm</command> reserves a certain amount of space
+      between the start of a device and the start of array data. The start of
+      data is called <literal>data-offset</literal>. During migration, you can
+      check for the unused padding space and reduce it with the
+      <option>data-offset</option> option. This allows to fit in the LVM data
       and metadata.
      </para>
     </listitem>
@@ -918,20 +917,46 @@ vdc                     253:32   0   20G  0 disk</screen>
     </para>
     <screen>&prompt.root;mdadm --create /dev/md0 --bitmap=clustered \
   --metadata=1.2 --raid-devices=1 --force --level=mirror \
-  --data-offset=128 /dev/vdc</screen>
-    <para>
+  /dev/vdc</screen>
+   </step>
+   <step>
     <!--
      https://bugzilla.suse.com/show_bug.cgi?id=1123496
     -->
-     The <option>--data-offset</option> option reduces unneeded padding space
-     from the array. The offset must be large enough for cluster MD to write its
-     data to it. We recommend 128&nbsp;KB. On the other hand, the offset must be small
-     enough for the remaining capacity of the device to accommodate all physical
-     volume extents of the migrated volume. Because the volume can have spanned
-     the complete device minus the mirror log, the offset must be smaller than
-     the size of the mirror log. If no value is specified for the offset,
-     its default value is 1&nbsp;KB (1024&nbsp;bytes).
-      </para>
+    <para>
+     If your LV had used the complete capacity of the volume group before, check
+     the reserved space on the cluster MD:
+    </para>
+    <screen>&prompt.root;mdadm -E  /dev/vdc|grep "Unused\|Data"
+
+Data Offset : 128 sectors
+Unused Space : before=48 sectors, after=0 sectors</screen>
+    <para>
+     To get the space that is needed by cluster MD to write its metadata,
+     calculate the delta from the information above:</para>
+    <screen>delta = <replaceable>Data Offset</replaceable>-<replaceable>Unused Space before</replaceable></screen>
+    <para>
+     This gives you a delta of <literal>128-48 = 80</literal> sectors in the
+     example above, behind which cluster MD can write its data.
+    </para>
+    <para>
+     The <option>data-offset</option> to specify must be large enough for cluster
+     MD to write its metadata to it. We recommend 128&nbsp;KB. On the other hand,
+     the offset must be small enough for the remaining capacity of the device to
+     accommodate all physical volume extents of the migrated volume. Because the
+     volume can have spanned the complete device minus the mirror log, the offset
+     must be smaller than the size of the mirror log. If no value is specified
+     for the offset, its default value is 1&nbsp;KB (1024&nbsp;bytes).
+    </para>
+   </step>
+   <step>
+    <para>
+     Stop the array and recreate it with the specified
+     <literal>data-offset</literal> value:
+    </para>
+    <screen>&prompt.root;mdadm --create /dev/md0 --bitmap=clustered \
+  --metadata=1.2 --raid-devices=1 --force --level=mirror \
+  /dev/vdc --data-offset=delta/2</screen>
    </step>
   </substeps>
   </step>
