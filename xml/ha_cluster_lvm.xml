@@ -581,7 +581,6 @@ Login to [iface: default, target: iqn.2010-03.de.&wsI;:san1, portal: &wwwip;,326
    </para>
   </sect2>
 
-
   <sect2 xml:id="sec.ha.clvm.scenario.drbd">
    <title>Scenario: &clvm; with DRBD</title>
    <para>
@@ -765,25 +764,20 @@ Login to [iface: default, target: iqn.2010-03.de.&wsI;:san1, portal: &wwwip;,326
  </sect1>
 
 <sect1 xml:id="sec.ha.clvm.migrate">
-  <title>Migrating a Mirror LV to Cluster MD</title>
+  <title>Online Migration from Mirror LV to Cluster MD</title>
   <para>
    With &productname; 15, cmirrord in cluster LVM is deprecated. We highly
    recommend to migrate the mirror logical volumes in your cluster to cluster MD.
    Cluster MD stands for cluster multi-device and is a software-based
    RAID storage solution for a cluster.
   </para>
-  <note>
-   <title>Online Migration</title>
-   <para>
-   The procedure described in <xref
-   linkend="pro.ha.clvm.migrate.lv2clustermd"/> is an online migration and
-   does not involve any downtime. The file system can be still mounted during
-   the procedure.
-   </para>
-  </note>
- <example xml:id="ex.ha.clvm.setup.before">
- <title>Setup Before Migration</title>
-<para>Let us assume you have the following example setup:</para>
+
+ <sect2 xml:id="sec.ha.clvm.migrate.setup.before">
+  <title>Example Setup Before Migration</title>
+ <informalexample>
+    <para>
+     Let us assume you have the following example setup:
+    </para>
  <itemizedlist>
   <listitem>
    <para>
@@ -821,9 +815,9 @@ vdc                                   253:32   0   20G  0 disk
 │   └─cluster--vg2-test--lv           254:5    0   12G  0 lvm
 └─cluster--vg2-test--lv_mimage_1      254:4    0   12G  0 lvm
   └─cluster--vg2-test--lv             254:5    0   12G  0 lvm</screen>
- </example>
- 
- <important>
+ </informalexample>
+
+  <important>
   <title>Avoiding Migration Failures</title>
   <para>
    Before you start the migration procedure, check the capacity and degree
@@ -845,13 +839,24 @@ vdc                                   253:32   0   20G  0 disk
        />). </para>
      </formalpara>
      <para>
-      During migration, reduce unused padding space from the cluster MD
-      array by running the <command>mdadm</command> command with
-      <option>--data-offset</option>. See <xref linkend="step.data-offset"/>
-      for details. By default, <command>mdadm</command> reserves a certain
-      amount of space at the start of a device, which can be used for reshaping
-      (re-striping) the array. Reducing this space allows to fit in the LVM data
-      and metadata.
+      By default, <command>mdadm</command> reserves a certain amount of space
+      between the start of a device and the start of array data. During migration,
+      you can check for the unused padding space and reduce it with the
+      <option>data-offset</option> option as shown in <xref linkend="step.data-offset"/>
+      and following.
+     </para>
+     <para>
+      The <option>data-offset</option> must leave enough space on the device
+      for cluster MD to write its metadata to it. On the other hand, the offset
+      must be small enough for the remaining capacity of the device to accommodate
+      all physical volume extents of the migrated volume. Because the volume can
+      have spanned the complete device minus the mirror log, the offset must be
+      smaller than the size of the mirror log.
+     </para>
+     <para>
+      We recommend to set the <option>data-offset</option> to 128&nbsp;KB.
+      If no value is specified for the offset, its default value is 1&nbsp;KB
+      (1024&nbsp;bytes).
      </para>
     </listitem>
    <listitem>
@@ -869,15 +874,19 @@ vdc                                   253:32   0   20G  0 disk
    </listitem>
   </itemizedlist>
  </important>
-
- <procedure xml:id="pro.ha.clvm.migrate.lv2clustermd">
-  <title>Migrating a Mirror LV to Cluster MD</title>
-   <para>
-    The following procedure is based on <xref linkend="ex.ha.clvm.setup.before"
-    xrefstyle="select:label"/>. Adjust the instructions to match your setup
-    and replace the names for the LVs, VGs, disks and the cluster MD device
-    accordingly.
-   </para>
+</sect2>
+<sect2 xml:id="sec.ha.clvm.migrate.lv2clustermd">
+ <title>Migrating a Mirror LV to Cluster MD</title>
+  <para>
+    The following procedure is based on <xref linkend="sec.ha.clvm.migrate.setup.before"/>.
+    Adjust the instructions to match your setup and replace the names for the
+    LVs, VGs, disks and the cluster MD device accordingly.
+  </para>
+  <para>
+  The migration does not involve any downtime. The file system can
+  still be mounted during the migration procedure.
+ </para>
+ <procedure>
    <step>
     <para>
      On node <literal>&node1;</literal>, execute the following steps:
@@ -911,27 +920,52 @@ vdb                     253:16   0   20G  0 disk
 └─cluster--vg2-test--lv 254:5    0   12G  0 lvm
 vdc                     253:32   0   20G  0 disk</screen>
    </step>
-   <step xml:id="step.data-offset">
+   <step>
     <para>
       Create a cluster MD device <filename>/dev/md0</filename> with the disk
      <filename>/dev/vdc</filename>:
     </para>
     <screen>&prompt.root;mdadm --create /dev/md0 --bitmap=clustered \
-  --metadata=1.2 --raid-devices=1 --force --level=mirror \
-  --data-offset=128 /dev/vdc</screen>
-    <para>
+--metadata=1.2 --raid-devices=1 --force --level=mirror \
+/dev/vdc</screen>
+   </step>
+   <step xml:id="step.data-offset">
     <!--
      https://bugzilla.suse.com/show_bug.cgi?id=1123496
     -->
-     The <option>--data-offset</option> option reduces unneeded padding space
-     from the array. The offset must be large enough for cluster MD to write its
-     data to it. We recommend 128&nbsp;KB. On the other hand, the offset must be small
-     enough for the remaining capacity of the device to accommodate all physical
-     volume extents of the migrated volume. Because the volume can have spanned
-     the complete device minus the mirror log, the offset must be smaller than
-     the size of the mirror log. If no value is specified for the offset,
-     its default value is 1&nbsp;KB (1024&nbsp;bytes).
-      </para>
+    <para>
+     If your LV had used the complete capacity of the volume group before, check
+     the reserved space on the cluster MD:
+    </para>
+    <screen>&prompt.root;mdadm -E  /dev/vdc|grep "Unused\|Data"
+
+Data Offset : 128 sectors
+Unused Space : before=48 sectors, after=0 sectors</screen>
+    <para>
+     From the output, you can calculate the space that is needed by
+     cluster MD to write its metadata. Use the following formula:</para>
+    <screen>(<replaceable>Data Offset</replaceable>-<replaceable>Unused Space before</replaceable>)/2</screen>
+    <para>
+     In the example above, the required space for metadata would be
+     <literal>128-48 = 80</literal> sectors. If you divide this number by two,
+     you get the amount of space in KB (40 in this case). If you use this value
+     as <option>data-offset</option>, the first 40 KB on the device will be
+     reserved for cluster MD metadata.
+    </para>
+   </step>
+   <step>
+    <para>
+     Stop the array.
+    </para>
+   </step>
+   <step>
+    <para>
+     Recreate it with a <literal>data-offset</literal>
+     based on your calculations. For example:
+    </para>
+    <screen>&prompt.root;mdadm --create /dev/md0 --bitmap=clustered \
+--metadata=1.2 --raid-devices=1 --force --level=mirror \
+/dev/vdc --data-offset=40</screen>
    </step>
   </substeps>
   </step>
@@ -993,8 +1027,9 @@ vdc                     253:32   0   20G  0 disk</screen>
   </substeps>
   </step>
  </procedure>
+</sect2>
 
-<example xml:id="ex.ha.clvm.setup.after">
+<sect2 xml:id="ex.ha.clvm.migrate.setup.after">
  <title>Example Setup After Migration</title>
   <para>
    When you run <command>lsblk</command> now, you get:
@@ -1009,7 +1044,7 @@ vdb                       253:16   0   20G  0 disk
 vdc                       253:32   0   20G  0 disk
 └─md0                       9:0    0   20G  0 raid1
   └─cluster--vg2-test--lv 254:5    0   12G  0 lvm</screen>
-</example>
+  </sect2>
  </sect1>
 
  <sect1 xml:id="sec.ha.clvm.more">
