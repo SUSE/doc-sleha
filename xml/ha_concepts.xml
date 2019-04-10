@@ -607,109 +607,88 @@
      </imageobject>
     </mediaobject>
    </figure>
-   <sect3 xml:id="sec.ha.architecture.layers.messaging">
-    <title>Messaging and Infrastructure Layer</title>
+   <sect3 xml:id="sec.ha.architecture.layers.rsc">
+    <title>Resources and Resource Agents</title>
     <para>
-     The primary or first layer is the messaging/infrastructure layer, also
-     known as the &corosync; layer. This layer contains components that
-     send out the messages containing <quote>I'm alive</quote> signals and
-     other information.
+     In an &ha; cluster, the services that need to be highly available are
+     called resources. Resource agents (RAs) are scripts that start, stop and
+     monitor cluster resources.
     </para>
    </sect3>
-   <sect3 xml:id="sec.ha.architecture.layers.allocation">
-    <title>Resource Allocation Layer</title>
-    <para>
-     The next layer is the resource allocation layer. This layer is the most
-     complex, and consists of the following components:
-    </para>
+   <sect3 xml:id="sec.ha.architecture.layers.crm">
+    <title>Cluster Resource Manager (Pacemaker)</title>
+     <para>
+      Pacemaker as cluster resource manager is the <quote>brain</quote>
+      which reacts to events occurring in the cluster. It is implemented as
+      <systemitem class="daemon">pacemaker-controld</systemitem> which
+      coordinates all actions. Events can be nodes that join or leave the cluster,
+      failure of resources, or scheduled activities such as maintenance,
+      for example.
+     </para>
     <variablelist>
-     <varlistentry xml:id="vle.crm">
-      <term>Cluster Resource Manager (CRM)</term>
+     <varlistentry xml:id="vle.lrm">
+      <term>Local Resource Manager</term>
       <listitem>
-       <para>
-        Every action taken in the resource allocation layer passes through
-        the Cluster Resource Manager. If other components of the resource
-        allocation layer (or components which are in a higher layer) need to
-        communicate, they do so through the local CRM. On every node, the
-        CRM maintains the
-        <xref linkend="vle.cib" xrefstyle="select:nopage"/>.
-       </para>
+      <para>
+        The local resource manager is located between the Pacemaker layer and the
+        resources layer on each node. It is implemented as <systemitem
+        class="daemon">pacemaker-execd</systemitem> daemon. Through this daemon,
+        Pacemaker can start, stop  and monitor resources or fence nodes.
+      </para>
       </listitem>
      </varlistentry>
-     <varlistentry xml:id="vle.cib">
-      <term>Cluster Information Base (CIB)</term>
-      <listitem>
-       <para>
-        The Cluster Information Base is an in-memory XML representation of
-        the entire cluster configuration and current status. It contains
-        definitions of all cluster options, nodes, resources, constraints
-        and the relationship to each other. The CIB also synchronizes
-        updates to all cluster nodes. There is one master CIB in the
-        cluster, maintained by the
-        <xref linkend="vle.dc" xrefstyle="select:nopage"/>. All other nodes
-        contain a CIB replica.
-       </para>
-      </listitem>
-     </varlistentry>
+      <varlistentry  xml:id="vle.cib">
+       <term>Cluster Information Database (CIB)</term>
+       <listitem>
+        <para>
+         On every node, Pacemaker maintains the cluster information database
+         (CIB). It is an XML representation of the cluster configuration
+         (including cluster options, nodes, resources, constraints and the
+         relationship to each other). The CIB also reflects the current cluster
+         status. There is one master CIB in the cluster, hosted on the node that
+         has been elected as <xref linkend="vle.dc" xrefstyle="select:label"/>.
+         All other nodes contain a replica of the CIB that is synchronized between
+         the nodes in the cluster.
+        </para>
+       </listitem>
+      </varlistentry>
      <varlistentry xml:id="vle.dc">
       <term>Designated Coordinator (DC)</term>
       <listitem>
        <para>
-        One CRM in the cluster is elected as DC. The DC is the only entity
+        The DC is elected from all nodes in the cluster after a membership change
+        (nodes joining or leaving the cluster). The DC is the only entity
         in the cluster that can decide that a cluster-wide change needs to
-        be performed, such as fencing a node or moving resources around. The
-        DC is also the node where the master copy of the CIB is kept. All
+        be performed, such as fencing a node or moving resources around. All
         other nodes get their configuration and resource allocation
-        information from the current DC. The DC is elected from all nodes in
-        the cluster after a membership change.
+        information from the current DC. 
        </para>
       </listitem>
      </varlistentry>
-     <varlistentry xml:id="vle.pe.and.te">
-      <term>Policy Engine (PE)</term>
+     <varlistentry xml:id="vle.pe">
+      <term>Policy Engine</term>
       <listitem>
        <para>
-        Whenever the Designated Coordinator needs to make a cluster-wide
-        change (react to a new CIB), the Policy Engine calculates the next
-        state of the cluster based on the current state and configuration.
-        The PE also produces a transition graph containing a list of
-        (resource) actions and dependencies to achieve the next cluster
-        state. The PE always runs on the DC.
+        The policy engine always runs on the DC and is implemented as
+        <systemitem class="daemon">pacemaker-schedulerd</systemitem> daemon. It
+        determines all actions that are needed whenever the CIB changes
+        change (react to a new CIB) and calculates the next state of the cluster
+        (based on the current state and configuration).
        </para>
       </listitem>
      </varlistentry>
-     <varlistentry xml:id="vle.lrm">
-      <term>Local Resource Manager (LRM)</term>
-      <listitem>
-       <para>
-        The LRM calls the local Resource Agents (see
-        <xref linkend="sec.ha.architecture.layers.resources"/>) on behalf of
-        the CRM. It can thus perform start / stop / monitor operations and
-        report the result to the CRM. The LRM is the authoritative source
-        for all resource-related information on its local node.
-<!--In &productname;, the LRM is
-        implemented as daemon, interacting directly with resource agents.
-        The daemon is not cluster-aware and presents a common interface to
-        the supported resource types.-->
-       </para>
-      </listitem>
-     </varlistentry>
-    </variablelist>
+   </variablelist>
    </sect3>
-   <sect3 xml:id="sec.ha.architecture.layers.resources">
-    <title>Resource Layer</title>
+   <sect3 xml:id="sec.ha.architecture.layers.coro">
+    <title>Membership and Messaging Layer (Corosync)</title>
     <para>
-     The highest layer is the Resource Layer. The Resource Layer includes
-     one or more Resource Agents (RA). Resource Agents are programs (usually
-     shell scripts) that have been written to start, stop, and monitor a
-     certain kind of service (a resource). Resource Agents are called only
-     by the LRM. Third parties can include their own agents in a defined
-     location in the file system and thus provide out-of-the-box cluster
-     integration for their own software.
+     This component provides reliable messaging, membership, and quorum information
+     about the cluster. This is handled by the Corosync cluster engine, a group
+     communication system.
     </para>
    </sect3>
   </sect2>
-
+<!--taroth 2019-04-10: updated till here-->
   <sect2 xml:id="sec.ha.architecture.processflow">
    <title>Process Flow</title>
    <para>
