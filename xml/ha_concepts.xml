@@ -607,105 +607,90 @@
      </imageobject>
     </mediaobject>
    </figure>
-   <sect3 xml:id="sec.ha.architecture.layers.messaging">
-    <title>Messaging and Infrastructure Layer</title>
+ <!--ygao 2019-04-12: Pacemaker-attrd is probably a less important daemon,
+-    since it's also missing in the graph :-) Probably some day we should eventually
+-    add it also.-->
+   <sect3 xml:id="sec.ha.architecture.layers.coro">
+    <title>Membership and Messaging Layer (Corosync)</title>
     <para>
-     The primary or first layer is the messaging/infrastructure layer, also
-     known as the &corosync; layer. This layer contains components that
-     send out the messages containing <quote>I'm alive</quote> signals and
-     other information.
+     This component provides reliable messaging, membership, and quorum information
+     about the cluster. This is handled by the Corosync cluster engine, a group
+     communication system.
     </para>
    </sect3>
-   <sect3 xml:id="sec.ha.architecture.layers.allocation">
-    <title>Resource Allocation Layer</title>
-    <para>
-     The next layer is the resource allocation layer. This layer is the most
-     complex, and consists of the following components:
-    </para>
+   <sect3 xml:id="sec.ha.architecture.layers.crm">
+    <title>Cluster Resource Manager (Pacemaker)</title>
+     <para>
+      Pacemaker as cluster resource manager is the <quote>brain</quote>
+      which reacts to events occurring in the cluster. Its is implemented as
+      <systemitem class="daemon">pacemaker-controld</systemitem>, the cluster
+      controller, which coordinates all actions. Events can be nodes that join
+      or leave the cluster, failure of resources, or scheduled activities such
+      as maintenance, for example.
+     </para>
     <variablelist>
-     <varlistentry xml:id="vle.crm">
-      <term>Cluster Resource Manager (CRM)</term>
+     <varlistentry xml:id="vle.lrm">
+      <term>Local Resource Manager</term>
+      <!--for future versions: Local Executor (pacemaker-execd)-->
       <listitem>
-       <para>
-        Every action taken in the resource allocation layer passes through
-        the Cluster Resource Manager. If other components of the resource
-        allocation layer (or components which are in a higher layer) need to
-        communicate, they do so through the local CRM. On every node, the
-        CRM maintains the
-        <xref linkend="vle.cib" xrefstyle="select:nopage"/>.
-       </para>
+      <para>
+        The local resource manager is located between the Pacemaker layer and the
+        resources layer on each node. It is implemented as <systemitem
+        class="daemon">pacemaker-execd</systemitem> daemon. Through this daemon,
+        Pacemaker can start, stop  and monitor resources.
+      </para>
       </listitem>
      </varlistentry>
-     <varlistentry xml:id="vle.cib">
-      <term>Cluster Information Base (CIB)</term>
-      <listitem>
-       <para>
-        The Cluster Information Base is an in-memory XML representation of
-        the entire cluster configuration and current status. It contains
-        definitions of all cluster options, nodes, resources, constraints
-        and the relationship to each other. The CIB also synchronizes
-        updates to all cluster nodes. There is one master CIB in the
-        cluster, maintained by the
-        <xref linkend="vle.dc" xrefstyle="select:nopage"/>. All other nodes
-        contain a CIB replica.
-       </para>
-      </listitem>
-     </varlistentry>
+      <varlistentry  xml:id="vle.cib">
+       <term>Cluster Information Database (CIB)</term>
+       <listitem>
+        <para>
+         On every node, Pacemaker maintains the cluster information database
+         (CIB). It is an XML representation of the cluster configuration
+         (including cluster options, nodes, resources, constraints and the
+         relationship to each other). The CIB also reflects the current cluster
+         status. Each cluster node contains a CIB replica, which is synchronized
+         across the whole cluster. The <systemitem class="daemon">pacemaker-based</systemitem>
+         daemon takes care of reading and writing cluster configuration and
+         status.</para>
+       </listitem>
+      </varlistentry>
      <varlistentry xml:id="vle.dc">
       <term>Designated Coordinator (DC)</term>
       <listitem>
        <para>
-        One CRM in the cluster is elected as DC. The DC is the only entity
-        in the cluster that can decide that a cluster-wide change needs to
-        be performed, such as fencing a node or moving resources around. The
-        DC is also the node where the master copy of the CIB is kept. All
-        other nodes get their configuration and resource allocation
-        information from the current DC. The DC is elected from all nodes in
-        the cluster after a membership change.
+        The DC is elected from all nodes in the cluster. This happens if there
+        is no DC yet or if the current DC leaves the cluster for any reason.
+        The DC is the only entity in the cluster that can decide that a
+        cluster-wide change needs to be performed, such as fencing a node or
+        moving resources around. All other nodes get their configuration and
+        resource allocation information from the current DC.
        </para>
       </listitem>
      </varlistentry>
-     <varlistentry xml:id="vle.pe.and.te">
-      <term>Policy Engine (PE)</term>
+     <varlistentry xml:id="vle.pe">
+      <term>Policy Engine</term>
+      <!--for future versions: Scheduler (pacemaker-schedulerd)-->
       <listitem>
        <para>
-        Whenever the Designated Coordinator needs to make a cluster-wide
-        change (react to a new CIB), the Policy Engine calculates the next
-        state of the cluster based on the current state and configuration.
-        The PE also produces a transition graph containing a list of
-        (resource) actions and dependencies to achieve the next cluster
-        state. The PE always runs on the DC.
+        The policy engine runs on every node, but the one on the DC is the active
+        one. The engine is implemented as
+        <systemitem class="daemon">pacemaker-schedulerd</systemitem> daemon.
+        When a cluster transition is needed, based on the current state and
+        configuration, <systemitem class="daemon">pacemaker-schedulerd</systemitem>
+        calculates the expected next state of the cluster. It determines what
+        actions need to be scheduled to achieve the next state.
        </para>
       </listitem>
      </varlistentry>
-     <varlistentry xml:id="vle.lrm">
-      <term>Local Resource Manager (LRM)</term>
-      <listitem>
-       <para>
-        The LRM calls the local Resource Agents (see
-        <xref linkend="sec.ha.architecture.layers.resources"/>) on behalf of
-        the CRM. It can thus perform start / stop / monitor operations and
-        report the result to the CRM. The LRM is the authoritative source
-        for all resource-related information on its local node.
-<!--In &productname;, the LRM is
-        implemented as daemon, interacting directly with resource agents.
-        The daemon is not cluster-aware and presents a common interface to
-        the supported resource types.-->
-       </para>
-      </listitem>
-     </varlistentry>
-    </variablelist>
+   </variablelist>
    </sect3>
-   <sect3 xml:id="sec.ha.architecture.layers.resources">
-    <title>Resource Layer</title>
+   <sect3 xml:id="sec.ha.architecture.layers.rsc">
+    <title>Resources and Resource Agents</title>
     <para>
-     The highest layer is the Resource Layer. The Resource Layer includes
-     one or more Resource Agents (RA). Resource Agents are programs (usually
-     shell scripts) that have been written to start, stop, and monitor a
-     certain kind of service (a resource). Resource Agents are called only
-     by the LRM. Third parties can include their own agents in a defined
-     location in the file system and thus provide out-of-the-box cluster
-     integration for their own software.
+     In an &ha; cluster, the services that need to be highly available are
+     called resources. Resource agents (RAs) are scripts that start, stop and
+     monitor cluster resources.
     </para>
    </sect3>
   </sect2>
@@ -713,16 +698,13 @@
   <sect2 xml:id="sec.ha.architecture.processflow">
    <title>Process Flow</title>
    <para>
-    &productname; uses Pacemaker as CRM. The CRM is implemented as daemon
-    (<literal>pacemaker-controld</literal>) that has an instance on each cluster node.
-    Pacemaker centralizes all cluster decision-making by electing one of the
-    pacemaker-controld instances to act as a master. Should the elected pacemaker-controld process (or
-    the node it is on) fail, a new one is established.
-   </para>
-   <para>
-    A CIB, reflecting the cluster’s configuration and current state of all
-    resources in the cluster is kept on each node. The contents of the CIB
-    are automatically kept synchronous across the entire cluster.
+    The <systemitem class="daemon">pacemakerd</systemitem> daemon launches and
+    monitors all other related daemons. The daemon that coordinates all actions,
+    <systemitem class="daemon">pacemaker-controld</systemitem>, has an instance on
+    each cluster node. Pacemaker centralizes all cluster decision-making by
+    electing one of those instances as a master. Should the elected <systemitem
+    class="daemon">pacemaker-controld</systemitem> daemon fail, a new one is
+    established.
    </para>
    <para>
     Many actions performed in the cluster will cause a cluster-wide change.
@@ -732,38 +714,44 @@
    </para>
    <para>
     For example, suppose you want to add a cluster IP address resource. To
-    do this, you can use one of the command line tools or the Web interface
-    to modify the CIB. It is not required to perform the actions on the DC.
+    do this, you can use the &crmshell; or the Web interface to modify the CIB.
+    It is not required to perform the actions on the DC.
     You can use either tool on any node in the cluster and they will be
     relayed to the DC. The DC will then replicate the CIB change to all
     cluster nodes.
    </para>
    <para>
-    Based on the information in the CIB, the PE then computes the ideal
-    state of the cluster and how it should be achieved. The PE feeds a list of
-    instructions to the DC. The DC sends commands via the
-    messaging/infrastructure layer which are received by the pacemaker-controld peers on
-    other nodes. Each pacemaker-controld uses its LRM (implemented as pacemaker-execd) to perform
-    resource modifications. The pacemaker-execd is not cluster-aware and interacts
-    directly with resource agents (scripts).
+    Based on the information in the CIB, the <systemitem
+    class="daemon">pacemaker-schedulerd</systemitem> then computes the ideal
+    state of the cluster and how it should be achieved. It feeds a list of
+    instructions to the DC. The DC sends commands via the messaging/infrastructure
+    layer which are received by the <systemitem
+    class="daemon">pacemaker-controld</systemitem> peers on
+    other nodes. Each of them uses its local resource agent executor (implemented
+    as <systemitem class="daemon">pacemaker-execd</systemitem>) to perform
+    resource modifications. The <systemitem
+     class="daemon">pacemaker-execd</systemitem> is not cluster-aware and interacts
+    directly with resource agents.
    </para>
    <para>
     All peer nodes report the results of their operations back to the DC.
     After the DC concludes that all necessary operations are successfully
     performed in the cluster, the cluster will go back to the idle state and
     wait for further events. If any operation was not carried out as
-    planned, the PE is invoked again with the new information recorded in
+    planned, the <systemitem class="daemon">pacemaker-schedulerd</systemitem>
+    is invoked again with the new information recorded in
     the CIB.
    </para>
    <para>
     In some cases, it may be necessary to power off nodes to protect shared
-    data or complete resource recovery. The Pacemaker implementation of this
-    so-called node level fencing is &stonith; (<quote>Shoot The Other Node In
-    The Head</quote>). For this, Pacemaker comes with a fencing subsystem,
-    pacemaker-fenced. In Pacemaker, &stonith; devices are modeled as
-    resources (and configured in the CIB). That way, they can easily be
-    monitored for failure. When clients detect a failure they send a
-    request to the pacemaker-fenced daemon, which then fences the failed node.
+    data or complete resource recovery. In a Pacemaker cluster, the implementation
+    of node level fencing is &stonith;. For this, Pacemaker comes with a
+    fencing subsystem, <systemitem class="daemon">pacemaker-fenced</systemitem>.
+    &stonith; devices have to be configured as cluster resources (that use
+    specific fencing agents), because this allows to monitor the fencing devices.
+    When clients detect a failure, they send a request to <systemitem
+     class="daemon">pacemaker-fenced</systemitem>,
+    which then executes the fencing agent to bring down the node.
    </para>
   </sect2>
  </sect1>
