@@ -1,0 +1,824 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_cluster_lvm.xml" version="5.0" xml:id="cha.ha.clvm">
+ <title>叢集邏輯磁碟區管理員 (叢集 LVM)</title>
+ <info>
+      <abstract>
+        <para>
+    管理叢集上的共享儲存時，儲存子系統發生的變更必須通知到每個節點。廣泛用於管理本地儲存的 Logical Volume Manager 2 (LVM2) 已進行延伸，現可支援對整個叢集中的磁碟區群組進行透明管理。在多個主機之間共享的磁碟區群組可使用與本地儲存相同的指令進行管理。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.clvm.overview">
+  <title>概念綜覽</title>
+
+
+
+  <para>
+   系統透過不同的工具來協調叢集 LVM︰
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>分散式鎖定管理員 (DLM)</term>
+    <listitem>
+     <para> 透過全叢集鎖定來協調對多個主機間共享資源的存取。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>邏輯磁碟區管理員 (LVM2)</term>
+    <listitem>
+     <para>
+      LVM2 提供磁碟空間的虛擬池，允許將一個邏輯磁碟區靈活分佈到多個磁碟。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>叢集邏輯磁碟區管理員 (叢集 LVM)</term>
+    <listitem>
+     <para>
+      <literal>叢集 LVM</literal> 一詞表示叢集環境中使用 LVM2。這需要進行一些組態調整，以保護共享儲存上的 LVM2 中繼資料。自 SUSE Linux Enterprise 15 起，叢集延伸使用 lvmlockd 取代了眾所周知的 clvmd。如需 lvmlockd 的詳細資訊，請參閱 <command>lvmlockd</command> 指令 的 man 頁面 (<command>man 8 lvmlockd</command>)。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>磁碟區群組和邏輯磁碟區</term>
+    <listitem>
+     <para>
+      磁碟區群組 (VG) 和邏輯磁碟區 (LV) 都屬於 LVM2 的基本概念。磁碟區群組是多個實體磁碟的儲存池。邏輯磁碟區屬於磁碟區群組，可視為一種彈性磁碟區，您可以在其上建立檔案系統。在叢集環境中，存在共享 VG 的概念，共享 VG 由共享儲存組成，可被多個主機同時使用。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec.ha.clvm.config">
+  <title>叢集 LVM 的組態</title>
+
+  <para>
+   確定符合以下要求︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     有共享儲存裝置可用，例如，該共享儲存裝置可透過光纖通道、FCoE、SCSI、iSCSI SAN 或 DRBD* 提供。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     確定已安裝以下套件︰<systemitem class="resource">lvm2</systemitem> 和 <systemitem class="resource">lvm2-lockd</systemitem>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     自 SUSE Linux Enterprise 15 起，我們使用 lvmlockd 做為 LVM2 叢集延伸，而不再使用 clvmd。請確定 clvmd 精靈未執行，否則 lvmlockd 將無法啟動。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <sect2 xml:id="sec.ha.clvm.config.resources">
+   <title>建立叢集資源</title>
+   <para>
+    在一個節點上執行以下基本步驟，以在叢集中設定共享 VG︰
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <xref linkend="pro.ha.clvm.rsc.dlm" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="pro.ha.clvm.rsc.lvmlockd" xrefstyle="select:title"/></para>
+    </listitem>
+    <listitem>
+    <para>
+      <xref linkend="pro.ha.clvm.rsc.vg_lv" xrefstyle="select:title"/></para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="pro.ha.clvm.rsc.lvm_activate" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+
+   <procedure xml:id="pro.ha.clvm.rsc.dlm">
+    <title>建立 DLM 資源</title>
+    <step>
+     <para>
+      啟動外圍程序並以 <systemitem class="username">root</systemitem> 身分登入。
+     </para>
+    </step>
+    <step>
+     <para>
+      檢查叢集資源的目前組態︰
+     </para>
+     <screen><prompt role="root">root # </prompt>crm configure show</screen>
+    </step>
+    <step>
+     <para>
+      如果您已設定 DLM 資源 (以及對應的基礎群組和基礎複製品)，請繼續<xref linkend="pro.ha.clvm.rsc.lvmlockd"/>。
+     </para>
+     <para>
+      若非如此，請依照<xref linkend="pro.dlm.resources"/> 所述設定 DLM 資源以及對應的基礎群組和基礎複製品。
+     </para>
+    </step>
+   </procedure>
+   <procedure xml:id="pro.ha.clvm.rsc.lvmlockd">
+    <title>建立 lvmlockd 資源</title>
+    <step>
+     <para>
+      啟動外圍程序並以 <systemitem class="username">root</systemitem> 身分登入。
+     </para>
+    </step>
+    <step>
+     <para>
+      執行以下指令以查看此資源的使用情況︰
+     </para>
+     <screen><prompt role="root">root # </prompt>crm configure ra info lvmlockd</screen>
+    </step>
+    <step>
+     <para>
+      依如下所示設定 <systemitem>lvmlockd</systemitem> 資源︰
+     </para>
+     <screen><prompt role="root">root # </prompt>crm configure primitive lvmlockd ocf:heartbeat:lvmlockd \
+  op start timeout="90" \
+  op stop timeout="100" \
+  op monitor interval="30" timeout="90"</screen>
+    </step>
+    <step>
+     <para>
+      為了確定在每個節點上都啟動 <systemitem>lvmlockd</systemitem> 資源，請將基本資源新增至您在<xref linkend="pro.ha.clvm.rsc.dlm"/>中為儲存建立的基礎群組︰
+     </para>
+     <screen><prompt role="root">root # </prompt>crm configure modgroup g-storage add lvmlockd</screen>
+    </step>
+    <step>
+     <para>
+      複查所做的變更︰</para>
+     <screen><prompt role="root">root # </prompt>crm configure show</screen>
+    </step>
+    <step>
+     <para>檢查資源是否正常執行︰
+     </para>
+     <screen><prompt role="root">root # </prompt>crm status full</screen>
+    </step>
+   </procedure>
+   <procedure xml:id="pro.ha.clvm.rsc.vg_lv">
+    <title>建立共享 VG 和 LV</title>
+    <step>
+     <para>
+      啟動外圍程序並以 <systemitem class="username">root</systemitem> 身分登入。
+     </para>
+    </step>
+    <step>
+     <para>
+     假設您已有兩個共享磁碟，並使用它們建立共享 VG︰
+     </para>
+     <screen><prompt role="root">root # </prompt>vgcreate --shared vg1 /dev/sda /dev/sdb</screen>
+    </step>
+    <step>
+     <para>
+      建立 LV 但一開始不啟用它︰
+     </para>
+     <screen><prompt role="root">root # </prompt>lvcreate -an -L10G -n lv1 vg1</screen>
+    </step>
+   </procedure>
+   <procedure xml:id="pro.ha.clvm.rsc.lvm_activate">
+    <title>建立 LVM 啟用資源</title>
+    <step>
+     <para>
+      啟動外圍程序並以 <systemitem class="username">root</systemitem> 身分登入。
+     </para>
+    </step>
+    <step>
+     <para>
+      執行以下指令以查看此資源的使用情況︰
+     </para>
+     <screen><prompt role="root">root # </prompt>crm configure ra info LVM-activate</screen>
+     <para>
+      此資源負責管理 VG 的啟用。在共享 VG 中，有兩種不同的 LV 啟用模式︰獨佔模式和共享模式。獨佔模式是預設模式，通常應在 <systemitem>ext4</systemitem> 等本地檔案系統使用 LV 時使用。共享模式僅應用於 OCFS2 等叢集檔案系統。
+     </para>
+    </step>
+    <step>
+     <para>
+      設定資源以管理您 VG 的啟用。根據您的案例，選擇下列其中一個選項︰
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>對於本地檔案系統使用，請使用獨佔啟用模式︰</para>
+<screen><prompt role="root">root # </prompt>crm configure primitive vg1 ocf:heartbeat:LVM-activate \
+  params vgname=vg1 vg_access_mode=lvmlockd \
+  op start timeout=90s interval=0 \
+  op stop timeout=90s interval=0 \
+  op monitor interval=30s timeout=90s</screen>
+      </listitem>
+      <listitem>
+       <para>
+        對於 OCFS2，請使用共享啟用模式，並將其新增至複製的 <literal>g-storage</literal> 群組︰
+       </para>
+<screen><prompt role="root">root # </prompt>crm configure primitive vg1 ocf:heartbeat:LVM-activate \
+  params vgname=vg1 vg_access_mode=lvmlockd activation_mode=shared \
+  op start timeout=90s interval=0 \
+  op stop timeout=90s interval=0 \
+  op monitor interval=30s timeout=90s
+<prompt role="root">root # </prompt>crm configure modgroup g-storage add vg1</screen>
+      </listitem>
+     </itemizedlist>
+    </step>
+    <step>
+     <para>
+      檢查資源是否正常執行︰
+     </para>
+     <screen><prompt role="root">root # </prompt>crm status full</screen>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.clvm.scenario.iscsi">
+   <title>案例︰在 SAN 上將叢集 LVM 與 iSCSI 搭配使用</title>
+   <para>
+    以下案例將使用兩個 SAN Box，它們會將 iSCSI 目標輸出至多個用戶端。<xref linkend="fig.ha.clvm.scenario.iscsi"/> 中說明了一般的情況。
+   </para>
+   <figure xml:id="fig.ha.clvm.scenario.iscsi">
+    <title>使用叢集 LVM 設定共享磁碟</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="ha_clvm.svg" width="80%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="ha_clvm.png" width="45%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <warning>
+    <title>資料損失</title>
+    <para>
+     以下程序將損毀您磁碟上的資料！
+    </para>
+   </warning>
+   <para>
+    開始請只設定一個 SAN Box。每個 SAN Box 需要輸出自己的 iSCSI 目標。請執行下列步驟︰
+   </para>
+
+   <procedure xml:id="pro.ha.clvm.scenario.iscsi.targets">
+    <title>設定 iSCSI 目標 (SAN)</title>
+    <step>
+     <para>
+      執行 YaST，然後按一下<menuchoice> <guimenu> 網路服務</guimenu> <guimenu> iSCSI LIO 目標</guimenu> </menuchoice> ，啟動 iSCSI 伺服器模組。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果您希望電腦每次開機時啟動 iSCSI 目標，請選擇<guimenu>開機時</guimenu>，否則請選擇<guimenu>手動</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果有防火牆在執行，則啟用<guimenu>在防火牆中開啟埠</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      切換至<guimenu>全域</guimenu>索引標籤。如果需要驗證，請啟用內送及/或外送驗證。在本例中，我們選取的是<guimenu>無驗證</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      新增新的 iSCSI 目標︰
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        切換至<guimenu>目標</guimenu>索引標籤。
+       </para>
+      </step>
+      <step>
+       <para>
+        按一下<guimenu>新增</guimenu>。
+       </para>
+      </step>
+      <step xml:id="st.ha.clvm.iscsi.iqn">
+       <para>
+        輸入目標名稱。名稱需要採用以下格式︰
+       </para>
+<screen>iqn.<replaceable>DATE</replaceable>.<replaceable>DOMAIN</replaceable></screen>
+       <para>
+        如需該格式的詳細資訊，請參閱<citetitle>第 3.2.6.3.1 節「Type "iqn." (iSCSI Qualified Name)」</citetitle>(「iqn.」(iSCSI 合格名稱) 類型)，網址為︰<link xlink:href="http://www.ietf.org/rfc/rfc3720.txt"/>。
+       </para>
+      </step>
+      <step>
+       <para>
+        如果您想使用更具描述性的名稱，可以變更名稱，只要確保每個目標的識別碼都是唯一的即可。
+       </para>
+      </step>
+      <step>
+       <para>
+        按一下<guimenu>新增</guimenu>。
+       </para>
+      </step>
+      <step>
+       <para>
+        在<guimenu>路徑</guimenu>中輸入裝置名稱，並使用<guimenu>Scsiid</guimenu>。
+       </para>
+      </step>
+      <step>
+       <para>
+        按兩次<guimenu>下一步</guimenu>。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      出現警告對話方塊時，按一下<guimenu>是</guimenu>加以確認。
+     </para>
+    </step>
+    <step>
+     <para>
+      開啟組態檔案 <filename>/etc/iscsi/iscsid.conf</filename>，並將參數 <literal>node.startup</literal> 變更為 <literal>automatic</literal>。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    接著，按如下所示設定 iSCSI 啟動器︰
+   </para>
+   <procedure xml:id="pro.ha.clvm.scenarios.iscsi.initiator">
+    <title>設定 iSCSI 啟動器</title>
+    <step>
+     <para>
+      執行 YaST，然後按一下<menuchoice> <guimenu>網路服務</guimenu> <guimenu> iSCSI 啟動器</guimenu> </menuchoice>。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果您要在電腦開機時啟動 iSCSI 啟動器，請選擇<guimenu>開機時</guimenu>，否則請設定<guimenu>手動</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      切換至<guimenu>探查</guimenu>索引標籤，然後按一下<guimenu>探查</guimenu>按鈕。
+     </para>
+    </step>
+    <step>
+     <para>
+      新增 iSCSI 目標的 IP 位址和連接埠 (請參閱<xref linkend="pro.ha.clvm.scenario.iscsi.targets"/>)。一般不用變更連接埠，使用其預設值即可。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果使用驗證，請插入內送及外送的使用者名稱和密碼，否則請啟用<guimenu>無驗證</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      選取<guimenu>下一步</guimenu>。清單中會顯示找到的連線。
+     </para>
+    </step>
+    <step>
+     <para>
+      按一下<guimenu>完成</guimenu>繼續。
+     </para>
+    </step>
+    <step>
+     <para>
+      開啟外圍程序，以 <systemitem class="username">root</systemitem> 身分登入。
+     </para>
+    </step>
+    <step>
+     <para>
+      測試 iSCSI 啟動器是否已正常啟動︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>iscsiadm</command> -m discovery -t st -p 192.168.3.100
+192.168.3.100:3260,1 iqn.2010-03.de.jupiter:san1</screen>
+    </step>
+    <step>
+     <para>
+      建立工作階段︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>iscsiadm</command> -m node -l -p 192.168.3.100 -T iqn.2010-03.de.jupiter:san1
+Logging in to [iface: default, target: iqn.2010-03.de.jupiter:san1, portal: 192.168.3.100,3260]
+Login to [iface: default, target: iqn.2010-03.de.jupiter:san1, portal: 192.168.3.100,3260]: successful</screen>
+     <para>
+      使用 <command>lsscsi</command> 查看裝置名稱︰
+     </para>
+<screen>...
+[4:0:0:2]    disk    IET      ...     0     /dev/sdd
+[5:0:0:1]    disk    IET      ...     0     /dev/sde</screen>
+     <para>
+      尋找第三欄中含有 <literal>IET</literal> 的項目。在本例中，裝置分別是 <filename>/dev/sdd</filename> 和 <filename>/dev/sde</filename>。
+     </para>
+    </step>
+   </procedure>
+   <procedure xml:id="pro.ha.clvm.scenarios.iscsi.lvm">
+    <title>建立共享磁碟區群組</title>
+    <step>
+     <para>
+      在其中一個您於 <xref linkend="pro.ha.clvm.scenarios.iscsi.initiator"/> 中執行了 iSCSI 啟動器的節點上開啟 <systemitem class="username">root</systemitem> 外圍程序。
+     </para>
+    </step>
+    <step>
+     <para>
+     在磁碟 <filename>/dev/sdd</filename> 和 <filename>/dev/sde</filename> 上建立共享磁碟區群組︰
+     </para>
+<screen><prompt role="root">root # </prompt>vgcreate --shared testvg /dev/sdd /dev/sde</screen>
+    </step>
+    <step>
+     <para>
+      根據需要建立邏輯磁碟區︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>lvcreate</command> --name lv1 --size 500M testvg</screen>
+    </step>
+    <step>
+     <para>
+      使用 <command>vgdisplay</command> 檢查磁碟區群組︰
+     </para>
+<screen>  --- Volume group ---
+      VG Name               testvg
+      System ID
+      Format                lvm2
+      Metadata Areas        2
+      Metadata Sequence No  1
+      VG Access             read/write
+      VG Status             resizable
+      Clustered             yes
+      Shared                no
+      MAX LV                0
+      Cur LV                0
+      Open LV               0
+      Max PV                0
+      Cur PV                2
+      Act PV                2
+      VG Size               1016,00 MB
+      PE Size               4,00 MB
+      Total PE              254
+      Alloc PE / Size       0 / 0
+      Free  PE / Size       254 / 1016,00 MB
+      VG UUID               UCyWw8-2jqV-enuT-KH4d-NXQI-JhH3-J24anD</screen>
+    </step>
+   </procedure>
+   <para>
+    建立磁碟區並啟動資源後，<filename>/dev/testvg</filename> 下會顯示新的裝置名稱，例如 <filename>/dev/testvg/lv1</filename>。這表示 LV 已啟用，可供使用。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.clvm.scenario.drbd">
+   <title>案例︰將叢集 LVM 與 DRBD 搭配使用</title>
+   <para>
+    如果您的資料中心分佈在城市、國家甚至大陸的不同位置，可以參照以下案例。
+   </para>
+   <procedure xml:id="pro.ha.clvm.withdrbd">
+    <title>使用 DRBD 建立叢集感知磁碟區群組</title>
+    <step>
+     <para>
+      建立主要/次要 DRBD 資源︰
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        首先，如<xref linkend="pro.drbd.configure"/> 中所述將一部 DRBD 裝置設定成主要或次要裝置。確定兩個節點上的磁碟狀態均為<literal>最新</literal>。使用 <command>drbdadm status</command> 確認是否如此。
+       </para>
+      </step>
+      <step>
+       <para>
+        在組態檔案 (通常類似於 <filename>/etc/drbd.d/r0.res</filename>) 中新增以下選項︰
+       </para>
+<screen>resource r0 {
+  net {
+     allow-two-primaries;
+  }
+  ...
+}</screen>
+      </step>
+      <step>
+       <para>
+        將變更後的組態檔案複製到另一個節點，例如︰
+       </para>
+<screen><prompt role="root">root # </prompt><command>scp</command> /etc/drbd.d/r0.res venus:/etc/drbd.d/</screen>
+      </step>
+      <step>
+       <para>
+        在<emphasis>兩個</emphasis>節點上執行以下指令︰
+       </para>
+<screen><prompt role="root">root # </prompt><command>drbdadm</command> disconnect r0
+<prompt role="root">root # </prompt><command>drbdadm</command> connect r0
+<prompt role="root">root # </prompt><command>drbdadm</command> primary r0</screen>
+      </step>
+      <step>
+       <para>
+        檢查節點的狀態︰
+    </para>
+    <screen><prompt role="root">root # </prompt><command>drbdadm</command> status r0</screen>
+
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      將 lvmlockd 資源做為複製品包含在 Pacemaker 組態中，並使它依賴於 DLM 複製品。如需詳細指示，請參閱<xref linkend="pro.ha.clvm.rsc.dlm"/>。繼續之前，請先確定已在叢集中成功啟動這些資源。您可以使用 <command>crm status</command> 或 Web 介面檢查執行中的服務。
+     </para>
+    </step>
+    <step>
+     <para>
+      使用 <command>pvcreate</command> 指令為 LVM 備妥實體磁碟區。例如，在 <filename>/dev/drbd_r0</filename> 裝置上使用如下指令︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>pvcreate</command> /dev/drbd_r0</screen>
+    </step>
+    <step>
+     <para>
+      建立共享磁碟區群組︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>vgcreate</command> --shared testvg /dev/drbd_r0</screen>
+    </step>
+    <step>
+     <para>
+      根據需要建立邏輯磁碟區。您有時可能想要變更邏輯磁碟區的大小。例如，使用以下指令建立一個 4 GB 的邏輯磁碟區︰
+     </para>
+<screen><prompt role="root">root # </prompt><command>lvcreate</command> --name lv1 -L 4G testvg</screen>
+    </step>
+    <step>
+     <para>
+      <remark role="grammar">taroth 2011-10-24: comment by bwiedemann: as file system
+      mounts or raw usage - *as* raw usage passt nicht - for?</remark>現在，VG 中的邏輯磁碟區便可做為掛接的檔案系統或原始用途使用。請確保使用它們的服務具有正確的相依性，這樣才能在啟動 VG 後對它們進行並存和排序處理。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    完成這些組態設定步驟後，便能像在任何獨立工作站上一般進行 LVM2 組態設定。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec.ha.clvm.drbd">
+  <title>明確設定適合的 LVM2 裝置</title>
+
+  <para>
+   如果看似有多部裝置共享同一個實體磁碟區簽名 (多路徑裝置或 DRBD 就有可能發生這種情況)，建議明確設定 LVM2 掃描 PV 的裝置。
+  </para>
+
+  <para>
+   例如，如果指令 <command>vgcreate</command> 使用實體裝置而非鏡像區塊裝置，則 DRBD 會產生混亂。進而導致 DRBD 出現電腦分裂情況。
+  </para>
+
+  <para>
+   若要停用 LVM2 的單一裝置，請執行以下操作︰
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     編輯 <filename>/etc/lvm/lvm.conf</filename> 檔案並搜尋以 <literal>filter</literal> 開頭的行。
+    </para>
+   </step>
+   <step>
+    <para>
+     該處的模式將被視為正規表示式進行處理。前置 <quote>a</quote> 表示接受要掃描的裝置模式，前置 <quote>r</quote> 表示拒絕依照該裝置模式的裝置。
+    </para>
+   </step>
+   <step>
+    <para>
+     若要移除名為 <filename>/dev/sdb1</filename> 的裝置，請將下列表示式新增至過濾器規則︰
+    </para>
+<screen>"r|^/dev/sdb1$|"</screen>
+    <para>
+     完整的過濾器行如下所示︰
+    </para>
+<screen>filter = [ "r|^/dev/sdb1$|", "r|/dev/.*/by-path/.*|", "r|/dev/.*/by-id/.*|", "a/.*/" ]</screen>
+    <para>
+     接受 DRBD 和 MPIO 裝置但拒絕其他所有裝置的過濾器行如下所示︰
+    </para>
+<screen>filter = [ "a|/dev/drbd.*|", "a|/dev/.*/by-id/dm-uuid-mpath-.*|", "r/.*/" ]</screen>
+   </step>
+
+   <step>
+    <para>
+     寫入組態檔案並將其複製到所有叢集節點。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+<sect1 xml:id="sec.ha.clvm.migrate">
+  <title>從鏡像 LV 線上移轉至叢集 MD</title>
+  <para>
+   隨著 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 15 的推出，叢集 LVM 中的 cmirrord 已廢棄。我們強烈建議將叢集中的鏡像邏輯磁碟區移轉至叢集 MD。叢集 MD 表示「叢集多裝置」，是適用於叢集的軟體式 RAID 儲存解決方案。
+  </para>
+
+ <sect2 xml:id="sec.ha.clvm.migrate.setup.before">
+  <title>移轉之前的範例設定</title>
+    <para>
+     假設您採用以下範例設定︰
+    </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    您有一個雙節點叢集，它由節點 <literal>alice</literal> 和 <literal>bob</literal> 組成。
+   </para>
+  </listitem>
+  <listitem>
+    <para>
+     名為 <literal>test-lv</literal> 的鏡像邏輯磁碟區是從名為 <literal>cluster-vg2</literal> 的磁碟區群組建立的。
+    </para>
+  </listitem>
+  <listitem>
+   <para>
+     磁碟區群組 <literal>cluster-vg2</literal> 由磁碟 <filename>/dev/vdb</filename> 和 <filename>/dev/vdc</filename> 組成。
+   </para>
+  </listitem>
+ </itemizedlist>
+ <screen><prompt role="root">root # </prompt><command>lsblk</command>
+NAME                                  MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+vda                                   253:0    0   40G  0 disk
+├─vda1                                253:1    0    4G  0 part [SWAP]
+└─vda2                                253:2    0   36G  0 part /
+vdb                                   253:16   0   20G  0 disk
+├─cluster--vg2-test--lv_mlog_mimage_0 254:0    0    4M  0 lvm
+│ └─cluster--vg2-test--lv_mlog        254:2    0    4M  0 lvm
+│   └─cluster--vg2-test--lv           254:5    0   12G  0 lvm
+└─cluster--vg2-test--lv_mimage_0      254:3    0   12G  0 lvm
+  └─cluster--vg2-test--lv             254:5    0   12G  0 lvm
+vdc                                   253:32   0   20G  0 disk
+├─cluster--vg2-test--lv_mlog_mimage_1 254:1    0    4M  0 lvm
+│ └─cluster--vg2-test--lv_mlog        254:2    0    4M  0 lvm
+│   └─cluster--vg2-test--lv           254:5    0   12G  0 lvm
+└─cluster--vg2-test--lv_mimage_1      254:4    0   12G  0 lvm
+  └─cluster--vg2-test--lv             254:5    0   12G  0 lvm</screen>
+
+  <important xml:id="adm.migration.fail">
+  <title>避免移轉失敗</title>
+  <para>
+   在啟動移轉程序之前，請檢查邏輯磁碟區和實體磁碟區的容量與使用率。如果邏輯磁碟區使用了 100% 的實體磁碟區容量，則移轉可能會失敗，並在目標磁碟區上顯示<literal>可用空間不足</literal>錯誤。如何防止這種移轉失敗取決於鏡像記錄所用的選項︰
+  </para>
+  <itemizedlist>
+    <listitem>
+     <formalpara>
+      <title>鏡像記錄本身是否已鏡像 (<option>mirrored</option> 選項)，並且已在鏡像根所在的同一個裝置上進行配置？</title>
+      <para> (例如，如果您依照 <phrase role="productname"><phrase os="sles"> 中所述，為 </phrase></phrase>SUSE Linux Enterprise High Availability Extension<link xlink:href="https://www.suse.com/documentation/sle-ha-12/singlehtml/book_sleha/book_sleha.html#sec.ha.clvm.config.cmirrord"/> 11 或 12 上的 cmirrord 設定建立了邏輯磁碟區，則可能符合這種情況)。 </para>
+     </formalpara>
+     <para>
+      依預設，<command>mdadm</command> 會在裝置開頭與陣列資料開頭之間保留一定的空間容量。在移轉期間，您可以檢查未使用的填補空間，並使用 <option>data-offset</option> 選項減小此空間，如<xref linkend="step.data-offset"/> 和下文所述。
+     </para>
+     <para>
+      <option>data-offset</option> 必須在裝置上保留足夠的空間，使叢集 MD 能夠將其中繼資料寫入裝置。另一方面，偏移量必須足夠小，使裝置的剩餘容量可以容納所移轉磁碟區的所有實體磁碟區範圍。由於磁碟區可能已跨越整個裝置但不包括鏡像記錄，因此，偏移量必須小於鏡像記錄的大小。
+     </para>
+     <para>
+      我們建議將 <option>data-offset</option> 設定為 128 KB。如果未指定偏移量的值，其預設值為 1 KB (1024 位元組)。
+     </para>
+    </listitem>
+   <listitem>
+    <formalpara>
+     <title>
+      鏡像記錄是已寫入不同的裝置 (<option>disk</option> 選項)，還是保留在記憶體中 (<option>core</option> 選項)？
+     </title>
+     <para>
+      在開始移轉之前，請增大實體磁碟區的大小，或減小邏輯磁碟區的大小 (以便為實體磁碟區釋放更多的空間)。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+ </important>
+</sect2>
+<sect2 xml:id="sec.ha.clvm.migrate.lv2clustermd">
+ <title>將鏡像 LV 移轉至叢集 MD</title>
+  <para>
+    以下程序以<xref linkend="sec.ha.clvm.migrate.setup.before"/>為基礎。請根據設定調整指令，並相應地取代 LV、VG、磁碟和叢集 MD 裝置的名稱。
+  </para>
+  <para>
+  移轉程序完全不會造成停機。在移轉期間仍可掛接檔案系統。
+ </para>
+ <procedure>
+   <step>
+    <para>
+     在節點 <literal>alice</literal> 上執行以下步驟︰
+    </para>
+   <substeps>
+   <step>
+    <para>
+     將鏡像邏輯磁碟區 <literal>test-lv</literal> 轉換為線性邏輯磁碟區︰
+    </para>
+    <screen><prompt role="root">root # </prompt>lvconvert -m0 cluster-vg2/test-lv /dev/vdc</screen>
+   </step>
+   <step>
+    <para>
+      從磁碟區群組 <literal>cluster-vg2</literal> 中移除實體磁碟區 <filename>/dev/vdc</filename>︰
+    </para>
+    <screen><prompt role="root">root # </prompt>vgreduce cluster-vg2 /dev/vdc</screen>
+   </step>
+   <step>
+    <para>
+      從 LVM 中移除以下實體磁碟區︰
+    </para>
+    <screen><prompt role="root">root # </prompt>pvremove /dev/vdc</screen>
+    <para>如果現在就執行 <command>lsblk</command>，您將會看到︰</para>
+   <screen>NAME                                  MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+vda                     253:0    0   40G  0 disk
+├─vda1                  253:1    0    4G  0 part [SWAP]
+└─vda2                  253:2    0   36G  0 part /
+vdb                     253:16   0   20G  0 disk
+└─cluster--vg2-test--lv 254:5    0   12G  0 lvm
+vdc                     253:32   0   20G  0 disk</screen>
+   </step>
+   <step xml:id="step.data-offset">
+    <para>
+      使用磁碟 <filename>/dev/vdc</filename> 建立叢集 MD 裝置 <filename>/dev/md0</filename>︰
+    </para>
+    <screen><prompt role="root">root # </prompt>mdadm --create /dev/md0 --bitmap=clustered \
+--metadata=1.2 --raid-devices=1 --force --level=mirror \
+/dev/vdc --data-offset=128</screen>
+    
+    <para>
+     如需為何要使用 <option>data-offset</option> 選項的詳細資料，請參閱<xref linkend="adm.migration.fail"/>。
+    </para>
+   </step>
+  </substeps>
+  </step>
+   <step>
+    <para>
+     在節點 <literal>bob</literal> 上組合以下 MD 裝置︰
+    </para>
+    <screen><prompt role="root">root # </prompt>mdadm --assemble md0 /dev/vdc</screen>
+    <para>
+     如果您的叢集由兩個以上的節點組成，請在該叢集中的所有剩餘節點上執行此步驟。
+    </para>
+   </step>
+   <step>
+    <para>回到節點 <literal>alice</literal>︰
+   </para>
+   <substeps>
+   <step>
+    <para>
+     將 MD 裝置 <filename>/dev/md0</filename> 啟始化為可與 LVM 搭配使用的實體磁碟區︰
+    </para>
+    <screen><prompt role="root">root # </prompt>pvcreate /dev/md0</screen>
+   </step>
+   <step>
+    <para>
+     將 MD 裝置 <filename>/dev/md0</filename> 新增至磁碟區群組 <literal>cluster-vg2</literal>︰
+    </para>
+    <screen><prompt role="root">root # </prompt>vgextend cluster-vg2 /dev/md0</screen>
+   </step>
+   <step>
+    <para>
+     將磁碟 <filename>/dev/vdb</filename> 中的資料移至 <filename>/dev/md0</filename> 裝置︰
+    </para>
+    <screen><prompt role="root">root # </prompt>pvmove /dev/vdb /dev/md0</screen>
+   </step>
+   <step>
+    <para>
+     從磁碟區群組 <literal>group cluster-vg2</literal> 中移除實體磁碟區 <filename>/dev/vdb</filename>︰
+    </para>
+    <screen><prompt role="root">root # </prompt>vgreduce cluster-vg2 /dev/vdb</screen>
+   </step>
+   <step>
+    <para>
+     從裝置中移除標籤，使 LVM 不再將該裝置識別為實體磁碟區︰
+    </para>
+    <screen><prompt role="root">root # </prompt>pvremove /dev/vdb</screen>
+   </step>
+   <step>
+    <para>
+     將 <filename>/dev/vdb</filename> 新增至 MD 裝置 <filename>/dev/md0</filename>︰
+    </para>
+    <screen><prompt role="root">root # </prompt>mdadm --grow /dev/md0 --raid-devices=2 --add /dev/vdb</screen>
+   </step>
+  </substeps>
+  </step>
+ </procedure>
+</sect2>
+
+<sect2 xml:id="ex.ha.clvm.migrate.setup.after">
+ <title>移轉之後的範例設定</title>
+  <para>
+   如果現在就執行 <command>lsblk</command>，您將會看到︰
+  </para>
+  <screen>NAME                      MAJ:MIN RM  SIZE RO TYPE  MOUNTPOINT
+vda                       253:0    0   40G  0 disk
+├─vda1                    253:1    0    4G  0 part  [SWAP]
+└─vda2                    253:2    0   36G  0 part  /
+vdb                       253:16   0   20G  0 disk
+└─md0                       9:0    0   20G  0 raid1
+  └─cluster--vg2-test--lv 254:5    0   12G  0 lvm
+vdc                       253:32   0   20G  0 disk
+└─md0                       9:0    0   20G  0 raid1
+  └─cluster--vg2-test--lv 254:5    0   12G  0 lvm</screen>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.clvm.more">
+  <title>更多資訊</title>
+
+  <para>
+   如需 lvmlockd 的詳細資訊，請參閱 <command>lvmlockd</command> 指令 的 man 頁面 (<command>man 8 lvmlockd</command>)。
+  </para>
+  <para>
+   完整資訊可參閱 Pacemaker 郵寄清單 (網址為 <link xlink:href="http://www.clusterlabs.org/wiki/Help:Contents"/>)。
+  </para>  
+ </sect1>
+</chapter>

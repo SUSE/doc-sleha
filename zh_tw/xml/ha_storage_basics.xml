@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_storage_basics.xml" version="5.0" xml:id="cha.ha.storage.dlm">
+ <title>分散式鎖定管理員 (DLM)</title>
+ <info>
+  <abstract>
+   <para>
+    核心中的分散式鎖定管理員 (DLM) 是 OCFS2、GFS2、叢集 MD 和叢集 LVM (lvmlockd) 用於在每個相關層提供主動-主動儲存的基礎元件。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec.ha.storage.dlm.protocol">
+  <title>用於 DLM 通訊的通訊協定</title>
+
+  <para>
+   為了避免單一故障點，非常有必要對高可用性叢集設定備援通訊路徑。對於 DLM 通訊也是如此。如果出於任何原因無法使用網路結合 (連結彙總控制通訊協定，LACP)，則我們強烈建議在 Corosync 中定義備援通訊通道 (另一個環)。如需詳細資料，請參閱<xref linkend="pro.ha.installation.setup.channel2"/>。
+  </para>
+  <para>
+   然後，DLM 會根據 <filename>/etc/corosync/corosync.conf</filename> 中的組態，確定是要使用 TCP 還是 SCTP 通訊協定來進行通訊︰
+  </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+     如果 <guimenu>rrp_mode</guimenu> 設定為 <literal>none</literal> (表示停用備援環組態)，則 DLM 會自動使用 TCP。但是，如果未定義備援通訊通道，在 TCP 連結中斷的情況下，DLM 通訊將會失敗。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+     如果 <guimenu>rrp_mode</guimenu> 設定為 <literal>passive</literal> (一般會如此設定)，並且在 <filename>/etc/corosync/corosync.conf</filename> 中正確設定了另一個通訊環，則 DLM 會自動使用 SCTP。在此情況下，DLM 訊息傳送會獲得 SCTP 提供的備援功能。
+   </para>
+  </listitem>
+ </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec.ha.storage.generic.dlm.config">
+  <title>設定 DLM 叢集資源</title>
+
+  <para>
+   DLM 使用 Pacemaker 提供的並在使用者空間中執行的叢集成員資格服務。因此，需要將 DLM 設定為叢集中每個節點上都存在的複製品資源。
+  </para>
+
+  <note>
+   <title>多個解決方案的 DLM 資源</title>
+   <para>
+    由於 OCFS2、GFS2、叢集 MD 和叢集 LVM (lvmlockd) 全部都使用 DLM，因此為 DLM 設定一個資源便已足夠。由於 DLM 資源在叢集中的所有節點上執行，因此將其設定為複製品資源。
+   </para>
+   <para>
+    如果您的設定包含 OCFS2 和叢集 LVM，只需為 OCFS2 和叢集 LVM 設定<emphasis>一個</emphasis> DLM 資源就足夠了。
+   </para>
+  </note>
+
+  <procedure xml:id="pro.dlm.resources">
+   <title>設定 DLM 的基礎群組</title>
+   <para>
+    該組態由一個包含數個基本資源的基礎群組與一個基礎複製品構成。之後，基礎群組和基礎複製品便可用於各種案例 (例如，用於 OCFS2 和叢集 LVM)。您只需根據需要新增相應的基本資源來延伸基礎群組。由於基礎群組有內部並存與順序條件約束，因此您不需要指定多個個別群組、複製品及其相依項，這使總體設定程序更為簡便。
+   </para>
+   <para>
+    對叢集中的某個節點執行以下步驟︰
+   </para>
+   <step>
+    <para>
+     啟動外圍程序，並以 <systemitem class="username">root</systemitem> 或同等身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     執行 <command>crm</command> <option>configure</option>。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入以下指令以建立 DLM 的基本資源︰
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dlm ocf:pacemaker:controld \
+  op monitor interval="60" timeout="60"</screen>
+   </step>
+   <step>
+    <para>
+     為 DLM 資源和其他儲存相關的資源建立一個基礎群組︰
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> g-storage dlm</screen>
+   </step>
+   <step>
+    <para>
+     複製 <literal>g-storage</literal> 群組，以使其在所有節點上執行︰
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt> <command>clone</command> cl-storage g-storage \
+  meta interleave=true target-role=Started</screen>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 檢閱所做的變更。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有設定都正確，請使用 <command>commit</command> 提交變更，然後使用 <command>exit</command> 離開 crm 即時組態。
+    </para>
+   </step>
+  </procedure>
+
+  <note>
+   <title>停用 STONITH 失敗</title>
+   <para>
+    系統不支援未啟用 STONITH 的叢集。如果您出於測試或疑難排解目的將全域叢集選項 <varname>stonith-enabled</varname> 設定為 <literal>false</literal>，則 DLM 資源以及依賴於它的所有服務 (例如叢集 LVM、GFS2 和 OCFS2) 將無法啟動。
+   </para>
+  </note>
+ </sect1>
+</chapter>
