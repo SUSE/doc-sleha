@@ -1,0 +1,634 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<?provo dirname="install_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_install_quick.xml" version="5.0" xml:lang="de" xml:id="art.sleha.install.quick">
+  
+  <title>Kurzanleitung zu Installation und Einrichtung</title>
+ <subtitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></productnumber>
+  <productname><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname>
+  <date><?dbtimestamp ?>
+
+</date>
+  <xi:include href="ha_authors.xml"/>
+  <abstract>
+   <para>
+     Dieses Dokument führt Sie durch die Einrichtung eines sehr einfachen Clusters mit zwei Knoten. Dabei werden Bootstrap-Skripte verwendet, die im Paket <systemitem class="resource">ha-cluster-bootstrap</systemitem> bereitgestellt werden. Bei diesem Vorgang müssen Sie unter anderem eine virtuelle IP-Adresse als Cluster-Ressource konfigurieren und SBD im gemeinsam genutzten Speicher als Knoten-Fencing-Mechanismus (Abriegelung) verwenden.
+   </para>
+  </abstract>
+  
+  <dm:docmanager>
+   <dm:bugtracker>
+    <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+    <dm:product>Beta SUSE Linux Enterprise High Availability Extension 15 SP1</dm:product>
+    <dm:component>Dokumentation</dm:component>
+   </dm:bugtracker>
+   <dm:translation>Ja</dm:translation>
+  </dm:docmanager>
+ </info>
+
+  <sect1 xml:id="sec.ha.inst.quick.usage-scenario">
+   <title>Einsatzszenario</title>
+   <para>
+    Mit den in diesem Dokument beschriebenen Verfahren erhalten Sie eine Minimaleinrichtung eines Clusters mit zwei Knoten, die folgende Eigenschaften aufweist:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Zwei Knoten: <systemitem class="server">alice</systemitem> (IP: <systemitem class="ipaddress">192.168.1.1</systemitem>) und <systemitem class="server">bob</systemitem> (IP: <systemitem class="ipaddress">192.168.1.2</systemitem>), die über das Netzwerk miteinander verbunden sind
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Die virtuelle IP-Adresse (<systemitem class="ipaddress">192.168.2.1</systemitem>) nach dem Floating-IP-Prinzip, über die Clients eine Verbindung mit dem Service herstellen können, und zwar unabhängig davon, auf welchem physischen Knoten er ausgeführt wird
+     </para>
+    </listitem>
+    <listitem>
+     <para>Ein gemeinsam genutztes Speichergerät für den Einsatz als SBD-Fencing-Mechanismus Dadurch lassen sich Szenarien mit Systemspaltungen vermeiden.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Failover der Ressourcen von einem Knoten zum anderen, wenn der aktive Host ausfällt (<emphasis>Aktiv/Passiv</emphasis>-Einrichtung)
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    Nach dem Setup des Clusters mit den Bootstrap-Skripten überwachen wir den Cluster mit dem grafischen Hawk2. Dabei handelt es sich um eines der Tools zur Clusterverwaltung, die in der <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> enthalten sind. Die ordnungsgemäße Funktionsweise des Ressourcen-Failovers lässt sich ganz einfach testen, indem einer der Knoten in den Standby-Modus versetzt und geprüft wird, ob die virtuelle IP-Adresse zum zweiten Knoten migriert wird.
+   </para>
+   <para>
+    Sie können den aus zwei Knoten bestehenden Cluster zu Testzwecken oder als anfängliche Cluster-Minimalkonfiguration verwenden, die später erweitert werden kann. Bevor Sie den Cluster in einer Produktionsumgebung einsetzen, müssen Sie ihn Ihren Anforderungen entsprechend ändern.
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.req">
+   <title>Systemanforderungen</title>
+   <para>
+    In diesem Abschnitt erhalten Sie Informationen über die wichtigsten Systemanforderungen für das in <xref linkend="sec.ha.inst.quick.usage-scenario" xrefstyle="select:label"/> beschriebene Szenario. Zur Anpassung des Clusters für die Verwendung in einer Produktionsumgebung beachten Sie die vollständige Liste im <xref linkend="cha.ha.requirements"/>.
+   </para>
+
+  <sect2 xml:id="vl.ha.inst.quick.req.hw">
+   <title>Hardwareanforderungen</title>
+   <variablelist>
+    <varlistentry>
+     <term>Server</term>
+     <listitem>
+      <para>
+       Zwei Server mit der Software, die in <xref linkend="il.ha.inst.quick.req.sw"/> angegeben ist.
+      </para> <para>
+      Bei den Servern kann es sich um Bare Metal-Server oder um virtuelle Rechner handeln. Sie müssen nicht unbedingt mit identischer Hardware (Arbeitsspeicher, Festplattenspeicher usw.) ausgestattet sein, die gleiche Architektur wird jedoch vorausgesetzt. Plattformübergreifende Cluster werden nicht unterstützt.
+     </para>
+      
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Kommunikationskanäle</term>
+     <listitem>  <para>
+       Mindestens zwei TCP/IP-Kommunikationsmedien pro Cluster-Knoten. Die Netzwerkausstattung muss die Kommunikationswege unterstützen, die Sie für die Cluster-Kommunikation verwenden möchten: Multicast oder Unicast. Die Kommunikationsmedien sollten eine Datenübertragungsrate von mindestens 100 MBit/s unterstützen. Für eine unterstützte Cluster-Einrichtung sind mindestens zwei redundante Kommunikationspfade erforderlich. Dies lässt sich durch folgende Methoden erreichen:</para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          Netzwerkgerätekopplung (bevorzugt)
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          Über einen zweiten Kommunikationskanal in Corosync
+         </para>
+        </listitem>
+       </itemizedlist> </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Knoten-Fencing/STONITH</term>
+     <listitem>  <para>
+      Um das Szenario einer <quote>Systemspaltung</quote> zu verhindern, benötigen Cluster einen Fencing-Mechanismus für Knoten. Wenn eine Systemspaltung vorliegt, werden Cluster-Knoten in zwei oder mehr Gruppen geteilt, die (aufgrund eines Hardware- bzw. Softwarefehlers oder einer unterbrochenen Netzwerkverbindung) keine Kenntnis voneinander haben. Ein Fencing-Mechanismus isoliert den fraglichen Knoten (in der Regel durch das Zurücksetzen oder Ausschalten des Knotens). Dies wird auch als STONITH (<quote>Shoot the other node in the head</quote>, Englisch für „Schieß dem anderen Knoten in den Kopf“) bezeichnet. Als Fencing-Mechanismus für Knoten kann entweder ein physisches Gerät (ein Netzschalter) oder ein Mechanismus wie SBD (STONITH nach Festplatte) in Kombination mit einem Watchdog verwendet werden. Für SBD ist ein gemeinsam genutzter Speicher erforderlich.
+     </para> </listitem>
+    </varlistentry>
+   </variablelist>
+ </sect2>
+  <sect2 xml:id="il.ha.inst.quick.req.sw">
+   <title>Softwareanforderungen</title>
+   <para>
+   Alle Knoten, die Teil des Clusters sind, müssen mindestens über folgende Module und Erweiterungen verfügen:
+  </para>
+
+<itemizedlist>
+   <listitem>
+    <para>Base System Module <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para>Server Applications Module <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></para>
+   </listitem>
+  </itemizedlist>
+
+  </sect2>
+  <sect2 xml:id="vl.ha.inst.quick.req.other">
+   <title>Sonstige Anforderungen und Empfehlungen</title>
+   <variablelist>
+    <varlistentry>
+     <term>Zeitsynchronisierung</term>  <listitem>
+   <para>
+     Cluster-Knoten müssen mit einem NTP-Server außerhalb des Clusters synchronisiert werden. Ab <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 15 ist chrony Standardimplementation von NTP. Weitere Informationen finden Sie im <citetitle>Administrationshandbuch</citetitle> für SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase> im Kapitel <citetitle>Zeitsynchronisierung mit NTP</citetitle>. Dieses ist unter <link xlink:href="http://www.suse.com/documentation/"/> verfügbar.
+    </para>
+    <para>
+     Wenn die Knoten nicht synchronisiert werden, funktioniert der Cluster möglicherweise nicht ordnungsgemäß. Darüber hinaus wird die Analyse von Protokolldateien und Cluster-Berichten erheblich erschwert, wenn keine Synchronisierung erfolgt. Wenn Sie die Bootstrap-Skripte verwenden, werden Sie gewarnt, falls NTP noch nicht konfiguriert wurde.
+    </para>
+  </listitem> </varlistentry>
+    <varlistentry>
+     <term>Hostname und IP-Adresse</term>
+     <listitem>
+      <itemizedlist>
+       <listitem>
+        <para> Verwenden Sie statische IP-Adressen. </para>
+       </listitem>
+       <listitem>  <para>
+     Listen Sie alle Cluster-Knoten in der Datei <filename>/etc/hosts</filename> mit ihrem vollständig qualifizierten Hostnamen und der Kurzform des Hostnamens auf. Es ist sehr wichtig, dass sich die Cluster-Mitglieder untereinander anhand der Namen finden können. Wenn die Namen nicht verfügbar sind, tritt ein Fehler bei der internen Cluster-Kommunikation auf.
+   </para> </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>SSH</term>
+     <listitem>  <para>
+    Alle Cluster-Knoten müssen in der Lage sein, über SSH aufeinander zuzugreifen. Werkzeuge wie <command>crm report</command> (zur Fehlerbehebung) und <guimenu>History Explorer</guimenu> von Hawk2 erfordern einen passwortfreien SSH-Zugriff zwischen den Knoten, da sie andernfalls nur Daten vom aktuellen Knoten erfassen können.
+  </para> <para> Wenn Sie die Bootstrap-Skripte für die Einrichtung des Clusters verwenden, werden die SSH-Schlüssel automatisch erstellt und kopiert. </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.bootstrap">
+  <title>Überblick über die Bootstrap-Skripte</title>
+  <para>
+   Alle Kommandos aus dem Paket <package>ha-cluster-bootstrap</package> führen Bootstrap-Skripte aus, für die nur wenig Zeit und kaum manuelle Eingriffe benötigt werden.
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Mit <command>ha-cluster-init</command> können die grundlegenden Parameter definiert werden, die für eine Cluster-Kommunikation erforderlich sind. Sie erhalten dadurch einen aktiven Cluster mit einem Knoten.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Mit <command>ha-cluster-join</command> können Sie Ihrem Cluster weitere Knoten hinzufügen.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Mit <command>ha-cluster-remove</command> können Sie Knoten aus Ihrem Cluster entfernen.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Alle Bootstrap-Skripte protokollieren die zugehörigen Daten in der Datei <filename>/var/log/ha-cluster-bootstrap.log</filename>. In dieser Datei finden Sie alle Details des Bootstrap-Prozesses. Sämtliche Optionen, die während des Bootstrap-Prozesses festgelegt wurden, können später mit dem YaST-Cluster-Modul geändert werden. Weitere Informationen finden Sie im <xref linkend="cha.ha.ycluster"/>.
+  </para>
+  <para>Jedem Skript ist eine man-Seite zugeordnet, auf der Sie die verschiedenen Funktionen, die Optionen des Skripts und einen Überblick über die Dateien finden, die vom Skript erstellt und geändert werden können.
+  </para>
+  <para>
+   Das Bootstrap-Skript <command>ha-cluster-init</command> prüft und konfiguriert die folgenden Komponenten:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>NTP</term>
+    <listitem>
+     <para>
+      Wenn NTP nicht für das Starten zur Boot-Zeit konfiguriert wurde, wird eine Nachricht angezeigt. Ab <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 15 ist chrony Standardimplementation von NTP. 
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SSH</term>
+    <listitem>
+     <para>Es erstellt SSH-Schlüssel für die passwortfreie Anmeldung zwischen Cluster-Knoten.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      Es konfiguriert Csync2 für die Replikation der Konfigurationsdateien auf allen Knoten in einem Cluster.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Corosync</term>
+    <listitem>
+     <para>Es konfiguriert das Cluster-Kommunikationssystem.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SBD/Watchdog</term>
+    <listitem>
+     <para>Es prüft, ob ein Watchdog vorhanden ist, und fragt Sie, ob SBD als Fencing-Mechanismus für Knoten konfiguriert werden soll.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Virtual Floating IP</term>
+    <listitem>
+     <para>Sie werden gefragt, ob eine virtuelle IP-Adresse für die Cluster-Verwaltung mit Hawk2 konfiguriert werden soll.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Firewall</term>
+    <listitem>
+     <para>Es öffnet die Ports in der Firewall, die für die Cluster-Kommunikation benötigt werden.</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Clustername</term>
+    <listitem>
+     <para>Es definiert einen Namen für den Cluster. Standardmäßig lautet dieser <systemitem>hacluster</systemitem>. Dies ist optional und für die meisten GeoCluster sinnvoll. In der Regel gibt der Cluster-Name den Standort an, was das Auffinden einer Site in einem GeoCluster erleichtert.</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.installation">
+    <title>Installieren der <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></title>
+    <para>
+      Die Pakete zum Konfigurieren und Verwalten eines Clusters mit der High Availability Extension sind im <literal>Hochverfügbarkeits</literal>installationsschema (mit dem Namen <literal>sles_ha</literal> in der Befehlszeile) enthalten. Damit dieses Schema verfügbar ist, müssen Sie <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> als Erweiterung von SUSE Linux Enterprise Server installieren.
+    </para>
+    <para>
+      Informationen zum Installieren von Erweiterungen finden Sie im <citetitle>Bereitstellungshandbuch</citetitle> für SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase> im Kapitel <citetitle>Installieren von Modulen, Erweiterungen und Add-on-Produkten von Drittanbietern</citetitle>. Dieses ist unter <link xlink:href="http://www.suse.com/documentation/sles"/> verfügbar.
+    </para>
+
+    <procedure xml:id="pro.ha.inst.quick.pattern">
+      <title>Installieren des <literal>Hochverfügbarkeits</literal> schemas</title>
+       <para>
+        Falls das Schema noch nicht installiert wurde, gehen Sie wie folgt vor:
+       </para>
+      <step>
+       <para>
+        Installieren Sie es über die Befehlszeile mit Zypper:</para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> install -t pattern ha_sles</screen>
+      </step>
+      <step>
+       <para>
+          Installieren Sie das Schema „High Availability“ auf <emphasis>allen</emphasis> Rechnern, die Teil Ihres Clusters sein sollen.
+       </para>
+       <note>
+        <title>Installation der Softwarepakete bei allen Parteien</title>
+        <para>
+         Für eine automatisierte Installation von SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase> und <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>
+         <phrase role="productnumber"><phrase os="sles"> 15 SP1</phrase></phrase> müssen Sie zum Klonen von bestehenden Knoten AutoYaST verwenden. Weitere Informationen hierzu finden Sie im <xref linkend="sec.ha.installation.autoyast"/>.
+        </para>
+       </note>
+      </step>
+      <step>
+       <para>
+         Registrieren Sie die Rechner beim SUSE Customer Center. Weitere Informationen finden Sie im <citetitle>Bereitstellungshandbuch</citetitle> für SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase> im Kapitel <citetitle>Installieren oder Entfernen von Software</citetitle>, Abschnitt <citetitle>Registrieren eines installierten Systems</citetitle>. Dieses ist unter <link xlink:href="http://www.suse.com/documentation/sles"/> verfügbar.
+       </para>
+      </step>
+    </procedure>
+  </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.sbd">
+  <title>Verwendung von SBD als Fencing-Mechanismus</title>
+  
+   
+   <para>
+    Wenn Sie über gemeinsam genutzten Speicher wie ein SAN (Storage Area Network) verfügen, können Sie diesen verwenden, um Szenarien mit Systemspaltungen zu vermeiden. Konfigurieren Sie dazu SBD als Knoten-Fencing-Mechanismus. SBD verwendet eine Watchdog-Unterstützung und den STONITH-Ressourcenagenten <literal>external/sbd</literal>.
+   </para>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.req">
+   <title>Anforderungen für SBD</title>
+   <para>
+    Sie können während der Einrichtung des ersten Knotens mit <command>ha-cluster-init</command> entscheiden, ob Sie SBD verwenden möchten. Falls ja, müssen Sie den Pfad zum gemeinsam genutzten Speichergerät eingeben. <command>ha-cluster-init</command> erstellt standardmäßig automatisch eine kleine Partition auf dem Gerät, die für die Verwendung durch SBD vorgesehen ist.
+   </para>
+   <para>Wenn Sie SBD verwenden möchten, müssen folgende Anforderungen erfüllt sein:</para>
+
+   <itemizedlist>
+    <listitem>
+     <para>Der Pfad zum gemeinsam genutzten Speichergerät muss auf allen Knoten im Cluster persistent und konsistent sein. Verwenden Sie feste Gerätenamen wie <filename>/dev/disk/by-id/dm-uuid-part1-mpath-abcedf12345</filename>.
+     </para>
+    </listitem>
+    <listitem>
+     <para> Das SBD-Gerät darf hostbasiertes RAID oder LVM2 <emphasis>nicht</emphasis> verwenden und sich nicht auf einer DRBD-Instanz* befinden.
+     </para>
+    </listitem>
+   </itemizedlist>
+
+  <para>
+   Sie finden Details zur Einrichtung des gemeinsam genutzten Speichers im <citetitle>Storage Administration Guide</citetitle> (Administrationshandbuch zum Speicher) für SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase>. Dieses ist unter <link xlink:href="http://www.suse.com/documentation/sles"/> verfügbar.
+  </para>
+  
+  </sect2>
+
+  <sect2 xml:id="sec.ha.inst.quick.sbd.setup">
+   <title>Aktivieren von Softdog Watchdog für SBD</title>
+   
+   <para>
+    In SUSE Linux Enterprise Server ist die Watchdog-Unterstützung im Kernel standardmäßig aktiviert: Die Auslieferung erfolgt mit mehreren Kernel-Modulen, die hardwarespezifische Watchdog-Treiber bereitstellen. In der High Availability Extension wird der SBD-Daemon als die Softwarekomponente verwendet, die Daten in den Watchdog <quote>einspeist</quote>.
+   </para>
+   <para>
+    Im folgenden Verfahren wird der <systemitem>softdog</systemitem>-Watchdog verwendet.
+   </para>
+
+   
+   <important>
+    <title>softdog-Einschränkungen</title>
+    <para>
+     Der softdog-Treiber geht davon aus, dass noch mindestens eine CPU ausgeführt wird. Wenn alle CPUs ausgefallen sind, kann der im softdog-Treiber enthaltene Code, der das System neu starten soll, nicht ausgeführt werden. Ein Hardware-Watchdog arbeitet hingegen auch dann, wenn alle CPUs ausgefallen sind.
+    </para>
+    <para>Bevor Sie den Cluster in einer Produktionsumgebung verwenden, wird dringend empfohlen, das <systemitem>softdog</systemitem>-Modul durch das am besten zu Ihrer Hardware passende Hardwaremodul zu ersetzen.
+    </para>
+    <para>Falls für Ihre Hardware jedoch kein passender Watchdog verfügbar ist, kann das <systemitem class="resource">softdog</systemitem>-Modul als Kernel-Watchdog-Modul verwendet werden.</para>
+   </important>
+
+   <procedure xml:id="pro.ha.inst.quick.sbd.setup">
+    <step>
+     <para>
+      Erstellen Sie mithilfe der Beschreibung im <xref linkend="sec.ha.inst.quick.sbd.req"/>, einen persistenten, gemeinsam genutzten Speicher.
+     </para>
+    </step>
+    <step>
+     <para>
+      Aktivieren Sie den softdog-Watchdog:
+     </para>
+     
+     <screen><prompt role="root">root # </prompt><command>echo</command> softdog &gt; /etc/modules-load.d/watchdog.conf
+<prompt role="root">root # </prompt><command>systemctl</command> restart systemd-modules-load</screen>
+    </step>
+    <step>
+      
+     <para>Testen Sie, ob das softdog-Modul richtig geladen wurde:
+     </para>
+     <screen><prompt role="root">root # </prompt><command>lsmod</command> | grep dog
+softdog                16384  1</screen>
+    </step>
+  </procedure>
+
+   <remark>toms 2018-04-05: we need to add a bit more info here how you do
+    the tests and what to do when it fails.
+    However, this needs some further info from our developers. Some info can
+    be found in ha_storage_protection.xml.
+    Usually it boils down to "sbd -d DEV list" and "sbd -d DEV message bob test"
+   </remark>
+   <para>
+    Wir empfehlen dringend, den SBD-Fencing-Mechanismus auf ordnungsgemäße Funktion zu prüfen, um ein Szenario einer Spaltung zu vermeiden. Ein derartiger Test kann durch die Blockierung der Corosync-Cluster-Kommunikation durchgeführt werden.
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.setup.1st-node">
+  <title>Einrichtung des ersten Knotens</title>
+   <para>
+   Richten Sie den ersten Knoten mit dem Skript <command>ha-cluster-init</command> ein. Dies dauert nicht lange und erfordert nur wenige manuelle Eingriffe.
+  </para>
+
+  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-init">
+   <title>Ersten Knoten (<systemitem class="server">alice</systemitem>) mit <command>ha-cluster-init</command> einrichten</title>
+   <step>
+    <para>
+     Melden Sie sich als <systemitem class="username">root</systemitem> an dem physischen oder virtuellen Rechner an, der als Cluster-Knoten verwendet werden soll.
+    </para>
+   </step>
+   <step>
+    <para>
+     Starten Sie das Bootstrap-Skript, indem Sie Folgendes ausführen:
+    </para>
+    <screen><prompt role="root">root # </prompt><command>ha-cluster-init</command> --name <replaceable>CLUSTERNAME</replaceable></screen>
+    <para>Ersetzen Sie den Platzhalter <replaceable>CLUSTERNAME</replaceable> durch einen aussagekräftigen Namen, wie den geografischen Standort Ihres Clusters (z. B. <literal>amsterdam</literal>). Dies ist besonders hilfreich, wenn daraus später ein GeoCluster erstellt werden soll, da eine Site so leicht identifizierbar ist.
+    </para>
+    <remark>toms 2016-08-11: the following para relates to
+     (a) FATE#320604 allow unicast,
+     (b) FATE#320605 identify AWS and use unicast</remark>
+    <para>
+     Falls Sie für Ihre Cluster-Kommunikation anstelle von Multicast (Standard) Unicast benötigen, verwenden Sie hierzu die Option <option>-u</option>. Nach der Installation finden Sie in der Datei <filename>/etc/corosync/corosync.conf</filename> den Wert <literal>udpu</literal>. Wenn <command>ha-cluster-init</command> einen Knoten erkennt, der in Amazon Web Services (AWS) ausgeführt wird, verwendet das Skript automatisch Unicast als Standard für die Cluster-Kommunikation.
+    </para>
+    <para>
+     Das Skript führt eine Prüfung im Hinblick auf die NTP-Konfiguration und einen Hardware-Watchdog-Service durch. Es generiert die öffentlichen und privaten SSH-Schlüssel, die für den SSH-Zugriff und die Csync2-Synchronisierung verwendet werden, und startet die entsprechenden Services.
+    </para>
+    
+   </step>
+   <step>
+    <para>
+     Konfigurieren Sie die Cluster-Kommunikationsschicht (Corosync):
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Geben Sie eine Netzwerkadresse ein, an die eine Bindung erfolgen soll. Das Skript schlägt standardmäßig die Netzwerkadresse <systemitem>eth0</systemitem> vor. Alternativ dazu können Sie auch eine andere Netzwerkadresse wie beispielsweise die Adresse <literal>bond0</literal> eingeben.
+      </para>
+     </step>
+     <step>
+      <para>
+       Geben Sie eine Multicast-Adresse ein. Das Skript schlägt eine Zufallsadresse vor, die Sie als Standard verwenden können. Voraussetzung ist natürlich, dass diese Multicast-Adresse von Ihrem jeweiligen Netzwerk unterstützt wird.
+      </para>
+     </step>
+     <step>
+      <para>
+       Geben Sie einen Multicast-Port ein. Das Skript schlägt <literal>5405</literal> als Standard vor.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+    Richten Sie SBD als Fencing-Mechanismus für Knoten ein:</para>
+    <substeps>
+     <step>
+      <para>Bestätigen Sie mit <literal>y</literal>, dass Sie SBD verwenden möchten.</para>
+     </step>
+     <step>
+      <para>Geben Sie einen persistenten Pfad zu der Partition Ihres Blockgeräts ein, die Sie für SBD verwenden möchten. Weitere Informationen hierzu finden Sie in <xref linkend="sec.ha.inst.quick.sbd"/>. Der Pfad muss bei allen Knoten im Cluster konsistent sein.</para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st.ha-cluster-init.ip">
+    
+    <para>Konfigurieren Sie eine virtuelle IP-Adresse für die Cluster-Verwaltung mit Hawk2. (Mit dieser virtuellen IP-Ressource werden wir später testen, ob der Failover erfolgreich ist.)</para>
+    <substeps>
+     <step>
+      <para>Bestätigen Sie mit <literal>y</literal>, dass Sie eine virtuelle IP-Adresse konfigurieren möchten.</para></step>
+     <step>
+      <para>Geben Sie eine nicht verwendete IP-Adresse ein, die Sie als Verwaltungs-IP für Hawk2 verwenden möchten: <literal>192.168.2.1</literal>
+      </para>
+      <para>Sie können auch eine Verbindung mit der virtuellen IP-Adresse herstellen, statt sich an einem einzelnen Cluster-Knoten mit Hawk2 anzumelden.</para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  <para>
+   Schließlich startet das Skript den Pacemaker-Service, um den Cluster online zu schalten und Hawk2 zu aktivieren. Die URL, die für Hawk2 verwendet werden muss, wird auf dem Bildschirm angezeigt.
+  </para>
+
+  <para>
+   Sie verfügen jetzt über einen aktiven Cluster mit einem Knoten. Gehen Sie wie folgt vor, um seinen Status anzuzeigen:
+  </para>
+  <procedure xml:id="pro.ha.inst.quick.hawk2.login">
+   <title>Anmeldung an der Hawk2-Weboberfläche</title>
+   <step>
+    <para> Starten Sie auf einem beliebigen Rechner einen Webbrowser und aktivieren Sie JavaScript und Cookies. </para>
+   </step>
+   <step>
+    <para> Geben Sie als URL die IP-Adresse oder den Hostnamen eines Cluster-Knotens ein, auf dem der Hawk-Web-Service ausgeführt wird. Sie können alternativ auch die virtuelle IP-Adresse eingeben, die Sie in <xref linkend="st.ha-cluster-init.ip"/> unter <xref linkend="pro.ha.inst.quick.setup.ha-cluster-init"/> konfiguriert haben: </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    <note>
+     <title>Warnmeldung bezüglich des Zertifikats</title>
+     <para> Wenn bei Ihrem ersten Zugriff auf die URL eine Warnmeldung hinsichtlich des Zertifikats angezeigt wird, wird ein eigensigniertes Zertifikat verwendet. Eigensignierte Zertifikate gelten standardmäßig nicht als vertrauenswürdig. </para>
+     <para> Bitten Sie den Cluster-Operator um die Details des Zertifikats, damit Sie es überprüfen können. </para>
+     <para> Falls Sie dennoch fortfahren möchten, können Sie im Browser eine Ausnahme hinzufügen und die Warnmeldung auf diese Weise umgehen. </para>
+     
+    </note>
+   </step>
+   <step>
+    <para> Geben Sie im Anmeldebildschirm von Hawk2 in <guimenu>Benutzername</guimenu> und <guimenu>Passwort</guimenu> die Daten des Benutzers ein, der während des Bootstrap-Verfahrens erstellt wurde (Benutzer <systemitem class="username">hacluster</systemitem>, Passwort <literal>linux</literal>).</para>
+    <important>
+     <title>Sicheres Passwort</title>
+     <para>Ersetzen Sie das Standardpasswort möglichst schnell durch ein sicheres Passwort:
+     </para>
+     <screen><prompt role="root">root # </prompt><command>passwd</command> hacluster</screen>
+    </important>
+   </step>
+   <step>
+    <para>
+     Klicken Sie auf <guimenu>Anmelden</guimenu>. Nach der Anmeldung wird auf der Hawk2-Weboberfläche standardmäßig der Status-Bildschirm angezeigt. Dort sehen Sie den aktuellen Cluster-Status auf einen Blick:
+    </para>
+    <figure xml:id="fig.ha.inst.quick.one-node-status">
+     <title>Status des aus einem Knoten bestehenden Clusters in Hawk2</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata width="80%" fileref="installquick-one-nodecluster.png"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.inst.quick.setup.2nd-node">
+  <title>Hinzufügen des zweiten Knotens</title>
+  <para>
+    Sobald der Cluster mit einem Knoten betriebsbereit ist, können Sie mit dem Bootstrap-Skript <command>ha-cluster-join</command> wie in <xref linkend="pro.ha.inst.quick.setup.ha-cluster-join" xrefstyle="select:label nopage"/> beschrieben den zweiten Knoten hinzufügen. Das Skript benötigt lediglich Zugriff auf einen vorhandenen Cluster-Knoten. Es führt die grundlegende Einrichtung auf dem aktuellen Rechner automatisch durch. Ausführliche Informationen hierzu finden Sie auf der man-Seite <command>ha-cluster-join</command>.
+  </para>
+  <para>
+   Die Bootstrap-Skripte kümmern sich um die Änderung der für Cluster mit zwei Knoten spezifischen Konfiguration, wie SBD und Corosync.
+  </para>
+  <procedure xml:id="pro.ha.inst.quick.setup.ha-cluster-join">
+   <title>Zweiten Knoten (<systemitem class="server">bob</systemitem>) mit <command>ha-cluster-join</command> hinzufügen</title>
+   <step>
+    <para>
+     Melden Sie sich als <systemitem class="username">root</systemitem> an dem physischen oder virtuellen Rechner an, der dem Cluster beitreten soll.
+    </para>
+   </step>
+   <step>
+    <para>
+     Starten Sie das Bootstrap-Skript, indem Sie Folgendes ausführen:
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-join</command></screen>
+    <para>
+     Wenn NTP nicht für das Starten zur Boot-Zeit konfiguriert wurde, wird eine Nachricht angezeigt. Das Skript führt auch eine Prüfung auf ein Hardware-Watchdog-Gerät durch (was für eine mögliche SBD-Konfiguration entscheidend ist). Sie erhalten eine Warnmeldung, wenn keines vorhanden ist.
+    </para>
+   </step>
+   <step>
+    <para>
+     Falls Sie den Vorgang dennoch fortsetzen, werden Sie zur Eingabe der IP-Adresse eines vorhandenen Knotens aufgefordert. Geben Sie die IP-Adresse des ersten Knotens ein (<systemitem class="server">alice</systemitem>, <systemitem class="ipaddress">192.168.1.1</systemitem>).
+    </para>
+   </step>
+   <step>
+    <para>
+     Falls Sie noch keinen passwortfreien SSH-Zugriff zwischen beiden Rechnern konfiguriert haben, werden Sie zur Eingabe des <systemitem class="username">root</systemitem>-Passworts des bestehenden Knotens aufgefordert.
+    </para>
+    <para>
+     Nach der Anmeldung an dem angegebenen Knoten kopiert das Skript die Corosync-Konfiguration. Anschließend konfiguriert es SSH und Csync2 und schaltet den aktuellen Rechner als neuen Cluster-Knoten online. Außerdem startet es den Service, der für Hawk2 erforderlich ist. 
+    </para>
+   </step>
+  </procedure>
+  <para>
+   Prüfen Sie den Cluster-Status in Hawk2. Unter <menuchoice>
+    <guimenu> Status</guimenu>
+    <guimenu> Knoten</guimenu>
+   </menuchoice> sollten zwei Knoten mit einem grün dargestellten Status angezeigt werden (siehe <xref linkend="fig.ha.inst.quick.two-node-cluster"/>).
+  </para>
+
+  <figure xml:id="fig.ha.inst.quick.two-node-cluster">
+   <title>Status des aus zwei Knoten bestehenden Clusters</title>
+   <mediaobject>
+    <imageobject>
+     <imagedata width="80%" fileref="installquick-two-nodecluster-status.png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.test">
+   <title>Testen des Clusters</title>
+   <para>
+    <xref linkend="pro.ha.inst.quick.test"/> ist ein einfacher Test zur Prüfung, ob der Cluster die virtuelle IP-Adresse zu dem anderen Knoten verschiebt, wenn der Knoten, der die Ressource zurzeit ausführt, auf <literal>Standby</literal> gesetzt wird.
+   </para>
+   <para>Ein aussagekräftiger Test umfasst jedoch gezielte Anwendungsfälle und Szenarien. Beispielsweise sollte auch Ihr Fencing-Mechanismus getestet werden, damit Situationen einer Systemspaltung vermieden werden. Falls Sie Ihren Fencing-Mechanismus nicht ordnungsgemäß eingerichtet haben, funktioniert der Cluster nicht richtig.</para>
+   <para>Bevor Sie den Cluster in einer Produktionsumgebung einsetzen, müssen Sie ihn anhand Ihrer Anwendungsfälle gründlich testen.
+    
+   </para>
+    <remark>toms 2016-07-27: Fate#321073
+    Tool for Standardize Testing of Basic Cluster Functionality</remark>
+   <procedure xml:id="pro.ha.inst.quick.test">
+    <title>Testen des Ressourcen-Failovers</title>
+    <step>
+     <para>
+      Öffnen Sie ein Terminal und setzen Sie ein Ping-Signal für Ihre virtuelle IP-Adresse <systemitem>192.168.2.1</systemitem> ab:
+     </para>
+     <screen><prompt role="root">root # </prompt><command>ping</command> 192.168.2.1</screen>
+    </step>
+    <step>
+     <para>
+      Melden Sie sich wie in <xref linkend="pro.ha.inst.quick.hawk2.login"/> beschrieben an Ihrem Cluster an.
+     </para>
+    </step>
+    <step>
+     <para>
+      Prüfen Sie in Hawk2 unter <menuchoice>
+       <guimenu>Status</guimenu>
+       <guimenu>Ressourcen</guimenu>
+      </menuchoice>, auf welchem Knoten die virtuelle IP-Adresse (Ressource <systemitem>admin_addr</systemitem>) ausgeführt wird. Im vorliegenden Fall wird vorausgesetzt, dass die Ressource auf <systemitem class="server">alice</systemitem> ausgeführt wird.
+      </para>
+    </step>
+    <step>
+     <para>
+      Versetzen Sie <systemitem class="server">alice</systemitem> in den <guimenu>Standby</guimenu>-Modus (siehe <xref linkend="fig.ha.inst.quick.standby"/>).
+     </para>
+     <figure xml:id="fig.ha.inst.quick.standby">
+      <title>Knoten <systemitem class="server">alice</systemitem> im Standby-Modus</title>
+      <mediaobject>
+       <imageobject>
+        <imagedata width="60%" fileref="installquick-standby-node.png"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+     
+    </step>
+    <step>
+     <para>
+      Klicken Sie auf <menuchoice>
+       <guimenu>Status</guimenu>
+       <guimenu>Ressourcen</guimenu>
+      </menuchoice>. Die Ressource <systemitem>admin_addr</systemitem> wurde zu <systemitem class="server">bob</systemitem> migriert.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    Während der Migration sollte ein ununterbrochener Fluss an Ping-Signalen an die virtuelle IP-Adresse zu beobachten sein. Dies zeigt, dass die Cluster-Einrichtung und die Floating-IP ordnungsgemäß funktionieren. Brechen Sie das <command>ping</command>-Kommando mit <keycombo>
+       <keycap function="control"/><keycap> C</keycap>
+      </keycombo>  ab.
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec.ha.inst.quick.moreinfo">
+   <title>Weiterführende Informationen</title>
+   <para>
+    Sie finden die sonstige Dokumentation zu diesem Produkt unter <link xlink:href="http://www.suse.com/documentation/sle-ha"/>. Die Dokumentation beinhaltet unter anderem ein umfassendes <citetitle>Administrationshandbuch</citetitle> für <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>. Dort werden weitere Konfigurations- und Verwaltungsaufgaben beschrieben.
+   </para>
+  </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>
