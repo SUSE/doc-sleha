@@ -1,0 +1,488 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_maintenance.xml" version="5.0" xml:id="cha.ha.maintenance">
+ <title>执行维护任务</title>
+ <info>
+  <abstract>
+   <para>
+    要在群集节点上执行维护任务，可能需要停止该节点上运行的资源、移动这些资源，或者关闭或重引导该节点。此外，可能还需要暂时接管群集中资源的控制权，甚至需要在资源仍在运行时停止群集服务。
+   </para>
+   <para>
+    本章介绍如何在不产生负面影响的情况下手动关闭群集节点。此外，本章将会概述群集堆栈提供的用于执行维护任务的不同选项。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:maintainer/>
+   <dm:status>编辑</dm:status>
+   <dm:deadline/>
+   <dm:priority/>
+   <dm:translation>yes</dm:translation>
+   <dm:languages/>
+   <dm:release/>
+   <dm:repository/>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec.ha.maint.shutdown.node">
+  <title>关闭群集节点所造成的影响</title>
+
+  <para>
+   关闭或重引导某个群集节点（或停止节点上的 Pacemaker 服务）时，将触发以下过程：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     该节点上运行的资源将会停止，或被移出该节点。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     如果停止资源的操作失败或超时，STONITH 机制将屏蔽该节点并将其关闭。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.maint.shutdown.node">
+   <title>手动重引导群集节点</title>
+   <para>
+    如果您的目的是先按顺序将服务移出节点，然后再关闭或重引导该节点，请执行以下操作：
+   </para>
+   <step>
+    <para>
+     在要重引导或关闭的节点上，以 <systemitem class="username">root</systemitem> 或同等的身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     将节点置于 <literal>standby</literal> 模式：
+    </para>
+<screen><prompt role="root">root # </prompt>crm -w node standby</screen>
+    <para>
+     如此即可将服务迁移出节点，而不会受限于 Pacemaker 的关闭超时。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用以下命令检查群集状态：
+    </para>
+<screen><prompt role="root">root # </prompt>crm status</screen>
+    <para>
+     此命令显示相关节点处于 <literal>standby</literal> 模式：
+    </para>
+<screen>[...]
+Node <replaceable>bob</replaceable>: standby
+[...]</screen>
+   </step>
+   <step>
+    <para>
+     停止该节点上的 Pacemaker 服务：
+    </para>
+<screen><prompt role="root">root # </prompt>crm cluster stop</screen>
+   </step>
+   <step>
+    <para>
+     重引导该节点。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   要再次检查节点是否已加入群集，请执行以下操作：
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 或同等身份登录到该节点。
+    </para>
+   </step>
+   <step>
+    <para>
+     检查 Pacemaker 服务是否已启动：
+    </para>
+<screen><prompt role="root">root # </prompt>crm cluster status</screen>
+   </step>
+   <step>
+    <para>
+     如果未启动，请将其启动：
+    </para>
+<screen><prompt role="root">root # </prompt>crm cluster start</screen>
+   </step>
+   <step>
+    <para>
+     使用以下命令检查群集状态：
+    </para>
+<screen><prompt role="root">root # </prompt>crm status</screen>
+    <para>
+     此命令应该会显示节点已重新联机。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.maint.overview">
+  <title>用于维护任务的不同选项</title>
+
+  <para>
+   Pacemaker 提供了各种选项用于执行系统维护：
+  </para>
+
+  <variablelist>
+   <varlistentry xml:id="vle.ha.maint.mode.cluster">
+    
+    <term><xref linkend="sec.ha.maint.mode.cluster" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      使用全局群集属性 <literal>maintenance-mode</literal> 可以一次性将所有资源置于维护状态。群集将停止监视这些资源，因此不知道它们的状态。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.mode.node">
+    
+    <term><xref linkend="sec.ha.maint.mode.node" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      此选项可以一次性将特定节点上运行的所有资源置于维护状态。群集将停止监视这些资源，因此不知道它们的状态。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.node.standby">
+    
+    <term><xref linkend="sec.ha.maint.node.standby" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      处于待机模式的节点不再能够运行资源。该节点上运行的所有资源将被移出或停止（如果没有其他节点可用于运行资源）。另外，该节点上的所有监视操作将会停止（设置了 <literal>role="Stopped"</literal> 的操作除外）。
+     </para>
+     <para>
+      如果您需要停止群集中的某个节点，同时继续提供另一个节点上运行的服务，则可以使用此选项。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.mode.rsc">
+    
+    <term><xref linkend="sec.ha.maint.mode.rsc" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      为某个资源启用此模式后，将不会针对该资源触发监视操作。
+     </para>
+     <para>
+      如果您需要手动调整此资源所管理的服务，并且不希望群集在此期间对该资源运行任何监视操作，则可以使用此选项。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle.ha.maint.rsc.unmanaged">
+    
+    <term><xref linkend="sec.ha.maint.rsc.unmanaged" xrefstyle="select:title"/></term>
+     <listitem>
+     <para>
+      使用 <option>is-managed</option> 元属性可以暂时<quote>释放</quote>某个资源，使其不受群集堆栈的管理。这意味着，您可以手动调整此资源管理的服务（例如，调整任何组件）。不过，群集将继续<emphasis>监视</emphasis>该资源，并继续报告任何错误。
+     </para>
+     <para>
+      如果您希望群集同时停止<emphasis>监视</emphasis>该资源，请改为使用按资源维护模式（请参见<xref linkend="vle.ha.maint.mode.rsc"/>）。
+     </para>
+    </listitem>
+   </varlistentry>
+   
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.maint.outline">
+  <title>准备和完成维护工作</title>
+
+  <warning>
+   <title>数据丢失风险</title>
+   <para>
+    如果您需要执行测试或维护工作，请执行下面的一般步骤。
+   </para>
+   <para>
+    如果不执行，有可能会产生不利的负面影响，例如，资源不按顺序启动、CIB 在群集节点之间不同步，甚至丢失数据。
+   </para>
+   <procedure>
+   <step>
+    <para>
+     在开始之前，请选择<xref linkend="sec.ha.maint.overview" xrefstyle="select:label"/>中所述的适合您情况的选项。
+    </para>
+   </step>
+   <step>
+    <para>
+     请使用 Hawk2 或 crmsh 应用此选项。
+    </para>
+   </step>
+   <step>
+    <para>
+     执行维护任务或测试。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成后，请将资源、节点或群集恢复<quote>正常</quote>工作状态。
+    </para>
+   </step>
+  </procedure>
+ </warning>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.maint.mode.cluster">
+  <title>将群集置于维护模式</title>
+   <para>
+    要在 crm 外壳中将群集置于维护模式，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=true</screen>
+  <para>
+    要在完成维护工作后将群集恢复正常模式，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=false</screen>
+
+<procedure xml:id="pro.ha.maint.mode.cluster.hawk2">
+   <title>使用 Hawk2 将群集置于维护模式</title>
+   <step>
+    <para>
+     按<xref linkend="sec.conf.hawk2.login"/>中所述，启动 Web 浏览器并登录到群集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中，选择<guimenu>群集配置</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在 <guimenu>CRM 配置</guimenu>组中，从空下拉框中选择 <guimenu>maintenance-mode</guimenu> 属性，然后单击加号图标添加该属性。
+    </para>
+   </step>
+   <step>
+    <para>
+     要设置 <literal>maintenance-mode</literal>，请选中 <literal>maintenance-mode</literal> 旁边的复选框，并确认您所做的更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成整个群集的维护任务之后，取消选中 <literal>maintenance-mode</literal> 属性旁边的复选框。
+    </para>
+    <para>
+     此后，High Availability Extension 将再次接管群集管理工作。
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+ <sect1 xml:id="sec.ha.maint.mode.node">
+  <title>将节点置于维护模式</title>
+   <para>
+    要在 crm 外壳中将节点置于维护模式，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> node maintenance <replaceable>NODENAME</replaceable></screen>
+  <para>
+    要在完成维护工作后将节点恢复正常模式，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> node ready <replaceable>NODENAME</replaceable></screen>
+
+  <procedure xml:id="pro.ha.maint.mode.nodes.hawk2">
+   <title>使用 Hawk2 将节点置于维护模式</title>
+   <step>
+    <para>
+     按<xref linkend="sec.conf.hawk2.login"/>中所述，启动 Web 浏览器并登录到群集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中，选择<guimenu>群集状态</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在其中某个节点视图中，单击节点旁边的扳手图标，然后选择<guimenu>维护</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+      完成维护任务后，单击节点旁边的扳手图标，然后选择<guimenu>就绪</guimenu>。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.maint.node.standby">
+  <title>将节点置于待机模式</title>
+   <para>
+    要在 crm 外壳中将节点置于待机模式，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt>crm node standby <replaceable>NODENAME</replaceable></screen>
+  <para>
+    要在完成维护工作后将节点恢复联机状态，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt>crm node online <replaceable>NODENAME</replaceable></screen>
+
+<procedure xml:id="pro.ha.maint.node.standby.hawk2">
+  <title>使用 Hawk2 将节点置于待机模式</title>
+   <step>
+    <para>
+     按<xref linkend="sec.conf.hawk2.login"/>中所述，启动 Web 浏览器并登录到群集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中，选择<guimenu>群集状态</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在其中某个节点的视图中，单击节点旁边的扳手图标，然后选择<guimenu>待机</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成节点的维护任务。
+    </para>
+   </step>
+   <step>
+    <para>
+     要停用待机模式，请单击节点旁边的扳手图标，然后选择<guimenu>就绪</guimenu>。
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+ <sect1 xml:id="sec.ha.maint.mode.rsc">
+  <title>将资源置于维护模式</title>
+   <para>
+    要在 crm 外壳中将资源置于维护模式，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource maintenance <replaceable>RESOURCE_ID</replaceable> true</screen>
+  <para>
+    要在完成维护工作后将资源恢复正常模式，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource maintenance <replaceable>RESOURCE_ID</replaceable> false</screen>
+
+<procedure xml:id="pro.ha.maint.mode.rsc.hawk2">
+   <title>使用 Hawk2 将资源置于维护模式</title>
+   <step>
+    <para>
+     按<xref linkend="sec.conf.hawk2.login"/>中所述，启动 Web 浏览器并登录到群集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中，选择<guimenu>资源</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     选择要置于维护模式或不受管理模式的资源，单击该资源旁边的扳手图标，然后选择<guimenu>编辑资源</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     打开<guimenu>元属性</guimenu>类别。
+    </para>
+   </step>
+   <step>
+    <para>
+     从空下拉列表中，选择 <guimenu>maintenance</guimenu> 属性，然后单击加号图标添加该属性。
+    </para>
+   </step>
+   <step>
+    <para>
+     选中 <literal>maintenance</literal> 旁边的复选框，以将 maintenance 属性设置为 <literal>yes</literal>。
+    </para>
+   </step>
+   <step>
+    <para>
+     确认更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成该资源的维护任务之后，取消选中该资源的 <literal>maintenance</literal> 属性旁边的复选框。
+    </para>
+    <para>
+     此后，资源将再次由 High Availability Extension 软件管理。
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+<sect1 xml:id="sec.ha.maint.rsc.unmanaged">
+  <title>将资源置于不受管理模式</title>
+   <para>
+    要在 crm 外壳中将资源置于不受管理模式，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource unmanage <replaceable>RESOURCE_ID</replaceable></screen>
+  <para>
+    要在完成维护工作后再次将资源置于受管模式，请使用以下命令：</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource manage <replaceable>RESOURCE_ID</replaceable></screen>
+
+ <procedure xml:id="pro.ha.maint.rsc.unmanaged.hawk2">
+   <title>使用 Hawk2 将资源置于不受管理模式</title>
+   <step>
+    <para>
+     按<xref linkend="sec.conf.hawk2.login"/>中所述，启动 Web 浏览器并登录到群集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左侧导航栏中选择<guimenu>状态</guimenu>，然后转到<guimenu>资源</guimenu>列表。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>操作</guimenu>列中，单击要修改的资源旁边的向下箭头图标，然后选择<guimenu>编辑</guimenu>。
+    </para>
+    <para>
+     资源配置屏幕即会打开。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>元属性</guimenu>下面，从空下拉框中选择 <guimenu>is-managed</guimenu> 项。
+    </para>
+   </step>
+   <step>
+    <para>
+     将其值设置为 <literal>No</literal>，然后单击<guimenu>应用</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成维护任务后，将 <guimenu>is-managed</guimenu> 设置为 <literal>Yes</literal>（默认值）并应用更改。
+    </para>
+    <para>
+     此后，资源将再次由 High Availability Extension 软件管理。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+<sect1 xml:id="sec.ha.maint.shutdown.node.maint.mode">
+ <title>在维护模式下重引导群集节点</title>
+    <note>
+      <title>含义</title>
+      <para>
+       如果群集或某个节点处于维护模式，您可以根据需要停止或重启动群集资源 — High Availability Extension 不会尝试重启动它们。如果您停止节点上的 Pacemaker 服务，所有守护程序和进程（最初作为 Pacemaker 管理的群集资源启动）将继续运行。
+      </para>
+      <para>
+       如果您在群集或某个节点处于维护模式的情况下尝试启动该节点上的 Pacemaker 服务，Pacemaker 将针对每个资源启动一次性的监视操作（<quote>探测</quote>），以确定哪些资源当前正在该节点上运行。但是，它只会确定资源的状态，而不执行其他操作。
+      </para>
+     </note>
+
+   <procedure>
+    <para>
+    如果您要在群集或某个节点处于<literal>维护模式</literal>时关闭该节点，请执行以下操作：
+    </para>
+    <step>
+    <para>
+     在要重引导或关闭的节点上，以 <systemitem class="username">root</systemitem> 或同等的身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果您使用 DLM 资源（或依赖于 DLM 的其他资源），请确保在停止 Pacemaker 服务之前显式停止这些资源：
+    </para>
+<screen><prompt role="custom">crm(live)resource# </prompt>stop <replaceable>RESOURCE_ID</replaceable></screen>
+    <para>
+     这是因为，停止 Pacemaker 也会停止 DLM 对其成员资格和讯息交换服务有依赖的 Corosync 服务。如果 Corosync 停止，DLM 资源将假设一种节点分裂情况并触发屏蔽操作。
+    </para>
+   </step>
+   <step>
+    <para>
+     停止该节点上的 Pacemaker 服务：
+    </para>
+<screen><prompt role="root">root # </prompt>crm cluster stop</screen>
+   </step>
+   <step>
+    <para>
+     关闭或重引导节点。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>
