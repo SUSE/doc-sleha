@@ -1,0 +1,671 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<?provo dirname="geo_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_geo_quick.xml" version="5.0" xml:lang="it" xml:id="art.sleha.geo.quick">
+ <title>Riferimento rapido per Geo Clustering</title>
+ <subtitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></productnumber><productname><phrase role="productname"><phrase os="sles">di SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname><date>
+<?dbtimestamp ?>
+
+</date>
+   <xi:include href="ha_authors.xml"/>
+  <abstract>
+   <para>
+     Geo clustering consente di proteggere i carichi di lavoro tra i data center distribuiti globalmente. Questo documento guida l'utente attraverso la configurazione di base di un Geo cluster, mediante gli script di bootstrap Geo forniti dal pacchetto <systemitem class="resource">ha-cluster-bootstrap</systemitem>.
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:bugtracker>
+    <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+    <dm:product>Beta SUSE Linux Enterprise High Availability Extension 15 SP1</dm:product>
+    <dm:component>Documentazione</dm:component>
+   </dm:bugtracker>
+   <dm:translation>sì</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec.ha.geo.quick.concept">
+  <title>Panoramica concettuale</title>
+
+  <para>
+   I Geo cluster basati su <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> possono essere considerati cluster <quote>overlay</quote> dove ogni sito del cluster corrisponde a un nodo del cluster in un cluster tradizionale. Il cluster overlay è gestito dal manager richiesta del cluster di booth (di seguito denominato booth). Ciascuna delle parti coinvolte in cluster Geo esegue un servizio <systemitem class="daemon">boothd</systemitem> che si collega ai daemon di booth in esecuzione negli altri siti e scambia le informazioni di connettività. Per rendere le risorse del cluster altamente disponibili tra i siti, booth si affida agli oggetti cluster denominati richieste. Una richiesta concede il diritto di eseguire determinate risorse su un sito specifico del cluster. Booth garantisce che a ogni richiesta non sia concessa più di un sito alla volta.
+  </para>
+  <para>
+   Se la comunicazione tra due istanze di booth si interrompe, il motivo può essere un'interruzione di rete tra i siti del cluster <emphasis>o</emphasis> a causa della mancanza di un sito del cluster. In questo caso, occorre un'istanza aggiuntiva (un terzo sito del cluster o un <literal>arbitro</literal>) per ottenere consenso sulle decisioni (ad esempio un failover di risorse tra i siti). Gli arbitri sono singoli computer (esterni ai cluster) che eseguono un'istanza di booth in una modalità speciale. Ciascun cluster Geo può avere uno o più arbitri.
+  </para>
+
+  <para>
+   <remark>toms 2017-07-04: for the future: maybe also add example IP addresses
+    to graphic (node IPs, VIPs for cluster sites)
+    </remark>
+   <remark>taroth 2017-12-29: FATE#322100 - adjust graphic in case two sites
+   *without* arbitrator becomes the default setup? (c#6)
+   </remark>
+  </para>
+
+  <figure xml:id="fig.ha.geo.quick.example.geosetup">
+   <title>Cluster a due siti - 2x2 nodi + arbitro (opzionale)</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geocluster.svg" width="100%" format="SVG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   È anche possibile eseguire un cluster Geo a due siti <emphasis>senza</emphasis> un arbitro. In questo caso, è necessario che un amministratore del cluster Geo gestisca manualmente i ticket. Se un ticket deve essere concesso a più di un sito contemporaneamente, in entrambi i siti viene visualizzato un avviso.
+  </para>
+
+  <para>
+   Per maggiori dettagli sul concetto, sulla gestione di componenti e ticket utilizzati per i cluster Geo, vedere <xref linkend="book.sleha.geo"/>.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.scenario">
+  <title>Scenario di utilizzo</title>
+
+  <para>
+   Di seguito, verrà configurato un cluster Geo di base con due siti cluster e un arbitro:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Si suppone che i siti del cluster siano denominati <literal>amsterdam</literal> e <literal>berlin</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Si suppone che ciascun sito consista di due nodi. I nodi <literal>alice</literal> e <literal>bob</literal> appartengono al cluster <literal>amsterdam</literal>. I nodi <literal>charlie</literal> e <literal>doro</literal> appartengono al cluster <literal>berlin</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Il sito <literal>amsterdam</literal> ottiene il seguente indirizzo IP virtuale: <literal>192.168.201.100</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Il sito <literal>berlin</literal> ottiene il seguente indirizzo IP virtuale: <literal>192.168.202.100</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <remark>taroth 2017-12-29: FATE#322100 - move to Geo Guide? (c#6)</remark> Si suppone che l'arbitro abbia il seguente indirizzo IP: <literal>192.168.203.100</literal>.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Prima di continuare, verificare che siano rispettati i seguenti requisiti:
+  </para>
+
+  <variablelist>
+   <title>Requisiti</title>
+   <varlistentry>
+    <term>Due cluster esistenti</term>
+    <listitem>
+     <para>
+      Sono presenti almeno due cluster esistenti che si desidera combinare in un cluster Geo. (Se occorre configurare prima due cluster, seguire le istruzioni nella <xref linkend="art.sleha.install.quick"/> (in lingua inglese).
+      </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Nomi di cluster significativi</term>
+    <listitem>
+     <para>
+      Per ciascun cluster è definito un nome significativo in <filename>/etc/corosync/corosync.conf</filename> che ne riflette l'ubicazione.
+     </para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Arbitro</term>
+    <listitem>
+     <para><remark>taroth 2017-12-29: FATE#322100 - move to Geo Guide? (see
+     c#6)</remark> È stato installato un terzo computer che non fa parte di alcun cluster esistente ed è utilizzato come arbitro.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   Per i requisiti dettagliati su ciascun elemento, vedere anche <xref linkend="sec.ha.geo.quick.req"/>.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.req">
+  <title>Requisiti</title>
+   <para>
+    Tutti i computer (nodi cluster e arbitri) che fanno parte del cluster richiedono almeno i seguenti moduli ed estensioni:
+   </para>
+
+<itemizedlist>
+   <listitem>
+    <para>Base System Module <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para>Server Applications Module <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase></para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Per l'installazione dei computer, selezionare <literal>HA GEO Node</literal> come <systemitem>ruolo del sistema</systemitem>. Ciò conduce all'installazione di un sistema minimo in cui i pacchetti del modello <literal>Geo Clustering for High Availability (ha_geo)</literal> sono installati per default.
+  </para>
+  <itemizedlist>
+   <title>Requisiti di rete</title>
+   <listitem>
+   <para>
+    Gli IP virtuali da utilizzare per ciascun sito del cluster devono essere accessibili sul cluster Geo.
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+     I siti devono essere raggiungibili su una porta UDP e TCP per istanza di booth. Questo significa che firewall o tunnel IPsec compresi devono essere configurati di conseguenza.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Altre decisioni di configurazione possono richiedere di aprire più porte (ad esempio, per replica database o DRBD).
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <itemizedlist>
+  <title>Altri requisiti e raccomandazioni</title>
+  <listitem>
+   <para>
+    Tutti i nodi del cluster su tutti i siti devono sincronizzarsi con un server NTP esterno al cluster. Per ulteriori informazioni, vedere la <citetitle>Guida all'amministrazione</citetitle> di SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase>, disponibile in <link xlink:href="http://www.suse.com/documentation/sles"/>. Consultare il capitolo <citetitle>Sincronizzazione dell'orario con NTP</citetitle>.
+   </para>
+   <para>
+    Se i nodi non sono sincronizzati, file di log e rapporti del cluster risultano molto difficili da analizzare.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Utilizzare un numero <emphasis>dispari</emphasis> di siti nel cluster Geo. In caso di interruzione della connessione di rete, ciò garantisce che ci sia sempre una maggioranza di siti (per evitare uno scenario split-brain). Qualora fosse presente un numero dispari di siti cluster, utilizzare un arbitro per gestire il failover automatico dei ticket. Se non si utilizza un arbitro, è necessario gestire manualmente il failover dei ticket. 
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Il cluster in ciascun sito ha un nome significativo, ad esempio: <literal>amsterdam</literal> e <literal>berlin</literal>.
+   </para>
+   <para>
+    I nomi del cluster per tale sito vengono definiti nei rispettivi file <filename>/etc/corosync/corosync.conf</filename>.
+   </para>
+<screen>totem {
+    [...]
+    cluster_name: amsterdam
+    }
+</screen>
+   <para>
+    Modificare il nome con il seguente comando crmsh:
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> cluster rename <replaceable>NEW_NAME</replaceable></screen>
+   <para>
+    Interrompere e avviare il servizio <systemitem class="service">pacemaker</systemitem> per applicare le modifiche:
+   </para> <screen><prompt role="root">root # </prompt><command>crm</command> cluster restart</screen>
+  </listitem>
+ <listitem>
+   <para>
+     Le architetture miste in un unico cluster non sono supportate. Per i Geo cluster, tuttavia, ciascun membro del Geo cluster può presentare un'architettura diversa, sia esso un sito cluster o un arbitratore. Ad esempio, è possibile eseguire un Geo cluster con tre membri (due siti cluster e un arbitratore), dove un sito cluster viene eseguito su z System, l'altro viene eseguito su x86 e l'arbitratore su POWER.
+   </para>
+ </listitem>
+</itemizedlist>
+
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.scripts">
+  <title>Panoramica degli script di bootstrap Geo</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Con <command>ha-cluster-geo-init</command>, convertire un cluster nel primo sito di un cluster Geo. Lo script preleva alcuni parametri come i nomi dei cluster, l'arbitro e una o più richieste e crea <filename>/etc/booth/booth.conf</filename> da loro. Copia la configurazione di booth in tutti i nodi sul sito del cluster corrente. Configura inoltre le risorse del cluster necessarie per il booth sul sito del cluster corrente.
+    </para>
+    <para>
+     Per informazioni, vedere <xref linkend="sec.ha.geo.quick.ha-cluster-geo-init"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Con <command>ha-cluster-geo-join</command>, aggiungere il cluster corrente a un cluster Geo esistente. Lo script copia la configurazione di booth da un sito del cluster esistente e la scrive in <filename>/etc/booth/booth.conf</filename> su tutti i nodi sul sito del cluster corrente. Configura inoltre le risorse del cluster necessarie per il booth sul sito del cluster corrente.
+    </para>
+    <para>
+     Per informazioni, vedere <xref linkend="sec.ha.geo.quick.ha-cluster-geo-join"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Con <command>ha-cluster-geo-init-arbitrator</command>, convertire il computer corrente in un arbitro per il cluster Geo. Lo script copia la configurazione di booth da un sito del cluster esistente e la scrive in <filename>/etc/booth/booth.conf</filename>.
+    </para>
+    <para>
+     Per informazioni, vedere <xref linkend="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Tutti gli script di bootstrap effettuano l'accesso a <filename>/var/log/ha-cluster-bootstrap.log</filename>. Consultare il file di registro per eventuali dettagli sul processo di bootstrap. Ogni opzione impostata durante il processo di bootstrap è modificabile in seguito (modificando le impostazioni di booth, le risorse e così via). Per informazioni, vedere la <literal>Geo Clustering Guide</literal> (in lingua inglese), disponibile in <link xlink:href="https://www.suse.com/documentation"/>.
+  </para>
+
+
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.inst">
+  <title>Installazione</title>
+
+  <para>
+   Con Geo Clustering for SUSE Linux Enterprise High Availability Extension è disponibile un supporto per l'utilizzo dei cluster High Availability.
+  </para>
+  <para>
+   Per configurare un cluster Geo sono necessari i pacchetti inclusi nei seguenti modelli di installazione:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <literal>High Availability</literal> (denominato <literal>sles_ha</literal> sulla riga di comando)
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <literal>Geo Clustering for High Availability</literal> (denominato <literal>ha_geo</literal> sulla riga di comando)
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Entrambi i modelli sono disponibili solo se il sistema è stato registrato presso SUSE Customer Center (o in un server di registrazione locale) e sono stati aggiunti i rispettivi moduli o supporti di installazione come estensione. Per informazioni su come installare le estensioni, vedere la <citetitle>SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase> - Guida alla distribuzione </citetitle>, disponibile su <link xlink:href="http://www.suse.com/documentation/sles"/>. Consultare il capitolo <citetitle>Installazione di moduli, estensioni e prodotti aggiuntivi di terze parti</citetitle>.
+
+  </para>
+  <para>
+     Per installare i pacchetti da entrambi i modelli tramite riga di comando, utilizzare Zypper:
+    </para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> install -t pattern ha_sles ha_geo</screen>
+
+  <important>
+   <title>installazione dei pacchetti software su tutte le entità</title>
+   <para>
+    I pacchetti software necessari SUSE Linux Enterprise High Availability Extension e Geo Clustering for SUSE Linux Enterprise High Availability Extension <emphasis>non</emphasis> vengono copiati automaticamente nei nodi del cluster.
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Installare SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP1</phrase></phrase> e i modelli <literal>ha_sles</literal> and <literal>ha_geo</literal> su <emphasis>tutti</emphasis> i computer che faranno parte del Geo cluster.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Invece di installare manualmente i pacchetti su tutti i computer che faranno parte del cluster, utilizzare AutoYaST per clonare i nodi esistenti. Per ulteriori informazioni, vedere <xref linkend="sec.ha.installation.autoyast"/>.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init">
+  <title>Impostazione del primo sito di un cluster Geo</title>
+
+  <para>
+   Utilizzare lo script <command>ha-cluster-geo-init</command> per convertire un cluster esistente nel primo sito di un cluster Geo.
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init">
+   <title>Impostazione del primo sito (<systemitem>amsterdam</systemitem>) con <command>ha-cluster-geo-init</command></title>
+   <step>
+    <para>
+     Definire un IP virtuale per sito del cluster utilizzabile per accedere al sito. Si suppone di utilizzare <literal>192.168.201.100</literal> e <literal>192.168.202.100</literal> per questo scopo. Non è ancora necessario configurare gli IP virtuali come risorse del cluster. Ciò verrà eseguito dagli script bootstrap.
+    </para>
+   </step>
+   <step>
+    <para>
+     Definire il nome di almeno una richiesta che concederà il diritto di eseguire determinate risorse su un sito del cluster. Utilizzare un nome significativo che rifletta le risorse che dipenderanno dalla richiesta (ad esempio, <literal>ticket-nfs</literal>). Gli script bootstrap richiedono solo il nome della richiesta, è possibile definire i dettagli rimanenti (dipendenze della richiesta delle risorse) in seguito, come descritto nella <xref linkend="sec.ha.geo.quick.next"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Eseguire il login a un nodo di un cluster esistente (ad esempio, al nodo <literal>alice</literal> del cluster <literal>amsterdam</literal>).
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-init">
+    <para>
+     Eseguire <command>ha-cluster-geo-init</command>. Ad esempio, utilizzare le opzioni seguenti: <remark>taroth 2017-12-29: FATE#322100 - remove the --arbitrator option?
+     (see c#6)</remark>
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init</command> \
+  --clusters<co xml:id="co.geo.init.clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100" \
+  --tickets<co xml:id="co.geo.init.ticket"/> ticket-nfs \
+  --arbitrator<co xml:id="co.geo.init.arbitrator"/> 192.168.203.100</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.clusters">
+       <para>
+    I nomi dei siti del cluster (come definito in <filename>/etc/corosync/corosync.conf</filename>) e gli indirizzi IP virtuali da utilizzare per ogni sito del cluster. In questo caso, sono presenti due siti del cluster (<literal>amsterdam</literal> e <literal>berlin</literal>) ciascuno con un indirizzo IP virtuale.
+   </para>
+     </callout>
+     <callout arearefs="co.geo.init.ticket">
+      <para>
+       Il nome di una o più richieste.
+      </para>
+     </callout>
+     <callout arearefs="co.geo.init.arbitrator">
+      <para>
+       Il nome host o l'indirizzo IP di un computer all'esterno dei cluster.
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   Lo script bootstrap crea il file di configurazione del booth e lo sincronizza tra i siti del cluster. Crea inoltre le risorse di base del cluster necessarie per il booth. Il <xref linkend="st.ha-cluster-geo-init" xrefstyle="seletc:label"/> della <xref linkend="pro.ha.geo.quick.ha-cluster-geo-init" xrefstyle="select:label"/> determinano le seguenti risorse del cluster e configurazione di booth: <remark>taroth 2017-12-29: FATE#322100 - remove the arbitrator entry? (c#6)</remark>
+  </para>
+
+  <example xml:id="ex.geo.init.booth.conf">
+   <title>Configurazione di booth creata da <command>ha-cluster-geo-init</command></title>
+<screen># The booth configuration file is "/etc/booth/booth.conf". You need to
+# prepare the same booth configuration file on each arbitrator and
+# each node in the cluster sites where the booth daemon can be launched.
+
+# "transport" means which transport layer booth daemon will use.
+# Currently only "UDP" is supported.
+transport="UDP"
+port="9929"
+
+arbitrator="192.168.203.100"
+site="192.168.201.100"
+site="192.168.202.100"
+authfile="/etc/booth/authkey"
+ticket="ticket-nfs"
+expire="600"</screen>
+  </example>
+
+  <example xml:id="ex.geo.init.rsc.conf">
+   <title>Risorse del cluster create da <command>ha-cluster-geo-init</command></title>
+<screen>primitive<co xml:id="co.geo.quick.rsc.booth-ip"/> booth-ip IPaddr2 \
+  params rule #cluster-name eq amsterdam ip=192.168.201.100 \
+  params rule #cluster-name eq berlin ip=192.168.202.100 \
+primitive<co xml:id="co.geo.quick.rsc.booth-site"/> booth-site ocf:pacemaker:booth-site \
+  meta resource-stickiness=INFINITY \
+  params config=booth \
+  op monitor interval=10s
+group<co xml:id="co.geo.quick.rsc.g-booth"/> g-booth booth-ip booth-site \
+meta target-role=Stopped<co xml:id="co.geo.quick.rsc.stopped"/></screen>
+   <calloutlist>
+    <callout arearefs="co.geo.quick.rsc.booth-ip">
+     <para>
+      Un indirizzo IP virtuale per ogni sito del cluster. È richiesto dai daemon del booth per cui è necessario un indirizzo IP persistente sul sito di ciascun cluster.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.booth-site">
+     <para>
+      Una risorsa primitiva per il daemon del booth. Comunica con i daemon del booth sugli altri siti del cluster. Il daemon può essere avviato su qualsiasi nodo del sito. Per far rimanere la risorsa sullo stesso nodo, se possibile, la rigidità della risorsa è impostata su <literal>INFINITO</literal>.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.g-booth">
+     <para>
+      Un gruppo di risorse del cluster per entrambe le primitive. Con questa configurazione, ciascun daemon di booth sarà disponibile ai propri indirizzi IP, indipendente dal nodo su cui il daemon è in esecuzione.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.stopped">
+     <para>
+      Il gruppo risorse del cluster non viene avviato per impostazione predefinita. Dopo aver verificato la configurazione delle risorse del cluster (e aggiunto le risorse necessarie per completare la configurazione), occorre avviare il gruppo di risorse. Per ulteriori informazioni, vedere <xref linkend="vl.ha.geo.quick.next.req"/>.
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-join">
+  <title>Aggiunta di un altro sito a un cluster Geo</title>
+
+  <para>
+   Dopo aver inizializzato il primo sito del cluster Geo, aggiungere il secondo cluster con <literal>ha-cluster-geo-join</literal>, come descritto nella <xref linkend="pro.ha.geo.quick.ha-cluster-geo-join" xrefstyle="select:label"/>. Lo script richiede accesso SSH a un sito del cluster già configurato e aggiunge il cluster corrente al cluster Geo.
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-join">
+   <title>Aggiunta del secondo sito (<literal>berlin</literal>) con <command>ha-cluster-geo-join</command></title>
+   <step>
+    <para>
+     Eseguire il login a un nodo del sito del cluster che si desidera aggiungere (ad esempio, sul nodo <literal>charlie</literal> del cluster <literal>berlin</literal>).
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-join">
+    <para>
+     Eseguire il comando <command>ha-cluster-geo-join</command>. Ad esempio:
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-join</command> \
+  --cluster-node<co xml:id="co.geo.join.cluster-node"/> 192.168.201.100\
+  --clusters<co xml:id="co.geo.join.clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100"
+     </screen>
+    <calloutlist>
+     <callout arearefs="co.geo.join.cluster-node">
+      <para>
+       Specifica da dove copiare la configurazione del booth. Utilizzare l'indirizzo IP o il nome host di un nodo in un sito del cluster Geo già configurato. È inoltre possibile utilizzare l'indirizzo IP virtuale di un sito del cluster già esistente (come in questo esempio). In alternativa, utilizzare l'indirizzo IP o il nome host di un arbitro già configurato per il cluster Geo.
+      </para>
+     </callout>
+     <callout arearefs="co.geo.join.clusters">
+       <para>
+    I nomi dei siti del cluster (come definito in <filename>/etc/corosync/corosync.conf</filename>) e gli indirizzi IP virtuali da utilizzare per ogni sito del cluster. In questo caso, sono presenti due siti del cluster (<literal>amsterdam</literal> e <literal>berlin</literal>) ciascuno con un indirizzo IP virtuale.
+   </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   Lo script <command>ha-cluster-geo-join</command> copia la configurazione del booth da <xref linkend="co.geo.join.cluster-node" xrefstyle="select:label"/>, vedere <xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/>. Inoltre, crea le risorse del cluster necessarie per il booth (vedere <xref linkend="ex.geo.init.rsc.conf" xrefstyle="select:label"/>).
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+  <title>Aggiunta dell'arbitro</title>
+
+  <para>
+   <remark>taroth 2017-12-29: FATE#322100 - move this section to Geo Guide? (c#6)</remark> Dopo aver configurato tutti i siti del cluster Geo con <command>ha-cluster-geo-init</command> e <command>ha-cluster-geo-join</command>, configurare l'arbitro con <command>ha-cluster-geo-init-arbitrator</command>.
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+   <title>Configurazione dell'arbitro con <command>ha-cluster-geo-init-arbitrator</command></title>
+   <step>
+    <para>
+     Eseguire il login al computer da utilizzare come arbitro.
+    </para>
+   </step>
+   <step>
+    <para>
+     Eseguire il comando seguente. Ad esempio:
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init-arbitrator</command> --cluster-node<co xml:id="co.geo.init.arbitrator.cluster-node"/> 192.168.201.100</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.arbitrator.cluster-node">
+      <para>
+       Specifica da dove copiare la configurazione del booth. Utilizzare l'indirizzo IP o il nome host di un nodo in un sito del cluster Geo già configurato. In alternativa, è inoltre possibile utilizzare l'indirizzo IP virtuale di un sito del cluster già esistente (come in questo esempio).
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   Lo script <command>ha-cluster-geo-init-arbitrator</command> copia la configurazione del booth da <xref linkend="co.geo.init.arbitrator.cluster-node"/>, vedere <xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/>. Attiva e avvia, inoltre, il servizio di booth sull'arbitro. L'arbitro è così pronto per comunicare con le istanze di booth sui siti del cluster quando i servizi di booth vi vengono eseguiti.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.monitor">
+  <title>Controllo dei siti del cluster </title>
+
+  <para>
+   Per visualizzare entrambi i siti del cluster con le risorse e la richiesta create durante il processo di bootstrap, utilizzare Hawk2. L'interfaccia Web Hawk2 consente di controllare e gestire più cluster e cluster Geo (non in relazione).
+  </para>
+
+  <itemizedlist>
+   <title>Prerequisiti</title>
+   <listitem>
+    <para>
+     Tutti i cluster monitorati dal <guimenu>dashboard</guimenu> di Hawk1 devono eseguire <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles"> 15 SP2</phrase></phrase>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Se non è stato sostituito il certificato autofirmato per Hawk2 su ogni nodo del cluster con il proprio certificato (o con un certificato firmato da una Autorità di certificazione ufficiale), eseguire almeno una volta il login ad Hawk2 sul nodo <emphasis>every</emphasis> nel cluster <emphasis>every</emphasis>. Verificare il certificato (o aggiungere un'eccezione nel browser per ignorare l'avviso). In alternativa, Hawk2 non può collegarsi al cluster.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.geo.quick.hawk2.dashboard">
+   <title>Utilizzo del dashboard Hawk2</title>
+   <step>
+    <para>
+     Avviare un browser Web e immettere l'IP virtuale del primo sito del cluster, <literal>amsterdam</literal>:
+    </para>
+<screen>https://192.168.201.100:7630/</screen>
+    <para>
+     In alternativa, utilizzare l'indirizzo IP o il nome host di <literal>alice</literal> o <literal>bob</literal>. Se sono stati configurati entrambi i nodi con gli script di bootstrap, il servizio <literal>hawk</literal> dovrebbe essere in esecuzione su entrambi i nodi.
+    </para>
+   </step>
+   <step>
+    <para>
+     Eseguire il login all'interfaccia Web Hawk2.
+    </para>
+   </step>
+   <step>
+    <para>
+     Dalla barra di navigazione sinistra, selezionare <guimenu>Dashboard</guimenu>.
+    </para>
+    <para>
+     Hawk2 mostra una panoramica di risorse e nodi sul sito del cluster corrente. Inoltre, mostra eventuali <guimenu>Richieste</guimenu> configurate per il cluster Geo. Se occorrono informazioni sulle icone utilizzate in questa vista, fare clic su <guimenu>Legend</guimenu>.
+    </para>
+    <figure>
+     <title>Dashboard Hawk2 con un sito del cluster (<literal>amsterdam</literal>)</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="95%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     Per aggiungere un dashboard per il secondo sito del cluster, fare clic su <guimenu>Aggiungi cluster</guimenu>.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Immettere il <guimenu>Nome cluster</guimenu> con cui identificare il cluster nel <guimenu>dashboard</guimenu>. In questo caso, <literal>berlin</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Immettere il nome host completamente qualificato di uno dei nodi del cluster (in questo caso, <literal>charlie</literal> o <literal>doro</literal>).
+      </para>
+     </step>
+     <step>
+      <para>
+       Fare clic su <guimenu>Aggiungi</guimenu>. Hawk2 mostra una seconda scheda per il nuovo sito del cluster aggiunto con una panoramica dei relativi nodi e risorse.
+      </para>
+      <figure>
+       <title>Dashboard Hawk2 con entrambi i siti del cluster</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="95%" format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Per visualizzare maggiori informazioni per un sito del cluster o gestirlo, passare alla scheda del sito e fare clic sull'icona della catena.
+    </para>
+    <para>
+     Hawk2 apre la vista <guimenu>Stato</guimenu> di tale sito in una nuova scheda o finestra del browser, da cui è possibile amministrare questa parte del cluster Geo.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.next">
+  <title>Fasi successive</title>
+
+  <para>
+   Gli script di bootstrap del cluster Geo forniscono un modo rapido di impostare un cluster Geo di base utilizzabile per scopi di test. Tuttavia, per spostare il cluster Geo risultante in un cluster Geo funzionante utilizzabile negli ambienti di produzione, sono richiesti altri passaggi, vedere <xref linkend="vl.ha.geo.quick.next.req"/>.
+  </para>
+
+  <variablelist xml:id="vl.ha.geo.quick.next.req">
+   <title>Passaggi richiesti per completare la configurazione del cluster Geo</title>
+   <varlistentry xml:id="vle.ha.geo.quick.booth.service.sites">
+    <term>Avvio dei servizi booth sui siti del cluster</term>
+    <listitem>
+     <para>
+      Dopo il processo di bootstrap, il servizio di booth dell'arbitro non può ancora comunicare con i servizi di booth sui siti del cluster, in quanto non vengono avviati per impostazione predefinita.
+     </para>
+     <para>
+      Il servizio di booth per ciascun sito del cluster viene gestito dal gruppo risorse di booth <literal>g-booth</literal> (vedere <xref linkend="ex.geo.init.rsc.conf"/>). Per avviare un'istanza del servizio booth per sito, avviare il rispettivo gruppo risorse di booth in ciascun sito del cluster. Ciò consente a tutte le istanze di booth di comunicare tra loro.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Configurazione delle dipendenze della richiesta e di ordinamento dei vincoli</term>
+    <listitem>
+     <para>
+      Affinché le risorse dipendano dalla richiesta creata durante il processo di bootstrap del cluster Geo, configurare i vincoli. Per ogni vincolo, impostare una <literal>policy di perdita</literal> che definisca ciò che deve succedere alle rispettive risorse se la richiesta viene revocata da un sito del cluster.
+     </para>
+     <para>
+      Per informazioni, vedere <xref linkend="cha.ha.geo.rsc"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Concessione iniziale di un ticket a un sito</term>
+    <listitem>
+     <para>
+      Prima che booth sia in grado di gestire una determinata richiesta nel Geo cluster, occorre inizialmente <emphasis>concederla</emphasis> manualmente a un sito. È possibile utilizzare lo strumento della riga di comando del client di booth o Hawk2 per concedere una richiesta.
+     </para>
+     <para>
+      Per informazioni, vedere <xref linkend="cha.ha.geo.manage"/>.</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   Gli script di bootstrap creano le stesse risorse di booth sui siti di entrambi i cluster e gli stessi file di configurazione di booth in tutti i siti, compreso l'arbitro. Se si estende la configurazione del cluster Geo (per passare a un ambiente di produzione), si perfezionerà probabilmente la configurazione di booth e si modificherà la configurazione delle risorse del cluster correlate al booth. In seguito, è necessario sincronizzare le modifiche agli altri siti del cluster Geo per applicarle.
+  </para>
+
+  <note>
+   <title>sincronizzazione delle modifiche tra i siti del cluster</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Per sincronizzare le modifiche nella configurazione del booth con tutti i siti del cluster (compreso l'arbitro), utilizzare Csync2. Per ulteriori informazioni, vedere <xref linkend="cha.ha.geo.sync"/>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Il CIB (Cluster Information Database) non viene sincronizzato automaticamente tra i siti di un Geo cluster. Questo significa che eventuali modifiche alla configurazione della risorsa richieste su tutti i siti del cluster devono essere trasferite manualmente agli altri siti. Per questo, selezionare le rispettive risorse, esportarle dal CIB corrente e importarle nel CIB sugli altri siti del cluster. Per informazioni, vedere <xref linkend="sec.ha.geo.rsc.sync.cib"/>.
+      </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.more">
+  <title>Ulteriori informazioni</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Maggiore documentazione per questo prodotto è disponibile su <link xlink:href="http://www.suse.com/documentation/sle-ha-geo"/>. La documentazione comprende inoltre una completa <literal>Geo Clustering Guide</literal> (in lingua inglese). utile in caso di ulteriori attività di configurazione e amministrazione.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Un documento con informazioni dettagliate sulle operazioni con la replica dei dati tramite DRBD tra i cluster Geo è stato pubblicato nelle serie <literal>SUSE Best Practices</literal> (in lingua inglese): <link xlink:href="http://www.suse.com/documentation/suse-best-practices/sbp-drbd/data/sbp-drbd.html"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>
