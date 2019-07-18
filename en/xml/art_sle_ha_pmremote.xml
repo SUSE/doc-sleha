@@ -1,0 +1,818 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<!DOCTYPE article
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+<!--
+* FATE#320599: Pacemaker Remote
+* See https://trello.com/c/tO9cNZRv for SP3
+-->
+<?provo dirname="nfs_quick/"?>
+
+<article version="5.0" xml:lang="en" xml:id="art_sle_ha_pmremote"
+  xmlns="http://docbook.org/ns/docbook"
+  xmlns:dm="urn:x-suse:ns:docmanager"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink">
+  <title>&pcmkremquick;</title>
+  <subtitle>&productname; &productnumber;</subtitle>
+  <info>
+   <productnumber>&productnumber;</productnumber>
+   <productname>&productname;</productname>
+   <date><?dbtimestamp format="m/d/Y X"?></date>
+   <xi:include href="ha_authors.xml"/>
+   <abstract>
+    <para>
+     This document guides you through the setup of a &ha; cluster with a remote
+     node or a guest node, managed by &pace; and &pmremote;.
+     <emphasis>Remote</emphasis> in the &pmremote; term does not mean physical
+     distance, but <quote>non-membership</quote> of a cluster.
+    </para>
+   </abstract>
+   <dm:docmanager>
+    <dm:bugtracker>
+     <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+     <dm:product>SUSE Linux Enterprise High Availability Extension 12
+      SP3</dm:product>
+     <dm:component>Documentation</dm:component>
+    </dm:bugtracker>
+    <dm:translation>yes</dm:translation>
+   </dm:docmanager>
+   </info>
+
+ <sect1 xml:id="sec.ha.pmremote.concept">
+   <title>Conceptual Overview and Terminology</title>
+   <para>
+    A regular cluster may contain up to 32 nodes. With the &pmremote; service,
+    &ha; clusters can be extended to include additional nodes beyond this
+    limit.
+   </para>
+   <para>
+    The &pmremote; service can be operated as a physical node (called remote
+    node) or as a virtual node (called guest node).
+    Unlike normal cluster nodes, both remote and guest nodes are managed by
+    the cluster as resources.
+    As such, they are not bound to the 32&nbsp;node limitation of the cluster
+    stack. However, from the resource management point of view, they behave
+    as regular cluster nodes.
+   </para>
+   <para>
+    Remote nodes do not need to have the full cluster stack installed, as
+    they only run the &pmremote; service. The service acts as a proxy,
+    allowing the cluster stack on the <quote>regular</quote> cluster nodes
+    to connect to the service.
+    Thus, the node that runs the &pmremote; service is
+    effectively integrated into the cluster as a remote node (see <xref
+     linkend="vl.ha.pmremote.terminology"/>).
+   </para>
+   <variablelist xml:id="vl.ha.pmremote.terminology">
+    <title>Terminology</title>
+    <varlistentry>
+     <term>Cluster Node</term>
+     <listitem>
+      <para>
+       A node that runs the complete cluster stack, see <xref
+        linkend="fig.ha.pmremote.regular-cluster-stack"/>. </para>
+      <figure xml:id="fig.ha.pmremote.regular-cluster-stack">
+       <title>Regular Cluster Stack (Two-Node Cluster)</title>
+       <mediaobject>
+        <imageobject>
+         <imagedata fileref="ha_pmremote-regular.svg" width="50%"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+      <para>
+       A regular cluster node may perform the following tasks:
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         Run cluster resources.
+        </para>
+       </listitem>
+       <listitem>
+        <para>Run all command line tools, such as <command>crm</command>,
+         <command>crm_mon</command>.
+        </para>
+       </listitem>
+       <listitem>
+        <para>Execute fencing actions.</para>
+       </listitem>
+       <listitem>
+        <para>
+         Count toward cluster quorum.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         Serve as the cluster's designated coordinator (DC).
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Pacemaker Remote (&systemd; service: &pmremote;)</term>
+     <listitem>
+      <para>
+       A service daemon that makes it possible to use a node as a &pace; node
+       without deploying the full cluster stack. Note that &pmremote; is the
+       name of the systemd service. However, the name of the daemon
+       is &pmrm_daemon; (with a trailing d after its name).
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Remote Node</term>
+     <listitem>
+      <para>
+       A physical machine that runs the &pmremote; daemon. A special
+       resource (<systemitem>ocf:pacemaker:remote</systemitem>) needs to run
+       on one of the cluster nodes to manage communication
+       between the cluster node and the remote node (see <xref
+        linkend="sec.ha.pmremote.install.phys-remote-nodes"/>).
+      </para>
+      <informalfigure>
+       <mediaobject>
+        <imageobject>
+         <imagedata fileref="ha_pmremote-phys-remote-nodes.svg" width="45%"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Guest Node</term>
+     <listitem>
+      <para>
+       A virtual machine that runs the &pmremote; daemon.
+       A guest node is created using a resource agent such as
+       <systemitem>ocf:pacemaker:VirtualDomain</systemitem> with the
+       <option>remote-node</option> meta attribute (see
+       <xref linkend="sec.ha.pmremote.install.virt-guest-nodes"/>).
+      </para>
+      <informalfigure>
+       <mediaobject>
+        <imageobject>
+         <imagedata fileref="ha_pmremote-virt-guest-nodes.svg" width="65%"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+      <para>
+       For a physical machine that contains several guest nodes, the
+       process is as follows:
+      </para>
+      <orderedlist>
+       <listitem>
+        <para>On the cluster node, virtual machines are launched by &pace;.</para>
+       </listitem>
+       <listitem>
+        <para>The cluster connects to the &pmremote; service of the virtual
+         machines.</para>
+       </listitem>
+       <listitem>
+        <para>The virtual machines are integrated into the cluster by &pmremote;.
+        </para>
+       </listitem>
+      </orderedlist>
+     <para>
+      It is important to distinguish between several roles that a virtual
+      machine can take in the &ha; cluster:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        A virtual machine can run a full cluster stack. In this case, the
+        virtual machine is a regular cluster node and is not itself managed
+        by the cluster.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        A virtual machine can be managed by the cluster as a resource, without
+        the cluster being aware of the services that run inside the virtual
+        machine. In this case, the virtual machine is opaque to the cluster.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        A virtual machine can be a cluster resource and run &pmremote;,
+        which allows the cluster to manage services inside the virtual machine.
+        In this case, the virtual machine is a guest node and is transparent
+        to the cluster.
+       </para>
+      </listitem>
+     </itemizedlist>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    Remote nodes and guest nodes can run cluster resources and most command
+    line tools. However, they have the following limitations:</para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      They cannot execute fencing actions.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      They do not affect quorum.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      They cannot serve as Designated Coordinator (DC).
+     </para>
+    </listitem>
+   </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.pmremote.usage">
+  <title>Usage Scenario</title>
+  <para>
+   The procedures in this document describe the process of setting up a minimal
+   cluster with the following characteristics:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Two cluster nodes running &productname; 12 GA or higher. In this guide,
+     their host names are <systemitem class="domainname">&node1;</systemitem>
+     and <systemitem class="domainname">&node2;</systemitem>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Depending on the setup you choose, your cluster will end up with one of the following
+     nodes:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>One remote node running &pmremote; (the remote node is named
+       <systemitem class="domainname">&node3;</systemitem> in this document).
+      </para>
+      <para>
+       Or:
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       One guest node running &pmremote; (the guest node is named
+       <systemitem class="domainname">&node4;</systemitem> in this document).
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     &pace; to manage guest nodes and remote nodes.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Failover of resources from one node to the other if the active host
+     breaks down (active/passive setup).
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.pmremote.install.phys-remote-nodes">
+  <title>Use Case 1: Setting Up a Cluster with Remote Nodes</title>
+  <para>
+   In the following example setup, a remote node
+   <systemitem class="domainname">&node3;</systemitem> is used.
+  </para>
+  <orderedlist>
+   <listitem>
+    <para><xref linkend="sec.ha.pmremote.prep.uc1"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec.ha.pmremote.config.uc1.virt-auth-keys"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec.ha.pmremote.config.uc1.remote.nodes"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec.ha.pmremote.config.uc1.integrate"/></para>
+   </listitem>
+  </orderedlist>
+
+  <sect2 xml:id="sec.ha.pmremote.prep.uc1">
+   <title>Preparing the Cluster Nodes and the Remote Node</title>
+   <para>
+    To prepare the cluster nodes and remote node, proceed as follows:
+   </para>
+   <procedure>
+    <step>
+     <para>Install and set up a basic two-node cluster as described in the
+      <citetitle>&instquick;</citetitle>. It is available from
+      <link xlink:href="https://www.suse.com/documentation/sle-ha-12"/>.
+      This will lead to a two-node cluster with two physical hosts, <systemitem
+       class="domainname">&node1;</systemitem> and <systemitem
+        class="domainname">&node2;</systemitem>.</para>
+    </step>
+    <step>
+     <para>
+      On a physical host (<systemitem class="domainname"
+       >&node3;</systemitem>) that you want to use as remote node, install
+      &sls; &productnumber; and add &productname; &productnumber;
+      as extension. However, do not install the &ha; installation pattern,
+      because the remote node needs only individual packages (see <xref
+       linkend="sec.ha.pmremote.config.uc1.remote.nodes"
+       xrefstyle="select:label"/>).
+     </para>
+    </step>
+    <step>
+     <para>On all cluster nodes, check <filename>/etc/hosts</filename> and add an
+      entry for <literal>&node3;</literal>.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.pmremote.config.uc1.virt-auth-keys">
+   <title>Configuring an Authentication Key</title>
+   <para>
+    On the cluster node <systemitem class="domainname">&node1;</systemitem>
+    proceed as follows:
+   </para>
+   <procedure>
+      <step>
+       <para>Create a specific authentication key for the &pmremote;
+        service: </para>
+       <screen>&prompt.root;<command>mkdir</command> -p --mode=0755 /etc/pacemaker
+&prompt.root;<command>dd</command> if=/dev/urandom of=/etc/pacemaker/authkey bs=4k count=1</screen>
+       <para>The key for the &pmremote; service is different from the cluster
+        authentication key that you create in the &yast; cluster module.</para>
+      </step>
+      <step>
+       <para>Synchronize the authentication key among all cluster nodes
+       and your future remote node with <command>scp</command>:</para>
+       <screen>&prompt.root;<command>scp</command> -r -p /etc/pacemaker/ &node2;:/etc
+&prompt.root;<command>scp</command> -r -p /etc/pacemaker/ &node3;:/etc</screen>
+       <para>The key needs to be kept synchronized all the time.</para>
+      </step>
+   </procedure>
+  </sect2>
+  <sect2 xml:id="sec.ha.pmremote.config.uc1.remote.nodes">
+   <title>Configuring the Remote Node</title>
+   <para>
+    The following procedure configures the physical host <literal>&node3;</literal>
+    as a remote node:
+   </para>
+   <procedure>
+    <step>
+     <para>On <systemitem class="domainname"
+      >&node3;</systemitem>, proceed as follows:</para>
+     <substeps>
+      <step>
+       <para>In the firewall settings, open the TCP port 3121 for
+        &pmremote;.</para>
+      </step>
+      <step>
+       <para>Install the <package>pacemaker-remote</package> and
+         <package>crmsh</package> packages: </para>
+       <screen>&prompt.root;<command>zypper</command> in pacemaker-remote crmsh</screen>
+      </step>
+      <step>
+       <para>Enable and start the &pmremote; service on <systemitem
+         class="domainname">&node3;</systemitem>:</para>
+       <screen>&prompt.root;<command>systemctl</command> enable pacemaker_remote
+&prompt.root;<command>systemctl</command> start pacemaker_remote</screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      On <systemitem class="domainname">&node1;</systemitem> or <systemitem
+       class="domainname">&node2;</systemitem>, verify the
+      host connection to the remote node by using <command>ssh</command>:
+     </para>
+     <screen>&prompt.root;<command>ssh</command> -p 3121 &node3;</screen>
+     <para>This SSH connection will fail, but <emphasis>how</emphasis> it fails
+      shows if the setup is working:</para>
+     <variablelist>
+      <varlistentry>
+       <term>Working Setup</term>
+       <listitem>
+        <screen>ssh_exhange_identification: read: Connection reset by peer.</screen>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term>Broken Setup</term>
+       <listitem>
+        <screen>ssh: connect to host &node3; port 3121: No route to host
+ssh: connect to host &node3; port 3121: Connection refused</screen>
+        <para>If you see either of those two messages, the setup does
+        not work. Use the <option>-v</option> option for <command>ssh</command>
+         and execute the command again to see debugging messages. This can
+         be helpful to find connection, authentication, or configuration
+         problems. Multiple <option>-v</option> options increase the verbosity.
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+     <para>If needed, add more remote nodes and configure them as described above.</para>
+    </step>
+   </procedure>
+  </sect2>
+  <sect2 xml:id="sec.ha.pmremote.config.uc1.integrate">
+   <title>Integrating the Remote Node into the Cluster</title>
+   <para>To integrate the remote node into the cluster, proceed as follows:</para>
+   <procedure>
+    <step>
+     <para>Log in to each cluster node and make sure &pace; service is already
+      started:</para>
+     <screen>&prompt.root;<command>systemctl</command> start pacemaker</screen>
+    </step>
+    <step>
+     <para>On node <systemitem class="domainname">&node1;</systemitem>,
+      create a <systemitem>ocf:pacemaker:remote</systemitem> primitive:
+     </para>
+     <screen>&prompt.root;<command>crm</command> configure
+&prompt.crm.conf;<command>primitive</command> &node3; ocf:pacemaker:remote \
+     params server=&node3; reconnect_interval=15m \
+     op monitor interval=30s
+&prompt.crm.conf;<command>commit</command>
+&prompt.crm.conf;<command>exit</command></screen>
+    </step>
+    <step>
+     <para>Check the status of the cluster with the command
+      <command>crm status</command>. It
+      should contain a running cluster with nodes that are all accessible:
+     </para>
+     <screen>&prompt.root;<command>crm</command> status
+[...]
+Online: [ alice bob ]
+RemoteOnline: [ charlie ]
+
+Full list of resources:
+&node3; (ocf:pacemaker:remote): Started &node1;
+ [...]</screen>
+    </step>
+   </procedure>
+  </sect2>
+  <sect2 xml:id="sec.ha.pmremote.config.uc1.start.resources">
+   <title>Starting Resources on the Remote Node</title>
+   <para>
+    After the remote node is integrated into the cluster, you can start
+    resources on the remote node in the same way as on any cluster node.
+   </para>
+   <warning>
+    <title>Restrictions Regarding Groups and Constraints</title>
+    <para>
+     Never involve a remote node connection resource in a resource group,
+     colocation constraint, or order constraint. This may lead to unexpected
+     behavior on cluster transitions.
+    </para>
+    <!--taroth 2017-08-09: why? ygao 2017-08-11: Because this resource is so special.
+      Not like other resources , this resource is actually handled internally in
+      crmd daemon. It establishes and manages the the connection between a
+      cluster node and the remote node. It basically defines the existence of the
+      remote node. So practically, it doesn't make sense to define order/colocation
+      constraints between a "remote node" and a resource, and such constraints
+      might introduce issues when cluster handles transitions (Instead, we can
+      use location constraints to define the relationships between the remote node
+      and resources as usual if necessary).-->
+    </warning>
+   <formalpara>
+    <title>Fencing Remote Nodes</title>
+    <para>
+     Remote nodes are fenced in the same way as cluster nodes. Configure fencing
+     resources for use with remote nodes in the same way as with cluster nodes.
+    </para>
+   </formalpara>
+   <para>
+    Remote nodes do not take part in initiating a
+    fencing action. Only cluster nodes can execute a
+    fencing operation against another node.
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.pmremote.install.virt-guest-nodes">
+  <title>Use Case 2: Setting Up a Cluster with Guest Nodes</title>
+  <remark>toms 2017-07-11: Are other virtualization techniques supported, like
+  XEN...?</remark>
+  <remark>gao-yan 2017-07-24: Yes. As we know libvirt also supports Xen,
+   which means we can use the RA ocf:heartbeat:VirtualDomain to manage Xen
+   guests as well. But of course we can either use the RA ocf:heartbeat:Xen
+   to do that.</remark>
+  <para>In the following example setup, KVM is used for setting up the virtual
+   guest node (<systemitem class="domainname">&node4;</systemitem>).</para>
+  <orderedlist>
+   <listitem>
+    <para><xref linkend="sec.ha.pmremote.prep.uc2"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec.ha.pmremote.config.uc2.virt-auth-keys"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec.ha.pmremote.config.uc2.guest"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec.ha.pmremote.integrate.uc2.guestsintocluster"/></para>
+   </listitem>
+  </orderedlist>
+
+  <sect2 xml:id="sec.ha.pmremote.prep.uc2">
+   <title>Preparing the Cluster Nodes and the Guest Node</title>
+   <para>
+     To prepare the cluster nodes and guest node, proceed as follows:
+   </para>
+   <procedure>
+    <step>
+     <para>Install and set up a basic two-node cluster as described in the
+      <citetitle>&instquick;</citetitle>. It is available from
+      <link xlink:href="https://www.suse.com/documentation/sle-ha-12"/>.
+      This will lead to a two-node cluster with two physical hosts, <systemitem
+       class="domainname">&node1;</systemitem> and <systemitem
+        class="domainname">&node2;</systemitem>.</para>
+    </step>
+    <step>
+     <para>Create a KVM guest on <systemitem class="domainname"
+      >&node1;</systemitem>. For details refer to the
+      <citetitle>&virtual;</citetitle> for &sls; &productnumber;,
+      chapter <citetitle>Guest Installation</citetitle>. It is
+      available from <link xlink:href="https://www.suse.com/documentation/sles-12"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      On the KVM guest (<systemitem class="domainname"
+       >&node4;</systemitem>) that you want to use as guest node, install
+      &sls; &productnumber; and add &productname; &productnumber;
+      as extension. However, do not install the &ha; installation pattern,
+      because the remote node needs only individual packages (see <xref
+       linkend="sec.ha.pmremote.config.uc2.guest"
+       xrefstyle="select:label"/>).
+     </para>
+    </step>
+    <step>
+     <para>On all cluster nodes, check <filename>/etc/hosts</filename> and add an
+      entry for <literal>&node4;</literal>.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.pmremote.config.uc2.virt-auth-keys">
+   <title>Configuring an Authentication Key</title>
+   <para>
+    On the cluster node <systemitem class="domainname">&node1;</systemitem>
+    proceed as follows:
+   </para>
+   <procedure>
+    <step>
+     <para>Create a specific authentication key for the &pmremote;
+      service: </para>
+     <screen>&prompt.root;<command>mkdir</command> -p --mode=0755 /etc/pacemaker
+&prompt.root;<command>dd</command> if=/dev/urandom of=/etc/pacemaker/authkey bs=4k count=1</screen>
+     <para>The key for the &pmremote; service is different from the cluster
+      authentication key that you create in the &yast; cluster module.</para>
+    </step>
+    <step>
+     <para>Synchronize the authentication key among all cluster nodes
+      and your guest node with <command>scp</command>:</para>
+     <screen>&prompt.root;<command>scp</command> -r -p /etc/pacemaker/ &node2;:/etc
+&prompt.root;<command>scp</command> -p /etc/pacemaker/ &node4;:/etc</screen>
+     <para>The key needs to be kept synchronized all the time.</para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.pmremote.config.uc2.guest">
+   <title>Configuring the Guest Node</title>
+   <para>
+    The following procedure configures <systemitem
+     class="domainname">&node4;</systemitem> as a guest node on your cluster node
+    <systemitem class="domainname">&node1;</systemitem>:
+   </para>
+   <procedure>
+    <step>
+     <para>On <systemitem class="domainname"
+      >&node4;</systemitem>, proceed as follows:</para>
+     <substeps>
+      <step>
+       <para>In the firewall settings, open the TCP port 3121 for
+        &pmremote;.</para>
+      </step>
+      <step>
+       <para>Install the <package>pacemaker-remote</package> and
+         <package>crmsh</package> packages: </para>
+       <screen>&prompt.root;<command>zypper</command> in pacemaker-remote crmsh</screen>
+      </step>
+      <step>
+       <para>Enable and start the &pmremote; service on <systemitem
+         class="domainname">&node1;</systemitem>:</para>
+       <screen>&prompt.root;<command>systemctl</command> enable pacemaker_remote
+&prompt.root;<command>systemctl</command> start pacemaker_remote</screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      On <systemitem class="domainname">&node1;</systemitem> or <systemitem
+       class="domainname">&node2;</systemitem>, verify the
+      host connection to the guest by running <command>ssh</command>:
+     </para>
+     <screen>&prompt.root;<command>ssh</command> -p 3121 &node4;</screen>
+     <para>This SSH connection will fail, but <emphasis>how</emphasis> it fails
+      shows if the setup is working:</para>
+     <variablelist>
+      <varlistentry>
+       <term>Working Setup</term>
+       <listitem>
+        <screen>ssh_exhange_identification: read: Connection reset by peer.</screen>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term>Broken Setup</term>
+       <listitem>
+        <screen>ssh: connect to host &node4; port 3121: No route to host
+ssh: connect to host &node4; port 3121: Connection refused</screen>
+        <para>If you see either of those two messages, the setup does
+         not work. Use the <option>-v</option> option for <command>ssh</command>
+         and execute the command again to see debugging messages. This can
+         be helpful to find connection, authentication, or configuration
+         problems. Multiple <option>-v</option> options increase the verbosity.
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+     <para>If needed, add more guest nodes and configure them as described above.</para>
+    </step>
+    <step>
+     <para>
+      Shut down the guest node and proceed with <xref
+       linkend="sec.ha.pmremote.integrate.uc2.guestsintocluster"/>.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec.ha.pmremote.integrate.uc2.guestsintocluster">
+   <title>Integrating a Guest Node into the Cluster</title>
+   <para>To integrate the guest node into the cluster, proceed as follows:</para>
+   <procedure>
+    <step>
+     <para>Log in to each cluster node and make sure &pace; service is already
+      started:</para>
+     <screen>&prompt.root;<command>systemctl</command> start pacemaker</screen>
+    </step>
+     <step xml:id="st.ha.pmremote.integrate.guestsintocluster.virsh-dump">
+     <para>Dump the XML configuration of the KVM guest(s) that you need
+      in the next step:
+     </para>
+     <screen>&prompt.root;<command>virsh</command> list --all
+ Id    Name         State
+-----------------------------------
+ -     &node4;       shut off
+&prompt.root;<command>virsh</command> dumpxml &node4; > /etc/pacemaker/&node4;.xml</screen>
+    </step>
+    <step>
+     <para>On node <systemitem class="domainname">&node1;</systemitem>,
+      create a <systemitem>VirtualDomain</systemitem> resource to launch the
+      virtual machine. Use the dumped configuration from <xref
+       linkend="st.ha.pmremote.integrate.guestsintocluster.virsh-dump"/>:
+     </para>
+     <screen>&prompt.root;<command>crm</command> configure
+&prompt.crm.conf;<command>primitive</command> vm-&node4; ocf:heartbeat:VirtualDomain \
+  params hypervisor="qemu:///system" \
+         config="/etc/pacemaker/&node4;.xml" \
+         meta remote-node=&node4;</screen>
+     <para>
+      &pace; will automatically monitor &pmrm; connections for failure,
+      so it is not necessary to create a recurring monitor on the
+      <systemitem>VirtualDomain</systemitem> resource.
+     </para>
+    </step>
+    <step>
+     <para>Check the status of the cluster with the command
+      <command>crm status</command>. It
+      should contain a running cluster with nodes that are all accessible.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+  <sect2 xml:id="sec.ha.pmremote.testing.uc2">
+   <title>Testing the Setup</title>
+   <para>To demonstrate how resources are executed, use a dummy resource.
+    It serves for testing purposes only.
+   </para>
+   <procedure>
+    <step>
+     <para>Create a dummy resource:</para>
+     <screen>&prompt.root;<command>crm</command> configure primitive fake1 ocf:pacemaker:Dummy</screen>
+    </step>
+    <step>
+     <para>Check the cluster status with the <command>crm status</command> command.
+      You should see something like the following:
+     </para>
+     <screen>&prompt.root;<command>crm</command> status
+[...]
+Online: [ &node1; &node2; ]
+GuestOnline: [ &node4;@&node1; ]
+
+Full list of resources:
+vm-doro (ocf:heartbeat:VirtualDomain): Started &node1;
+fake1           (ocf:pacemaker:Dummy): Started &node2;</screen>
+    </step>
+    <step>
+     <para>To move the Dummy primitive to the guest node
+      (<systemitem class="domainname">&node4;</systemitem>), use the following command:</para>
+     <screen>&prompt.root;<command>crm</command> resource move fake1 &node4;</screen>
+     <para>The status will change to this:</para>
+     <screen>&prompt.root;<command>crm</command> status
+[...]
+Online: [ &node1; &node2; ]
+GuestOnline: [ &node4;@&node1; ]
+
+Full list of resources:
+vm-doro (ocf:heartbeat:VirtualDomain): Started &node1;
+fake1           (ocf:pacemaker:Dummy): Started &node4;</screen>
+    </step>
+    <step>
+     <para> To test whether fencing works, kill the <systemitem class="daemon"
+      >pacemaker_remoted</systemitem> daemon on <systemitem
+       class="domainname">&node4;</systemitem>: </para>
+     <screen>&prompt.root;<command>kill</command> -9 $(pidof pacemaker_remoted)</screen>
+    </step>
+    <step>
+     <para>After a few seconds, check the status of the cluster again. It
+      should look like this:</para>
+     <screen>&prompt.root;<command>crm</command> status
+[...]
+Online: [ &node1; &node2; ]
+
+Full list of resources:
+vm-&node4; (ocf::heartbeat:VirtualDomain): Started &node1;
+fake1           (ocf:pacemaker:Dummy): Stopped
+
+Failed Actions:
+* &node4;_monitor_30000 on alice 'unknown error' (1): call=8, status=Error, exitreason='none',
+    last-rc-change='Tue Jul 18 13:11:51 2017', queued=0ms, exec=0ms</screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec.ha.pmremote.upgrade">
+  <title>Upgrading the Cluster and Pacemaker_remote Nodes</title>
+  <!-- toms 2017-04-18: Pacemaker version in different SLEHA:
+  GA (1.1.12), SP1(1.1.13), SP2(1.1.15)-->
+  <!--taroth 2017-08-11: according to ygao, a link to
+   https://wiki.clusterlabs.org/wiki/Upgrading_to_Pacemaker_1.1.15_or_later_from_an_earlier_version
+  is not needed, because we did a maintenance update for SP1 to make the
+  rolling upgrade easier-->
+  <para>
+   Find comprehensive information on different scenarios and supported upgrade
+   paths in the <citetitle>Admin Guide</citetitle> for &productname;,
+   chapter <citetitle>Upgrading Your Cluster and Updating Software Packages</citetitle>.
+   It is available from <link
+   xlink:href="https://www.suse.com/documentation/sle-ha-12"/>.
+   </para>
+   <para>A rolling upgrade is supported when &pmremote; is used.
+   To upgrade your cluster and &pmrm; nodes, do the following:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     For a rolling upgrade from &sle; and &productname; 12 SP1 to 12 SP2:
+     Make sure to upgrade your remote nodes to the latest &productname; 12
+     SP1 maintenance update.
+    </para>
+   </step>
+   <step>
+    <para>
+     Upgrade all cluster nodes to &sle; &productnumber; and &productname;
+     &productnumber; one by one.
+    </para>
+   </step>
+   <step>
+    <para>
+     Upgrade all &pmrm; nodes to &sle; &productnumber; one by one and make sure
+     &productname; &productnumber; has been added as extension. Update the
+     packages <systemitem class="resource">pacemaker-remote</systemitem> and
+     <systemitem class="resource">crmsh</systemitem> including their dependencies
+     as described in the <citetitle>Admin Guide</citetitle> for &productname;,
+     section <citetitle>Updating Software Packages on Cluster Nodes</citetitle>.
+    </para>
+   </step>
+  </procedure>
+  <!--
+  <para>
+   In the future, rolling upgrades from SP2 to SP3 needs only the last two
+   steps.
+  </para>
+  -->
+ </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>

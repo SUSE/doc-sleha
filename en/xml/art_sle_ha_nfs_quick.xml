@@ -1,0 +1,718 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<!DOCTYPE article
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+<!--
+ This Quick Start should link to the "Installation and Setup Quick Start";
+ this would cover all installation and setup of a two-node cluster.
+ The rest (DRBD, LVM & NFS) would be covered by this guide.
+-->
+<?provo dirname="nfs_quick/"?>
+<article version="5.0" xml:lang="en" xml:id="art_ha_quick_nfs"
+  xmlns="http://docbook.org/ns/docbook"
+  xmlns:dm="urn:x-suse:ns:docmanager"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>&nfsquick;</title>
+ <subtitle>&productname; &productnumber;</subtitle>
+ <info>
+  <productnumber>&productnumber;</productnumber>
+  <productname>&productname;</productname>
+  <date><?dbtimestamp?></date>
+  <xi:include href="ha_authors.xml"/>
+  <abstract>
+   <para>
+    &abstract-nfsquick;
+   </para>
+  </abstract>
+  <!-- fs 2016-11-04:
+       Does not get correctly convertes to NovDoc when generating online-docs
+       Commenting until thios is solved
+<xi:include href="ha_authors.xml"/> -->
+   <dm:docmanager>
+    <dm:bugtracker>
+      <dm:product>SUSE Linux Enterprise High Availability Extension 12 SP2</dm:product>
+      <dm:component>Documentation</dm:component>
+    </dm:bugtracker>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec_ha_quick_nfs_usagescenario">
+  <title>Usage Scenario</title>
+  <para>
+   This document will help you set up a highly available NFS server.
+   The cluster used to for the highly available NFS storage has the
+   following properties:
+  </para>
+
+  <itemizedlist>
+   <!-- Taken from art_sle_ha_install_quick.xml: -->
+   <listitem>
+    <para>
+     Two nodes: <systemitem class="server">&node1;</systemitem> (IP: <systemitem
+      class="ipaddress">&subnetI;.1</systemitem>)
+     and <systemitem class="server">&node2;</systemitem> (IP: <systemitem
+      class="ipaddress">&subnetI;.2</systemitem>),
+     connected to each other via network.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Two floating, virtual IP addresses (<systemitem class="ipaddress"
+      >&nfs-vip-hawk;</systemitem> and <systemitem class="ipaddress"
+      >&nfs-vip-exports;</systemitem>), allowing clients to connect to
+     the service no matter which physical node it is running on.
+     One IP address is used for cluster administration with &hawk2;, the other
+     IP address is used exclusively for the NFS exports.
+    </para>
+   </listitem>
+   <listitem>
+    <para>A shared storage device, used as an SBD fencing mechanism.
+     This avoids split brain scenarios.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Failover of resources from one node to the other if the active host breaks
+     down (<emphasis>active/passive</emphasis> setup).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Local storage on each host. The data is synchronized between the
+     hosts using DRBD on top of LVM.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+      A file system exported through NFS.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   After installing and setting up the basic two-node cluster, and extending it
+   with storage and cluster resources for NFS, you will have a highly
+   available NFS storage server.
+  </para>
+ </sect1>
+
+ <sect1 xml:id="sec_ha_quick_nfs_installation">
+  <title>Installing a Basic Two-Node Cluster</title>
+  <para>
+   Before you proceed, install and set up a basic two-node cluster. This task is
+   described in <citetitle>&instquick;</citetitle>. The &instquick; describes
+   how to use the <package>ha-cluster-bootstrap</package> package to set up a
+   cluster with minimal effort.
+  </para>
+ </sect1>
+
+ <sect1 xml:id="sec_ha_quick_nfs_lvm">
+   <title>Creating an LVM Device</title>
+   <para>LVM (<emphasis>Logical Volume Manager</emphasis>) enables
+    flexible distribution of hard disk space over several file
+    systems.
+   </para>
+   <para>To prepare your disks for LVM, do the following:</para>
+   <procedure>
+    <step>
+     <para>
+      Create an LVM volume group and replace <filename>/dev/sdb1</filename>
+      with your corresponding device for LVM:</para>
+     <screen>&prompt.root;<command>pvcreate</command> /dev/sdb1</screen>
+    </step>
+    <step>
+     <para>Create an LVM Volume Group <systemitem>nfs</systemitem>
+            that includes this physical volume: </para>
+     <screen>&prompt.root;<command>vgcreate</command> nfs /dev/sdb1</screen>
+    </step>
+    <step>
+      <para>
+       Create one or more logical volumes in the volume group
+       <systemitem>nfs</systemitem>. This example assumes a 20 gigabyte volume,
+        named <systemitem>work</systemitem>:
+      </para>
+      <screen>&prompt.root;<command>lvcreate</command> -n work -L 20G nfs</screen>
+     </step>
+     <step>
+      <para>
+       Activate the volume group<!-- and create file systems on the new logical
+       volumes. This example assumes <literal>ext3</literal> as the file
+       system type-->: </para>
+<screen>&prompt.root;<command>vgchange</command> -ay nfs</screen>
+     </step>
+   </procedure>
+   <para>After you have successfully executed the above steps, your system
+    will make visible the following device: <filename>/dev/<replaceable
+     >VOLGROUP</replaceable>/<replaceable
+      >LOGICAL_VOLUME</replaceable></filename>.
+    In this case it will be <filename>/dev/nfs/work</filename>.
+   </para>
+  </sect1>
+
+ <sect1 xml:id="sec_ha_quick_nfs_drbd_device">
+   <title>Creating a DRBD Device</title>
+   <para>
+    This section describes how to set up a DRBD device on top of LVM. The
+    configuration of LVM as a back-end of DRBD has some benefits:
+   </para>
+  <itemizedlist>
+   <listitem>
+    <para>Easier setup than with LVM on top of DRBD.</para>
+   </listitem>
+   <listitem>
+    <para>Easier administration in case the LVM disks need to be resized or
+     more disks are added to the volume group.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+    As the LVM volume group is named <literal>nfs</literal>, the
+    DRBD resource uses the same name.
+   </para>
+
+   <sect2 xml:id="sec.ha_quick_nfs_drbd_config">
+    <title>Creating DRBD Configuration</title>
+    <para>
+     For consistency reasons, it is highly recommended to follow this advice:
+    </para>
+
+    <itemizedlist>
+     <listitem>
+      <para>Use the directory <filename>/etc/drbd.d/</filename> for your
+      configuration.</para>
+     </listitem>
+     <listitem>
+      <para>Name the file according to the purpose of the resource.
+      </para>
+     </listitem>
+     <listitem>
+      <para>Put your resource configuration in a file with a <filename
+       class="extension">.res</filename> extension. In the following
+        examples, the file <filename>/etc/drbd.d/nfs.res</filename> is
+        used.
+      </para>
+     </listitem>
+    </itemizedlist>
+
+    <para>
+     Proceed as follows:
+    </para>
+    <procedure>
+     <title>Creating a DRBD Configuration</title>
+     <step>
+      <para>
+       Create the file <filename>/etc/drbd.d/nfs.res</filename> with the
+        following contents:
+      </para>
+      <!--<remark>toms 2016-07-25: TODO bsc#981560</remark>-->
+<screen>resource nfs {
+   device /dev/drbd0; <co xml:id="co.ha_quick_nfs_drbd.device"/>
+   disk   /dev/nfs/work; <co xml:id="co.ha_quick_nfs_drbd.disk"/>
+   meta-disk internal; <co xml:id="co.ha_quick_nfs_drbd.metadisk"/>
+
+   net {
+      protocol  C; <co xml:id="co.ha_quick_nfs_drbd.protocol"/>
+   }
+
+   connection-mesh { <co xml:id="co.ha_quick_nfs_connectionmesh"/>
+      hosts     &node1; &node2;;
+   }
+   on &node1; { <co xml:id="co.ha_quick_nfs_drbd.on"/>
+      address   &subnetI;.1:&drbd.port;;
+      node-id   0;
+   }
+   on &node2; { <xref linkend="co.ha_quick_nfs_drbd.on"/>
+      address   &subnetI;.2:&drbd.port;;
+      node-id   1;
+   }
+}</screen>
+      <calloutlist>
+       <callout arearefs="co.ha_quick_nfs_drbd.device">
+        <para>The DRBD device that applications are supposed to access.</para>
+       </callout>
+       <callout arearefs="co.ha_quick_nfs_drbd.disk">
+        <para>The lower-level block device used by DRBD to store the actual
+         data. This is the LVM device that was created in <xref
+          linkend="sec_ha_quick_nfs_lvm"/>.
+        </para>
+       </callout>
+       <callout arearefs="co.ha_quick_nfs_drbd.metadisk">
+        <para>Where the metadata format is stored. Using
+         <literal>internal</literal>, the metadata is stored together with
+         the user data on the same device. See the manpage for further
+         information.
+        </para>
+       </callout>
+       <callout arearefs="co.ha_quick_nfs_drbd.protocol">
+        <para>The specified protocol to be used for this connection. For protocol
+         <literal>C</literal>, a write is considered to be complete when
+         it has reached all disks, be they local or remote.
+        </para>
+       </callout>
+       <callout arearefs="co.ha_quick_nfs_connectionmesh">
+        &drbd-connection-mesh;
+       </callout>
+       <callout arearefs="co.ha_quick_nfs_drbd.on">
+        <para>Contains the IP address and a unique identifier for each node.</para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step>
+      <para>
+       Open <filename>/etc/csync2/csync2.cfg</filename> and check whether the
+       following two lines exist:
+      </para>
+<screen>include /etc/drbd.conf;
+include /etc/drbd.d/*.res;</screen>
+      <para>
+       If not, add them to the file.
+      </para>
+     </step>
+     <step>
+      <para>
+       Copy the file to the other nodes:
+      </para>
+<screen>&prompt.root;<command>csync2</command> -xv</screen>
+      <para>
+       For information about &csync;, refer to
+       <xref linkend="sec.ha.installation.setup.csync2"/>.
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec_ha_quick_nfs_drbd_activate">
+    <title>Activating the DRBD Device</title>
+    <para>
+     After you have prepared your DRBD configuration, proceed as follows:
+    </para>
+
+    <!--
+    Taken some steps from https://github.com/SUSE/doc-sleha/commit/5bb10f7fc6
+    -->
+    <procedure>
+     <step>
+      <para> If you use a firewall in your cluster, open port
+              <systemitem>&drbd.port;</systemitem> in your firewall configuration. </para>
+     </step>
+     <step>
+      <para>The first time you do this, execute the following
+        commands on <emphasis>both</emphasis> nodes (in our example, <systemitem>&node1;</systemitem>
+        and <systemitem>&node2;</systemitem>):
+      </para>
+<screen>&prompt.root;<command>drbdadm</command> create-md nfs
+&prompt.root;<command>drbdadm</command> up nfs</screen>
+      <para> This initializes the metadata storage and creates the
+              <filename>/dev/drbd0</filename> device.
+      </para>
+     </step>
+     <step>
+      <para>
+       If the DRBD devices on all nodes have the same data, skip
+       the initial resynchronization. Use the following command:
+      </para>
+      <screen>&prompt.root;<command>drbdadm</command
+              > new-current-uuid --clear-bitmap nfs/0</screen>
+     </step>
+     <step>
+       <para>Make <systemitem>&node1;</systemitem> primary:</para>
+       <screen>&prompt.root;<command>drbdadm</command> primary --force nfs</screen>
+     </step>
+      <step>
+       <para>Check the DRBD status:</para>
+       <screen>&prompt.root;<command>drbdadm</command> status nfs</screen>
+       <para>This returns the following message:</para>
+          <screen>nfs role:Primary
+  disk:UpToDate
+  &node1; role:Secondary
+    peer-disk:UpToDate</screen>
+     </step>
+    </procedure>
+    <para>
+     After the synchronization is complete, you can access the DRBD resource
+     on the block device <filename>/dev/drbd0</filename>. Use this device
+     for creating your file system.
+     Find more information about DRBD in <xref linkend="cha.ha.drbd"/>.
+     </para>
+   </sect2>
+
+   <sect2 xml:id="sec_ha_quick_nfs_drbd_createfs">
+    <title>Creating the File System</title>
+    <para>After you have finished <xref
+      linkend="sec_ha_quick_nfs_drbd_activate"/>,
+    you should see a DRBD device on <filename>/dev/drbd0</filename>:
+    </para>
+    <screen>&prompt.root;<command>mkfs.ext3</command> /dev/drbd0</screen>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec_ha_quick_nfs_initial_pacemaker">
+  <title>Adjusting Pacemaker's Configuration</title>
+  &failback-nodes;
+  <para>
+    To adjust the option, open the &crmshell; as &rootuser; (or any
+    non-&rootuser; user that is part of the
+    <systemitem class="groupname">haclient</systemitem> group) and run the
+    following commands:
+   </para>
+   <screen>&prompt.root;<command>crm</command> configure
+&prompt.crm.conf;<command>rsc_defaults</command> resource-stickiness="200"
+&prompt.crm.conf;<command>commit</command></screen>
+
+<!--
+   <formalpara>
+   <title>With &hawk2;</title>
+   <para>
+   To adjust the option in &hawk2;, click <guimenu>Cluster Configuration</guimenu>.
+   In the text field <guimenu>resource-stickiness</guimenu> enter
+   <literal>200</literal>. Confirm with <guimenu>Apply</guimenu>.
+  </para>
+  </formalpara>
+-->
+   <para>
+    For more information about global cluster options, refer to
+    <xref linkend="sec.ha.config.basics.global"/>.
+   </para>
+ </sect1>
+
+ <sect1 xml:id="sec_ha_quick_nfs_resources">
+  <title>Creating Cluster Resources<!-- for an HA NFS Server--></title>
+  <para>The following sections cover the configuration of
+    the required resources for a highly available NFS cluster.
+    The configuration steps use the &crmshell;.
+    The following list shows the necessary cluster resources:
+  </para>
+  <variablelist xml:id="vl.ha.quick.nfs_overview-cluster-res">
+   <title>Overview of Cluster Resources</title>
+   <varlistentry>
+    <term>DRBD Primitive and Multi-state Resource</term>
+    <listitem>
+     <para>
+      These resources are used to replicate data. The multi-state resource
+      is switched from and to the Primary and Secondary roles as deemed
+      necessary by the cluster resource manager.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>NFS Kernel Server Resource</term>
+    <listitem>
+     <para>
+      With this resource, Pacemaker ensures that the NFS server daemons are
+      always available.
+     </para>
+    </listitem>
+   </varlistentry>
+   <!--<varlistentry>
+    <term>NFSv4 Virtual File System Root</term>
+    <listitem>
+     <para>
+      A virtual NFS root export (only needed for NFSv4 clients).
+     </para>
+    </listitem>
+   </varlistentry>-->
+   <varlistentry>
+    <term>NFS Exports</term>
+    <listitem>
+     <para>
+      One or more NFS exports, typically corresponding to the file system.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <itemizedlist>
+    <title>Example NFS Scenario</title>
+    <listitem>
+        <para>The following configuration examples assume that
+         <systemitem class="ipaddress">&nfs-vip-exports;</systemitem> is the virtual
+         IP address to use for an NFS server which serves clients in the
+         <systemitem class="ipaddress">&subnetII;.x/24</systemitem> subnet.</para>
+    </listitem>
+    <listitem>
+        <para>The service <!--hosts an NFSv4 virtual file system root
+        from <literal>/srv/nfs</literal>, with--> exports data served from
+         <literal>/srv/nfs/work</literal>. </para>
+    </listitem>
+    <listitem>
+        <para>Into this export directory, the cluster will mount
+            <literal>ext3</literal> file systems from the DRBD device
+         <filename>/dev/drbd0</filename>.
+         This DRBD device sits on top of an LVM logical volume with the name
+         <literal>nfs</literal>.
+        </para>
+    </listitem>
+  </itemizedlist>
+
+  <sect2 xml:id="sec_ha_quick_nfs_resources_drbd">
+   <title>DRBD Primitive and Multi-state Resource</title>
+   <para>
+    To configure these resources, run the following commands from the
+   &crmshell;:
+   </para>
+<screen>&prompt.crm;<command>configure</command>
+&prompt.crm.conf;<command>primitive</command> drbd_nfs \
+  ocf:linbit:drbd \
+    params drbd_resource="nfs" \
+  op monitor interval="15" role="Master" \
+  op monitor interval="30" role="Slave"
+&prompt.crm.conf;<command>ms</command> ms-drbd_nfs drbd_nfs \
+  meta master-max="1" master-node-max="1" clone-max="2" \
+  clone-node-max="1" notify="true"
+&prompt.crm.conf;<command>commit</command></screen>
+   <para>
+    This will create a Pacemaker multi-state resource corresponding to the
+    DRBD resource <literal>nfs</literal>. Pacemaker should now activate your
+    DRBD resource on both nodes and promote it to the master role on one of
+    them.
+   </para>
+   <para>
+    Check the state of the cluster with the <command>crm status</command>
+     command, or run <command>drbdadm status</command>.
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec_ha_quick_nfs_resources_nfsserver">
+   <title>NFS Kernel Server Resource</title>
+   <para>
+    In the &crmshell;, the resource for the NFS server
+    daemons must be configured as a <emphasis>clone</emphasis> of a
+    <literal>systemd</literal> resource type.
+   </para>
+<screen>&prompt.crm.conf;<command>primitive</command> nfsserver \
+  systemd:nfs-server \
+  op monitor interval="30s"
+&prompt.crm.conf;<command>clone</command> cl-nfsserver nfsserver \
+   meta interleave=true
+&prompt.crm.conf;<command>commit</command></screen>
+   <para>
+    After you have committed this configuration, Pacemaker should start the
+    NFS Kernel server processes on both nodes.
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec_ha_quick_nfs_resources_lvm">
+   <title>File System Resource</title>
+   <orderedlist>
+    <listitem>
+     <para>
+      Configure the file system type resource as follows (but
+      <emphasis>do not</emphasis> commit this configuration yet):
+     </para>
+<screen>&prompt.crm.conf;<command>primitive</command> fs_work \
+  ocf:heartbeat:Filesystem \
+  params device=/dev/drbd0 \
+    directory=/srv/nfs/work \
+    fstype=ext3 \
+  op monitor interval="10s"</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Combine these resources into a Pacemaker resource
+      <emphasis>group</emphasis>:
+     </para>
+<screen>&prompt.crm.conf;<command>group</command> g-nfs fs_work</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Add the following constraints to make sure that the group is started
+      on the same node on which the DRBD multi-state resource is in the
+      master role:
+     </para>
+<screen>&prompt.crm.conf;<command>order</command> o-drbd_before_nfs inf: \
+  ms-drbd_nfs:promote g-nfs:start
+&prompt.crm.conf;<command>colocation</command> col-nfs_on_drbd inf: \
+  g-nfs ms-drbd_nfs:Master</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Commit this configuration:
+     </para>
+<screen>&prompt.crm.conf;<command>commit</command></screen>
+    </listitem>
+   </orderedlist>
+   <para>
+    After these changes have been committed, Pacemaker mounts the DRBD device
+    to <filename>/srv/nfs/work</filename> on the same node. Confirm this with
+    <command>mount</command> (or by looking at <filename
+     >/proc/mounts</filename>).
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec_ha_quick_nfs_resources_nfsexport">
+   <title>NFS Export Resources</title>
+   <para>
+    When your DRBD, LVM, and file system resources are working properly,
+    continue with the resources managing your NFS exports. To create highly
+    available NFS export resources, use the <literal>exportfs</literal>
+    resource type.
+   </para>
+
+<!-- According to Neal, this is can be removed completely
+
+   <sect3 xml:id="sec_ha_quick_nfs_resources_nfsexport_nfsv4root">
+    <title>NFSv4 Virtual File System Root</title>
+    <para>
+     If clients exclusively use NFSv3 to connect to the server, you do not
+     need this resource. In this case, continue with
+     <xref linkend="sec_ha_quick_nfs_resources_nfsexport_nonroot"/>.
+    </para>
+    <orderedlist>
+     <listitem>
+      <para>
+       Create a virtual NFSv4 file system:
+      </para>
+<screen>&prompt.crm.conf;<command>primitive</command> exportfs_root \
+  ocf:heartbeat:exportfs \
+  params directory="/srv/nfs" fsid=0 \
+    options="rw,crossmnt" \
+    clientspec="&nfs-clientspec;" \<!-\- 10.9.9.0/24 -\->
+  op monitor interval="30s"
+&prompt.crm.conf;<command>clone</command> cl-exportfs_root exportfs_root</screen>
+      <remark>toms 2016-09-01: What clientspec should be used here?</remark>
+      <para>
+       This resource does not hold any actual NFS-exported data, merely the
+       empty directory (<filename>/srv/nfs</filename>) that the other NFS
+       exports are mounted into. Since there is no shared data involved
+       here, you can safely <emphasis>clone</emphasis> this resource.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Since any data should be exported only on nodes where this clone has
+       been properly started, add the following constraints to the
+       configuration:
+      </para>
+<screen>&prompt.crm.conf;<command>order</command> o-root_before_nfs Mandatory: \
+  cl-exportfs_root g-nfs:start
+&prompt.crm.conf;<command>colocation</command> c-nfs_on_root inf: \
+  g-nfs cl-exportfs_root
+&prompt.crm.conf;<command>commit</command></screen>
+      <para>
+       After this, Pacemaker should start the NFSv4 virtual file system root
+       on both nodes.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Check the output of the <command>exportfs -v</command> command to
+       verify this:
+      </para>
+      <screen>&prompt.root;<command>exportfs</command> -v
+/srv/nfs/work   <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(...)
+/srv/nfs        <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(...)</screen>
+     </listitem>
+    </orderedlist>
+   </sect3>
+-->
+
+<!--   <sect3 xml:id="sec_ha_quick_nfs_resources_nfsexport_nonroot">
+    <title>NFS Exports</title>-->
+    <para>
+     To export the <filename>/srv/nfs/work</filename> directory to clients,
+     use the following primitive:
+    </para>
+    <orderedlist>
+     <listitem>
+      <para>
+       Create NFS exports with the following commands:
+      </para>
+<screen>&prompt.crm.conf;<command>primitive</command> exportfs_work \
+  ocf:heartbeat:exportfs \
+    params <!--fsid=1 -->directory="/srv/nfs/work" \
+      options="rw,mountpoint" \
+      clientspec="&nfs-clientspec;" \
+      wait_for_leasetime_on_stop=true \
+  op monitor interval="30s"</screen>
+     </listitem>
+     <listitem>
+      <para>
+       After you have created these resources, append them to the existing
+       <literal>g-nfs</literal> resource group:
+      </para>
+<screen>&prompt.crm.conf;<command>modgroup</command> g-nfs add exportfs_work</screen>
+     </listitem>
+     <listitem>
+      <para>
+       Commit this configuration:
+      </para>
+<screen>&prompt.crm.conf;<command>commit</command></screen>
+      <para>
+       Pacemaker will export the NFS virtual file system root and the two
+       other exports.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Confirm that the NFS exports are set up properly:
+      </para>
+<screen>&prompt.root;<command>exportfs</command> -v
+/srv/nfs/work   <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(<replaceable>OPTIONS</replaceable>)<!--
+/srv/nfs        <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(<replaceable>OPTIONS</replaceable>)--></screen>
+     </listitem>
+    </orderedlist>
+   <!--</sect3>-->
+  </sect2>
+
+  <sect2 xml:id="sec_ha_quick_nfs_resources_vip">
+   <title>Virtual IP Address for NFS Exports</title>
+   <para>
+    The initial installation creates an administrative virtual IP address for
+    &hawk2;. Although you could use this IP address for your NFS exports too,
+    create another one exclusively for NFS exports. This makes it easier to
+    apply security restrictions later. Use the following commands in the
+    &crmshell;:
+   </para>
+   <screen>&prompt.crm.conf;<command>primitive</command> vip_nfs IPaddr2 \
+   params ip=&nfs-vip-exports; cidr_netmask=24 \
+   op monitor interval=10 timeout=20
+&prompt.crm.conf;<command>modgroup</command> g-nfs add vip_nfs
+&prompt.crm.conf;<command>commit</command></screen>
+  </sect2>
+ </sect1>
+
+ <!-- toms 2015-10-23: This is an attempt to descript how to set up
+      a HA NFS cluster with cluster scripts
+
+      toms 2016-08-23: Still disabled for the time being as not really finished
+   -->
+ <!--<xi:include href="nfs_quick_clusterscript.xml"/>-->
+
+ <sect1 xml:id="sec_ha_quick_nfs_use">
+  <title>Using the NFS Service</title>
+  <para>
+   This section outlines how to use the highly available NFS service from an
+   NFS client.
+  </para>
+  <para>
+   To connect to the NFS service, make sure to use the <emphasis>virtual IP
+   address</emphasis> to connect to the cluster rather than a physical IP
+   configured on one of the cluster nodes' network interfaces. For compatibility
+   reasons, use the <emphasis>full</emphasis> path of the NFS export on the server.
+  </para>
+
+  <para>In its simplest form, the command to mount the NFS export looks like
+   this:</para>
+  <screen>&prompt.root;<command>mount</command> -t nfs &nfs-vip-exports;:/srv/nfs/work /home/work</screen>
+  <para>
+   To configure a specific transport protocol (<option>proto</option>)
+   and maximum read and write request sizes (<option>rsize</option> and
+    <option>wsize</option>), use:
+  </para>
+  <screen>&prompt.root;<command>mount</command> -o rsize=32768,wsize=32768 \
+    &nfs-vip-exports;:/srv/nfs/work /home/work</screen>
+  <para>
+   In case you need to be compatible with NFS version&nbsp;3, include the value
+   <option>vers=3</option> after the <option>-o</option> option.
+  </para>
+  <para>
+   For further NFS mount options, consult the <command>nfs</command> man page.
+  </para>
+ </sect1>
+ <xi:include href="common_gfdl1.2_i.xml"/>
+</article>

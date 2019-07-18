@@ -1,0 +1,855 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<!DOCTYPE article
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+<?provo dirname="geo_quick/"?>
+<article version="5.0" xml:lang="en" xml:id="art.ha.geo.quick"
+  xmlns="http://docbook.org/ns/docbook"
+  xmlns:dm="urn:x-suse:ns:docmanager"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>&geoquick;</title>
+ <subtitle>&productname; &productnumber;</subtitle>
+ <info>
+  <productnumber>&productnumber;</productnumber><productname>&productname;</productname><date>
+<?dbtimestamp?></date>
+  <authorgroup>
+   <author><personname><firstname>Tanja</firstname><surname>Roth</surname></personname>
+   </author>
+   <author><personname><firstname>Thomas</firstname><surname>Schraitle</surname></personname>
+   </author>
+  </authorgroup>
+  <abstract>
+   <para>
+    &abstract-geoquick; This document guides you through the basic setup of a
+    &geo; cluster, using the &geo; bootstrap scripts provided by the
+    <systemitem xmlns='http://docbook.org/ns/docbook'
+        class='resource'>ha-cluster-bootstrap</systemitem>
+    package.
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:bugtracker>
+    <dm:url>https://bugzilla.suse.com/enter_bug.cgi</dm:url>
+    <dm:product>SUSE Linux Enterprise High Availability Extension 12 SP3</dm:product>
+    <dm:component>GEO Clustering</dm:component>
+   </dm:bugtracker>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec.ha.geo.quick.concept">
+  <title>Conceptual Overview</title>
+
+  &geo-clusters-concept;
+
+  <para>
+   <remark>toms 2017-07-04: for the future: maybe also add example IP addresses
+    to graphic (node IPs, VIPs for cluster sites)
+    </remark>
+  </para>
+
+  <figure xml:id="fig.ha.geo.quick.example.geosetup">
+   <title>Two-Site Cluster (2x2 Nodes + Arbitrator)</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geocluster.svg" width="100%" format="SVG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   For more details on the concept, components and ticket management used for
+   &geo; clusters, see the <citetitle>Conceptual Overview</citetitle> chapter in
+   the <literal>&geoguide;</literal>. It is available at
+   <link
+       xlink:href="https://www.suse.com/documentation"/>.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.scenario">
+  <title>Usage Scenario</title>
+
+  <para>
+   In the following, we will set up a basic &geo; cluster with two cluster
+   sites and one arbitrator:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     We assume the cluster sites are named <literal>&cluster1;</literal> and
+     <literal>&cluster2;</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     We assume that each site consists of two nodes. The nodes
+     <literal>&node1;</literal> and <literal>&node2;</literal> belong to the
+     cluster <literal>&cluster1;</literal>. The nodes
+     <literal>&node3;</literal> and <literal>&node4;</literal> belong to the
+     cluster <literal>&cluster2;</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Site <literal>&cluster1;</literal> will get the following virtual IP
+     address: <literal>&geo-vip-site1;</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Site <literal>&cluster2;</literal> will get the following virtual IP
+     address: <literal>&geo-vip-site2;</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     We assume that the arbitrator has the following IP address:
+     <literal>&geo-ip-arbi;</literal>.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Before you proceed, make sure the following requirements are fulfilled:
+  </para>
+
+  <variablelist>
+   <title>Requirements</title>
+   <varlistentry>
+    <term>Two Existing Clusters</term>
+    <listitem>
+     <para>
+      You have at least two existing clusters that you want to combine into a
+      &geo; cluster. (If you need to set up two clusters first, follow the
+      instructions in the <citetitle>&instquick;</citetitle>. The document is
+      available from
+      <link
+       xlink:href="https://www.suse.com/documentation"/>).
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Meaningful Cluster Names</term>
+    <listitem>
+     <para>
+      Each cluster has a meaningful cluster name defined in &corosync.conf;
+      that reflects its location.
+     </para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Arbitrator</term>
+    <listitem>
+     <para>
+      You have installed a third machine that is not part of any existing
+      clusters and is to be used as arbitrator.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   For detailed requirements on each item, see also
+   <xref
+  linkend="sec.ha.geo.quick.req"/>.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.req">
+  <title>Requirements</title>
+
+  &geo-clusters-req-sw;
+
+  <itemizedlist>
+   <title>Network Requirements</title>
+   &geo-clusters-req-netw-vip;
+   &geo-clusters-req-netw-ports;
+   &geo-clusters-req-netw-ports-drbd;
+  </itemizedlist>
+
+  &geo-clusters-req-other;
+
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.scripts">
+  <title>Overview of the &geo; Bootstrap Scripts</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     With <command>ha-cluster-geo-init</command>, turn a cluster into the first
+     site of a &geo; cluster. The script takes some parameters like the names of
+     the clusters, the arbitrator, and one or multiple tickets and creates
+     &booth.conf; from them. It copies the booth configuration to all nodes on the
+     current cluster site. It also configures the cluster resources needed for
+     booth on the current cluster site.
+    </para>
+    <para>
+     For details, see <xref linkend="sec.ha.geo.quick.ha-cluster-geo-init"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     With <command>ha-cluster-geo-join</command>, add the current cluster to an
+     existing &geo; cluster. The script copies the booth configuration from an
+     existing cluster site and writes it to &booth.conf; on all nodes on the
+     current cluster site. It also configures the cluster resources needed for
+     booth on the current cluster site.
+    </para>
+    <para>
+     For details, see <xref linkend="sec.ha.geo.quick.ha-cluster-geo-join"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     With <command>ha-cluster-geo-init-arbitrator</command>, turn the current
+     machine into an arbitrator for the &geo; cluster. The script copies the
+     booth configuration from an existing cluster site and writes it to
+     &booth.conf;.
+    </para>
+    <para>
+     For details, see
+     <xref linkend="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   All bootstrap scripts log to
+   <filename>/var/log/ha-cluster-bootstrap.log</filename>. Check the log file
+   for any details of the bootstrap process. Any options set during the
+   bootstrap process can be modified later (by modifying booth settings,
+   modifying resources etc.). For details, see the
+   <literal>&geoguide;</literal>. It is available at
+   <link xlink:href="https://www.suse.com/documentation"/>.
+  </para>
+
+<!--taroth 2017-07-03: the following is not really true by now, the man pages
+     are rather basic ATM:
+     <para>Each script comes with a man page covering the range of functions, the
+      script's options, and an overview of the files the script can create and modify.
+    </para>-->
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.inst">
+  <title>Installation as Extension</title>
+
+  <para>
+   Support for using &ha; clusters across unlimited distances is available as a
+   separate extension, called &hageo;.
+  </para>
+  <para>
+   For setting up a &geo; cluster you need the packages included in the
+   following installation patterns:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <literal>&ha;</literal>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <literal>&geo; Clustering for &ha;</literal>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Both patterns are only available if you have registered your system at &scc;
+   (or a local registration server) and have added the respective product
+   channels or installation media as an extension. For information on how to
+   install extensions, see the <citetitle>&sle; &productnumber;
+   &deploy;</citetitle>, available at
+   <link xlink:href="http://www.suse.com/documentation/"/>. Refer to chapter
+   <citetitle>Installing Modules, Extensions, and Third Party Add-On
+   Products</citetitle>.
+<!--taroth: need to use hard-coded link here as the target is not included in the same set-->
+  </para>
+
+  <procedure xml:id="pro.ha.geo.inst">
+   <title>Installing the Packages</title>
+   <step>
+    <para>
+     To install the packages from both patterns via command line, use Zypper:
+    </para>
+<screen>&prompt.root;<command>zypper</command> install -t pattern ha_sles ha_geo</screen>
+   </step>
+   <step xml:id="st.ha.geo.inst.yast">
+    <para>
+     Alternatively, use &yast; for a graphical installation:
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Start &yast; as &rootuser; user and select <menuchoice>
+       <guimenu>Software</guimenu> <guimenu>Software Management</guimenu>
+       </menuchoice>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Click <menuchoice> <guimenu>View</guimenu> <guimenu>Patterns</guimenu>
+       </menuchoice> and activate the following patterns:
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         <literal>&ha;</literal>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <literal>&geo; Clustering for &ha;</literal>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </step>
+     <step>
+      <para>
+       Click <guimenu>Accept</guimenu> to start installing the packages.
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+
+  <important>
+   <title>Installing Software Packages on all Parties</title>
+   <para>
+    The software packages needed for &ha; and &geo; clusters are
+    <emphasis>not</emphasis> automatically copied to the cluster nodes.
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Install &sls; &productnumber; and the <literal>&ha;</literal> and
+      <literal>&geo; Clustering for &ha;</literal> patterns on
+      <emphasis>all</emphasis> machines that will be part of your &geo;
+      cluster.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Instead of manually installing the packages on all machines that will be
+      part of your cluster, use &ay; to clone existing nodes. Find more
+      information in the <citetitle>&haguide;</citetitle> for &productname;
+      &productnumber;, available from
+      <link xlink:href="http://www.suse.com/documentation/"/>. Refer to the
+      chapter <citetitle>Installing the &hasi;</citetitle>, section
+      <citetitle>Mass Installation and Deployment with &ay;</citetitle>.
+     </para>
+     <para>
+      <remark>taroth 2017-06-29: @DEV/QA, is the following still true?</remark>
+      However, the &geo; clustering extension must be installed
+      <emphasis>manually</emphasis> on all machines that will be part of the
+      &geo; cluster. &ay; support for &hageo; is not yet available.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init">
+  <title>Setting Up the First Site of a &geo; Cluster</title>
+
+  <para>
+   Use the <command>ha-cluster-geo-init</command> script to turn an existing
+   cluster into the first site of a &geo; cluster.
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init">
+   <title>Setting Up the First Site (<systemitem>&cluster1;</systemitem>) with <command>ha-cluster-geo-init</command></title>
+   <step>
+    <para>
+     Define a virtual IP per cluster site that can be used to access the site.
+     We assume using <literal>&geo-vip-site1;</literal> and
+     <literal>&geo-vip-site2;</literal> for this purpose. You do not need to
+     configure the virtual IPs as cluster resources yet. This will be done by
+     the bootstrap scripts.
+    </para>
+   </step>
+   <step>
+    <para>
+     Define the name of at least one ticket that will grant the right to run
+     certain resources on a cluster site. Use a meaningful name that reflects
+     the resources that will depend on the ticket (for example,
+     <literal>&ticket3;</literal>). The bootstrap scripts only need the ticket
+     name&mdash;you can define the remaining details (ticket dependencies of
+     the resources) later on, as described in
+     <xref
+      linkend="sec.ha.geo.quick.next"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Log in to a node of an existing cluster (for example, on node
+     <literal>&node1;</literal> of the cluster <literal>&cluster1;</literal>).
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-init">
+    <para>
+     Run <command>ha-cluster-geo-init</command>. For example, use the following
+     options:
+    </para>
+<screen>&prompt.root;<command>ha-cluster-geo-init</command> \
+  --clusters<co xml:id="co.geo.init.clusters"/> "&cluster1;=&geo-vip-site1; &cluster2;=&geo-vip-site2;" \
+  --tickets<co xml:id="co.geo.init.ticket"/> &ticket3; \
+  --arbitrator<co xml:id="co.geo.init.arbitrator"/> &geo-ip-arbi;</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.clusters">
+      &geo-join-clusters;
+     </callout>
+     <callout arearefs="co.geo.init.ticket">
+      <para>
+       The name of one or multiple tickets.
+      </para>
+     </callout>
+     <callout arearefs="co.geo.init.arbitrator">
+      <para>
+       The host name or IP address of a machine outside of the clusters.
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   The bootstrap script creates the booth configuration file and synchronizes
+   it across the cluster sites. It also creates the basic cluster resources
+   needed for booth. <xref linkend="st.ha-cluster-geo-init" xrefstyle="seletc:label"/> of
+   <xref linkend="pro.ha.geo.quick.ha-cluster-geo-init" xrefstyle="select:label"/>
+   would result in the following booth configuration and cluster resources:
+  </para>
+
+  <example xml:id="ex.geo.init.booth.conf">
+   <title>Booth Configuration Created By <command>ha-cluster-geo-init</command></title>
+<screen># The booth configuration file is "/etc/booth/booth.conf". You need to
+# prepare the same booth configuration file on each arbitrator and
+# each node in the cluster sites where the booth daemon can be launched.
+
+# "transport" means which transport layer booth daemon will use.
+# Currently only "UDP" is supported.
+transport="UDP"
+port="9929"
+
+arbitrator="&geo-ip-arbi;"
+site="&geo-vip-site1;"
+site="&geo-vip-site2;"
+authfile="/etc/booth/authkey"
+ticket="&ticket3;"
+expire="600"</screen>
+  </example>
+
+  <example xml:id="ex.geo.init.rsc.conf">
+   <title>Cluster Resources Created by <command>ha-cluster-geo-init</command></title>
+<screen>primitive<co xml:id="co.geo.quick.rsc.booth-ip"/> booth-ip IPaddr2 \
+  params rule #cluster-name eq &cluster1; ip=&geo-vip-site1; \
+  params rule #cluster-name eq &cluster2; ip=&geo-vip-site2; \
+primitive<co xml:id="co.geo.quick.rsc.booth-site"/> booth-site ocf:pacemaker:booth-site \
+  meta resource-stickiness=INFINITY \
+  params config=booth \
+  op monitor interval=10s
+group<co xml:id="co.geo.quick.rsc.g-booth"/> g-booth booth-ip booth-site \
+meta target-role=Stopped<co xml:id="co.geo.quick.rsc.stopped"/></screen>
+   <calloutlist>
+    <callout arearefs="co.geo.quick.rsc.booth-ip">
+     <para>
+      A virtual IP address for each cluster site. It is required by the booth
+      daemons who need a persistent IP address on each cluster site.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.booth-site">
+     <para>
+      A primitive resource for the booth daemon. It communicates with the booth
+      daemons on the other cluster sites. The daemon can be started on any
+      node of the site, but to make the resource stay on the same node, if possible,
+      resource-stickiness is set to <literal>INFINITY</literal>.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.g-booth">
+     <para>
+      A cluster resource group for both primitives. With this configuration, each
+      booth daemon will be available at its individual IP address, independent of
+      the node the daemon is running on.
+     </para>
+    </callout>
+    <callout arearefs="co.geo.quick.rsc.stopped">
+     <para>
+      The cluster resource group is not started by default. After verifying the
+      configuration of your cluster resources (and adding the resources you
+      need to complete your setup), you need to start the resource group. See
+      <xref linkend="vl.ha.geo.quick.next.req"/> for details.
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-join">
+  <title>Adding Another Site to a &geo; Cluster</title>
+
+  <para>
+   After you have initialized the first site of your &geo; cluster, add the
+   second cluster with <literal>ha-cluster-geo-join</literal>, as described in
+   <xref linkend="pro.ha.geo.quick.ha-cluster-geo-join"
+   xrefstyle="select:label"/>.
+   The script needs SSH access to an already configured cluster site and will
+   add the current cluster to the &geo; cluster.
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-join">
+   <title>Adding the Second Site (<literal>&cluster2;</literal>) with <command>ha-cluster-geo-join</command></title>
+   <step>
+    <para>
+     Log in to a node of the cluster site you want to add (for example, on node
+     <literal>&node3;</literal> of the cluster <literal>&cluster2;</literal>).
+    </para>
+   </step>
+   <step xml:id="st.ha-cluster-geo-join">
+    <para>
+     Run the <command>ha-cluster-geo-join</command> command. For example:
+    </para>
+<screen>&prompt.root;<command>ha-cluster-geo-join</command> \
+  --cluster-node<co xml:id="co.geo.join.cluster-node"/> &geo-vip-site1;\
+  --clusters<co xml:id="co.geo.join.clusters"/> "&cluster1;=&geo-vip-site1; &cluster2;=&geo-vip-site2;"
+     </screen>
+    <calloutlist>
+     <callout arearefs="co.geo.join.cluster-node">
+      <para>
+       Specifies where to copy the booth configuration from. Use the IP address
+       or host name of a node in an already configured &geo; cluster site.
+       You can also use the virtual IP address of an already existing cluster
+       site (like in this example). Alternatively, use the IP address or host
+       name of an already configured arbitrator for your &geo; cluster.
+      </para>
+     </callout>
+     <callout arearefs="co.geo.join.clusters">
+      &geo-join-clusters;
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   The <command>ha-cluster-geo-join</command> script copies the booth
+   configuration from
+   <xref linkend="co.geo.join.cluster-node" xrefstyle="select:label"/>, see
+   <xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/>. In
+   addition, it creates the cluster resources needed for booth (see
+   <xref linkend="ex.geo.init.rsc.conf"
+   xrefstyle="select:label"/>).
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+  <title>Adding the Arbitrator</title>
+
+  <para>
+   After you have set up all sites of your &geo; cluster with
+   <command>ha-cluster-geo-init</command> and
+   <command>ha-cluster-geo-join</command>, set up the arbitrator with
+   <command>ha-cluster-geo-init-arbitrator</command>.
+  </para>
+
+  <procedure xml:id="pro.ha.geo.quick.ha-cluster-geo-init-arbitrator">
+   <title>Setting Up the Arbitrator with <command>ha-cluster-geo-init-arbitrator</command></title>
+   <step>
+    <para>
+     Log in to the machine you want to use as arbitrator.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run the following command. For example:
+    </para>
+<screen>&prompt.root;<command>ha-cluster-geo-init-arbitrator</command> --cluster-node<co
+   xml:id="co.geo.init.arbitrator.cluster-node"/> &geo-vip-site1;</screen>
+    <calloutlist>
+     <callout arearefs="co.geo.init.arbitrator.cluster-node">
+      <para>
+       Specifies where to copy the booth configuration from. Use the IP address
+       or host name of a node in an already configured &geo;
+       cluster site. Alternatively, use the virtual IP address of an already
+       existing cluster site (like in this example).
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   The <command>ha-cluster-geo-init-arbitrator</command> script copies the
+   booth configuration from
+   <xref linkend="co.geo.init.arbitrator.cluster-node"/>, see
+   <xref linkend="ex.geo.init.booth.conf" xrefstyle="select:label"/>. It also
+   enables and starts the booth service on the arbitrator. Thus, the arbitrator
+   is ready to communicate with the booth instances on the cluster sites as
+   soon as the booth services are running there too.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.monitor">
+  <title>Monitoring the Cluster Sites</title>
+
+  <para>
+   To view both cluster sites with the resources and the ticket that you have
+   created during the bootstrapping process, use &hawk2;. The &hawk2; Web
+   interface allows you to monitor and manage multiple (unrelated) clusters and
+   &geo; clusters.
+  </para>
+
+  <itemizedlist>
+   <title>Prerequisites</title>
+   <listitem>
+    <para>
+     All clusters to be monitored from &hawk2;'s <guimenu>Dashboard</guimenu>
+     must be running &productname; &productnumber;.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     If you did not replace the self-signed certificate for &hawk2; on every
+     cluster node with your own certificate (or a certificate signed by an
+     official Certificate Authority) yet, do the following: Log in to &hawk2; on
+     <emphasis>every</emphasis> node in <emphasis>every</emphasis> cluster
+     at least once. Verify the certificate (or add an exception in the
+     browser to bypass the warning). Otherwise &hawk2; cannot connect to the
+     cluster.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro.ha.geo.quick.hawk2.dashboard">
+   <title>Using the &hawk2; Dashboard</title>
+   <step>
+    <para>
+     Start a Web browser and enter the virtual IP of your first cluster site,
+     <literal>&cluster1;</literal>:
+    </para>
+<screen>https://&geo-vip-site1;:7630/</screen>
+    <para>
+     Alternatively, use the IP address or host name of
+     <literal>&node1;</literal> or <literal>&node2;</literal>. If you have set
+     up both nodes with the bootstrap scripts, the <literal>hawk</literal>
+     service should run on both nodes.
+    </para>
+   </step>
+   <step>
+    <para>
+     Log in to the &hawk2; Web interface.
+    </para>
+   </step>
+   <step>
+    <para>
+     From the left navigation bar, select <guimenu>Dashboard</guimenu>.
+    </para>
+    <para>
+     &hawk2; shows an overview of the resources and nodes on the current
+     cluster site. In addition, it shows any <guimenu>Tickets</guimenu> that
+     have been configured for the &geo; cluster. If you need information about
+     the icons used in this view, click <guimenu>Legend</guimenu>.
+    </para>
+    <figure>
+     <title>&hawk2; Dashboard with One Cluster Site (<literal>&cluster1;</literal>)</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="95%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     To add a dashboard for the second cluster site, click <guimenu>Add
+     Cluster</guimenu>.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Enter the <guimenu>Cluster name</guimenu> with which to identify the
+       cluster in the <guimenu>Dashboard</guimenu>. In this case,
+       <literal>&cluster2;</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Enter the fully qualified host name of one of the cluster nodes (in this
+       case, <literal>&node3;</literal> or <literal>&node4;</literal>).
+      </para>
+     </step>
+     <step>
+      <para>
+       Click <guimenu>Add</guimenu>. &hawk2; will display a second tab for the
+       newly added cluster site with an overview of its nodes and resources.
+      </para>
+      <figure>
+       <title>&hawk2; Dashboard with Both Cluster Sites</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="95%" format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     To view more details for a cluster site or to manage it, switch to the
+     site's tab and click the chain icon.
+    </para>
+    <para>
+     &hawk2; opens the <guimenu>Status</guimenu> view for this site in a new
+     browser window or tab. From there, you can administer this part of the
+     &geo; cluster.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.next">
+  <title>Next Steps</title>
+
+  <para>
+   The &geo; clustering bootstrap scripts provide a quick way to set up a basic
+   &geo; cluster that can be used for testing purposes. However, to move the
+   resulting &geo; cluster into a functioning &geo; cluster that can be used in
+   production environments, more steps are required&mdash;see
+   <xref
+    linkend="vl.ha.geo.quick.next.req"/>.
+  </para>
+
+  <variablelist xml:id="vl.ha.geo.quick.next.req">
+   <title>Required Steps to Complete the &geo; Cluster Setup</title>
+   <varlistentry xml:id="vle.ha.geo.quick.booth.service.sites">
+    <term>Starting the Booth Services on Cluster Sites</term>
+    <listitem>
+     <para>
+      After the bootstrap process, the arbitrator booth service cannot communicate
+      with the booth services on the cluster sites yet, because they are not
+      started by default.
+     </para>
+     <para>
+      The booth service for each cluster site is managed by the booth resource
+      group <literal>g-booth</literal> (see
+      <xref linkend="ex.geo.init.rsc.conf"/>). To start one instance of the
+      booth service per site, start the respective booth resource group on each
+      cluster site. This enables all booth instances to communicate with each
+      other.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Configuring Ticket Dependencies and Ordering Constraints</term>
+    <listitem>
+     <para>
+      To make resources depend on the ticket that you have created during the
+      &geo; cluster bootstrap process, configure constraints. For each
+      constraint, set a <literal>loss-policy</literal> that defines what should
+      happen to the respective resources if the ticket is revoked from a cluster
+      site.
+     </para>
+     <para>
+      For details, see the <literal>&geoguide;</literal>, chapter
+      <citetitle>Configuring Cluster Resources and Constraints</citetitle>. It
+      is available from
+      <link
+      xlink:href="https://www.suse.com/documentation"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Initially Granting a Ticket to a Site</term>
+    <listitem>
+     <para>
+      Before booth can manage a certain ticket within the &geo; cluster, you
+      initially need to <emphasis>grant</emphasis> it to a site manually. You
+      can use either the booth client command line tool or &hawk2; to grant a
+      ticket.
+     </para>
+     <para>
+      For details, see the <citetitle>Managing &geo; Clusters</citetitle> chapter
+      in the <literal>&geoguide;</literal>. It is available at
+      <link
+       xlink:href="https://www.suse.com/documentation"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   The bootstrap scripts create the same booth resources on both cluster sites,
+   and the same booth configuration files on all sites, including the
+   arbitrator. If you extend the &geo; cluster setup (to move to a production
+   environment), you will probably fine-tune the booth configuration and also
+   change the configuration of the booth-related cluster resources. Afterward,
+   you need to synchronize the changes to the other sites of your &geo; cluster
+   to take effect.
+  </para>
+
+  <note>
+   <title>Synchronizing Changes Across Cluster Sites</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      To synchronize changes in the booth configuration to all cluster sites
+      (including the arbitrator), use &csync;. Find more information in the
+      <literal>&geoguide;</literal>, chapter <citetitle>Synchronizing
+      Configuration Files Across All Sites and Arbitrators</citetitle>. The
+      guide is available from
+      <link
+        xlink:href="https://www.suse.com/documentation"/>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The CIB (Cluster Information Database) is not automatically synchronized
+      across cluster sites of a &geo; cluster. That means any changes in
+      resource configuration that are required on all cluster sites need to be
+      transferred to the other sites manually. Do so by tagging the
+      respective resources, exporting them from the current CIB, and importing
+      them to the CIB on the other cluster sites. For details, see the
+      <literal>&geoguide;</literal>, section <citetitle>Transferring the
+      Resource Configuration to Other Cluster Sites</citetitle>. The guide is
+      available from
+      <link
+        xlink:href="https://www.suse.com/documentation"/>.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec.ha.geo.quick.more">
+  <title>For More Information</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     More documentation for this product is available at
+     <link
+      xlink:href="https://www.suse.com/documentation/sle-ha-geo-12/"/>.
+     The documentation also includes a comprehensive
+     <literal>&geoguide;</literal>. Refer to it for further configuration and
+     administration tasks.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     A document with detailed information how to on data replication via
+     DRBD across &geo; clusters has been published in the <literal>&sbp;</literal>
+     series:
+     <link
+      xlink:href="https://www.suse.com/documentation/suse-best-practices/sbp-drbd/data/sbp-drbd.html"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>

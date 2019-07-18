@@ -1,0 +1,448 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+<!-- Converted by suse-upgrade version 1.1 -->
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="cha.ha.gfs2">
+ <title>GFS2</title>
+ <info>
+      <abstract>
+        <para>
+    Global File System 2 or GFS2 is a shared disk file system for Linux
+    computer clusters. GFS2 allows all nodes to have direct concurrent
+    access to the same shared block storage. GFS2 has no disconnected
+    operating-mode, and no client or server roles. All nodes in a GFS2
+    cluster function as peers. GFS2 supports up to 32 cluster nodes. Using
+    GFS2 in a cluster requires hardware to allow access to the shared
+    storage, and a lock manager to control access to the storage.
+   </para>
+        <para>
+    &suse; recommends OCFS2 over GFS2 for your cluster environments if
+    performance is one of your major requirements. Our tests have revealed
+    that OCFS2 performs better as compared to GFS2 in such settings.
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec.ha.gfs2.utils">
+  <title>GFS2 Packages and Management Utilities</title>
+
+  <para>
+   To use GFS2, make sure
+   <systemitem class="resource">gfs2-utils</systemitem> and a matching
+   <systemitem class="resource">gfs2-kmp-*</systemitem> package for your
+   Kernel is installed on each node of the cluster.
+  </para>
+
+  <para>
+   The <systemitem class="resource">gfs2-utils</systemitem> package provides
+   the following utilities for management of GFS2 volumes. For syntax
+   information, see their man pages.
+  </para>
+
+  <table>
+   <title>GFS2 Utilities</title>
+   <tgroup cols="2">
+    <thead>
+     <row>
+      <entry>
+       <para>
+        GFS2 Utility
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Description
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        fsck.gfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Checks the file system for errors and optionally repairs errors.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        gfs2_jadd
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Adds additional journals to a GFS2 file system.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        gfs2_grow
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Grow a GFS2 file system.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        mkfs.gfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Create a GFS2 file system on a device, usually a shared device or
+        partition.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        tunegfs2
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Allows viewing and manipulating the GFS2 file system parameters such
+        as <varname>UUID</varname>, <varname>label</varname>,
+        <varname>lockproto</varname> and <varname>locktable</varname>.
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+ </sect1>
+ <sect1 xml:id="sec.ha.gfs2.create.service">
+  <title>Configuring GFS2 Services and a &stonith; Resource</title>
+
+  <para>
+   Before you can create GFS2 volumes, you must configure DLM and a
+   &stonith; resource.
+  </para>
+
+  <procedure xml:id="pro.gfs2.stonith">
+   <title>Configuring a &stonith; Resource</title>
+   <note>
+    <title>&stonith; Device Needed</title>
+    <para>
+     You need to configure a fencing device. Without a &stonith;
+     mechanism (like <literal>external/sbd</literal>) in place the
+     configuration will fail.
+    </para>
+   </note>
+   <step>
+    <para>
+     Start a shell and log in as &rootuser; or equivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Create an SBD partition as described in
+     <xref linkend="pro.ha.storage.protect.sbd.create"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run <command>crm</command> <option>configure</option>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configure <literal>external/sbd</literal> as fencing device with
+     <literal>/dev/sdb2</literal> being a dedicated partition on the shared
+     storage for heartbeating and fencing:
+    </para>
+<screen>&prompt.crm.conf;<command>primitive</command> sbd_stonith stonith:external/sbd \
+    params pcmk_delay_max=30 meta target-role="Started"</screen>
+   </step>
+   <step>
+    <para>
+     Review your changes with <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     If everything is correct, submit your changes with
+     <command>commit</command> and leave the crm live configuration with
+     <command>exit</command>.
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+    For details on configuring the resource group for DLM, see <xref
+     linkend="pro.dlm.resources"/>.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.ha.gfs2.create">
+  <title>Creating GFS2 Volumes</title>
+
+  <para>
+   After you have configured DLM as cluster resources as described in
+   <xref linkend="sec.ha.gfs2.create.service"/>, configure your system to
+   use GFS2 and create GFS2 volumes.
+  </para>
+
+  <note>
+   <title>GFS2 Volumes for Application and Data Files</title>
+   <para>
+    We recommend that you generally store application files and data files
+    on different GFS2 volumes. If your application volumes and data volumes
+    have different requirements for mounting, it is mandatory to store them
+    on different volumes.
+   </para>
+  </note>
+
+  <para>
+   Before you begin, prepare the block devices you plan to use for your GFS2
+   volumes. Leave the devices as free space.
+  </para>
+
+  <para>
+   Then create and format the GFS2 volume with the
+   <command>mkfs.gfs2</command> as described in
+   <xref linkend="pro.gfs2.volume"/>. The most important parameters for the
+   command are listed in <xref linkend="tab.ha.gfs2.mkfs.gfs2.params"/>. For
+   more information and the command syntax, refer to the
+   <command>mkfs.gfs2</command> man page.
+  </para>
+
+  <table xml:id="tab.ha.gfs2.mkfs.gfs2.params">
+   <title>Important GFS2 Parameters</title>
+   <tgroup cols="2">
+    <colspec colname="c1" colwidth="1*"/>
+    <colspec colname="c2" colwidth="3*"/>
+    <thead>
+     <row>
+      <entry>
+       <para>
+        GFS2 Parameter
+       </para>
+      </entry>
+      <entry>
+       <para>
+        Description and Recommendation
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        Lock Protocol Name (<option>-p</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The name of the locking protocol to use. Acceptable locking
+        protocols are lock_dlm (for shared storage) or if you are using GFS2
+        as a local file system (1 node only), you can specify the
+        lock_nolock protocol. If this option is not specified, lock_dlm
+        protocol will be assumed.
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        Lock Table Name (<option>-t</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The lock table field appropriate to the lock module you are using.
+        It is
+        <replaceable>clustername</replaceable>:<replaceable>fsname</replaceable>.
+        <replaceable>clustername</replaceable> must match that in the
+        cluster configuration file, &corosync.conf;. Only members of this
+        cluster are permitted to use this file system.
+        <replaceable>fsname</replaceable> is a unique file system name used
+        to distinguish this GFS2 file system from others created (1 to 16
+        characters).
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        Number of Journals (<option>-j</option>)
+       </para>
+      </entry>
+      <entry>
+       <para>
+        The number of journals for gfs2_mkfs to create. You need at least
+        one journal per machine that will mount the file system. If this
+        option is not specified, one journal will be created.
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+
+  <procedure xml:id="pro.gfs2.volume">
+   <title>Creating and Formatting a GFS2 Volume</title>
+   <para>
+    Execute the following steps only on <emphasis>one</emphasis> of the
+    cluster nodes.
+   </para>
+   <step>
+    <para>
+     Open a terminal window and log in as &rootuser;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check if the cluster is online with the command <command>crm
+     status</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Create and format the volume using the <command>mkfs.gfs2</command>
+     utility. For information about the syntax for this command, refer to
+     the <command>mkfs.gfs2</command> man page.
+    </para>
+    <para>
+     For example, to create a new GFS2 file system on
+     <filename>/dev/sdb1</filename> that supports up to 32 cluster nodes,
+     use the following command:
+    </para>
+<screen>&prompt.root;mkfs.gfs2 -t hacluster:mygfs2 -p lock_dlm -j 32 /dev/sdb1</screen>
+<!-- Brendo, 17.11.2010: maybe add -b 4k in the example (this is common
+ for software raids) -->
+    <para>
+     The <systemitem class="server">hacluster</systemitem> name relates to
+     the entry <option>cluster_name</option> in the file
+     <filename>/etc/corosync/corosync.conf</filename> (this is the default).
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec.ha.gfs2.mount">
+  <title>Mounting GFS2 Volumes</title>
+
+  <para>
+   You can either mount a GFS2 volume manually or with the cluster manager,
+   as described in <xref linkend="pro.gfs2.mount.cluster"/>.
+  </para>
+
+  <procedure xml:id="pro.gfs2.mount.manual">
+   <title>Manually Mounting a GFS2 Volume</title>
+   <step>
+    <para>
+     Open a terminal window and log in as &rootuser;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check if the cluster is online with the command <command>crm
+     status</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Mount the volume from the command line, using the
+     <command>mount</command> command.
+    </para>
+   </step>
+  </procedure>
+
+  <warning>
+   <title>Manually Mounted GFS2 Devices</title>
+   <para>
+    If you mount the GFS2 file system manually for testing purposes, make
+    sure to unmount it again before starting to use it by means of cluster
+    resources.
+   </para>
+  </warning>
+
+  <procedure xml:id="pro.gfs2.mount.cluster">
+   <title>Mounting a GFS2 Volume with the Cluster Manager</title>
+   <para>
+    To mount a GFS2 volume with the &ha; software, configure an OCF file
+    system resource in the cluster. The following procedure uses the
+    <command>crm</command> shell to configure the cluster resources.
+    Alternatively, you can also use &hawk2; to configure the resources.
+   </para>
+   <step>
+    <para>
+     Start a shell and log in as &rootuser; or equivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run <command>crm</command> <option>configure</option>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Configure Pacemaker to mount the GFS2 file system on every node in the
+     cluster:
+    </para>
+<screen>&prompt.crm.conf;<command>primitive</command> gfs2-1 ocf:heartbeat:Filesystem \
+  params device="/dev/sdb1" directory="/mnt/shared" fstype="gfs2" \
+  op monitor interval="20" timeout="40" \
+  op start timeout="60" op stop timeout="60" \
+  meta target-role="Stopped"</screen>
+   </step>
+   <step>
+    <para>
+     Create a base group that consists of the <literal>dlm</literal>
+     primitive you created in <xref linkend="pro.dlm.resources"/> and the
+     <literal>gfs2-1</literal> primitive. Clone the group:
+    </para>
+<screen>&prompt.crm.conf;<command>group</command> g-storage dlm  gfs2-1
+     <command>clone</command> cl-storage g-storage \
+     meta interleave="true"</screen>
+    <para>
+     Because of the base group's internal colocation and ordering, Pacemaker
+     will only start the <systemitem class="resource">gfs2-1</systemitem>
+     resource on nodes that also have a <literal>dlm</literal> resource
+     already running.
+    </para>
+   </step>
+   <step>
+    <para>
+     Review your changes with <command>show</command>.
+<!--taroth 2014-08-28: appendix file commented for now, because it needs
+      alignement with changes here:
+      To check if you have configured all needed resources, also refer to
+      <xref linkend="cha.ha.config.example"/>.-->
+    </para>
+   </step>
+   <step>
+    <para>
+     If everything is correct, submit your changes with
+     <command>commit</command> and leave the crm live configuration with
+     <command>exit</command>.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>

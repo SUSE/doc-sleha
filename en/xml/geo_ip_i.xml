@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE chapter
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+<!-- Converted by suse-upgrade version 1.1 -->
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="cha.ha.geo.ip.relocation">
+<!--taroth 2014-1120: https://fate.suse.com/316112-->
+ <title>Setting Up IP Relocation via DNS Update</title>
+ <info>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:maintainer/>
+   <dm:status>editing</dm:status>
+   <dm:deadline/>
+   <dm:priority/>
+   <dm:translation>yes</dm:translation>
+   <dm:languages/>
+   <dm:release/>
+   <dm:repository/>
+  </dm:docmanager>
+ </info>
+ <para>
+  In case one site of your &geo; cluster is down and a ticket failover appears,
+  you usually need to adjust the network routing accordingly (or you need to
+  have configured a network failover for each ticket). Depending on the kind of
+  service that is bound to a ticket, there is an alternative solution to
+  reconfiguring the routing: You can use dynamic DNS update and instead change
+  the IP address for a service.
+ </para>
+ <para>
+  The following prerequisites must be fulfilled for this scenario:
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    The service that needs to fail over is bound to a host name.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Your DNS server must be configured for dynamic DNS updates. For information
+    on how to do so with BIND/named, see the <literal>named</literal>
+    documentation, or refer to
+    <link xlink:href="http://www.semicomplete.com/articles/dynamic-dns-with-dhcp/"/>.
+    <remark>taroth 2014-11-21: lmb, would you consider the aforementioned link appropriate (WRT to
+     our customers and the kind of setup that is needed here)?</remark>
+    More information on how to set up DNS, including dynamic update of zone
+    data, can be found in the chapter <citetitle>The Domain Name
+    System</citetitle> of the &sle; &admin;. It is available from
+    <link xlink:href="http://www.suse.com/documentation/"/>.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    The following example assumes that the DNS updates are protected by a
+    shared key (TSIG key) for the zone to be updated. The key can be created
+    using <command>dnssec-keygen</command>:
+   </para>
+<screen>&prompt.root;<command>dnssec-keygen</command> -a hmac-md5 -b 128 -n USER geo-update</screen>
+   <para>
+    For more information, see the <command>dnssec-keygen</command> man page or
+    the &sle; &admin;, available from
+    <link xlink:href="http://www.suse.com/documentation/"/>. Refer to chapter
+    <citetitle>The Domain Name System</citetitle>, section <citetitle>Secure
+    Transactions</citetitle>.
+   </para>
+  </listitem>
+ </itemizedlist>
+ <para>
+  <xref linkend="ex.ha.geo.dyn.dns.rsc.config"/> illustrates how to use the
+  <systemitem>ocf:heartbeat:dnsupdate</systemitem> resource agent to manage the
+  <command>nsupdate</command>
+<!--taroth 2015-01-08: question by the proofreader:
+   Should this say 'dnsupdate'? (missing 'd')? - taroth 2016-01-08: for the
+   records: nope, correct as is-->
+  command.
+  <remark>taroth 2014-11-21: lmb, is the following correct? it
+   is mentioned in the description of fate#316112, however, your example in c#9 mentions focuses on
+   IPv4 only...</remark>
+  The resource agent supports both IPv4 and IPv6.
+ </para>
+ <example xml:id="ex.ha.geo.dyn.dns.rsc.config">
+  <title>Resource Configuration for Dynamic DNS Update</title>
+<screen>&prompt.crm.conf;<command>primitive</command> dns-update-ip ocf:heartbeat:dnsupdate params \
+  hostname="www.domain.com"<co xml:id="co.dyn.dns.hostname"/> ip="192.168.3.4"<co xml:id="co.dyn.dns.ip"/>\
+  keyfile="<replaceable>/etc/whereever/Kgeo-update*</replaceable>.key"<co xml:id="co.dyn.dns.key"/>\
+  server="192.168.1.1"<co xml:id="co.dyn.dns.srv"/> serverport="53"<co xml:id="co.dyn.dns.srv.port"/></screen>
+  <calloutlist>
+   <callout arearefs="co.dyn.dns.hostname">
+    <para>
+     Host name bound to the service that needs to fail over together with the
+     ticket. The IP address of this host name needs to be updated via dynamic
+     DNS.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.ip">
+    <para>
+     IP address of the server hosting the service to be migrated.
+     <remark>taroth 2014-11-21:
+     lmb, this description taken from fate c#9 is IMHO a bit misleading as it seems to imply that
+     this param is about the *current* IP address. However, from the description in
+     /usr/lib/ocf/resource.d/heartbeat/dnsupdate, I think this needs to be the IP address that
+     will be used for the hostname *after* failover - is that correct?</remark>
+     The IP address specified here can be under cluster control, too. This does
+     not handle local failover, but it ensures that outside parties will be
+     directed to the right site after a ticket failover.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.key">
+    <para>
+     Path to the public key file generated with
+     <command>dnssec-keygen</command>.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.srv">
+    <para>
+     IP address of the DNS server to send the updates to. If no server is
+     provided, this defaults to the master server for the correct zone.
+    </para>
+   </callout>
+   <callout arearefs="co.dyn.dns.srv.port">
+    <para>
+     Port to use for communication with the DNS server. This option will only
+     take effect if a DNS server is specified.
+    </para>
+   </callout>
+  </calloutlist>
+  <para>
+   With the resource configuration above, the resource agent takes care of
+   removing the failed &geo; cluster site from the DNS record and changing the
+   IP for a service via dynamic DNS update.
+  </para>
+ </example>
+</chapter>
