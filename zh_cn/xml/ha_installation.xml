@@ -1,0 +1,810 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_installation.xml" version="5.0" xml:id="cha-ha-setup">
+<?dbfo-need height="20em"?>
+
+
+ <title>使用 YaST 群集模块</title>
+ <info>
+  <abstract>
+   <para>YaST 群集模块可让您手动从头开始设置群集，或修改现有群集的选项。
+   </para>
+   <para>
+    不过，如果您希望采用自动方式设置群集，请参见<xref linkend="art-ha-install-quick"/>。该指南介绍了如何安装所需的包并会引导您创建基本的双节点群集，该群集是使用 <systemitem>ha-cluster-bootstrap</systemitem> 脚本设置的。
+   </para>
+   <para>
+    您还可结合使用这两种设置方法，例如，使用 YaST 群集设置一个节点，然后使用其中一个引导脚本集成更多节点（或反之）。
+   </para>
+  </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec-ha-installation-terms">
+  <title>术语定义</title>
+
+  <para>
+   下面定义了 YaST 群集模块和本章中使用的多个关键术语。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>绑定网络地址 (<systemitem>bindnetaddr</systemitem>)
+    </term>
+    <listitem>
+     <para>
+      Corosync 管理器应绑定的网络地址。为方便在群集间共享配置文件，Corosync 使用网络接口网络掩码来仅屏蔽用于路由网络的地址位。例如，如果本地接口是 <literal>192.168.5.92</literal> 并且网络掩码是 <literal>255.255.255.0</literal>，则 <systemitem>bindnetaddr</systemitem> 将设置为 <literal>192.168.5.0</literal>。例如，如果本地接口是 <literal>192.168.5.92</literal> 并且网络掩码是 <literal>255.255.255.192</literal>，则 <systemitem>bindnetaddr</systemitem> 将设置为 <literal>192.168.5.64</literal>。
+     </para>
+     <note>
+      <title>所有节点的网络地址</title>
+      <para>
+       由于所有节点将使用相同的 Corosync 配置，请务必使用 <systemitem>bindnetaddr</systemitem> 之类的网络地址，而不是特定网络接口地址。
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><systemitem class="resource">conntrack 工具</systemitem></term>
+    <listitem>
+     <para>
+      可与内核内连接跟踪系统交互，以便对 iptables 启用<emphasis>有状态</emphasis>包检测。High Availability Extension 使用此工具来同步群集节点之间的连接状态。有关详细信息，请参见 <link xlink:href="http://conntrack-tools.netfilter.org/"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      可用于在群集中的所有节点间（甚至在 Geo 群集间）复制配置文件的同步工具。Csync2 可处理排入同步组的任意数量的主机。每个同步组都有自己的成员主机列表及其包含/排除模式，包含/排除模式定义了在同步组中应同步哪些文件。同步组、属于每个组的主机名以及每个组的包含/排除规则均在 Csync2 配置文件 <filename>/etc/csync2/csync2.cfg</filename> 中指定。
+     </para>
+     <para>
+      对于身份验证，Csync2 使用 IP 地址和同步组中的预共享密钥。需要为每个同步组生成一个密钥文件，并将其复制到所有组成员。
+     </para>
+     <para>
+      有关 Csync2 的更多信息，请参见 <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>现有群集</term>
+    <listitem>
+     <para>
+        术语<quote>现有群集</quote>指的是任何包括至少一个节点的群集。现有群集具有定义通讯通道的基本 Corosync 配置，但它们不一定已有资源配置。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>多路广播</term>
+    <listitem>
+     <para>
+        一种用于网络内一对多通讯的技术，可用于群集通讯。Corosync 支持多路广播和单路广播。如果多路广播不符合公司 IT 策略，则改为使用单路广播。
+     </para>
+     <note>
+      <title>交换机和多路广播</title>
+      <para>
+       要使用多路广播进行群集通讯，请确保交换机支持多路广播。
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-mcastaddr">
+    <term>多路广播地址 (<systemitem>mcastaddr</systemitem>)
+   </term>
+    <listitem>
+     <para>
+        Corosync 管理器使用 IP 地址进行多路广播。IP 地址可以为 IPv4 或 IPv6。如果使用 IPv6 网络，则必须指定节点 ID。可以使用专用网内的任何多路广播地址。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>多路广播端口 (<systemitem>mcastport</systemitem>)</term>
+    <listitem>
+     <para>
+        用于群集通讯的端口。Corosync 使用两个端口：一个用于接收多路广播的指定 <literal>mcastport</literal> 和一个用于发送多路广播的 <literal>mcastport -1</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-rrp">
+    <term>Redundant Ring Protocol (RRP)</term>
+    <listitem>
+     <para>
+       该协议支持使用多个冗余局域网来从部分或整体网络故障中恢复。这样，只要一个网络运行正常，群集通讯就仍可继续。Corosync 支持 Totem Redundant Ring Protocol。所有参与节点上都强制实施逻辑令牌传递环以确保可靠且有序地传递消息。只有拥有令牌的节点才允许广播消息。
+     </para>
+     <para>
+      在 Corosync 中定义了冗余通讯通道后，使用 RRP 告知群集如何使用这些接口。RRP 可具有三种模式 (<literal>rrp_mode</literal>)：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        如果设置为 <literal>active</literal>，则 Corosync 将主动使用这两个接口。但是，此模式已弃用。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        如果设置为 <literal>passive</literal>，Corosync 将选择性地通过可用网络发送消息。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        如果设置为 <literal>none</literal>，将会禁用 RRP。
+       </para>
+      </listitem>
+     </itemizedlist>
+     
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>单路广播</term>
+    <listitem>
+     <para>
+        一种将消息发送到单个网络目标的技术。Corosync 支持多路广播和单路广播。在 Corosync 中，单路广播作为 UDP 单路广播 (UDPU) 实施。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-setup-yast-overview">
+   <title>YaST 群集模块</title>
+   <para>
+    启动 YaST 并选择<menuchoice> <guimenu>高可用性</guimenu>
+    <guimenu>群集</guimenu> </menuchoice>。也可以从命令行启动模块：
+   </para>
+  <screen>sudo yast2 cluster</screen>
+
+  <para>
+   下面的列表显示了 YaST 群集模块中可用屏幕的概述。它还指出了屏幕是否包含成功设置群集<emphasis>必需</emphasis>的参数，或其参数是否<emphasis>可选</emphasis>。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>通讯通道（必需）</term>
+    <listitem>
+     <para> 允许您定义用于在群集节点之间进行通讯的一个或两个通讯通道。对于传输协议，请使用多路广播 (UDP) 或单路广播 (UDPU)。有关细节，请参见<xref linkend="sec-ha-installation-setup-channels"/>。</para>
+     <important>
+      <title>冗余通讯路径</title>
+      <para>对于受支持的群集设置，要求有两个或更多冗余通讯路径。最好使用网络设备绑定，如<xref linkend="cha-ha-netbonding"/>中所述。</para>
+      <para>如果不可行，则您需要在 Corosync 中定义另一个通讯通道。</para>
+     </important>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+      <term>安全性（可选但建议使用）</term>
+      <listitem>
+       <para>允许您定义群集的身份验证设置。HMAC/SHA1 身份验证需要使用共享机密来保护和验证讯息。有关细节，请参见<xref linkend="sec-ha-installation-setup-security"/>。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term>配置 Csync2（可选但建议使用）</term>
+       <listitem>
+     <para>
+      Csync2 将帮助您跟踪配置更改，并在群集节点之间保持文件同步。有关细节，请参见<xref linkend="sec-ha-installation-setup-csync2"/>。
+     </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>配置 conntrackd（可选）</term>
+        <listitem>
+         <para>
+          可让您配置用户空间 <systemitem class="daemon">conntrackd</systemitem>。使用 conntrack 工具为 iptables 进行<emphasis>有状态</emphasis>包检测。有关细节，请参见<xref linkend="sec-ha-installation-setup-conntrackd"/>。
+         </para>
+        </listitem>
+      </varlistentry>
+   <varlistentry>
+    <term>服务（必需）</term>
+    <listitem>
+     <para>
+      允许您配置服务以使群集节点联机。定义是否在引导时启动 Pacemaker 服务，以及是否在防火墙中打开节点间通讯所需的端口。有关细节，请参见<xref linkend="sec-ha-installation-setup-services"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+   <para>
+    如果是首次启动群集模块，它会显示为向导，引导您完成进行基本设置所需的所有步骤。否则，请单击左侧面板上的类别，以访问每个步骤的配置选项。
+   </para>
+
+   <note>
+    <title>YaST 群集模块中的设置</title>
+     <para>YaST 群集模块中的一些设置仅适用于当前节点。其他设置可以通过 Csync2 自动传送到所有节点。可在以下各部分中找到有关此配置的详细信息。
+    </para>
+   </note>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-channels">
+   <title>定义通讯通道</title>
+   <para>
+    为实现群集节点间的成功通讯，请定义至少一个通讯通道。对于传输协议，请分别按<xref linkend="pro-ha-installation-setup-channel1-udp" xrefstyle="select:label"/> 或<xref linkend="pro-ha-installation-setup-channel1-udpu" xrefstyle="select:label"/> 中所述使用多路广播 (UDP) 或单路广播 (UDPU)。如果要定义另一个冗余通道（<xref linkend="pro-ha-installation-setup-channel2" xrefstyle="select:label"/>），则这两个通讯通道必须使用<emphasis>相同的</emphasis>协议。
+   </para>
+      
+   <para>YaST <guimenu>通讯通道</guimenu>屏幕中定义的所有设置都会写入到 <filename>/etc/corosync/corosync.conf</filename> 中。<filename>/usr/share/doc/packages/corosync/</filename> 中提供了一些多路广播和单路广播设置的示例文件。
+   </para>
+   
+   <para>如果您使用的是 IPv4 地址，则节点 ID 可以选填。如果使用的是 IPv6 地址，则必须填写节点 ID。YaST 群集模块提供了一个自动为每个群集节点生成唯一 ID 的选项，用户无需手动为每个节点指定 ID。</para>
+ 
+   <procedure xml:id="pro-ha-installation-setup-channel1-udp">
+    <title>定义第一个通讯通道（多路广播）</title>
+    <para>
+     使用多路广播时，将对所有群集节点使用相同的 <systemitem>bindnetaddr</systemitem>、<systemitem>mcastaddr</systemitem> 和 <systemitem>mcastport</systemitem>。通过使用相同的多路广播地址，群集中的所有节点都将知晓彼此。对于不同的群集，请使用不同的多路广播地址。
+    
+    </para>
+    <step>
+     <para>
+       启动 YaST 群集模块，然后切换到<guimenu>通讯通道</guimenu>类别。
+      </para>
+    </step>
+    <step>
+     <para>
+      将<guimenu>传输</guimenu>协议设为<literal>多路广播</literal>。
+     </para>
+    </step>
+    <step>
+     <para>
+      定义<guimenu>绑定网络地址</guimenu>。将此值设置为要用于群集多路广播的子网。
+     </para>
+    </step>
+    <step>
+     <para>
+      定义<guimenu>多路广播地址</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      定义<guimenu>端口</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      要为每个群集节点自动生成唯一的 ID，请将<guimenu>自动生成节点 ID</guimenu> 保留为启用状态。
+     </para>
+    </step>
+    <step>
+     <para>
+      定义<guimenu>群集名称</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      输入<guimenu>预期投票数</guimenu>。此值非常重要，Corosync 将使用它来为分区的群集计算<xref linkend="gloss-quorum"/>。默认情况下，每个节点有 <literal>1</literal> 张投票。<guimenu>预期投票数</guimenu>必须与群集中的节点数匹配。
+     </para>
+    </step>
+    <step>
+     <para>
+      确认更改。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果需要，请按<xref linkend="pro-ha-installation-setup-channel2"/>中所述在 Corosync 中定义冗余通讯通道。
+     </para>
+    </step>
+   </procedure>
+
+   <figure>
+    <title>YaST 群集 - 多路广播配置</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_comm_multicast.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_comm_multicast.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  <para>如果要使用单路广播（而非多路广播）进行群集通讯，请按如下所述继续操作。</para>
+   <procedure xml:id="pro-ha-installation-setup-channel1-udpu">
+    <title>定义第一个通讯通道（单路广播）</title>
+    <step>
+     <para>
+      启动 YaST 群集模块，然后切换到<guimenu>通讯通道</guimenu>类别。
+     </para>
+    </step>
+      <step>
+       <para>
+        将<guimenu>传输</guimenu>协议设为<literal>单路广播</literal>。
+       </para>
+      </step>
+      <step>
+       <para>
+        定义<guimenu>端口</guimenu>。
+       </para>
+      </step>
+      <step>
+       <para>
+        对于单路广播通讯，Corosync 需要知道群集中所有节点的 IP 地址。对于将要加入群集的每个节点，单击<guimenu>添加</guimenu>并输入以下细节：
+       </para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          <guimenu>IP 地址</guimenu>
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>冗余 IP 地址</guimenu>（仅当在 Corosync 中使用了第二个通讯通道时才需要指定）
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>节点 ID</guimenu>（仅当禁用了<guimenu>自动生成节点 ID</guimenu> 选项时才需要指定）
+         </para>
+        </listitem>
+       </itemizedlist>
+       <para>
+        要修改或删除群集成员的任何地址，请使用<guimenu>编辑</guimenu>或<guimenu>删除</guimenu>按钮。
+       </para>
+      </step>
+    <step>
+     <para>
+      要为每个群集节点自动生成唯一的 ID，请将<guimenu>自动生成节点 ID</guimenu> 保留为启用状态。
+     </para>
+    </step>
+    <step>
+     <para>
+      定义<guimenu>群集名称</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      输入<guimenu>预期投票数</guimenu>。此值非常重要，Corosync 将使用它来为分区的群集计算<xref linkend="gloss-quorum"/>。默认情况下，每个节点有 <literal>1</literal> 张投票。<guimenu>预期投票数</guimenu>必须与群集中的节点数匹配。
+     </para>
+    </step>
+    <step>
+     <para>
+      确认更改。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果需要，请按<xref linkend="pro-ha-installation-setup-channel2"/>中所述在 Corosync 中定义冗余通讯通道。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaST 群集 - 单路广播配置</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_comm_unicast.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_comm_unicast.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   
+   <para>
+    如果由于任何原因不能使用网络设备绑定，第二个最佳选择就是在 Corosync 中定义冗余通讯通道（次环）。这样就可使用两个物理上分隔的网络进行通讯。如果一个网络发生故障，群集节点仍可通过另一个网络进行通讯。
+   </para>
+   <para>Corosync 中的另一个通讯通道将会形成另一个令牌传递环。在 <filename>/etc/corosync/corosync.conf</filename> 中，您配置的第一个通道就是主环，其环编号为 <literal>0</literal>。第二个环（冗余通道）的环编号为 <literal>1</literal>。
+   </para>
+   <para>在 Corosync 中定义了冗余通讯通道后，使用 RRP 告知群集如何使用这些接口。有了 RRP，就可以使用两个物理位置分开的网络进行通讯。如果一个网络发生故障，群集节点仍可通过另一个网络进行通讯。</para>
+   <para>RRP 可以有三种模式：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      如果设置为 <literal>active</literal>，则 Corosync 将主动使用这两个接口。但是，此模式已弃用。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果设置为 <literal>passive</literal>，Corosync 将选择性地通过可用网络发送消息。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果设置为 <literal>none</literal>，将会禁用 RRP。
+     </para>
+    </listitem>
+   </itemizedlist>
+   
+  <procedure xml:id="pro-ha-installation-setup-channel2">
+   <title>定义冗余通讯通道</title>
+   <important>
+    <title>冗余环和 <filename>/etc/hosts</filename></title>
+    <para> 如果 Corosync 中配置了多个环，则每个节点都可具有多个 IP 地址。这需要在所有节点的 <filename>/etc/hosts</filename> 文件中反映出来。 </para>
+   </important>
+   <step>
+    <para> 启动 YaST 群集模块，然后切换到<guimenu>通讯通道</guimenu>类别。 </para>
+   </step>
+   <step>
+    <para> 请激活<guimenu>冗余通道</guimenu>。冗余通道必须使用与所定义的第一个通讯通道相同的协议。
+    </para>
+   </step>
+   <step>
+    <para> 如果使用多路广播，请输入以下参数：要使用的<guimenu>绑定网络地址</guimenu>，冗余通道的<guimenu>多路广播地址</guimenu>和<guimenu>端口</guimenu>。 </para>
+    <para> 如果使用单路广播，请定义以下参数：要使用的<guimenu>绑定网络地址</guimenu>及<guimenu>端口</guimenu>。输入将加入群集的所有节点的 IP 地址。 </para>
+   </step>
+   <step>
+    <para>要告知 Corosync 如何以及何时使用其他通道，请选择要使用的 <guimenu>rrp_mode</guimenu>：</para>
+    <itemizedlist>
+     <listitem>
+      <para> 如果只定义了一个通讯通道，<guimenu>rrp_mode</guimenu> 将自动禁用（值 <literal>none</literal>）。</para>
+     </listitem>
+     <listitem>
+      <para> 如果设置为 <literal>active</literal>，则 Corosync 将主动使用这两个接口。但是，此模式已弃用。</para>
+     </listitem>
+     <listitem>
+      <para> 如果设置为 <literal>passive</literal>，Corosync 将选择性地通过可用网络发送消息。 </para>
+     </listitem>
+    </itemizedlist>
+    <para>使用 RRP 时，High Availability Extension 会监视当前环的状态，并在发生故障后自动重新启用冗余环。</para>
+    <para>或者，使用 <command>corosync-cfgtool</command> 手动检查环状态。使用 <option>-h</option> 查看可用选项。 </para>
+   </step>
+   <step>
+    <para> 确认更改。 </para>
+   </step>
+  </procedure>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-security">
+   <title>定义身份验证设置</title>
+   <para>
+    要定义群集的身份验证设置，您可以使用 HMAC/SHA1 身份验证。此方式需要使用共享机密来保护和验证讯息。指定的身份验证密钥（密码）将用于群集中的所有节点。
+   </para>
+  <procedure xml:id="pro-ha-installation-setup-security">
+   <title>启用安全性身份验证</title>
+   <step>
+    <para> 启动 YaST 群集模块，然后切换到<guimenu>安全性</guimenu>类别。 </para>
+   </step>
+   <step>
+    <para> 激活<guimenu>启用安全身份验证</guimenu>。 </para>
+   </step>
+   <step>
+    <para> 对于新创建的群集，请单击<guimenu>生成身份验证密钥文件</guimenu>。将创建身份验证密钥并将其写入 <filename>/etc/corosync/authkey</filename>。 </para>
+    <para> 如果希望当前计算机加入现有群集，则不用生成新的密钥文件。而是将 <filename>/etc/corosync/authkey</filename> 从一个节点复制到当前计算机（手动或使用 Csync2 皆可）。 </para>
+   </step>
+   <step>
+    <para> 确认更改。YaST 会将此配置写入 <filename>/etc/corosync/corosync.conf</filename>。 </para>
+   </step>
+  </procedure>
+
+   <figure>
+    <title>YaST 群集 - 安全性</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_security.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_security.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-csync2">
+   <title>将配置传送到所有节点</title>
+   <para>
+    如果不想将生成的配置文件手动复制到所有节点，可使用 <command>csync2</command> 工具在群集中的所有节点间进行复制。
+   </para>
+   <para>
+    这需要以下基本步骤：
+   </para>
+   <procedure>
+    <step>
+     <para>
+      <xref linkend="pro-ha-installation-setup-csync2-yast" xrefstyle="select:title"/>。
+     </para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="pro-ha-installation-setup-csync2-start" xrefstyle="select:title"/>。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    Csync2 将帮助您跟踪配置更改，并在群集节点之间保持文件同步。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      可以定义对操作至关重要的文件列表。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      可以显示这些文件的更改（对于其他群集节点）。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      可以使用单个命令同步配置的文件。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      使用 <filename>~/.bash_logout</filename> 中的一个简单外壳脚本，您可以在从系统注销之前获得更改未同步的提醒。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    <link xlink:href="http://oss.linbit.com/csync2/"/> 和 <link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/> 上提供了有关 Csync2 的详细信息。
+   </para>
+
+  <sect2 xml:id="pro-ha-installation-setup-csync2-yast">
+   <title>使用 YaST 配置 Csync2</title>
+   <procedure>
+    <step>
+     <para> 启动 YaST 群集模块，然后切换到 <guimenu>Csync2</guimenu> 类别。 </para>
+    </step>
+    <step>
+     <para> 要指定同步组，请在<guimenu>同步主机</guimenu>组中单击<guimenu>添加</guimenu>，然后输入群集中所有节点的本地主机名。对于每个节点，必须使用 <command>hostname</command> 命令返回的确切字符串。 </para>
+     
+     <tip>
+      <title>主机名解析</title>
+      <para> 如果您的网络中无法正常进行主机名解析，您也可以为每个群集节点指定主机名与 IP 地址的组合。为此，请使用字符串 <replaceable>HOSTNAME@IP</replaceable>，例如 <literal>alice@192.168.2.100</literal>。这样，Csync2 将在连接时使用 IP 地址。 </para>
+     </tip>
+    </step>
+    <step xml:id="step-csync2-generate-key">
+     <para> 单击<guimenu>生成预共享密钥</guimenu>以创建同步组的密钥文件。密钥文件将写入 <filename>/etc/csync2/key_hagroup</filename>。创建后，必须将其手动复制到群集的所有成员。 </para>
+    </step>
+    <step>
+     <para> 要使用通常需要在所有节点间同步的文件填充<guimenu>同步文件</guimenu>列表，请单击<guimenu>添加建议的文件</guimenu>。 </para>
+    </step>
+    <step>
+     <para> 如果要从待同步的文件列表<guimenu>编辑</guimenu>、<guimenu>添加</guimenu>或<guimenu>删除</guimenu>文件，请使用相应按钮。必须为每个文件输入绝对路径名。 </para>
+    </step>
+    <step>
+     <para> 通过单击<guimenu>打开 Csync2</guimenu> 激活 Csync2。随后会执行以下命令，以在引导时自动启动 Csync2： </para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> enable csync2.socket</screen>
+    </step>
+    <step>
+     <para> 确认更改。YaST 会将 Csync2 配置写入 <filename>/etc/csync2/csync2.cfg</filename>。</para>
+    </step>
+    <step>
+     <para>要立即启动同步过程，请继续<xref linkend="sec-ha-setup-yast-csync2-sync"/>。 </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaST 群集 - Csync2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_sync.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_sync.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec-ha-setup-yast-csync2-sync">
+   <title>使用 Csync2 同步更改</title>
+   <para> 要成功使用 Csync2 同步文件，必须满足以下要求： </para>
+   <itemizedlist>
+    <listitem>
+     <para> 同一 Csync2 配置在所有群集节点上均可用。 </para>
+    </listitem>
+    <listitem>
+     <para> 同一 Csync2 身份验证密钥在所有群集节点上均可用。 </para>
+    </listitem>
+    <listitem>
+     <para> <emphasis>所有</emphasis>群集节点上都必须正在运行 Csync2。 </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> 因此，在首次运行 Csync2 之前，需要做好以下准备： </para>
+
+   <procedure>
+    <title>使用 Csync2 准备初始同步</title>
+    <step>
+     <para>如<filename>所述配置后，将文件 </filename>/etc/csync2/csync2.cfg<xref linkend="pro-ha-installation-setup-csync2-yast"/> 手动复制到所有节点。 </para>
+    </step>
+    <step>
+     <para> 将执行<xref linkend="pro-ha-installation-setup-csync2-yast" xrefstyle="select:label"/> 的<xref linkend="step-csync2-generate-key"/> 时在一个节点上生成的 <filename>/etc/csync2/key_hagroup</filename> 文件复制到群集中的<emphasis>所有</emphasis>节点。它是 Csync2 在进行身份验证时需要使用的文件。但请<emphasis>勿</emphasis>在其他节点上重新生成该文件，因为所有节点上的文件都必须相同。 </para>
+    </step>
+    
+    <step>
+     <para>在所有节点上执行以下命令，以便立即启动服务： </para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> start csync2.socket</screen>
+    </step>
+   </procedure>
+
+   <procedure xml:id="pro-ha-installation-setup-csync2-start">
+    <title>使用 Csync2 同步配置文件</title>
+
+    <step>
+     <para>要对所有文件执行一次初始同步，请在要<emphasis>从中</emphasis>复制配置的计算机上执行以下命令： </para>
+     <screen><prompt role="root">root # </prompt><command>csync2</command> <option>-xv</option></screen>
+     <para> 这会将文件推送到其他节点，从而一次同步所有文件。如果所有文件都成功同步，则 Csync2 将完成，不会报错。 </para>
+     <para> 如果在其他节点（不仅在当前节点）上对要同步的一个或多个文件进行了修改，则 Csync2 会报告冲突。您将得到类似以下内容的输出： </para>
+     <screen>While syncing file /etc/corosync/corosync.conf:
+ERROR from peer hex-14: File is also marked dirty here!
+Finished with 1 errors.</screen>
+    </step>
+    <step>
+     <para> 如果确信当前节点上的文件版本是<quote>最佳</quote>版本，可以通过强制使用此文件并重新同步来解决冲突： </para>
+     <screen><prompt role="root">root # </prompt><command>csync2</command> <option>-f</option> /etc/corosync/corosync.conf
+<prompt role="root">root # </prompt><command>csync2</command> <option>-x</option></screen>
+    </step>
+   </procedure>
+   <para> 有关 Csync2 选项的更多信息，请运行</para>
+   <screen>csync2 -help</screen>
+   <note>
+    <title>在任何更改后推送同步</title>
+    <para> Csync2 仅推送更改。它<emphasis>不会</emphasis>在计算机之间连续同步文件。 </para>
+    <para> 每次更新需要同步的文件时，都必须将更改推送到其他计算机：在您进行了更改的计算机上运行 <command>csync2 </command>
+     <option>-xv</option>。如果对未更改文件的任何其他计算机运行此命令，则不会执行任何操作。 </para>
+   </note>
+  </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-conntrackd">
+   <title>同步群集节点间的连接状态</title>
+   <para>
+    要对 iptables 启用<emphasis>有状态</emphasis>包检测，请配置并使用 conntrack 工具。这需要以下基本步骤：
+   </para>
+   <procedure>
+    <step>
+     <para>
+      <xref linkend="pro-ha-installation-setup-conntrackd" xrefstyle="select:title"/>。
+     </para>
+    </step>
+    <step>
+     <para>
+      为 <systemitem class="daemon">conntrackd</systemitem> 配置一个资源（类：<literal>ocf</literal>，提供程序：<literal>heartbeat</literal>）。如果使用 Hawk2 添加资源，请使用 Hawk2 推荐的默认值。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    配置 conntrack 工具后，可对 Linux 虚拟服务器使用这些工具，请参见<xref linkend="cha-ha-lb" xrefstyle="select:title"/>。
+   </para>
+
+   <procedure xml:id="pro-ha-installation-setup-conntrackd">
+    <title>使用 YaST 配置 <systemitem class="resource">conntrackd</systemitem></title>
+    <para>
+     使用 YaST 群集模块配置用户空间 <systemitem class="daemon">conntrackd</systemitem>。这需要未用于其他通讯通道的专用网络接口。守护程序可随后通过资源代理启动。
+    </para>
+    <step>
+     <para>
+      启动 YaST 群集模块，然后切换到<guimenu>配置 conntrackd</guimenu> 类别。
+     </para>
+    </step>
+    <step>
+     <para>
+      选择<guimenu>专用接口</guimenu>来同步连接状态。会自动检测所选接口的 IPv4 地址并显示在 YaST 中。该地址必须已经配置并且必须支持多路广播。
+
+     </para>
+    </step>
+    <step>
+     <para>
+      定义要用于同步连接状态的<guimenu>多路广播地址</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      在<guimenu>组号</guimenu>中，定义要将连接状态同步到其中的组的数字 ID。 <remark>emap 2011-11-10: To where?
+       The other nodes? - taroth: good question :), will investigate</remark>
+     </para>
+    </step>
+    <step>
+     <para>
+      单击<guimenu>生成 /etc/conntrackd/conntrackd.conf</guimenu> 来创建 <systemitem class="daemon">conntrackd</systemitem> 的配置文件。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果修改了现有群集的任何选项，请确认更改并关闭群集模块。
+     </para>
+    </step>
+    <step>
+     <para>
+      有关进一步群集配置，请单击<guimenu>下一步</guimenu>并继续<xref linkend="sec-ha-installation-setup-services"/>。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaST 群集 - <systemitem class="resource">conntrackd</systemitem></title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_conntrackd.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_conntrackd.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-services">
+   <title>配置服务</title>
+   <para>
+    在 YaST 群集模块中，定义是否在引导节点时启动其上的特定服务。也可使用模块手动启动和停止服务。为使群集节点联机并启动群集资源管理器，Pacemaker 必须作为服务运行。
+   </para>
+   <procedure xml:id="pro-ha-installation-setup-services">
+    <title>启用 Pacemaker</title>
+    <step>
+     <para>
+      在 YaST 群集模块中，切换到<guimenu>服务</guimenu>类别。
+     </para>
+    </step>
+    <step>
+     <para>
+      要在每次引导此群集节点时启动 Pacemaker，请在<guimenu>引导</guimenu>组中选择相应选项。如果在<guimenu>引导</guimenu>组中选择<guimenu>关</guimenu>，则必须在每次引导此节点时手动启动 Pacemaker。要手动启动 Pacemaker，请使用以下命令：
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+    </step>
+    <step>
+     <para>
+      要立即启动或停止 Pacemaker，请单击相应按钮。
+     </para>
+    </step>
+    <step>
+     <para>
+      要在防火墙中打开所需的端口以在当前计算机上进行群集通讯，请激活<guimenu>打开防火墙中的端口</guimenu>。该配置将写入 <filename>/etc/sysconfig/SuSEfirewall2.d/services/cluster</filename>。
+     </para>
+    </step>
+    <step>
+     <para>
+      确认更改。请注意，该配置仅应用于当前计算机，而不是所有群集节点。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaST 群集 - 服务</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_cluster_services.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_cluster_services.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-start">
+   <title>使群集联机</title>
+   <para>
+    完成初始群集配置后，在<emphasis>每个</emphasis>群集节点上启动 Pacemaker 服务，以使堆栈联机：
+   </para>
+   <procedure>
+    <title>启动 Pacemaker 并检查状态</title>
+    <step>
+     <para>
+      登录到现有节点。
+     </para>
+    </step>
+    <step>
+     <para>
+      检查服务是否已在运行。
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> status pacemaker</screen>
+     <para>
+      如果尚未启动，立即启动 Pacemaker：
+     </para>
+<screen><prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+    </step>
+    <step>
+     <para>
+      对每个群集节点重复上述步骤。
+     </para>
+    </step>
+    <step>
+     <para>
+      在某个节点上，使用 <command>crm status</command> 命令检查群集状态。如果所有节点都联机，则输出应类似于如下内容：
+     </para>
+<screen><prompt role="root">root # </prompt>crm status
+Last updated: Thu Jul  3 11:07:10 2014
+Last change: Thu Jul  3 10:58:43 2014
+Current DC: alice (175704363) - partition with quorum
+2 Nodes configured
+0 Resources configured
+
+Online: [ alice bob ]</screen>
+     <para>
+      此输出表示群集资源管理器已启动，可以管理资源了。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    完成基本配置并使节点处于联机状态后，可以开始配置群集资源。使用某种群集管理工具，例如 crm 外壳 (crmsh) 或 HA Web Konsole。有关更多信息，请参见<xref linkend="cha-conf-hawk2"/>或<xref linkend="cha-ha-manual-config"/>。
+   </para>
+  </sect1>
+</chapter>

@@ -1,0 +1,518 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_rear.xml" version="5.0" xml:id="cha-ha-rear">
+ <title>使用 Relax-and-Recover (Rear) 实现灾难恢复</title>
+ <info>
+      <abstract>
+        <para>
+    Relax-and-Recover（<quote>ReaR</quote>，本章中缩写为 Rear）是供系统管理员使用的灾难恢复框架。它是一个 Bash 脚本集合，您需要根据要在发生灾难时加以保护的特定生产环境调整这些脚本。
+   </para>
+        <para>
+    不存在能够现成地解决问题的灾难恢复解决方案。因此，在发生任何灾难<emphasis>之前</emphasis>做好预防措施至关重要。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>编辑</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec-ha-rear-concept">
+  <title>概念概述</title>
+
+
+
+  <para>
+   以下几节介绍了一般性的灾难恢复概念，以及使用 Rear 成功实现恢复所需执行的基本步骤。另外，还提供了一些有关 Rear 要求、要注意的一些限制、各种方案和备份工具的指导。
+  </para>
+
+   <note>
+    <title>了解 Rear</title>
+    <para>
+     了解 Rear 的复杂功能对于正常运行该工具至关重要。因此，请认真阅读本章内容，以便在灾难降临之前熟悉 Rear。此外，您还应该了解 Rear 的已知限制并预先测试您的系统。
+    </para>
+   </note>
+
+  <sect2 xml:id="sec-ha-rear-concept-drp">
+   <title>创建灾难恢复计划</title>
+   <para>
+    在最坏的情况发生<emphasis>之前</emphasis>采取措施：分析 IT 基础结构是否存在任何重大风险，评估您的预算，并创建灾难恢复计划。如果您尚未创建灾难恢复计划，请先了解有关以下每个步骤的一些信息：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <formalpara>
+      <title>风险分析</title>
+      <para>
+       对基础设施进行可靠的风险分析。列出所有可能的威胁并评估它们的严重性。确定这些威胁的相似程度并划分优先级。建议使用简单的分类：可能性和影响。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>预算计划</title>
+      <para>
+       分析结果是一个概述，指出哪些风险可以忍受，哪些风险对业务非常关键。请自问一下，怎样才能最大限度地降低风险，以及降低风险所需的费用。根据公司的规模，在灾难恢复方面的花费占总体 IT 预算的 2% 到 15%。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>灾难恢复计划开发</title>
+      <para>
+       制作核对清单、测试过程、建立并指派优先级以及列出 IT 基础设施库存。定义当基础设施中的一些服务失败时，如何处理问题。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>测试</title>
+      <para>
+       定义详细的计划后，测试该计划。每年至少测试一次。使用与主要 IT 基础设施相同的测试硬件。
+      </para>
+     </formalpara>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-recovery">
+   <title>灾难恢复意味着什么？</title>
+   <para>
+    如果生产环境中的某个系统已毁坏（可能出于任何原因 - 例如，硬件损坏、配置不当或软件问题），您需要重创建该系统。可以在相同的硬件或者兼容的替代硬件上重创建。重创建系统并不只是意味着从备份中恢复文件，还包括准备系统的储存（与分区、文件系统和安装点相关），以及重新安装引导加载程序。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-basics">
+   <title>灾难恢复如何与 Rear 配合工作？</title>
+   <para>
+    在系统正常运行期间，创建文件的备份并在恢复媒体上创建恢复系统。该恢复系统包含一个恢复安装程序。
+   </para>
+   <para>
+    如果系统已损坏，您可以更换受损的硬件（如果需要），从恢复媒体引导恢复系统，然后起动恢复安装程序。恢复安装程序会重创建系统：首先，它会准备储存（分区、文件系统、安装点），然后从备份中恢复文件。最后，它会重新安装引导加载程序。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-requirements">
+   <title>Rear 要求</title>
+   <para>
+    要使用 Rear，至少需要两个相同的系统：运行生产环境的计算机，以及相同的测试计算机。举例来说，这里所说的<quote>相同</quote>是指您可以将一块网卡替换为使用相同内核驱动程序的另一块网卡。
+   </para>
+   <warning>
+    <title>需要相同的驱动程序</title>
+    <para>
+     如果某个硬件组件使用的驱动程序不同于生产环境中所用的驱动程序，则 Rear 不会将该组件视为相同。
+    </para>
+   </warning>
+  </sect2>
+  
+  
+  <sect2 xml:id="sec-ha-rear-concept-versions">
+   <title>Rear 版本更新</title>
+   <para>
+    为了与旧版服务包兼容，<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles"> 12 SP5</phrase></phrase> 随附了不同的 Rear 版本：1.16（包含在 RPM 包
+    <package>rear116</package>中）、1.17.2.a（<package>rear1172a</package>中）、1.18.a（<package>rear118a</package>中），以及 2.4（<package>rear23a</package>中）。最新版本包含一些来自上游 GitHub 项目的近期增强功能。
+   </para>
+
+   <note>
+    <title>在更改日志中查找重要信息</title>
+    <para>
+     有关 Bug 修复、不兼容性及其他问题的任何信息都可在包的更改日志中找到。如果需要重新验证灾难恢复过程，建议您另外也要审阅 Rear 的较新包版本。
+    </para>
+   </note>
+
+   <para>
+     您需要了解 Rear 的以下问题：
+   </para>
+
+    <itemizedlist>
+     <listitem>
+     <para>
+      若要能够对 UEFI 系统实施灾难恢复，您需要 1.18.a 版本和包 <package>ebiso</package>。只有此版本支持新的助手工具 <filename>/usr/bin/ebiso</filename>。此助手工具用于创建 UEFI 可引导 Rear 系统 ISO 映像。
+     </para>
+     </listitem>
+     <listitem>
+     <para>
+      如果您使用一个 Rear 版本实现的灾难恢复过程已通过测试并且功能完好，请不要更新 Rear。请保留该 Rear 包，并且不要更改您的灾难恢复方法！
+     </para>
+     </listitem>
+     <listitem>
+     <para>
+      Rear 的版本更新是以独立包的形式提供的，这些包在设计上有意彼此冲突，目的是防止所安装的版本意外地被另一个版本替换。
+     </para>
+     </listitem>
+    </itemizedlist>
+
+   <para>
+    在以下情况下，您需要全面重新验证现有的灾难恢复过程：
+   </para>
+
+   <itemizedlist>
+    <listitem>
+     <para>
+      针对每个 Rear 版本更新。
+     </para>
+    </listitem>
+    <listitem>
+     <para>手动更新 Rear 时。</para>
+    </listitem>
+    <listitem>
+     <para>
+      针对 Rear 使用的每个软件。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      更新底层系统组件（例如 <command>parted</command>、<command>btrfs</command> 及类似组件）时。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-limit">
+   <title>针对 Btrfs 的限制</title>
+   <para>
+    如果您使用 Btrfs，请注意以下限制。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>您的系统包括子卷，但不包括快照子卷</term>
+     <listitem>
+      <para>
+       至少需要 Rear 版本 1.17.2.a。此版本支持重创建<quote>正常的</quote>Btrfs 子卷结构（不包括快照子卷）。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>您的系统包括快照子卷</term>
+     <listitem>
+      <warning>
+       <para>
+        <emphasis>无法</emphasis>照常使用基于文件的备份软件备份和恢复 Btrfs 快照子卷。
+       </para>
+      </warning>
+      <para>
+       尽管 Btrfs 文件系统上的最新快照子卷几乎不占用任何磁盘空间（因为 Btrfs 具有写入时复制功能），但在使用基于文件的备份软件时，这些文件将作为完整文件进行备份。在备份中，这些文件的大小是其原始文件大小的两倍。因此，也就无法将快照恢复到它们以前在原始系统上的状态。
+      </para>
+
+
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>您的 SLE12 系统需要匹配的 Rear 配置</term>
+     <listitem>
+      <para>
+       SLE12 GA、SLE12 SP1 和 SLE12 SP2 中的设置具有多个不兼容的 Btrfs 默认结构。因此，使用匹配的 Rear 配置文件至关重要。请参见示例文件 <filename>/usr/share/rear/conf/examples/SLE12*-btrfs-example.conf</filename>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-scenarios">
+   <title>方案和备份工具</title>
+   <para>
+    Rear 能够创建可从本地媒体（例如硬盘、闪存盘、DVD/CD-R）或通过 PXE 引导的灾难恢复系统（包括一个系统特定的恢复安装程序）。可以根据<xref linkend="ex-ha-rear-nfs-server-backup" xrefstyle="select:label"/>所述，将备份数据储存在网络文件系统中，如 NFS。
+   </para>
+   <para>
+    Rear 不会替换文件备份，而是对它进行补充。默认情况下，Rear 支持常规 <command>tar</command> 命令和若干第三方备份工具（例如 Tivoli Storage Manager、QNetix Galaxy、Symantec NetBackup、EMC NetWorker 或 HP DataProtector）。有关将 Rear 与用作备份工具的 EMC NetWorker 配合使用的示例配置，请参见<xref linkend="ex-ha-rear-config-EMC" xrefstyle="select:label"/>。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-overview">
+   <title>基本步骤</title>
+   <para>
+    要在发生灾难时使用 Rear 成功进行恢复，需要执行以下基本步骤：
+   </para>
+   <variablelist>
+    <varlistentry>
+
+     <term><xref linkend="sec-ha-rear-config" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       这会涉及到一些任务，例如，编辑 Rear 配置文件、调整 Bash 脚本，以及配置您要使用的备份解决方案。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+
+     <term><xref linkend="sec-ha-rear-mkbackup" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       在要保护的系统正常运行期间，使用 <command>rear mkbackup</command> 命令创建文件备份，并生成包含特定于系统的 Rear 恢复安装程序的恢复系统。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+
+     <term><xref linkend="sec-ha-rear-testing" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       每当使用 Rear 创建灾难恢复媒体后，都要全面测试灾难恢复过程。所用测试计算机上的硬件必须与生产环境中的硬件<emphasis>相同</emphasis>。有关细节，请参见<xref linkend="sec-ha-rear-concept-requirements"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+
+     <term><xref linkend="sec-ha-rear-recover" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       灾难发生后，更换任何受损的硬件（如果需要）。然后，引导 Rear 恢复系统，并使用 <command>rear recover</command> 命令启动恢复安装程序。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec-ha-rear-config">
+  <title>设置 Rear 和您的备份解决方案</title>
+
+  <para>
+   要设置 Rear，您至少需要编辑 Rear 配置文件 <filename>/etc/rear/local.conf</filename>，此外可以根据需要编辑属于 Rear 框架一部分的 Bash 脚本。
+  </para>
+
+  <para>
+   具体而言，您需要定义 Rear 应该执行的以下任务：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>当您的系统是通过 UEFI 引导时</title>
+     <para>
+      如果您的系统是通过 UEFI 引导加载程序引导的，请安装包 
+      <package>ebiso</package> 并将下行添加到 <filename>/etc/rear/local.conf</filename> 中：
+     </para>
+    </formalpara>
+    <screen>ISO_MKISOFS_BIN=/usr/bin/ebiso</screen>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>如何备份文件以及如何创建和储存灾难恢复系统</title>
+     <para>
+      这需要在 <filename>/etc/rear/local.conf</filename> 中配置。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>需要重创建的确切对象（分区、文件系统、安装点，等等）</title>
+     <para>
+      这可以在 <filename>/etc/rear/local.conf</filename> 中定义（例如，要排除哪些对象）。要重创建非标准系统，您可能需要增强 Bash 脚本。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>恢复过程的工作方式</title>
+     <para>
+      要更改 Rear 生成恢复安装程序的方式，或者要调整 Rear 恢复安装程序执行的操作，您需要编辑 Bash 脚本。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   要配置 Rear，请将您的选项添加到 <filename>/etc/rear/local.conf</filename> 配置文件中（以前的配置文件 <filename>/etc/rear/sites.conf</filename> 已从包中去除。但是，如果您有来自以前设置环境中的此文件，Rear 会继续使用该文件）。
+  </para>
+
+  <para>
+   所有 Rear 配置变量及其默认值都在 <filename>/usr/share/rear/conf/default.conf</filename> 中设置。<filename>examples</filename> 子目录中提供了一些用户配置（例如，<filename>/etc/rear/local.conf</filename> 中设置的项目）的示例文件 (<filename>*example.conf</filename>)。请在 Rear 手册页中了解详细信息。
+  </para>
+  <para>
+   您应该使用一个匹配的示例配置文件作为模板，然后根据需要对其进行调整，以此创建您的特定配置文件。从数个示例配置文件中复制各选项，然后将其粘贴到与特定系统匹配的特定 <filename>/etc/rear/local.conf</filename> 文件中。请不要使用原始的示例配置文件，因为这些文件提供了可能用于特定设置的变量的概述。
+  </para>
+  <para>
+   更改 Rear 配置文件后，运行以下命令并检查该命令的输出：
+  </para>
+
+<screen>rear dump</screen>
+
+  <example xml:id="ex-ha-rear-nfs-server-backup">
+   <title>使用 NFS 服务器储存文件备份</title>
+   <para>
+    Rear 可在多种情境下使用。以下示例使用 NFS 服务器作为文件备份的储存。
+   </para>
+  </example>
+
+  <procedure>
+   <step>
+    <para>
+     按照《SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP5</phrase></phrase> 管理指南》中所述使用 YaST 设置 NFS 服务器：<link xlink:href="https://documentation.suse.com/sles-12/html/SLES-all/cha-nfs.html"/>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在 <filename>/etc/exports</filename> 文件中定义 NFS 服务器的配置。确保 NFS 服务器上的目录（要储存备份数据的位置）具有适当的装入选项。例如：
+    </para>
+<screen><replaceable>/srv/nfs</replaceable> *([...],rw,no_root_squash,[...])</screen>
+    <para>
+     将 <filename>/srv/nfs</filename> 替换为 NFS 服务器上备份数据的路径，并调整装入选项。您可能需要使用 <literal>no_root_squash</literal> 来访问备份数据，因为 <command>rear mkbackup</command> 命令是以 <systemitem class="username">root</systemitem> 身份运行的。
+    </para>
+   </step>
+   <step>
+    <para>
+     调整各个 <varname>BACKUP</varname> 参数（在配置文件 <filename>/etc/rear/local.conf</filename> 中），以便 Rear 将文件备份储存在相应的 NFS 服务器上。已安装系统中的 <filename>/usr/share/rear/conf/examples/SLE12-*-example.conf</filename> 下提供了示例。
+    </para>
+   </step>
+  </procedure>
+
+  <example xml:id="ex-ha-rear-config-EMC">
+   <title>使用 EMC NetWorker 等第三方备份工具</title>
+   <para>
+    要使用第三方备份工具代替 <command>tar</command>，您需要在 Rear 配置文件中进行相应的设置。
+   </para>
+   <para>
+    以下是 EMC NetWorker 的示例配置。将此配置片段添加到 <filename>/etc/rear/local.conf</filename> 中，并根据您的设置进行调整：
+   </para>
+<screen>BACKUP=NSR
+    OUTPUT=ISO
+    BACKUP_URL=nfs://<replaceable>host.example.com/path/to/rear/backup</replaceable>
+    OUTPUT_URL=nfs://<replaceable>host.example.com/path/to/rear/backup</replaceable>
+    NSRSERVER=<replaceable>backupserver.example.com</replaceable>
+    RETENTION_TIME="Month"</screen>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec-ha-rear-mkbackup">
+  <title>创建恢复安装系统</title>
+
+  <para>
+   根据<xref linkend="sec-ha-rear-config" xrefstyle="select:label"/>所述配置 Rear 后，使用以下命令创建恢复安装系统（包括 Rear 恢复安装程序）和文件备份：
+  </para>
+
+<screen>rear -d  -D mkbackup</screen>
+
+  <para>
+   该命令将执行以下步骤：
+  </para>
+
+  <orderedlist spacing="normal">
+   <listitem>
+    <para>
+     分析目标系统并收集信息，尤其是有关磁盘布局（分区、文件系统、安装点）和引导加载程序的信息。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用第一步收集的信息创建一个可引导恢复系统。生成的 Rear 恢复安装程序<emphasis>特定于</emphasis>在发生灾难时要保护的系统。使用该安装程序只能重创建这个特定的系统。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     调用配置的备份工具来备份系统和用户文件。
+    </para>
+   </listitem>
+  </orderedlist>
+ </sect1>
+ <sect1 xml:id="sec-ha-rear-testing">
+  <title>测试恢复过程</title>
+
+  <para>
+   创建恢复系统之后，在具有相同硬件的测试计算机上测试恢复过程。另请参见<xref linkend="sec-ha-rear-concept-requirements"/>。确保测试计算机已正确设置，并可替代主计算机。
+  </para>
+
+  <warning>
+   <title>在相同硬件上执行全面测试</title>
+   <para>
+    必须在计算机上全面测试灾难恢复过程。请定期测试恢复过程，确保一切按预期运行。
+   </para>
+  </warning>
+
+  <procedure xml:id="pro-ha-rear-testing">
+   <title>在测试计算机上执行灾难恢复</title>
+   <step>
+    <para>
+     将您在<xref linkend="sec-ha-rear-mkbackup" xrefstyle="select:label"/>中创建的恢复系统刻录到 DVD 或 CD 中，以创建恢复媒体。或者，您可以通过 PXE 使用网络引导。
+    </para>
+   </step>
+   <step>
+    <para>
+     从恢复媒体引导测试计算机。
+    </para>
+   </step>
+   <step>
+    <para>
+     从菜单中选择<guimenu>恢复</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 用户身份登录（无需密码）。
+    </para>
+   </step>
+   <step>
+    <para>
+     输入以下命令启动恢复安装程序：
+    </para>
+<screen>rear -d -D recover</screen>
+    <para>
+     有关在此过程中 Rear 所执行的步骤的细节，请参见<xref linkend="ol-ha-rear-recovers-steps"/>。
+    </para>
+   </step>
+   <step>
+    <para>
+     恢复过程完成后，检查是否已成功重创建系统，并且该系统可在生产环境中替代原始系统运作。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-rear-recover">
+  <title>从灾难中恢复</title>
+
+  <para>
+   如果灾难已发生，请根据需要更换任何受损的硬件。然后按照<xref linkend="pro-ha-rear-testing" xrefstyle="select:label"/>所述，使用已修复的计算机（或使用已经过测试可替代原始系统运作的相同计算机）继续操作。
+  </para>
+
+  <para>
+   <command>rear recover</command> 命令将执行以下步骤：
+  </para>
+
+  <orderedlist xml:id="ol-ha-rear-recovers-steps" spacing="normal">
+   <title>恢复过程</title>
+   <listitem>
+    <para>
+     恢复磁盘布局（分区、文件系统和安装点）。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     从备份中恢复系统和用户文件。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     恢复引导加载程序。
+    </para>
+   </listitem>
+  </orderedlist>
+ </sect1>
+ <sect1 xml:id="sec-ha-rear-more">
+  <title>更多信息</title>
+
+
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <link xlink:href="http://en.opensuse.org/SDB:Disaster_Recovery"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>rear</command> 手册页
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>/usr/share/doc/packages/rear/README</filename>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>
