@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_crmreport_passl.xml" xml:id="app-crmreport-nonroot" version="5.0">
+ <title>在沒有 <systemitem class="username">root</systemitem> 存取權限的情況下執行叢集報告</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編輯</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  所有叢集節點必須能透過 SSH 互相存取。諸如 <command>crm report</command> (用於疑難排解) 等工具以及 Hawk2 的<guimenu>歷程總管</guimenu>，要求節點之間透過無密碼的 SSH 方式來存取，否則它們只能從目前節點收集資料。
+ </para>
+ <para>
+  如果無密碼 SSH <systemitem class="username">root</systemitem> 存取不符合法規要求，您可以使用一種解決方式來執行叢集報告。該解決方式包括以下基本步驟︰
+ </para>
+ <orderedlist>
+  <listitem>
+   <para>
+    建立專用的本地使用者帳戶 (用於執行 <command>crm report</command>)。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    為該使用者帳戶設定無密碼 SSH 存取 (最好是使用非標準 SSH 埠)。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    為該使用者設定 <command>sudo</command>。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    以該使用者的身分執行 <command>crm report</command>。
+   </para>
+  </listitem>
+ </orderedlist>
+ <para>
+  依預設，<command>crm report</command> 在執行時會先以 <systemitem class="username">root</systemitem> 身分嘗試登入遠端節點，如果無法登入，則嘗試以 <systemitem class="username">hacluster</systemitem> 使用者身分登入。但是，如果您的本地安全規則阻止使用 SSH 進行 <systemitem class="username">root</systemitem> 登入，則所有遠端節點上都無法執行程序檔。即使嘗試以 <systemitem class="username">hacluster</systemitem> 使用者身分執行程序檔也會失敗，因為這是一個服務帳戶，其外圍程序設定為 <filename>/bin/false</filename>，因此會阻止登入。建立專用的本地使用者是在高可用性叢集中所有節點上成功執行 <command>crm report</command> 程序檔的唯一可行做法。
+ </para>
+ <sect1 xml:id="sec-crmreport-nonroot-user">
+  <title>建立本地使用者帳戶</title>
+
+  <para>
+   在以下範例中，我們將透過指令行建立名為 <systemitem class="username">hareport</systemitem> 的本地使用者。密碼可以是符合安全要求的任何值。或者，您也可以使用 YaST 建立使用者帳戶並設定密碼。
+  </para>
+
+  <procedure>
+   <title>建立用於執行叢集報告的專用使用者帳戶</title>
+   <step>
+    <para>
+     啟動外圍程序，然後建立使用者 <systemitem class="username">hareport</systemitem> (其主目錄為 <filename>/home/hareport </filename>)︰
+    </para>
+<screen><prompt role="root">root # </prompt><command>useradd</command> -m -d /home/hareport -c "HA Report" hareport</screen>
+   </step>
+   <step>
+    <para>
+     為該使用者設定密碼︰
+    </para>
+<screen><prompt role="root">root # </prompt>passwd hareport</screen>
+   </step>
+   <step>
+    <para>
+     依照提示輸入該使用者的密碼兩次。
+    </para>
+   </step>
+  </procedure>
+
+  <important>
+   <title>需要在每個叢集節點上使用同一個使用者</title>
+   <para>
+    若要在所有節點上建立相同的使用者帳戶，請在每個叢集節點上重複上述步驟。
+   </para>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec-crmreport-nonroot-ssh">
+  <title>設定無密碼 SSH 帳戶</title>
+
+    <procedure>
+   <title>為非標準埠設定 SSH 精靈</title>
+   <para>
+    SSH 精靈與 SSH 用戶端預設會在埠 <literal>22</literal> 上通訊和監聽。如果您的網路安全指導方針要求將預設 SSH 埠變更為編號較高的替代埠，則您需要修改精靈的組態檔案 <filename>/etc/ssh/sshd_config</filename>。
+   </para>
+   <step>
+    <para>
+     若要修改預設埠，請在該檔案中搜尋 <literal>Port</literal> 行，取消註解該行，然後視需要進行編輯。例如，可將該行設定為︰
+    </para>
+<screen>Port 5022</screen>
+   </step>
+   <step>
+    <para>
+     如果您的組織不允許 <systemitem class="username">root</systemitem> 使用者存取其他伺服器，請在該檔案中搜尋 <literal>PermitRootLogin</literal> 項目，取消註解該項目，然後將它設定為 <literal>no</literal>︰
+    </para>
+<screen>PermitRootLogin no</screen>
+   </step>
+   <step>
+    <para>
+     或者，執行以下指令以在該檔案的末尾新增相應行︰
+    </para>
+<screen><prompt role="root">root # </prompt>echo “PermitRootLogin no” &gt;&gt; /etc/ssh/sshd_config
+<prompt role="root">root # </prompt>echo “Port 5022” &gt;&gt; /etc/ssh/sshd_config</screen>
+   </step>
+   <step>
+    <para>
+     修改 <filename>/etc/ssh/sshd_config</filename> 後，重新啟動 SSH 精靈以使新的設定生效︰
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl restart sshd</screen>
+   </step>
+  </procedure>
+
+  <important>
+   <title>需要在每個叢集節點上使用相同的設定</title>
+   <para>
+    在每個叢集節點上重複上述 SSH 精靈組態。
+   </para>
+  </important>
+
+  <procedure>
+   <title>為非標準埠設定 SSH 用戶端</title>
+   <para>
+    若要在叢集中的所有節點上進行 SSH 埠變更，一種有效的做法是修改 SSH 組態檔案 <filename>/etc/ssh/sshd_config</filename>。 
+    </para>
+   <step>
+    <para>
+     若要修改預設埠，請在該檔案中搜尋 <literal>Port</literal> 行，取消註解該行，然後視需要進行編輯。例如，可將該行設定為︰
+    </para>
+<screen>Port 5022</screen>
+   </step>
+   <step>
+    <para>
+     或者，執行以下指令以在該檔案的末尾新增相應行︰
+    </para>
+<screen><prompt role="root">root # </prompt>echo “Port 5022” &gt;&gt; /etc/ssh/ssh_config</screen>
+   </step>
+  </procedure>
+
+  <note>
+   <title>只需在一個節點上進行設定</title>
+   <para>
+    只需在要執行叢集報告的節點上設定上述 SSH 用戶端組態。</para>
+   <para>或者，您可以使用 <option>-X</option> 選項並配合自訂 SSH 埠來執行 <command>crm report</command>，甚至可以將 <command>crm report</command> 指定為預設使用自訂 SSH 埠。如需詳細資料，請參閱<xref linkend="pro-crmreport-custom-ssh"/>。</para>
+  </note>
+
+  <procedure>
+   <title>設定 SSH 共用金鑰</title>
+   <para>
+    您可以使用 SSH 來存取其他伺服器，系統不會要求您輸入密碼。這種存取方法看上去似乎並不安全，但其實十分安全，因為使用者只能存取已共用其公用金鑰的伺服器。共用金鑰必須以使用該金鑰的使用者身分來建立。
+   </para>
+   <step>
+    <para>
+     使用您為了執行叢集報告而建立的使用者帳戶 (在上述範例中，該使用者帳戶為 <systemitem class="username">hareport</systemitem>) 登入某個節點。
+    </para>
+   </step>
+   <step>
+    <para>
+     產生新金鑰︰
+    </para>
+<screen><prompt role="user">hareport &gt; </prompt>ssh-keygen –t rsa</screen>
+    <para>
+     此指令預設會產生 2048 位元金鑰。金鑰的預設位置為 <filename>~/.ssh/</filename>。系統會提示您在該金鑰中設定一個密碼片語。但請勿輸入密碼片語，因為要進行無密碼登入，就不能對金鑰設定密碼片語。
+     </para>
+   </step>
+   <step>
+    <para>
+     產生金鑰之後，將公用金鑰複製到其他<emphasis>每個</emphasis>節點 (<emphasis>包括</emphasis>建立了該金鑰的節點)︰
+    </para>
+<screen><prompt role="user">hareport &gt; </prompt>ssh-copy-id -i ~/.ssh/id_rsa.pub <replaceable>HOSTNAME_OR_IP</replaceable></screen>
+    <para>
+     在該指令中，您可以使用每個伺服器的 DNS 名稱、別名或 IP 位址。在複製過程中，系統會要求您接受每個節點的主機金鑰，並且您需要提供 <systemitem class="username">hareport</systemitem> 使用者帳戶的密碼 (這次輸入密碼後，以後不再需要輸入)。
+    </para>
+   </step>
+   <step>
+    <para>
+     在所有叢集節點上共用金鑰之後，使用無密碼 SSH 來測試您是否能夠以 <systemitem class="username">hareport</systemitem> 使用者的身分登入其他節點︰
+     </para>
+<screen><prompt role="user">hareport &gt; </prompt>ssh <replaceable>HOSTNAME_OR_IP</replaceable></screen>
+    <para>
+     您應會自動連接到遠端伺服器，而系統不會要求您接受證書或輸入密碼。
+    </para>
+   </step>
+  </procedure>
+
+  <note>
+   <title>只需在一個節點上進行設定</title>
+   <para>
+    如果您打算每次都從同一個節點執行叢集報告，則在這個節點上執行上述程序便已足夠。否則，您需要在每個節點上重複上述程序。
+   </para>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec-crmreport-nonroot-sudo">
+  <title>設定 <command>sudo</command></title>
+
+  <para>
+   使用 <command>sudo</command> 指令可讓普通使用者在提供或不提供密碼的情況下快速變成 <systemitem class="username">root</systemitem> 和發出指令。可向所有 root 層級指令或者特定的指令授予 Sudo 存取權限。Sudo 通常使用別名來定義整個指令字串。
+  </para>
+
+  <para>
+   若要設定 sudo，請使用 <command>visudo</command> (<emphasis>不是</emphasis> vi) 或 YaST。
+  </para>
+
+  <warning>
+   <title>不要使用 vi</title>
+   <para>
+    若要從指令行設定 sudo，必須以 <systemitem class="username">root</systemitem> 身分使用 <command>visudo</command> 來編輯 sudoers 檔案。使用其他任何編輯器可能會導致語法或檔案許可權錯誤，從而阻止 sudo 執行。
+   </para>
+  </warning>
+
+  <procedure>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     若要開啟 <filename>/etc/sudoers</filename> 檔案，請輸入 <command>visudo</command>。
+    </para>
+   </step>
+   <step>
+    <para> 尋找以下類別︰<literal>主機別名規格</literal>、<literal>使用者別名規格</literal>、<literal>Cmnd 別名規格</literal>和 <literal>Runas 別名規格</literal>。 </para>
+   </step>
+   <step>
+    <para>
+     將以下項目新增至 <filename>/etc/sudoers</filename> 中的相應類別︰
+    </para>
+<screen>Host_Alias	CLUSTER = alice,bob,charlie <co xml:id="ha-sudoers-host-alias"/>
+User_Alias HA = hareport <co xml:id="ha-sudoers-user-alias"/>
+Cmnd_Alias HA_ALLOWED = /bin/su, /usr/sbin/crm report *<co xml:id="ha-sudoers-cmd-alias"/>
+Runas_Alias R = root <co xml:id="ha-sudoers-runas-alias"/></screen>
+    <calloutlist>
+     <callout arearefs="ha-sudoers-host-alias">
+      <para>
+       主機別名定義 sudo 使用者有權在哪部伺服器 (或特定範圍內的伺服器) 上發出指令。在主機別名中，可以使用 DNS 名稱或 IP 位址，或者指定整個網路範圍 (例如 <literal>172.17.12.0/24</literal>)。若要限制存取範圍，應該僅指定叢集節點的主機名稱。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-user-alias">
+      <para>
+       使用者別名可讓您將多個本地使用者帳戶新增至單一別名。但是，在這種情況下，您可以避免建立別名，因為只會建立一個帳戶。在上述範例中，我們新增了為執行叢集報告而建立的 <systemitem class="username">hareport</systemitem> 使用者。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-cmd-alias">
+      <para>
+       指令別名定義該使用者可執行的指令。如果要限制非 root 使用者在使用 <command>sudo</command> 時可以存取的項目，這點將十分有用。在這種情況下，<systemitem class="username">hareport</systemitem> 使用者帳戶需要對指令 <command>crm report</command> 和 <command>su</command> 擁有存取權限。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-runas-alias">
+      <para>
+       runas 別名指定指令的執行身分帳戶。在本例中為 <systemitem class="username">root</systemitem>。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>搜尋以下兩行︰</para>
+    <screen>Defaults targetpw
+ALL     ALL=(ALL) ALL
+    </screen>
+    <para>由於這兩行與我們要建立的設定相衝突，因此請將其停用︰</para>
+    <screen>#Defaults targetpw
+#ALL     ALL=(ALL) ALL</screen>
+   </step>
+   <step>
+    <para>尋找 <literal>User privilege specification</literal>。</para>
+   </step>
+   <step>
+    <para>定義上述別名後，接下來可以新增以下規則︰</para>
+    <screen>HA	CLUSTER = (R) NOPASSWD:HA_ALLOWED</screen>
+    <para><literal>NOPASSWORD</literal> 選項確定使用者 <systemitem class="username">hareport</systemitem> 無需提供密碼就能執行叢集報告。</para>
+   </step>
+  </procedure>
+
+  <important>
+   <title>需要在每個叢集節點上使用相同的 sudo 組態</title>
+   <para>
+    必須在叢集中的所有節點上指定這項 sudo 組態。無需為 sudo 做出其他變更，並且無需重新啟動任何服務。
+   </para>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec-crmreport-nonroot-execute">
+  <title>產生叢集報告</title>
+  <para>若要使用上面的設定執行叢集報告，需要以 <systemitem class="username">hareport</systemitem> 使用者的身分登入某個節點。若要啟動叢集報告，請使用 <command>crm report</command> 指令。例如︰ </para>
+  <screen><prompt role="root">root # </prompt><command>crm report</command> -f 0:00 -n "alice bob charlie"</screen>
+  <para>此指令將會在指定的節點上擷取從<literal>淩晨 0 點</literal>開始的所有資訊，並在目前目錄中建立一個名為 <filename>pcmk-<replaceable>日期</replaceable>.tar.bz2</filename> 的 <literal>*.tar.bz2</literal> 歸檔。</para>
+  <procedure xml:id="pro-crmreport-custom-ssh">
+   <title>使用自訂 SSH 埠產生叢集報告</title>
+   <step>
+    <para>使用自訂 SSH 埠時，請搭配使用 <option>-X</option> 與 <command>crm report</command> 來修改用戶端的 SSH 埠。例如，如果自訂 SSH 埠為 <literal>5022</literal>，則使用以下指令︰</para>
+    
+    <screen><prompt role="root">root # </prompt>crm report -X "-p 5022" [...]</screen>
+   </step>
+   <step>
+    <para>若要為 <command>crm report</command> 永久設定自訂 SSH 連接埠，請啟動互動式 crm 外圍程序︰</para>
+     <screen>crm options</screen>
+   </step>
+   <step>
+    <para>
+     輸入以下內容︰
+    </para>
+    <screen><prompt role="custom">crm(live)options# </prompt> set core.report_tool_options "-X -oPort=5022"</screen>
+   </step>
+  </procedure>
+   </sect1>
+</appendix>

@@ -1,0 +1,500 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_maintenance.xml" version="5.0" xml:id="cha-ha-maintenance">
+ <title>執行維護任務</title>
+ <info>
+  <abstract>
+   <para>
+    若要在叢集節點上執行維護任務，您可能需要停止該節點上執行的資源、移動這些資源，或者將該節點關閉或重新開機。此外，可能還需要暫時接管叢集中資源的控制權，甚至需要在資源仍在執行時停止叢集服務。
+   </para>
+   <para>
+    本章介紹如何在不產生負面影響的情況下手動關閉叢集節點。此外，本章將會概述叢集堆疊提供的用於執行維護任務的不同選項。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:maintainer/>
+   <dm:status>編輯</dm:status>
+   <dm:deadline/>
+   <dm:priority/>
+   <dm:translation>yes</dm:translation>
+   <dm:languages/>
+   <dm:release/>
+   <dm:repository/>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec-ha-maint-shutdown-node">
+  <title>關閉叢集節點所造成的影響</title>
+
+  <para>
+   將某個叢集節點關閉或重新開機 (或停止節點上的 Pacemaker 服務) 時，會觸發以下程序︰
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     該節點上執行的資源將會停止，或移出該節點。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     如果停止資源的操作失敗或逾時，STONITH 機制將會圍籬區隔該節點，並將其關閉。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro-ha-maint-shutdown-node">
+   <title>手動將叢集節點重新開機</title>
+   <para>
+    如果您的目的是先循序將服務移出節點，然後再將該節點關閉或重新開機，請執行以下操作︰
+   </para>
+   <step>
+    <para>
+     在要重新開機或關閉的節點上，以 <systemitem class="username">root</systemitem> 或同等身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     將節點置於 <literal>standby</literal> 模式︰
+    </para>
+<screen><prompt role="root">root # </prompt>crm node standby</screen>
+    <para>
+     如此即可將服務移轉出節點，而不會受限於 Pacemaker 的關閉逾時。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用以下指令檢查叢集狀態︰
+    </para>
+<screen><prompt role="root">root # </prompt>crm status</screen>
+    <para>
+     此指令顯示相關節點處於 <literal>standby</literal> 模式︰
+    </para>
+<screen>[...]
+Node <replaceable>bob</replaceable>: standby
+[...]</screen>
+   </step>
+   <step>
+    <para>
+     停止該節點上的 Pacemaker 服務︰
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl stop pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     將節點重新開機。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   若要再次檢查節點是否已加入叢集，請執行以下步驟︰
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 或同等身分登入該節點。
+    </para>
+   </step>
+   <step>
+    <para>
+     檢查 Pacemaker 服務是否已啟動︰
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl status pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     如果未啟動，請將其啟動︰
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl start pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     使用以下指令檢查叢集狀態︰
+    </para>
+<screen><prompt role="root">root # </prompt>crm status</screen>
+    <para>
+     此指令應該會顯示節點已恢復線上狀態。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-maint-overview">
+  <title>用於維護任務的不同選項</title>
+
+  <para>
+   Pacemaker 提供了用於執行系統維護的各種選項︰
+  </para>
+
+  <variablelist>
+   <varlistentry xml:id="vle-ha-maint-mode-cluster">
+    
+    <term><xref linkend="sec-ha-maint-mode-cluster" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      使用全域叢集內容 <literal>maintenance-mode</literal> 可以一次性將所有資源置於維護狀態。叢集將停止監控這些資源，因此不知道它們的狀態。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-maint-mode-node">
+    
+    <term><xref linkend="sec-ha-maint-mode-node" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      此選項可以一次性將特定節點上執行的所有資源置於維護狀態。叢集將停止監控這些資源，因此不知道它們的狀態。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-maint-node-standby">
+    
+    <term><xref linkend="sec-ha-maint-node-standby" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      處於待命模式的節點不再能夠執行資源。該節點上執行的所有資源將會移出或停止 (如果沒有其他節點可用於執行資源)。另外，該節點上的所有監控操作將會停止 (設定為 <literal>role="Stopped"</literal> 的操作除外)。
+     </para>
+     <para>
+      如果您需要停止叢集中的某個節點，同時繼續提供另一個節點上執行的服務，則可以使用此選項。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-maint-mode-rsc">
+    
+    <term><xref linkend="sec-ha-maint-mode-rsc" xrefstyle="select:title"/></term>
+    <listitem>
+     <para>
+      為某個資源啟用此模式後，將不會針對該資源觸發監控操作。
+     </para>
+     <para>
+      如果您需要手動調整此資源所管理的服務，並且不希望叢集在此期間對該資源執行任何監控操作，則可以使用此選項。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-maint-rsc-unmanaged">
+    
+    <term><xref linkend="sec-ha-maint-rsc-unmanaged" xrefstyle="select:title"/></term>
+     <listitem>
+     <para>
+      使用 <option>is-managed</option> 中繼屬性可以暫時<quote>釋放</quote>某個資源，使其不受叢集堆疊的管理。這表示您可以手動調整此資源管理的服務 (例如，調整任何元件)。不過，叢集將繼續<emphasis>監控</emphasis>該資源，並繼續報告任何錯誤。
+     </para>
+     <para>
+      如果您希望叢集同時停止<emphasis>監控</emphasis>該資源，請改為使用依資源維護模式 (請參閱<xref linkend="vle-ha-maint-mode-rsc"/>)。
+     </para>
+    </listitem>
+   </varlistentry>
+   
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-maint-outline">
+  <title>準備和完成維護工作</title>
+
+  <warning>
+   <title>資料遺失的風險</title>
+   <para>
+    如果您需要執行測試或維護工作，請執行下面的一般步驟。
+   </para>
+   <para>
+    如果不執行，有可能會產生不利的負面影響，例如，資源不循序啟動、CIB 在叢集節點之間不同步，甚至遺失資料。
+   </para>
+   <procedure>
+   <step>
+    <para>
+     在開始之前，請選擇<xref linkend="sec-ha-maint-overview" xrefstyle="select:label"/>中所述適合您情況的選項。
+    </para>
+   </step>
+   <step>
+    <para>
+     請使用 Hawk2 或 crmsh 套用此選項。
+    </para>
+   </step>
+   <step>
+    <para>
+     執行維護任務或測試。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成後，請將資源、節點或叢集恢復<quote>正常</quote>運作。
+    </para>
+   </step>
+  </procedure>
+ </warning>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-maint-mode-cluster">
+  <title>將叢集置於維護模式</title>
+   <para>
+    若要在 crm 外圍程序中將叢集置於維護模式，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=true</screen>
+  <para>
+    若要在完成維護工作後將叢集恢復正常模式，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> configure property maintenance-mode=false</screen>
+
+<procedure xml:id="pro-ha-maint-mode-cluster-hawk2">
+   <title>使用 Hawk2 將叢集置於維護模式</title>
+   <step>
+    <para>
+     啟動網頁瀏覽器並依<xref linkend="sec-conf-hawk2-login"/> 所述登入叢集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中選取<guimenu>叢集組態</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在 <guimenu>CRM 組態</guimenu>群組中，從空白下拉式方塊中選取 <guimenu>maintenance-mode</guimenu> 屬性，然後按一下加號圖示新增該屬性。
+    </para>
+   </step>
+   <step>
+    <para>
+     若要設定 <literal>maintenance-mode=true</literal>，請啟用 <literal>maintenance-mode</literal> 旁邊的核取方塊，並確認您所做的變更。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成針對整個叢集的維護任務後，停用 <literal>maintenance-mode</literal> 屬性旁邊的核取方塊。
+    </para>
+    <para>
+     從此刻起，High Availability Extension 會再次接管叢集管理工作。
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+ <sect1 xml:id="sec-ha-maint-mode-node">
+  <title>將節點置於維護模式</title>
+   <para>
+    若要在 crm 外圍程序中將節點置於維護模式，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> node maintenance <replaceable>NODENAME</replaceable></screen>
+  <para>
+    若要在完成維護工作後將節點恢復正常模式，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> node ready <replaceable>NODENAME</replaceable></screen>
+
+  <procedure xml:id="pro-ha-maint-mode-nodes-hawk2">
+   <title>使用 Hawk2 將節點置於維護模式</title>
+   <step>
+    <para>
+     啟動網頁瀏覽器並依<xref linkend="sec-conf-hawk2-login"/> 所述登入叢集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中選取<guimenu>叢集狀態</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在其中一個節點檢視窗中，按一下節點旁邊的扳手圖示，然後選取<guimenu>維護</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+      完成維護任務後，按一下節點旁邊的扳手圖示，然後選取<guimenu>就緒</guimenu>。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-maint-node-standby">
+  <title>將節點置於待命模式</title>
+   <para>
+    若要在 crm 外圍程序中將節點置於待命模式，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt>crm node standby <replaceable>NODENAME</replaceable></screen>
+  <para>
+    若要在完成維護工作後將節點恢復線上狀態，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt>crm node online <replaceable>NODENAME</replaceable></screen>
+
+<procedure xml:id="pro-ha-maint-node-standby-hawk2">
+  <title>使用 Hawk2 將節點置於待命模式</title>
+   <step>
+    <para>
+     啟動網頁瀏覽器並依<xref linkend="sec-conf-hawk2-login"/> 所述登入叢集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中選取<guimenu>叢集狀態</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在其中一個節點的檢視中，按一下節點旁邊的扳手圖示，然後選取<guimenu>待命</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成節點的維護任務。
+    </para>
+   </step>
+   <step>
+    <para>
+     若要停用待命模式，請按一下節點旁邊的扳手圖示，然後選取<guimenu>就緒</guimenu>。
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+ <sect1 xml:id="sec-ha-maint-mode-rsc">
+  <title>將資源置於維護模式</title>
+   <para>
+    若要在 crm 外圍程序中將資源置於維護模式，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource maintenance <replaceable>RESOURCE_ID</replaceable> true</screen>
+  <para>
+    若要在完成維護工作後將資源恢復正常模式，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource maintenance <replaceable>RESOURCE_ID</replaceable> false</screen>
+
+<procedure xml:id="pro-ha-maint-mode-rsc-hawk2">
+   <title>使用 Hawk2 將資源置於維護模式</title>
+   <step>
+    <para>
+     啟動網頁瀏覽器並依<xref linkend="sec-conf-hawk2-login"/> 所述登入叢集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中，選取<guimenu>資源</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     選取要將其置於維護模式或不受管理模式的資源，然後按一下資源旁邊的扳手圖示並選取<guimenu>編輯資源</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     開啟<guimenu>中繼屬性</guimenu>類別。
+    </para>
+   </step>
+   <step>
+    <para>
+     從空白下拉式方塊中，選取 <guimenu>maintenance</guimenu> 屬性並按一下加號圖示以新增該屬性。
+    </para>
+   </step>
+   <step>
+    <para>
+     啟用 <literal>maintenance</literal> 旁邊的核取方塊，將 maintenance 屬性設定為 <literal>yes</literal>。
+    </para>
+   </step>
+   <step>
+    <para>
+     確認您的變更。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成針對該資源的維護任務後，停用該資源 <literal>maintenance</literal> 屬性旁邊的核取方塊。
+    </para>
+    <para>
+     從此時起，資源將重新由 High Availability Extension 軟體管理。
+    </para>
+   </step>
+  </procedure>
+</sect1>
+
+<sect1 xml:id="sec-ha-maint-rsc-unmanaged">
+  <title>將資源置於不受管理模式</title>
+   <para>
+    若要在 crm 外圍程序中將資源置於不受管理模式，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource unmanage <replaceable>RESOURCE_ID</replaceable></screen>
+  <para>
+    若要在完成維護工作後再次將資源置於受管理模式，請使用以下指令︰</para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource manage <replaceable>RESOURCE_ID</replaceable></screen>
+
+ <procedure xml:id="pro-ha-maint-rsc-unmanaged-hawk2">
+   <title>使用 Hawk2 將資源置於不受管理模式</title>
+   <step>
+    <para>
+     啟動網頁瀏覽器並依<xref linkend="sec-conf-hawk2-login"/> 所述登入叢集。
+    </para>
+   </step>
+   <step>
+    <para>
+     在左側導覽列中選取<guimenu>狀態</guimenu>，然後移至<guimenu>資源</guimenu>清單。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>操作</guimenu>欄中，按一下要修改的資源旁邊的向下箭頭圖示，然後選取<guimenu>編輯</guimenu>。
+    </para>
+    <para>
+     資源組態螢幕隨即開啟。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>中繼屬性</guimenu>下方，從空白下拉式方塊中選取 <guimenu>is-managed</guimenu> 項目。
+    </para>
+   </step>
+   <step>
+    <para>
+     將其值設定為 <literal>No</literal>，然後按一下<guimenu>套用</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成維護任務後，將 <guimenu>is-managed</guimenu> 設定為 <literal>Yes</literal> (預設值) 並套用變更。
+    </para>
+    <para>
+     從此時起，資源將重新由 High Availability Extension 軟體管理。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+<sect1 xml:id="sec-ha-maint-shutdown-node-maint-mode">
+ <title>在維護模式下將叢集節點重新開機</title>
+    <note>
+      <title>隱含式</title>
+      <para>
+       如果叢集或某個節點處於維護模式，您可以視需要停止或重新啟動叢集資源 — High Availability Extension 不會嘗試將其重新啟動。如果您停止節點上的 Pacemaker 服務，所有精靈和程序 (最初做為 Pacemaker 管理的叢集資源啟動) 會繼續執行。
+      </para>
+      <para>
+       如果您在叢集或某個節點處於維護模式的情況下嘗試啟動該節點上的 Pacemaker 服務，Pacemaker 會針對每個資源啟動一次性的監控操作 (<quote>查探</quote>)，以評估哪些資源目前正在該節點上執行。但是，它只會確定資源的狀態，而不執行進一步的動作。
+      </para>
+     </note>
+
+   <procedure>
+    <para>
+    若要在叢集或某個節點處於<literal>維護模式</literal>時關閉該節點，請執行以下操作︰
+    </para>
+    <step>
+    <para>
+     在要重新開機或關閉的節點上，以 <systemitem class="username">root</systemitem> 或同等身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     檢查是否存在 <literal>ocf:pacemaker:controld</literal> 類型的資源，或者任何依賴這種資源的資源。<literal>ocf:pacemaker:controld</literal> 類型的資源是 DLM 資源。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       如果存在，請明確停止 DLM 資源以及依賴於它們的所有資源。
+      </para>
+<screen><prompt role="custom">crm(live)resource# </prompt>stop <replaceable>RESOURCE_ID</replaceable></screen>
+      <para>
+       這是因為，停止 Pacemaker 也會停止 DLM 對其成員資格和訊息服務有依賴的 Corosync 服務。如果 Corosync 停止，DLM 資源將假設一種電腦分裂情況並觸發圍籬區隔操作。
+      </para>
+     </step>
+     <step>
+       <para>
+        如果不存在，請繼續執行<xref linkend="step-stop-pcmkr-service"/>。
+       </para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="step-stop-pcmkr-service">
+    <para>
+     停止該節點上的 Pacemaker 服務︰
+    </para>
+<screen><prompt role="root">root # </prompt>systemctl stop pacemaker.service</screen>
+   </step>
+   <step>
+    <para>
+     將節點關閉或重新開機。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>
