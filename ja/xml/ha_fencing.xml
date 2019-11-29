@@ -1,0 +1,565 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_fencing.xml" version="5.0" xml:id="cha-ha-fencing">
+
+ <title>フェンシングとSTONITH</title>
+ <info>
+      <abstract>
+        <para>
+    フェンシングはHA(High Availability)向けコンピュータクラスタにおいて、非常に重要なコンセプトです。クラスタがノードの1つの誤動作を検出し、そのノードの削除が必要となることがあります。これを<emphasis>フェンシング</emphasis>と呼び、一般にSTONITHリソースで実行されます。フェンシングは、HAクラスタを既知の状態にするための方法として定義できます。
+   </para>
+        <para>
+    クラスタのすべてのリソースには、それぞれ状態が関連付けられています。たとえば、<quote>リソースr1はaliceで起動されている</quote>などです。HAクラスタでは、このような状態は<quote>リソースr1はalice以外のすべてのノードで停止している</quote>ことを示します。クラスタは各リソースが1つのノードでのみ起動されるようにするためです。各ノードはリソースに生じた変更を報告する必要があります。つまり、クラスタの状態は、リソースの状態とノードの状態の集まりです。
+   </para>
+        <para>
+    ノードまたはリソースの状態を十分に確定することができない場合には、フェンシングが発生します。クラスタが所定のノードで起こっていることを認識しない場合でも、フェンシングによって、そのノードが重要なリソースを実行しないようにできます。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    
+ 
+ <sect1 xml:id="sec-ha-fencing-classes">
+  <title>フェンシングのクラス</title>
+
+  <para>
+   フェンシングには、リソースレベルとノードレベルのフェンシングという、2つのクラスがあります。後者について、この章で主に説明します。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>リソースレベルのフェンシング</term>
+    <listitem>
+     <para>リソースレベルのフェンシングにより、特定のリソースへの排他的アクセスが保証されます。この一般的な例として、SANファイバチャネルスイッチからのノードのゾーニングの変更(つまり、ノードのディスクへのアクセスのロックアウト)や、SCSI予約などの方法が挙げられます。例については、 <xref linkend="sec-ha-storage-protect-rsc-fencing"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ノードレベルのフェンシング</term>
+    <listitem>
+     <para>
+      ノードレベルのフェンシングにより、障害が発生したノードから共有リソースに完全にアクセスできなくなります。このことは通常、そのノードをリセットする、または電源オフにするというような、極端な手段で行われます。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-fencing-nodes">
+  <title>ノードレベルのフェンシング</title>
+
+  <para>
+   Pacemakerクラスタにおけるノードレベルフェンシングの実装は、STONITH (Shoot The Other Node in the Head: 他のノードの即時強制終了)です。High Availability Extensionには<command>stonith</command>コマンドラインツールが付属し、これはクラスタ上のノードの電源をリモートでオフにする拡張インタフェースです。使用できるオプションの概要については、<command>stonith --help</command>を実行するか、または<command>stonith</command>のマニュアルページで詳細を参照してください。
+  </para>
+
+  <sect2 xml:id="sec-ha-fencing-nodes-devices">
+   <title>STONITHデバイス</title>
+   <para>
+    ノードレベルのフェンシングを使用するには、まず、フェンシングデバイスを用意する必要があります。High Availability ExtensionでサポートされているSTONITHデバイスのリストを取得するには、任意のノード上で次のコマンドのいずれかを実行します。
+   </para>
+<screen><prompt role="root">root # </prompt>stonith -L</screen>
+   <para>
+    または
+   </para>
+<screen><prompt role="root">root # </prompt>crm ra list stonith</screen>
+   <para>
+    STONITHデバイスは次のカテゴリに分類できます。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>電源分配装置(PDU)</term>
+     <listitem>
+      <para>
+       電源分配装置は、重要なネットワーク、サーバ、データセンター装置の電力と機能を管理する、重要な要素です。接続した装置のリモートロード監視と、個々のコンセントでリモート電源オン/オフのための電力制御を実行できます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>無停電電源装置(UPS)</term>
+     <listitem>
+      <para>
+       電力会社からの電力の停電発生時に別個のソースから電力を供給することで、安定した電源から接続先の装置に緊急電力が提供されます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>ブレード電源制御デバイス</term>
+     <listitem>
+      <para>
+       クラスタを一連のブレード上で実行している場合、ブレードエンクロージャの電源制御デバイスがフェンシングの唯一の候補となります。当然、このデバイスは1台のブレードコンピュータを管理できる必要があります。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>ライトアウトデバイス </term>
+     <listitem>
+      <para>
+       ライトアウトデバイス(IBM RSA、HP iLO、Dell DRAC)は急速に広まっており、既製コンピュータの標準装備になる可能性さえあります。ただし、ホスト(クラスタノード)と電源を共有する場合は、必要時にそれらが機能しない場合があります。ノードに電力が供給されないままでは、それを制御するデバイスも役に立ちません。したがって、バッテリ駆動のライトアウトデバイスを使用することを強くお勧めします。これらのデバイスはネットワークでアクセスできるという別の側面があります。これはシングルポイント障害またはセキュリティの懸念事項を示唆している可能性があります。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>テストデバイス</term>
+     <listitem>
+      <para>
+       テストデバイスは、テスト専用に使用されます。通常、ハードウェアにあまり負担をかけないようになっています。クラスタが運用に使用される前に、実際のフェンシングデバイスに交換される必要があります。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    STONITHデバイスは、予算と使用するハードウェアの種類に応じて選択します。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-fencing-nodes-implementation">
+   <title>STONITHの実装</title>
+   <para>
+    <phrase role="productnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase>でのSTONITHの実装は、2つのコンポーネントで構成されています。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>stonithd</term>
+     <listitem>
+      <para>
+       stonithdは、ローカルプロセスまたはネットワーク経由でアクセスできるデーモンです。stonithdは、フェンシング操作に対応するコマンド(rest、power-off、power-on)を受け入れます。フェンシングデバイスのステータスチェックも行います。
+      </para>
+      <para>
+       stonithdデーモンはCRM HAクラスタの各ノードで実行されます。DCノードで実行されるstonithdインスタンスは、CRMからフェンシング要求を受け取ります。目的のフェンシング操作を実行するのは、このインスタンスとその他のstonithdプログラムです。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>STONITHプラグイン</term>
+     <listitem>
+      <para>
+       サポートされているフェンシングデバイスごとに、そのデバイスを制御できるSTONITHプラグインがあります。STONITHプラグインはフェンシングデバイスへのインタフェースです。<systemitem>cluster-glue</systemitem>パッケージに付属するSTONITHプラグインは、各ノード上の<filename>/usr/lib64/stonith/plugins</filename>にあります(<systemitem class="resource">fence-agents</systemitem>パッケージもインストールしている場合、そのパッケージに付属する各種プラグインは、<filename>/usr/sbin/fence_*</filename>にインストールされています)。すべてのSTONITHプラグインはstonithdからは同一のものと認識されますが、フェンシングデバイスの性質を反映しているため、大きな違いがあります。
+      </para>
+      <para>
+       一部のプラグインは、複数のデバイスをサポートします。代表的な例は<literal>ipmilan</literal> (または<literal>external/ipmi</literal>)で、IPMIプロトコルを実装し、このプロトコルをサポートする任意のデバイスを制御できます。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec-ha-fencing-config">
+  <title>STONITHのリソースと環境設定</title>
+
+  <para>
+   フェンシングをセットアップするには、1つまたは複数のSTONITHリソースを設定する必要があります。stonithdデーモンでは設定は不要です。すべての設定はCIBに保存されます。STONITHリソースはクラス<literal>stonith</literal>のリソースです(<xref linkend="sec-ha-config-basics-raclasses"/>を参照)。STONITHリソースはSTONITHプラグインのCIBでの表現です。フェンシング操作の他、STONITHリソースはその他のリソースと同様、起動、停止、監視できます。STONITHリソースの開始または停止は、ノード上でSTONITHデバイスドライバのロードおよびアンロードが行われることを意味しています。開始と停止は管理上の操作であるため、フェンシングデバイス自体での操作にはなりません。ただし、監視は、デバイスのログイン操作になります(必要な場合にデバイスが動作していることを検証するため)。STONITHリソースが別のノードにフェールオーバーすると、対応するドライバがロードされて、現在のノードがSTONITHデバイスと通信できるようにされます。
+  </para>
+
+  <para>
+   STONITHリソースはその他のリソースと同様にして設定できます。これらの操作の詳細については、使用しているクラスタ管理ツールに応じて次のいずれかを参照してください。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Hawk2: <xref linkend="sec-conf-hawk2-rsc-stonith"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     crmsh: <xref linkend="sec-ha-manual-create-stonith"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   パラメータ(属性)のリストは、それぞれのSTONITHの種類に依存します。特定のデバイスのパラメータ一覧を表示するには、<command>stonith</command>コマンドを実行します。
+  </para>
+
+<screen>stonith -t <replaceable>stonith-device-type</replaceable> -n</screen>
+
+  <para>
+   たとえば、<literal>ibmhmc</literal>デバイスタイプのパラメータを表示するには、次のように入力します。
+  </para>
+
+<screen>stonith -t ibmhmc -n</screen>
+
+
+
+  <para>
+   デバイスの簡易ヘルプテキストを表示するには、<option>-h</option>オプションを使用します。
+  </para>
+
+<screen>stonith -t <replaceable>stonith-device-type</replaceable> -h</screen>
+
+  <sect2 xml:id="sec-ha-fencing-config-examples">
+   <title>STONITHリソースの設定例</title>
+   <para>
+    以降では、<command>crm</command>コマンドラインツールの構文で作成された設定例を紹介します。これを適用するには、サンプルをテキストファイル(<filename>sample.txt</filename>など)に格納して、実行します。
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> &lt; sample.txt</screen>
+   <para>
+    <command>crm</command>コマンドラインツールでのリソースの設定については、<xref linkend="cha-ha-manual-config"/>を参照してください。
+   </para>
+   <example>
+    <title>IBM RSAライトアウトデバイスの設定</title>
+    <para>
+     IBM RSAライトアウトデバイスは、次のようにして設定できます。
+    </para>
+<screen>configure
+primitive st-ibmrsa-1 stonith:external/ibmrsa-telnet \
+params nodename=alice ip_address=192.168.0.101 \
+username=USERNAME password=PASSW0RD
+primitive st-ibmrsa-2 stonith:external/ibmrsa-telnet \
+params nodename=bob ip_address=192.168.0.102 \
+username=USERNAME password=PASSW0RD
+location l-st-alice st-ibmrsa-1 -inf: alice
+location l-st-bob st-ibmrsa-2 -inf: bob
+commit</screen>
+    <para>
+     この例では、location制約が使用されていますが、それは、STONITH操作が常に一定の確率で失敗するためです。したがって、(実行側でもあるノード上の) STONITH操作は信頼できません。ノードがリセットされていない場合、フェンシング操作結果について通知を送信できません。これを実行する方法は、操作が成功すると仮定して事前に通知を送信するほかありません。ただし操作が失敗した場合、問題が発生することがあります。したがって、規則によってstonithdはホストの終了を拒否します。
+    </para>
+   </example>
+   <example>
+    <title>UPSフェンシングデバイスの設定</title>
+    <para>
+     UPSタイプのフェンシングデバイスの設定は、上記の例と似ています。詳細についてはここでは割愛します。すべてのUPSデバイスは、フェンシングのために、同じ機構を使用します。デバイスへのアクセス方法が異なる方法。古いUPSデバイスにはシリアルポートしかなく、通常、特別のシリアルケーブルを使用して1200ボーで接続していました。新型の多くは、まだシリアルポートがありますが、USBインタフェースまたはEthernetインタフェースも使用します。使用できる接続の種類は、プラグインが何をサポートしているかによります。
+    </para>
+    <para>
+     たとえば、<literal>apcmaster</literal>を<literal>apcsmart</literal>デバイスと、<command>stonith -t </command> <replaceable>stonith-device-type</replaceable> -nコマンドを使用して比較します。
+    </para>
+<screen>stonith -t apcmaster -h</screen>
+    <para>
+     次の情報が返されます。
+    </para>
+<screen>STONITH Device: apcmaster - APC MasterSwitch (via telnet)
+NOTE: The APC MasterSwitch accepts only one (telnet)
+connection/session a time. When one session is active,
+subsequent attempts to connect to the MasterSwitch will fail.
+For more information see http://www.apc.com/
+List of valid parameter names for apcmaster STONITH device:
+ipaddr
+login
+ password</screen>
+    <para>
+     今度は次のコマンドを使用します。
+    </para>
+<screen>stonith -t apcsmart -h</screen>
+    <para>
+     次の結果が得られます。
+    </para>
+<screen>STONITH Device: apcsmart - APC Smart UPS
+(via serial port - NOT USB!). 
+Works with higher-end APC UPSes, like
+Back-UPS Pro, Smart-UPS, Matrix-UPS, etc.
+(Smart-UPS may have to be &gt;= Smart-UPS 700?).
+See http://www.networkupstools.org/protocols/apcsmart.html
+for protocol compatibility details.
+For more information see http://www.apc.com/
+List of valid parameter names for apcsmart STONITH device:
+ttydev
+hostlist</screen>
+    <para>
+     最初のプラグインは、ネットワークポートとtelnetプロトコルを持つAPC UPSをサポートします。2番目のプラグインはAPC SMARTプロトコルをシリアル回線で使用します。これは多数のAPC UPS製品ラインでサポートされているものです。
+    </para>
+   </example>
+   <example xml:id="ex-ha-fencing-kdump">
+    <title>kdumpデバイスの設定</title>
+    <para>Kdumpは<xref linkend="sec-ha-fencing-special" xrefstyle="select:title"/>に属し、実際にはフェンシングデバイスとは正反対のものです。このプラグインは、ノードでカーネルダンプが進行中かどうかをチェックします。<emphasis/>進行中であればtrueを返し、ノードがフェンシングされたかのように動作します。
+    </para>
+    <para>
+     Kdumpプラグインは、別の実際のSTONITHデバイスと共に使用する必要があります(たとえば、<literal>external/ipmi</literal>など)。フェンシングメカニズムが正常に機能するには、実際のSTONITHデバイスがトリガされる前にKdumpをチェックするよう指定する必要があります。次の手順で示すように、<command>crm configure fencing_topology</command>を使用して、フェンシングデバイスの順序を指定してください。
+   </para>
+   <procedure>
+    <step>
+    <para>
+     kdump機能を有効にしたノードをすべて監視するには、<literal>stonith:fence_kdump</literal>リソースエージェント(パッケージ<systemitem class="resource">fence-agents</systemitem>で提供)を使用します。構成の例については、以下のリソースを参照してください。
+    </para>
+<screen>configure
+  primitive st-kdump stonith:fence_kdump \
+    params nodename="alice "\ <co xml:id="co-ha-fenc-kdump-nodename"/>
+    pcmk_host_check="static-list" \
+    pcmk_reboot_action="off" \
+    pcmk_monitor_action="metadata" \
+    pcmk_reboot_retries="1" \
+    timeout="60"
+commit</screen>
+    <calloutlist>
+     <callout arearefs="co-ha-fenc-kdump-nodename">
+      <para>
+       監視されるノードの名前。複数のノードを監視する必要がある場合は、追加のSTONITHリソースを設定します。特定のノードでフェンシングデバイスを使用しないようにするには、場所に対する制約を追加します。
+      </para>
+     </callout>
+    </calloutlist>
+    <para>
+     フェンシングのアクションは、リソースのタイムアウトが経過すると始まります。
+    </para>
+   </step>
+   <step>
+    <para>
+     各ノード上の<filename>/etc/sysconfig/kdump</filename>で、kdumpプロセスが完了したときにすべてのノードに通知が送信されるように<literal>KDUMP_POSTSCRIPT</literal>を設定します。次に例を示します。
+    </para>
+<screen>/usr/lib/fence_kdump_send -i <replaceable>INTERVAL</replaceable> -p <replaceable>PORT</replaceable> -c 1 alice bob charlie [...]</screen>
+    <para>
+     kdumpが完了すると、kdumpを実行するノードが自動的に再起動します。
+    </para>
+   </step>
+   <step>
+    <para>
+     ネットワークが有効化された<literal>fence_kdump_send</literal>ライブラリに関する指定を含む、新しい<filename>initrd</filename>を記述します。<option>-f</option>オプションを使用して既存のファイルを上書きし、次回のブートプロセスでその新規ファイルが使用されるようにします。
+    </para>
+<screen><prompt role="root">root # </prompt>dracut -f -a kdump</screen>
+   </step>
+   <step>
+    <para>
+     <literal>fence_kdump</literal>リソース用のポートをファイアウォールで開きます。デフォルトポートは<literal>7410</literal>です。
+    </para>
+   </step>
+   <step>
+    <para>
+     実際のフェンシングメカニズム(<literal>external/ipmi</literal>など)をトリガする前にKdumpがチェックされるようにするため、次のような設定を使用します。</para>
+    <screen>fencing_topology \
+  alice: kdump-node1 ipmi-node1 \
+  bob: kdump-node2 ipmi-node2</screen>
+    <para><option>fencing_topology</option>の詳細:
+    </para>
+   <screen>crm configure help fencing_topology</screen>
+  </step>
+ </procedure>
+ </example>
+   </sect2>
+ </sect1>
+ <sect1 xml:id="sec-ha-fencing-monitor">
+  <title>フェンシングデバイスの監視</title>
+
+  <para>
+   他のリソースと同様に、STONITHクラスのエージェントは、ステータスのチェックのための監視操作もサポートします。
+  </para>
+
+
+
+  <note>
+   <title>STONITHリソースの監視</title>
+   <para>
+    STONITHリソースの監視は定期的に行われますが、頻繁ではありません。ほとんどのデバイスでは、少なくとも1800秒(30分)の監視間隔があれば十分です。
+   </para>
+  </note>
+
+  <para>
+   フェンシングデバイスはHAクラスタの不可欠な要素ですが、使用する必要が少ないほど好都合です。ブロードキャストトラフィックが多すぎると、しばしば、電源管理装置が影響を受けます。1分間に10本程度の接続しか処理できないデバイスもあります。2つのクライアントが同時に接続しようとすると、混乱するデバイスもあります。大部分は、同時に複数のセッションを処理できません。
+  </para>
+
+  <para>
+   したがって、通常、フェンシングデバイスのステータスは数時間ごとにチェックすれば十分です。フェンシング操作の実行が必要となり、電源スイッチが故障する可能性は小さいものです。
+  </para>
+
+  <para>
+   監視操作の設定方法の詳細については、<xref linkend="sec-ha-manual-config-monitor"/>を参照してください(コマンドラインアプローチについて説明されている)。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-fencing-special">
+  <title>特殊なフェンシングデバイス</title>
+
+  <para>
+   実際のSTONITHデバイスを操作するプラグインに加えて、特殊目的のSTONITHプラグインも存在します。
+  </para>
+
+  <warning>
+   <title>テスト目的のみ</title>
+   <para>
+    次に示すSTONITHプラグインの一部は、デモとテストだけを目的としています。次のデバイスは、現実のシナリオでは使用しないでください。使用すると、データが損なわれたり、予測できない結果が生じることがあります。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <literal>external/ssh </literal>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <literal>ssh </literal>
+     </para>
+    </listitem>
+
+   </itemizedlist>
+  </warning>
+
+  <variablelist>
+
+   <varlistentry xml:id="vle-fence-kdump">
+    <term><literal>fence_kdump</literal>
+    </term>
+    <listitem>
+     <para>
+      このプラグインは、ノードでカーネルダンプが進行中かどうかをチェックします。進行中であれば<literal>true</literal>を返し、ノードがフェンシングされたかのように動作します。いずれにせよ、ダンプ中には、ノードはどのリソースも実行できません。これによって、すでにダウンしているがダンプ中(これは時間がかかります)であるノードのフェンシングを避けることができます。このプラグインは、別の実際のSTONITHデバイスとともに使用する必要があります。
+     </para>
+     <para>
+      設定の詳細については、<xref linkend="ex-ha-fencing-kdump"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>external/sbd</literal>
+    </term>
+    <listitem>
+     <para>
+      これは自己フェンシングデバイスです。共有ディスクに挿入されることがある、いわゆる<quote>ポイズンピル</quote>に反応します。共有ストレージ接続が失われた場合、このデバイスはノードの動作を停止します。このSTONITHエージェントを使用してストレージベースのフェンシングを実装する方法については、<xref linkend="cha-ha-storage-protect" xrefstyle="select:label nopage"/>、<xref linkend="pro-ha-storage-protect-fencing"/>を参照してください。詳細については、<link xlink:href="https://github.com/ClusterLabs/sbd/blob/master/man/sbd.8.pod"/>も参照してください。
+     </para>
+
+     <important>
+      <title><literal>external/sbd</literal>およびDRBD</title>
+      <para>
+       <literal>external/sbd</literal>フェンシングメカニズムは、SBDパーティションが各ノードから直接読み取れることを要求します。そのため、SBDパーティションではDRBD*デバイスを使用してはなりません。
+      </para>
+      <para>
+       ただし、SBDパーティションが階層配置または複製されていない共有ディスク上にある場合には、DRBDクラスタでフェンシングメカニズムを使用することはできます。
+      </para>
+     </important>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>external/ssh</literal>
+    </term>
+    <listitem>
+     <para>
+      別のソフトウェアベースの<quote>フェンシング</quote>メカニズムです。ノードは、<systemitem class="username">root</systemitem>として、パスワードなしでお互いにログインできる必要があります。このメカニズムは、1つのパラメータ<literal>hostlist</literal>をとり、ターゲットにするノードを指定します。これは、本当に障害のあるノードをリセットすることはできないので、実際のクラスタには使用しないでください。これは、テストとデモの目的にのみ使用します。これを共有ストレージに使用すると、データが破損します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>meatware</literal>
+    </term>
+    <listitem>
+     <para>
+      <literal>meatware</literal>ではユーザが操作を支援する必要があります。起動すると、<literal>meatware</literal>はノードのコンソールに表示されるCRIT重大度メッセージを記録します。その場合、オペレータはノードがダウンしていることを確認して、<command>meatclient(8)</command>コマンドを発行します。これにより<literal>meatware</literal>は、クラスタに対して、そのノードが 機能しなくなっていることを伝えます。詳細については、<filename>/usr/share/doc/packages/cluster-glue/README.meatware</filename>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>suicide</literal>
+    </term>
+    <listitem>
+     <para>
+      これはソフトウェアのみのデバイスで、<command>reboot</command>コマンドを使用して実行しているノードを再起動できます。これにはノードのオペレーティングシステムによる操作が必要で、特定の状況では失敗することがあります。したがって、このデバイスの使用は、極力避けてください。ただし、1ノードクラスタで使用する場合は安全です。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ディスクレスSBD</term>
+    <listitem>
+     <para>この設定は、共有ストレージなしのフェンシングメカニズムが必要なときに便利です。このディスクレスモードでは、SBDは共有デバイスに頼らず、ハードウェアウォッチドッグを使用してノードをフェンスします。ただし、ディスクレスSBDは2ノードクラスタ用のスプリットブレインシナリオには対応できません。そのため、ディスクレスSBDを使用するには、3以上のノードが必要です。</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   <literal>suicide</literal>は、<quote>自分のホストを停止させない</quote>というルールに対する唯一の例外です。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-fencing-recommend">
+  <title>基本的な推奨事項</title>
+
+  <para>
+   次の推奨事項のリストをチェックして、よく発生する間違いを避けてください。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     複数の電源スイッチを並列に接続しないでください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     STONITHデバイスとその設定をテストする際には、各ノードからプラグを1回抜いて、ノードのフェンシングが起こらないことを検証してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     リソースのテストは負荷のかかった状態で行って、タイムアウト値が適切であるかどうかを検証してください。タイムアウト値が短すぎると、(不必要な)フェンシング操作がトリガされることがあります。詳細については、<xref linkend="sec-ha-config-basics-timeouts"/>を参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     セットアップでは適切なフェンシングデバイスを使用してください。詳細については、<xref linkend="sec-ha-fencing-special"/>も参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     1つ以上のSTONITHリソースを設定します。デフォルトでは、グローバルクラスタオプション<literal>stonith-enabled</literal>は<literal>true</literal>に設定されています。STONITHリソースが定義されていない場合、クラスタはどのリソースの開始も拒否します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     グローバルクラスタオプション<systemitem>stonith-enabled</systemitem>を<literal>false</literal>に設定しないでください。これは、次の理由によります。
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       STONITHが有効でないクラスタはサポートされていません。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       DLM/OCFS2は、決して発生しないフェンシング操作を待機して、永久にブロックし続けます。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     グローバルクラスタオプション<systemitem>startup-fencing</systemitem>を<literal>false</literal>に設定しないでください。 デフォルトでは、これは次の理由で<literal>true</literal>に設定されています。クラスタの起動時に、あるノードが不明な状態になっていると、そのノードは、ステータスが明らかにされるまでフェンシングされます。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec-ha-fencing-more">
+  <title>詳細</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><filename>/usr/share/doc/packages/cluster-glue</filename>
+    </term>
+    <listitem>
+     <para>
+      インストールしたシステムのこのディレクトリには、多数のSTONITHプラグインおよびデバイスのREADMEファイルが格納されています。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://clusterlabs.org/pacemaker/doc/crm_fencing.html"/>
+    </term>
+    <listitem>
+     <para>
+      STONITHに関する情報です。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://www.clusterlabs.org/doc/"/>
+    </term>
+    <listitem>
+     <itemizedlist>
+
+      <listitem>
+       <para>
+         『<citetitle>Pacemakerの説明</citetitle>』: Pacemakerの設定に必要なコンセプトを説明します。包括的で詳しい参照用情報です。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://techthoughts.typepad.com/managing_computers/2007/10/split-brain-quo.html"/>
+    </term>
+    <listitem>
+     <para>
+      HAクラスタでのスプリットブレイン、クォーラム、フェンシングのコンセプトを説明する記事。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>

@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" xml:base="ha_lb_lvs.xml" xml:id="sec-ha-lb-lvs" version="5.0">
+  <title>Linux仮想サーバによる負荷分散の設定</title>
+  <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:translation>yes</dm:translation>
+      </dm:docmanager>
+    </info>
+    <para>
+   以降のセクションでは、主要なLVSのコンポーネントと概念の概要を示します。その後、High Availability ExtensionでのLinux仮想サーバのセットアップ方法について説明します。
+  </para>
+
+  <sect2 xml:id="sec-ha-lvs-overview-director">
+   <title>Director</title>
+   <para>
+    LVSの主要コンポーネントは、ip_vs (またはIPVS)カーネルコードです。このコードは、Linuxカーネル内でトランスポート層の負荷分散(レイヤ-4スイッチング)を実装します。IPVSコードを含むLinuxカーネルを実行するノードは、<emphasis>ディレクター</emphasis>と呼ばれます。ディレクターで実行されるIPVSコードは、LVSの必須機能です。
+   </para>
+   <para>
+    クライアントがディレクターに接続すると、着信要求がすべてのクラスタノードに負荷分散されます。つまり、ディレクターは、変更されたルーティングルール(LVSを機能させる)セットを使用して、パケットを実サーバに転送します。たとえば、ディレクターは、接続の送受信端でないと、受信確認を送信しません。ディレクターは、エンドユーザから実サーバ(要求を処理するアプリケーションを実行するホスト)にパケットを転送する特殊なルータとして動作します。
+   </para>
+   <para> デフォルトでは、IPVSモジュールはカーネルにインストールされている必要はありません。IPVSカーネルモジュールは、<systemitem class="resource">kernel-default</systemitem>パッケージに含まれています。 </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-lvs-overview-userspace">
+   <title>ユーザスペースのコントローラとデーモン</title>
+   <para>
+    <systemitem class="daemon">ldirectord</systemitem>デーモンは、Linux仮想サーバを管理し、負荷分散型仮想サーバのLVSクラスタ内の実サーバを監視するユーザスペースデーモンです。設定ファイル<filename>/etc/ha.d/ldirectord.cf</filename>は、仮想サービスとそれらに関連付けられた実サーバを指定し、LVSリダイレクタとしてサーバを設定する方法を<systemitem class="daemon">ldirecord</systemitem>に指示します。このデーモンは、その初期化時にクラスタの仮想サービスを生成します。
+   </para>
+   <para>
+    <systemitem class="daemon">ldirectord</systemitem>デーモンは、既知のURLを定期的に要求し、応答を確認することにより、実サーバのヘルスを監視します。障害が発生した実サーバは、ロードバランサで使用可能なサーバのリストから削除されます。サービス監視は、ダウンしていたサーバが回復し、再度機能していることを検出すると、そのサーバを使用可能サーバリストに戻します。すべての実サーバがダウンする場合、Webサービスのリダイレクト先にするフォールバックサーバを指定できます。通常、フォールバックサーバは、ローカルホストであり、Webサービスが一時的に使用できないことについて緊急ページを表示します。
+   </para>
+   <para>
+    <systemitem class="daemon">ldirectord</systemitem>は<systemitem>ipvsadm</systemitem>ツール(<systemitem class="resource">ipvsadm</systemitem>パッケージ)を使用して、Linuxカーネル内の仮想サーバテーブルを操作します。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-lvs-overview-forwarding">
+   <title>パケット転送</title>
+   <para>
+    ディレクターがクライアントから実サーバにパケットを送信する方法は、3つあります。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>NAT (Network Address Translation)</term>
+     <listitem>
+      <para>
+       着信要求は仮想IPで着信します。宛先のIPアドレスとポートを、選択した実サーバのIPアドレスとポートに変更することで、着信要求は実サーバに転送されます。実サーバはロードバランサに応答を送信し、そのロードバランサが宛先IPアドレスを変更して、応答をクライアントへ転送します。その結果、エンドユーザは予期されたソースから応答を受信します。すべてのトラフィックはロードバランサを通過するので、通常、ロードバランサがクラスタのボトルネックになります。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>IPトンネリング(IP-IPカプセル化)</term>
+     <listitem>
+      <para>
+       IPトンネリングでは、あるIPアドレスにアドレス指定されたパケットを別のアドレス(別のネットワーク上でも可能)にリダイレクトできます。LVSは、IPトンネルを介して実サーバに要求を送信し(別のIPアドレスにリダイレクト)、実サーバは、独自のルーティングテーブルを使用して、クライアントに直接応答します。クラスタメンバは、さまざまなサブネットに属すことができます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>直接ルーティング</term>
+     <listitem>
+      <para>
+       エンドユーザからのパケットを、直接、実サーバに転送します。IPパケットは変更されないので、仮想サーバのIPアドレスのトラフィックを受け付けるように、実サーバを設定する必要があります。実サーバからの応答は、直接、クライアントに送信されます。実サーバとロードバランサは、同じ物理ネットワークセグメントに属する必要があります。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-lvs-overview-schedulers">
+   <title>スケジューリングアルゴリズム</title>
+   <para>
+    クライアントから要求された新しい接続に使用する実サーバの決定は、さまざまなアルゴリズムを使用して実装されます。それらは、モジュールとして使用可能であり、特定のニーズに合わせて調整できます。使用可能なモジュールの概要については、<command>ipvsadm(8)</command>のマニュアルページを参照してください。ディレクターは、クライアントから接続要求を受信すると、<emphasis>スケジュール</emphasis>に基づいて実際のサーバをクライアントに割り当てます。スケジューラは、IPVSカーネルコードの一部として、次の新しい接続を取得する実際のサーバを決定します。
+   </para>
+    <para>Linux仮想サーバのスケジューリングアルゴリズムの詳細については、<link xlink:href="http://kb.linuxvirtualserver.org/wiki/IPVS"/>を参照してください。また、<command>ipvsadm</command>のマニュアルページで<option>--scheduler</option>を検索してください。
+    </para>
+    <para>関連するHAProxy負荷分散戦略については、<link xlink:href="http://www.haproxy.org/download/1.6/doc/configuration.txt"/>を参照してください。
+    </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-lvs-ldirectord">
+   <title>YaSTによるIP負荷分散の設定</title>
+   <para>
+    YaST IP負荷分散モジュールを使用して、カーネルベースのIP負荷分散を設定できます。このモジュールは、<systemitem class="daemon">ldirectord</systemitem>のフロントエンドです。
+   </para>
+   <para>
+    IP負荷分散ダイアログにアクセスするには、<systemitem class="username">root</systemitem>としてYaSTを開始し、<menuchoice> <guimenu>高可用性</guimenu> <guimenu>IP負荷分散</guimenu> </menuchoice>の順に選択します。または、コマンドラインで「<command>yast2 iplb</command>」と入力して、<systemitem class="username">root</systemitem>としてYaSTクラスタモジュールを起動します。
+   </para>
+   <para>
+    YaSTモジュールは、その設定を<filename>/etc/ha.d/ldirectord.cf</filename>に書き込みます。YaSTモジュール内で使用できるタブは、設定ファイル<filename>/etc/ha.d/ldirectord.cf</filename>の構造、グローバルオプションの定義、および仮想サービス用オプションの定義に対応しています。
+   </para>
+   <para>
+    設定例とその結果のロードバランサ/実サーバ間のプロセスについては、<xref linkend="ex-ha-lvs-ldirectord"/>を参照してください。
+   </para>
+   <note>
+    <title>グローバルパラメータと仮想サーバパラメータ</title>
+    <para>
+     特定のパラメータを仮想サーバセクションとグローバルセクションの両方で指定した場合は、仮想サーバセクションで定義した値が、グローバルセクションで定義した値に優先します。
+    </para>
+   </note>
+   <procedure xml:id="sec-ha-lvs-ldirectord-global">
+    <title>グローバルパラメータを設定する</title>
+    <para>
+     次の手順では、重要なグローバルパラメータの設定方法を示します。個々のパラメータ(および、ここに記載されていないパラメータ)の詳細については、<guimenu>ヘルプ</guimenu>をクリックするか、<systemitem class="daemon">ldirectord</systemitem>のマニュアルページを参照してください。
+    </para>
+    <step>
+     <para>
+      <guimenu>確認間隔</guimenu>で、<systemitem class="daemon">ldirectord</systemitem>が各実サーバに接続していて、それらがまだオンラインかどうか確認する間隔を定義します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>確認タイムアウト</guimenu>で、最後の確認後に実サーバが応答する期限を設定します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>障害発生回数</guimenu>では、<systemitem class="daemon">ldirectord</systemitem>が、何回、実サーバに要求すると、確認が失敗したと見なされるか定義できます。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>ネゴシエーションタイムアウト</guimenu>で、ネゴシエーション確認のタイムアウトを秒単位で定義します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>フォールバック</guimenu>で、すべての実サーバがダウンした場合にWebサービスのリダイレクト先にするWebサーバのホスト名とIPアドレスを入力します。
+     </para>
+    </step>
+    <step>
+     <para>
+      実サーバへの接続ステータスが変わったら、システムにアラートを送信させたい場合は、有効な電子メールアドレスを<guimenu>電子メールアラート</guimenu>に入力します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>電子メールアラート頻度</guimenu>で、実サーバにアクセスできない状態が続く場合、何秒後に電子メールアラートを繰り返すか定義します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>電子メールアラートのステータス</guimenu>で、電子メールアラートを送信する必要のあるサーバのステータスを指定します。複数の状態を定義する場合は、カンマで区切ったリストを使用します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>自動リロード</guimenu>で、変更の有無について、<systemitem class="daemon">ldirectord</systemitem>に設定ファイルを継続的に監視させるかどうか定義します。<literal>yes</literal>に設定した場合は、変更のたびに、設定ファイルが自動的にリロードされます。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>休止</guimenu>スイッチで、障害が発生した実サーバをカーネルのLVSテーブルから削除するかどうか定義します。<guimenu>はい</guimenu>に設定すると、障害のあるサーバは削除されません。代わりに、それらの重み付けが<literal>0</literal>に設定され、新しい接続が受け入れられなくなります。すでに確立している接続は、タイムアウトするまで持続します。
+     </para>
+    </step>
+    <step>
+     <para>
+      ロギングに代替パスを使用するには、<guimenu>ログファイル</guimenu>でログファイルのパスを指定します。デフォルトでは、<systemitem class="daemon">ldirectord</systemitem>は、そのログファイルを<filename>/var/log/ldirectord.log</filename>に書き込みます。
+     </para>
+    </step>
+   </procedure>
+   <figure xml:id="fig-ha-lvs-yast-global">
+    <title>YaST IP負荷分散 - グローバルパラメータ</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_iplb_global.png" width="95%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_iplb_global.png" width="65%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <procedure xml:id="sec-ha-lvs-ldirectord-virtual">
+    <title>仮想サービスを設定する</title>
+    <para>
+     仮想サービスごとに、2、3のパラメータを定義することによって、1つ以上の仮想サービスを設定できます。次の手順で、仮想サービスの重要なパラメータを設定する方法を示します。個々のパラメータ(および、ここに記載されていないパラメータ)の詳細については、<guimenu>ヘルプ</guimenu>をクリックするか、<systemitem class="daemon">ldirectord</systemitem>のマニュアルページを参照してください。
+    </para>
+    <step>
+     <para>
+      YaST IP負荷分散モジュール内で、<guimenu>仮想サーバ設定</guimenu>タブに切り替えます。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>追加</guimenu>で新しい仮想サーバを追加するか、<guimenu>編集</guimenu>で既存の仮想サーバを編集します。新しいダイアログに、使用可能なオプションが表示されます。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>仮想サーバ</guimenu>で、共有仮想IPアドレス(IPv4またはIPv6)とポートを入力します。これらのアドレスとポートで、ロードバランサと実サーバをLVSとしてアクセスできます。IPアドレスとポート番号の代わりに、ホスト名とサービスも指定できます。または、ファイアウォールマークを使用することもできます。ファイアウォールマークは、<literal>VIP:port</literal>サービスの任意の集まりを1つの仮想サービスにまとめる方法です。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>実サーバ</guimenu>で実際のサーバを指定するには、サーバのIPアドレス(IPv4、IPv6、またはホスト名)、ポート(またはサービス名)、および転送方法を入力する必要があります。転送方法は、<literal>gate</literal>、<literal>ipip</literal>、または<literal>masq</literal>のいずれかにする必要があります(<xref linkend="sec-ha-lvs-overview-forwarding"/>参照)。
+     </para>
+     <para>
+      <guimenu>追加</guimenu>ボタンをクリックし、実サーバごとに必要な引数を入力します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>確認タイプ</guimenu>で、実サーバがまだアクティブかどうかをテストするために実行する必要のある確認のタイプを選択します。たとえば、要求を送信し、応答に予期どおりの文字列が含まれているかどうか確認するには、［<literal>ネゴシエーション</literal>］を選択します。
+     </para>
+    </step>
+    <step xml:id="step-ha-lvs-ldirectord-service">
+     <para>
+      <guimenu>確認のタイプ</guimenu>を［<literal>ネゴシエーション</literal>］に設定した場合は、監視するサービスのタイプも定義する必要があります。<guimenu>サービス</guimenu>ドロップダウンボックスから選択してください。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>要求</guimenu>で、確認間隔中に各実サーバで要求されるオブジェクトへのURLを入力します。
+     </para>
+    </step>
+    <step>
+     <para>
+      実サーバからの応答に一定の文字列(<quote>I am alive</quote>メッセージ)が含まれているかどうか確認する場合は、一致する必要のある正規表現を定義します。正規表現を<guimenu>受信</guimenu>に入力します。実サーバからの応答にこの表現が含まれている場合、実サーバはアクティブとみなされます。
+     </para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="step-ha-lvs-ldirectord-service"/>で選択した<guimenu>サービス</guimenu>のタイプによっては、認証のためのパラメータをさらに指定する必要があります。<guimenu>認証タイプ</guimenu>タブに切り替えて、<guimenu>ログイン</guimenu>、<guimenu>パスワード</guimenu>、<guimenu>データベース</guimenu>、または<guimenu>シークレット</guimenu>などの詳細を入力します。 詳細については、YaSTヘルプのテキストか、<systemitem class="daemon">ldirectord</systemitem>のマニュアルページを参照してください。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>その他</guimenu>タブに切り替えます。
+     </para>
+    </step>
+    <step>
+     <para>
+      ロードに使用する<guimenu>スケジューラ</guimenu>を選択します。使用可能なスケジューラについては、<command>ipvsadm(8)</command>のマニュアルページを参照してください。
+     </para>
+    </step>
+    <step>
+     <para>
+      使用する<guimenu>プロトコル</guimenu>を選択します。仮想サービスをIPアドレスとポートとして指定する場合は、プロトコルを<literal>tcp</literal>または<literal>udp</literal>のどちらかにする必要があります。仮想サービスをファイアウォールマークとして指定する場合は、プロトコルを<literal>fwm</literal>にする必要があります。
+     </para>
+    </step>
+    <step>
+     <para>
+      必要な場合は、さらにパラメータを定義します。<guimenu>OK</guimenu>を選択して、設定を確認します。YaSTが設定を<filename>/etc/ha.d/ldirectord.cf</filename>に書き込みます。
+     </para>
+    </step>
+   </procedure>
+
+   <figure xml:id="fig-ha-lvs-yast-virtual">
+    <title>YaST IP負荷分散 - 仮想サービス</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast2_iplb_virtual.png" width="95%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast2_iplb_virtual.png" width="65%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <example xml:id="ex-ha-lvs-ldirectord">
+    <title>単純なldirectord設定</title>
+    <para>
+     <xref linkend="fig-ha-lvs-yast-global"/>と<xref linkend="fig-ha-lvs-yast-virtual"/>で示された値を使用すると、次のような設定になり、<filename>/etc/ha.d/ldirectord.cf</filename>で定義されます。
+    </para>
+<screen>autoreload = yes <co xml:id="co-ha-ldirectord-autoreload"/>
+    checkinterval = 5 <co xml:id="co-ha-ldirectord-checkintervall"/>
+    checktimeout = 3 <co xml:id="co-ha-ldirectord-checktimeout"/>
+    quiescent = yes <co xml:id="co-ha-ldirectord-quiescent"/>
+    virtual = 192.168.0.200:80 <co xml:id="co-ha-ldirectord-virtual"/>
+    checktype = negotiate <co xml:id="co-ha-ldirectord-checktype"/>
+    fallback = 127.0.0.1:80 <co xml:id="co-ha-ldirectord-fallback"/>
+    protocol = tcp <co xml:id="co-ha-ldirectord-protocol"/>
+    real = 192.168.0.110:80 gate <co xml:id="co-ha-ldirectord-real"/>
+    real = 192.168.0.120:80 gate <xref linkend="co-ha-ldirectord-real" xrefstyle="select:label nopage"/>
+    receive = "still alive" <co xml:id="co-ha-ldirectord-receive"/>
+    request = "test.html" <co xml:id="co-ha-ldirectord-request"/>
+    scheduler = wlc <co xml:id="co-ha-ldirectord-scheduler"/>
+    service = http <co xml:id="co-ha-ldirectord-service"/></screen>
+    <calloutlist>
+     <callout arearefs="co-ha-ldirectord-autoreload">
+      <para>
+       <systemitem class="daemon">ldirectord</systemitem>が変更の有無について設定ファイルを継続的に確認するように定義します。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-checkintervall">
+      <para>
+       実サーバがまだオンラインかどうか確認するため、<systemitem class="daemon">ldirectord</systemitem>が各実サーバに接続する間隔。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-checktimeout">
+      <para>
+       最後の確認後、実サーバが応答しなければならない時間的な期限
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-quiescent">
+      <para>
+       障害が発生した実サーバをカーネルのLVSテーブルから削除せず、代わりに、それらのサーバの重み付けを<literal>0</literal>に設定します。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-virtual">
+      <para>
+       LVSの仮想IPアドレス(VIP)。LVSはポート<literal>80</literal>で使用できます。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-checktype">
+      <para>
+       実サーバがまだアクティブかどうかをテストするための確認のタイプ。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-fallback">
+      <para>
+       このサービス用のすべての実サーバがダウンしている場合に、Webサービスのリダイレクト先にするサーバ。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-protocol">
+      <para>
+       使用するプロトコル。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-real">
+      <para>
+       ポート<literal>80</literal>で使用できる2つの実サーバが定義されています。パケットの転送方法が<literal>gate</literal>なので、直接ルーティングが使用されます。
+      </para>
+     </callout>
+
+     <callout arearefs="co-ha-ldirectord-receive">
+      <para>
+       実サーバからの応答文字列内で一致する必要のある正規表現。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-request">
+      <para>
+       確認間隔中に、各実サーバで要求されるオブジェクトへのURI。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-scheduler">
+      <para>
+       負荷分散に使用するスケジューラが選択されています。
+      </para>
+     </callout>
+     <callout arearefs="co-ha-ldirectord-service">
+      <para>
+       監視するサービスのタイプ
+      </para>
+     </callout>
+    </calloutlist>
+    <para>
+     この設定を使用すると、次のような処理フローになります: <systemitem class="daemon">ldirectord</systemitem>が、5秒ごとに(<xref linkend="co-ha-ldirectord-checkintervall" xrefstyle="select:label nopage"/>)各実サーバに接続し、<xref linkend="co-ha-ldirectord-real" xrefstyle="select:label nopage"/>と<xref linkend="co-ha-ldirectord-request" xrefstyle="select:label nopage"/>で指定されているように、<literal>192.168.0.110:80/test.html</literal>または<literal>192.168.0.120:80/test.html</literal>を要求します。予期された<literal>still alive</literal>文字列(<xref linkend="co-ha-ldirectord-receive" xrefstyle="select:label nopage"/>)を、最後の確認から 3秒以内(<xref linkend="co-ha-ldirectord-checktimeout" xrefstyle="select:label nopage"/>)に実サーバから受信しない場合は、実サーバが使用可能なサーバのプールから削除されます。ただし、<literal>quiescent=yes</literal>が設定されているので(<xref linkend="co-ha-ldirectord-quiescent" xrefstyle="select:label nopage"/>)、実サーバは、LVSテーブルからは削除されません。代わりに、その重み付けが<literal>0</literal>に設定されます。その結果、この実サーバへの新しい接続は受け付けられなくなります。すでに確立されている接続は、タイムアウトするまで持続します。
+    </para>
+   </example>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-lvs-further">
+   <title>追加設定</title>
+   <para>
+    YaSTによる<systemitem class="daemon">ldirectord</systemitem>の設定に加えて、LVS設定を完了するには、次の条件を満たす必要があります。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      実サーバは、必要なサービスを提供するように正しく設定します。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      負荷分散サーバは、IP転送を使用して実サーバにトラフィックをルーティングできる必要があります。実サーバのネットワーク設定は、選択したパケット転送方法によって左右されます。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      負荷分散サーバをシステム全体のシングルポイント障害にしないため、ロードバランサのバックアップを1つ以上セットアップする必要があります。クラスタ設定では、<systemitem class="daemon">ldirectord</systemitem>にプリミティブリソースを設定して、ハードウェア障害の場合に<systemitem class="daemon">ldirectord</systemitem>が他のサーバにフェールオーバーできるようにします。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      ロードバランサのバックアップにも、その作業を達成するために、<systemitem class="daemon">ldirectord</systemitem>設定ファイルが必要なので、ロードバランサのバックアップとして使用するすべてのサーバ上で<filename>/etc/ha.d/ldirectord.cf</filename>が使用できるようにします。設定ファイルは、<xref linkend="sec-ha-installation-setup-csync2"/>で説明されているように、Csync2で同期できます。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+</sect1>

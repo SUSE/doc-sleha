@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_cluster_md.xml" xml:id="cha-ha-cluster-md" version="5.0">
+ <title>クラスタマルチデバイス(Cluster MD)</title>
+ <info>
+      <abstract>
+        <para>クラスタマルチデバイス(Cluster MD)は、クラスタ用のソフトウェアベースのRAIDストレージソリューションです。Cluster MDでは、クラスタにRAID1ミラーリングの冗長性を提供します。現在、RAID1のみがサポートされています。この章では、Cluster MDの作成および使用方法を示します。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec-ha-cluster-md-overview">
+  <title>概念の概要</title>
+  <para>Cluster MDは、クラスタ環境内のRAID1の使用をサポートします。Cluster MDで使用されるディスクまたはデバイスは、各ノードからアクセスされます。Cluster MDの一方のデバイスに障害が発生した場合、実行時に他方のデバイスに置き換えることができ、同じ量の冗長性を提供するために再同期されます。Cluster MDでは、調整とメッセージングのためにCorosyncと分散ロックマネージャ(DLM)が必要です。
+  </para>
+  <para>
+   Cluster MDデバイスは、他の通常のMDデバイスのようにブート時に自動的に開始されません。クラスタ化されたデバイスはリソースエージェントを使用して開始し、DLMリソースが開始されていることを確認する必要があります。
+  </para>
+  
+ </sect1>
+ <sect1 xml:id="sec-ha-cluster-md-create">
+  <title>クラスタ化されたMD RAIDデバイスの作成</title>
+  <itemizedlist>
+   <title>要件</title>
+   <listitem>
+    <para>Pacemakerを使用して実行中のクラスタ。</para>
+   </listitem>
+   <listitem>
+    <para>DLMのリソースエージェント(DLMの設定方法については、<xref linkend="pro-dlm-resources"/>を参照してください)。</para>
+   </listitem>
+   <listitem>
+    <para>少なくても2つの共有ディスクデバイス。デバイス障害の場合は自動的にフェールオーバーするスペアとして追加のデバイスを使用できます。</para>
+   </listitem>
+   <listitem>
+    <para>インストール済みパッケージ <package>cluster-md-kmp-default</package>。</para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure>
+   <step>
+    <para>
+     クラスタの各ノードでDLMリソースが稼動していることを確認し、リソース状態を確認するには、次のコマンドを実行します。
+    </para>
+    <screen><prompt role="root">root # </prompt><command>crm_resource</command> -r dlm -W</screen>
+    
+   </step>
+   <step>
+    <para>Cluster MDデバイスを作成します。</para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       既存の通常のRAIDデバイスがない場合、次のコマンドを実行し、DLMリソースが稼動しているノードでCluster MDデバイスを作成します。
+      </para>
+      <screen><prompt role="root">root # </prompt><command>mdadm</command> --create /dev/md0 --bitmap=clustered \
+   --metadata=1.2 --raid-devices=2 --level=mirror /dev/sda /dev/sdb</screen>
+      <para>
+       Cluster MDはバージョン1.2のメタデータでのみ動作します。このため、<option>--metadata</option>オプションを使用してバージョンを指定することが推奨されます。他の役立つオプションについては、<command>mdadm</command>のマニュアルページを参照してください。<filename>/proc/mdstat</filename>で再同期の進捗状況を監視します。 </para>
+      
+     </listitem>
+     <listitem>
+      <para>
+       既存の通常のRAIDがすでにある場合は、最初に既存のビットマップをクリアしてからクラスタ化されたビットマップを作成します。
+      </para>
+      <screen><prompt role="root">root # </prompt><command>mdadm</command> --grow /dev/md<replaceable>X</replaceable> --bitmap=none
+<prompt role="root">root # </prompt><command>mdadm</command> --grow /dev/md<replaceable>X</replaceable> --bitmap=clustered</screen>
+     </listitem>
+     <listitem>
+      <para>オプションで、自動フェールオーバーのためのスペアデバイスを使用してCluster MDデバイスを作成するには、1つのクラスタノード上で次のコマンドを実行します。
+      </para>
+     <screen><prompt role="root">root # </prompt><command>mdadm</command> --create /dev/md0 --bitmap=clustered --raid-devices=2 \
+      --level=mirror --spare-devices=1 /dev/sda /dev/sdb /dev/sdc --metadata=1.2</screen>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+     <para>UUIDおよび関連するmdパスを取得します。</para>
+     <screen><prompt role="root">root # </prompt><command>mdadm</command> --detail --scan</screen>
+     <para>このUUIDはスーパーブロックに保存されているUUIDと一致する必要があります。UUIDの詳細については、<command>mdadm.conf</command>のマニュアルページを参照してください。
+     </para>
+   </step>
+   <step>
+    <para><filename>/etc/mdadm.conf</filename>を開いて、mdデバイス名とそのデバイス名に関連付けられているデバイスを追加します。前のステップのUUIDを使用します。 </para>
+      <screen>DEVICE /dev/sda /dev/sdb
+ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
+   </step>
+   <step>
+    <para>Csync2の設定ファイル<filename>/etc/csync2/csync2.cfg</filename>を開き、<filename>/etc/mdadm.conf</filename>を追加します。</para>
+    <screen>group ha_group
+{
+   # ... list of files pruned ...
+   include /etc/mdadm.conf
+}</screen>
+   </step>
+  </procedure>
+
+
+
+ </sect1>
+ 
+ <sect1 xml:id="sec-ha-cluster-md-ra">
+  <title>リソースエージェントの設定</title>
+  <para>CRMリソースを次のように設定します。</para>
+  <procedure>
+   <step>
+    <para><systemitem>Raid1</systemitem>プリミティブを作成します。</para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> raider Raid1 \
+  params raidconf="/etc/mdadm.conf" raiddev=/dev/md0 \
+  force_clones=true \
+  op monitor timeout=20s interval=10 \
+  op start timeout=20s interval=0 \
+  op stop timeout=20s interval=0 </screen>
+   </step>
+   <step>
+    <para><systemitem>raider</systemitem>リソースをDLM用に作成したストレージのベースグループに追加します。</para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup</command> g-storage add raider</screen>
+    <para><command>add</command>サブコマンドは、デフォルトで新しいグループメンバーを追加します。 </para>
+   <para>
+    まだ実行されてない場合は、<literal>g-storage</literal>グループのクローンを作成して、すべてのノードで実行できるようにします。
+   </para>
+   <screen><prompt role="custom">crm(live)configure# </prompt><command>clone</command> cl-storage g-storage \
+    meta interleave=true target-role=Started</screen>
+    </step>
+   <step>
+    <para><command>show</command>で変更内容をレビューします。</para>
+   </step>
+   <step>
+    <para>すべて正しいと思われる場合は、<command>commit</command>で変更を送信します。</para>
+   </step>
+  </procedure>
+ </sect1>
+ 
+ <sect1 xml:id="sec-ha-cluster-md-dev-add">
+  <title>デバイスの追加</title>
+  <para>デバイスを既存のアクティブなCluster MDデバイスに追加するには、最初にそのデバイスが各ノード上で<quote>表示可能</quote>であることを、コマンドを実行して確認します(<command>cat /proc/mdstat</command>)。デバイスが表示できない場合、コマンドは失敗します。
+  </para>
+  <para>
+   1つのクラスタノード上で次のコマンドを使用します。
+  </para>
+  <screen><prompt role="root">root # </prompt><command>mdadm</command> --manage /dev/md0 --add /dev/sdc</screen>
+
+  <para>追加された新しいデバイスの動作は、Cluster MDデバイスの状態によって異なります。</para>
+  <itemizedlist>
+   <listitem>
+    <para>ミラーリングされたデバイスの1つのみがアクティブである場合、新しいデバイスはミラーリングされたデバイスの2番目のデバイスになり、回復処理が開始されます。</para>
+   </listitem>
+   <listitem>
+    <para>Cluster MDデバイスの両方のデバイスがアクティブな場合、新たに追加されたデバイスはスペアデバイスになります。</para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-cluster-md-dev-readd">
+  <title>一時的に障害が発生したデバイスの再追加</title>
+  <para>多くの場合、障害は一時的なもので、単一ノードに限定されます。任意のノードでI/O処理中に障害が発生した場合、クラスタ全体のデバイスがfailedとマーク付けされます。
+  </para>
+  <para> たとえば、あるノードでケーブル障害が発生した場合などに、このようになることがあります。問題を修正した後で、デバイスを再追加できます。新しいパーツを追加してデバイス全体を同期するのではなく、古いパーツのみが同期されます。
+  </para>
+  <para>
+   デバイスを再追加するには、1つのクラスタノード上で次のコマンドを実行します。 </para>
+  <screen><prompt role="root">root # </prompt><command>mdadm</command> --manage /dev/md0 --re-add /dev/sdb</screen>
+ </sect1>
+ 
+ 
+ <sect1 xml:id="sec-ha-cluster-md-dev-remove">
+  <title>デバイスの削除</title>
+  <para>置き換えるために実行時にデバイスを削除する前に、次の操作を実行します。</para>
+
+  <procedure>
+   <step>
+    <para><filename>/proc/mdstat</filename>をイントロスペクトしてデバイスに障害が発生しているか確認します。デバイスの前にある<literal>(F)</literal>を探します。</para>
+   </step>
+   <step>
+    <para>1つのクラスタノード上で次のコマンドを実行して、デバイスに障害発生させます。</para>
+    <screen><prompt role="root">root # </prompt><command>mdadm</command> --manage /dev/md0 --fail /dev/sda</screen>
+   </step>
+   <step>
+    <para>1つのクラスタノード上で次のコマンドを実行して障害が発生したデバイスを削除します。</para>
+    <screen><prompt role="root">root # </prompt><command>mdadm</command> --manage /dev/md0 --remove /dev/sda</screen>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>

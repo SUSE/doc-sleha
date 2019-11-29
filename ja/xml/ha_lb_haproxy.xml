@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" xml:base="ha_lb_haproxy.xml" xml:id="sec-ha-lb-haproxy" version="5.0">
+ <title>HAProxyによる負荷分散の設定</title>
+
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:translation>yes</dm:translation>
+      </dm:docmanager>
+    </info>
+    <remark>
+  This is a straightforward explanation how to set up a HA openSUSE
+  13.1 http load balancer, but not using SLE HA tools, but plain
+  vanilla openSUSE with vi.
+ </remark>
+
+ <para>
+  次のセクションでは、HAProxyの概要とHigh Availabilityでのセットアップ方法について説明します。ロードバランサは、すべての要求をそのバックエンドサーバに分配します。あるマスタで障害が発生すると、スレーブがマスタになることを意味する、アクティブ/パッシブとして設定されます。このようなシナリオでは、ユーザは中断したことに気付きません。
+ </para>
+
+ <para>
+  このセクションでは、次のセットアップを使用します。
+ </para>
+
+ <itemizedlist>
+  <listitem>
+   <para>
+    ロードバランサー、IPアドレス<systemitem class="ipaddress">192.168.1.99</systemitem>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    仮想の浮動IPアドレス<systemitem class="ipaddress">192.168.1.99</systemitem>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    サーバ(通常はWebコンテンツ用) <systemitem class="server">www.example1.com</systemitem> (IP: <systemitem class="ipaddress">192.168.1.200</systemitem>)および<systemitem class="server">www.example2.com</systemitem> (IP: <systemitem class="ipaddress">192.168.1.201</systemitem>)
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <para>
+  HAProxyを設定するには、次の手順に従います。
+ </para>
+
+ <procedure>
+  <step>
+   <para>
+    <systemitem class="resource">haproxy</systemitem>パッケージをインストールします。
+   </para>
+  </step>
+  <step>
+   <para>
+    次のコンテンツを含む<filename>/etc/haproxy/haproxy.cfg</filename>ファイルを作成します。
+   </para>
+   
+   <remark>toms 2014-09-17: Not sure about all the options.</remark>
+   <screen>global <co xml:id="co-ha-lb-global"/>
+  maxconn 256
+  daemon
+
+defaults <co xml:id="co-ha-lb-defaults"/>
+  log     global
+  mode    http
+  option  httplog
+  option  dontlognull
+  retries 3
+  option redispatch
+  maxconn 2000
+  timeout connect   5000  <co xml:id="co-ha-lb-timeout-connect"/>
+  timeout client    50s   <co xml:id="co-ha-lb-timeout-client"/>
+  timeout server    50000 <co xml:id="co-ha-lb-timeout-server"/>
+
+frontend LB
+  bind 192.168.1.99:80 <co xml:id="co-ha-lb-listen"/>
+  reqadd X-Forwarded-Proto:\ http
+  default_backend LB
+
+backend LB
+  mode http
+  stats enable
+  stats hide-version
+  stats uri /stats
+  stats realm Haproxy\ Statistics
+  stats auth haproxy:password	<co xml:id="co-ha-lb-stats-auth"/>
+  balance roundrobin	<co xml:id="co-ha-lb-balance"/>
+  option  httpclose
+  option forwardfor
+  cookie LB insert
+  option httpchk GET /robots.txt HTTP/1.0
+  server web1-srv 192.168.1.200:80 cookie web1-srv check
+  server web2-srv 192.168.1.201:80 cookie web2-srv check</screen>
+   <calloutlist>
+    <callout arearefs="co-ha-lb-global">
+     <para>
+      プロセスワイドでOS固有のオプションを含むセクション。
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><option>maxconn</option>
+       </term>
+       <listitem>
+        <para>
+         プロセスあたりの同時接続の最大数。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><option>デーモン</option>
+       </term>
+       <listitem>
+        <para>
+         HAProxyがバックグラウンドで実行する推奨モード。
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </callout>
+    <callout arearefs="co-ha-lb-defaults">
+     <para>
+      セクションの宣言後に、他のすべてのセクションのデフォルトパラメータを設定するセクション。次の重要な行があります。
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><option>redispatch</option>
+       </term>
+       <listitem>
+        <para>
+         接続が失敗した場合にセッションの再ディストリビューションを有効または無効にします。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><option>log</option>
+       </term>
+       <listitem>
+        <para>
+         イベントおよびトラフィックのログ記録を有効にします。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><literal>mode http</literal>
+       </term>
+       <listitem>
+        <para>
+         HTTPモードで動作します(HAProxyの推奨モード)このモードでは、サーバへの接続が実行される前に要求が分析されます。RFCに準拠しない要求は拒否されます。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><literal>option forwardfor</literal>
+       </term>
+       <listitem>
+        <para>
+         HTTP <option>X-Forwarded-For</option>ヘッダを要求に追加します。クライアントのIPアドレスを維持する場合は、このオプションが必要です。
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </callout>
+    <callout arearefs="co-ha-lb-timeout-connect">
+     <para>サーバへの接続試行が成功するまで待機する最大時間。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-lb-timeout-client">
+     <para>クライアント側の最大非アクティブ時間。</para>
+    </callout>
+    <callout arearefs="co-ha-lb-timeout-server">
+     <para>サーバ側の最大非アクティブ時間。</para>
+    </callout>
+    <callout arearefs="co-ha-lb-listen">
+     <para>
+      フロントエンドおよびバックエンドセクションを1つに結合するセクション。
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><literal>balance leastconn</literal>
+       </term>
+       <listitem>
+        <para>
+         負荷分散アルゴリズムを定義します。<link xlink:href="http://cbonte.github.io/haproxy-dconv/configuration-1.5.html#4-balance"/>を参照してください。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><literal>stats enable</literal>
+       </term>
+       <term><literal>stats auth</literal>
+       </term>
+       <listitem>
+        <para>
+         (<literal>stats enable</literal>を使用して)統計レポーティングを有効にします。<option>auth</option>オプションは、特定のアカウントに対して認証された統計のログを記録します。
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </callout>
+    <callout arearefs="co-ha-lb-stats-auth">
+      <para>
+       HAProxy Statisticレポートページの認証情報。
+      </para>
+     </callout>
+    <callout arearefs="co-ha-lb-balance">
+      <para>
+       負荷分散はラウンドロビン処理で動作します。
+      </para>
+    </callout>
+   </calloutlist>
+  </step>
+  <step>
+   <para>
+    設定ファイルをテストします。
+   </para>
+   <screen><prompt role="root">root # </prompt><command>haproxy</command> -f /etc/haproxy/haproxy.cfg -c</screen>
+  </step>
+  <step>
+   <para>
+    Csync2の設定ファイル<filename>/etc/csync2/csync2.cfg</filename>に次の行を追加して、HAProxy設定ファイルが含まれていることを確認します。
+   </para>
+   <screen>include /etc/haproxy/haproxy.cfg</screen>
+  </step>
+  <step>
+   <para>
+    それを同期します。
+   </para>
+   <screen><prompt role="root">root # </prompt><command>csync2</command> -f /etc/haproxy/haproxy.cfg
+<prompt role="root">root # </prompt><command>csync2</command> -xv</screen>
+   <note>
+    <para>
+     Csync2の設定部分は、HAノードが<command>ha-cluster-bootstrap</command>を使用して設定されたことを想定しています。詳細については、『インストールおよびセットアップクイックスタート』を参照してください。
+    </para>
+   </note>
+  </step>
+  <step>
+   <para>
+    Pacemakerによって起動されるため、HAProxyが両方のロードバランサ(<systemitem class="server">alice</systemitem>および<systemitem class="server">bob</systemitem>)で無効になっていることを確認します。
+   </para>
+   <screen><prompt role="root">root # </prompt><command>systemctl</command> disable haproxy</screen>
+  </step>
+  <step>
+   <para>
+    新しいCIBを設定します。
+   </para>
+   <remark>toms 2018-09-27: according to lpinne, "group" always implies
+    "colocation" and "order"</remark>
+   <screen><prompt role="root">root # </prompt><command>crm</command> configure
+<prompt role="custom">crm(live)# </prompt><command>cib</command> new haproxy-config
+<prompt role="custom">crm(haproxy-config)# </prompt><command>primitive</command> primitive haproxy systemd:haproxy \
+    op start timeout=120 interval=0 \
+    op stop timeout=120 interval=0 \
+    op monitor timeout=100 interval=5s \
+    meta target-role=Started
+<prompt role="custom">crm(haproxy-config)# </prompt><command>primitive</command> vip IPaddr2 \
+    params ip=192.168.1.99 nic=eth0 cidr_netmask=23 broadcast=192.168.1.255 \
+    op monitor interval=5s timeout=120 on-fail=restart \
+    meta target-role=Started
+<prompt role="custom">crm(haproxy-config)# </prompt><command>order</command> haproxy-after-IP Mandatory: vip haproxy
+<prompt role="custom">crm(haproxy-config)# </prompt><command>colocation</command> haproxy-with-public-IPs inf: haproxy vip
+<prompt role="custom">crm(haproxy-config)# </prompt><command>group</command> g-haproxy vip haproxy-after-IP</screen>
+  </step>
+  <step>
+   <para>
+    新しいCIBを確認し、エラーがあれば修正します。
+   </para>
+   <screen><prompt role="custom">crm(haproxy-config)# </prompt><command>verify</command></screen>
+  </step>
+  <step>
+   <para>
+    新しいCIBをコミットします。
+   </para>
+   <screen><prompt role="custom">crm(haproxy-config)# </prompt><command>cib</command> use live
+<prompt role="custom">crm(live)# </prompt><command>cib</command> commit haproxy-config</screen>
+  </step>
+ </procedure>
+</sect1>
