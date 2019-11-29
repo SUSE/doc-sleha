@@ -1,0 +1,704 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<?provo dirname="geo_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_geo_quick.xml" version="5.0" xml:lang="fr" xml:id="art-ha-geo-quick">
+ <title>Démarrage rapide de Geo Clustering</title>
+ <subtitle><phrase role="productname"><phrase os="sles"/></phrase>SUSE Linux Enterprise High Availability Extension 12 SP5<phrase role="productnumber"><phrase os="sles"/></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">12 SP5</phrase></phrase></productnumber><productname><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname><date>
+<?dbtimestamp ?>
+
+</date>
+ <xi:include href="ha_authors.xml"/>
+  <abstract>
+   <para>
+     Geo Clustering vous permet d'avoir plusieurs sites dispersés géographiquement avec une grappe locale pour chacun. Le basculement entre ces grappes est coordonné par une entité de niveau supérieur : le gestionnaire de tickets de grappe booth. Le présent document explique la configuration de base d'une grappe géographique, à l'aide des scripts d'amorçage Geo fournis par le paquetage <systemitem class="resource">ha-cluster-bootstrap</systemitem>.
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:translation>oui</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec-ha-geo-quick-concept">
+  <title>Présentation conceptuelle</title>
+
+  <para>
+   Les grappes géographiques basées sur <phrase role="productnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> peuvent être considérées comme des grappes de <quote>superposition</quote>, dans lesquelles chaque site de grappe correspond à un noeud d'une grappe traditionnelle. La grappe de superposition est gérée par le gestionnaire de ticket de grappe booth (appelé ci-après booth). Chacune des parties impliquées dans une grappe géographique exécute un service, le <systemitem class="daemon">boothd</systemitem>. Celui-ci se connecte aux daemons booth en cours d'exécution sur les autres sites et échange des informations de connectivité. Pour rendre les ressources de grappe hautement disponibles entre les sites, le booth s'appuie sur les objets de grappe appelés tickets. Un ticket donne le droit d'exécuter certaines ressources sur un site de grappe spécifique. Le booth garantit que chaque ticket est accordé à un seul site à la fois.
+  </para>
+  <para>
+   En cas d'interruption de la communication entre deux instances de booth, cela peut provenir d'une défaillance du réseau entre les sites de grappe <emphasis>ou</emphasis> d'une indisponibilité d'un site de grappe. Dans ce cas, vous avez besoin d'une instance supplémentaire (un troisième site de grappe ou un <literal>arbitre</literal>) pour parvenir à un consensus sur les décisions (par exemple, le basculement des ressources entre les sites). Les arbitres sont des machines uniques (hors des grappes) qui exécutent une instance de booth dans un mode particulier. Chaque grappe géographique peut avoir un ou plusieurs arbitres.
+  </para>
+
+  <para>
+   <remark>toms 2017-07-04: for the future: maybe also add example IP addresses
+    to graphic (node IPs, VIPs for cluster sites)
+    </remark>
+  </para>
+
+  <figure xml:id="fig-ha-geo-quick-example-geosetup">
+   <title>grappe à deux sites (2x2 noeuds + arbitre)</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geocluster.svg" width="100%" format="SVG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   Pour plus de détails sur le concept, les composants et la gestion des tickets pour les grappes géographiques, reportez-vous au <xref linkend="cha-ha-geo-concept"/>.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-scenario">
+  <title>Scénario d'utilisation</title>
+
+  <para>
+   Dans l'exemple suivant, nous allons configurer une grappe géographique de base avec deux sites de grappe et un arbitre :
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     Supposons que les sites de grappe soient nommés <literal>amsterdam</literal> et <literal>berlin</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Supposons que chaque site se compose de deux noeuds. Les noeuds <literal>alice</literal> et <literal>bob</literal> appartiennent à la grappe <literal>amsterdam</literal>. Les noeuds <literal>charlie</literal> et <literal>doro</literal> appartiennent à la grappe <literal>berlin</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Le site <literal>amsterdam</literal> recevra l'adresse IP virtuelle suivante : <literal>192.168.201.100</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Le site <literal>berlin</literal> recevra l'adresse IP virtuelle suivante : <literal>192.168.202.100</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Supposons que l'arbitre a l'adresse IP suivante : <literal>192.168.203.100</literal>.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Avant de poursuivre, assurez-vous que les conditions suivantes sont remplies :
+  </para>
+
+  <variablelist>
+   <title>Configuration requise</title>
+   <varlistentry>
+    <term>Deux grappes existantes</term>
+    <listitem>
+     <para>
+      Vous avez au moins deux grappes existantes que vous souhaitez combiner dans une grappe géographique. (Si vous devez configurer deux grappes d'abord, suivez les instructions du manuel <xref linkend="art-ha-install-quick"/>.)
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Noms de grappe pertinents</term>
+    <listitem>
+     <para>
+      Chaque grappe possède un nom de grappe pertinent défini dans le fichier <filename>/etc/corosync/corosync.conf</filename> qui reflète son emplacement.
+     </para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Arbitre</term>
+    <listitem>
+     <para>
+      Vous avez installé une troisième machine qui ne fait partie d'aucune grappe existante et doit être utilisée en tant qu'arbitre.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   Pour plus de détails sur chaque élément, reportez-vous également à la <xref linkend="sec-ha-geo-quick-req"/>.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-req">
+  <title>Configuration requise</title>
+
+  <itemizedlist>
+  <title>Configuration logicielle requise</title>
+  <listitem>
+   <para>
+    Toutes les machines (noeuds de grappe et arbitres) qui feront partie de la grappe géographique sont équipés des logiciels suivants :
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      SUSE® Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP5</phrase></phrase>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <phrase role="productname"><phrase os="sles"/></phrase>SUSE Linux Enterprise High Availability Extension 12 SP5<phrase role="productnumber"><phrase os="sles"/></phrase>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Geo Clustering for SUSE Linux Enterprise High Availability Extension<phrase role="productnumber"><phrase os="sles"> 12 SP5</phrase></phrase>
+      
+     </para>
+    </listitem>
+   </itemizedlist>
+  </listitem>
+ </itemizedlist>
+
+  <itemizedlist>
+   <title>Configuration du réseau</title>
+   <listitem>
+   <para>
+    Les adresses IP virtuelles à utiliser pour chaque site de grappe doivent être accessibles dans la grappe géographique.
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+     Les sites doivent être accessibles sur un port UDP et un port TCP par instance de booth. En d'autres termes, les éventuels pare-feux ou tunnels IPsec intermédiaires doivent être configurés en conséquence.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     D'autres décisions de configuration peuvent nécessiter l'ouverture de ports supplémentaires (par exemple, pour la réplication de base de données ou DRBD).
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <itemizedlist>
+  <title>Autres conditions requises et recommandations</title>
+  <listitem>
+   <para>
+    Tous les noeuds de grappe sur tous les sites doivent être synchronisés avec un serveur NTP en dehors de la grappe. Pour plus d'informations, consultez le site <link xlink:href="https://documentation.suse.com/sles-12/html/SLES-all/cha-netz-xntp.html"/>.
+   </para>
+   <para>
+    Si les noeuds ne sont pas synchronisés, les fichiers journaux et les rapports de grappe sont très difficiles à analyser.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Utilisez un nombre <emphasis>impair</emphasis> de membres dans votre grappe géographique. En cas d'interruption de la connexion réseau, cela permet de garantir qu'il y a toujours une majorité de sites (afin d'éviter les scénarios de vues de grappe divergentes). Si vous disposez d'un nombre pair de sites de grappe, utilisez un arbitre.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    La grappe sur chaque site a un nom pertinent, par exemple : <literal>amsterdam</literal> et <literal>berlin</literal>.
+   </para>
+   <para>
+    Les noms de grappe pour chaque site sont définis dans leur fichier <filename>/etc/corosync/corosync.conf</filename> respectif :
+   </para>
+<screen>totem {
+    [...]
+    cluster_name: amsterdam
+    }
+</screen>
+   <para>
+    Cette opération peut être réalisée soit manuellement (en modifiant le fichier <filename>/etc/corosync/corosync.conf</filename>), soit avec le module de grappe YaST (en basculant sur la catégorie <guimenu>Canaux de communication</guimenu> et en définissant un <guimenu>Nom de grappe</guimenu>). Ensuite, arrêtez et démarrez le service <systemitem class="service">pacemaker</systemitem> pour appliquer les modifications :
+   </para> <screen><prompt role="root">root # </prompt><command>systemctl</command> stop pacemaker
+<prompt role="root">root # </prompt><command>systemctl</command> start pacemaker</screen>
+  </listitem>
+ </itemizedlist>
+
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-scripts">
+  <title>Présentation des scripts d'amorçage Geo</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     À l'aide du script <command>ha-cluster-geo-init</command>, configurez une grappe en tant que premier site d'une grappe géographique. Le script utilise certains paramètres tels que les noms des grappes, l'arbitre et un ou plusieurs tickets pour créer le fichier <filename>/etc/booth/booth.conf</filename>. Il copie la configuration booth sur tous les noeuds du site de grappe actuel. Il configure également les ressources de grappe nécessaires pour le booth sur le site de grappe actuel.
+    </para>
+    <para>
+     Pour plus de détails, reportez-vous à la <xref linkend="sec-ha-geo-quick-ha-cluster-geo-init"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     À l'aide du script <command>ha-cluster-geo-join</command>, ajoutez la grappe actuelle à une grappe géographique existante. Le script copie la configuration booth d'un site de grappe existant et l'écrit dans le fichier <filename>/etc/booth/booth.conf</filename> sur tous les noeuds du site de grappe actuel. Il configure également les ressources de grappe nécessaires pour le booth sur le site de grappe actuel.
+    </para>
+    <para>
+     Pour plus de détails, reportez-vous à la <xref linkend="sec-ha-geo-quick-ha-cluster-geo-join"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     À l'aide du script <command>ha-cluster-geo-init-arbitrator</command>, configurez la machine actuelle en tant qu'arbitre pour la grappe géographique. Le script copie de la configuration booth d'un site de grappe existant et l'écrit dans le fichier <filename>/etc/booth/booth.conf</filename>.
+    </para>
+    <para>
+     Pour plus de détails, reportez-vous à la <xref linkend="sec-ha-geo-quick-ha-cluster-geo-init-arbitrator"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Tous les scripts d'amorçage consignent des données dans le fichier<filename>/var/log/ha-cluster-bootstrap.log</filename>. Pour toute information à propos du processus d'amorçage, consultez le fichier journal. Toutes les options définies lors du processus d'amorçage peuvent être modifiées ultérieurement (en changeant les paramètres booth, les ressources, etc.). Pour plus de détails, consultez le <xref linkend="book-sleha-geo"/>.
+  </para>
+
+
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-inst">
+  <title>Installation en tant qu'extension</title>
+
+  <para>
+   La prise en charge de l'utilisation de grappes à haute disponibilité sur des distances illimitées est disponible sous forme d'extension distincte, appelée Geo Clustering for SUSE Linux Enterprise High Availability Extension.
+  </para>
+  <para>
+   Pour configurer une grappe géographique, vous avez besoin des paquetages inclus dans les modèles d'installation suivants :
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <literal>Haute disponibilité</literal>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <literal>Geo Clustering for High Availability</literal>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   Ces deux modèles sont disponibles uniquement si vous avez enregistré votre système auprès du SUSE Customer Center (ou d'un serveur d'enregistrement local) et ajouté les canaux de produit ou supports d'installation en tant qu'extension. Pour plus d'informations sur l'installation des extensions, reportez-vous au <citetitle>SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">12 SP5</phrase></phrase> Deployment Guide</citetitle> (Guide de déploiement de SUSE Linux Enterprise 12 SP5) : <link xlink:href="https://documentation.suse.com/sles-12/html/SLES-all/cha-add-ons.html"/>.
+
+  </para>
+
+  <procedure xml:id="pro-ha-geo-inst">
+   <title>Installation des paquetages</title>
+   <step>
+    <para>
+     Pour installer les paquetages des deux modèles via la ligne de commande, utilisez Zypper :
+    </para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> install -t pattern ha_sles ha_geo</screen>
+   </step>
+   <step xml:id="st-ha-geo-inst-yast">
+    <para>
+     Vous pouvez aussi utiliser YaST pour une installation graphique :
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       Démarrez YaST en tant qu'utilisateur <systemitem class="username">root</systemitem> et sélectionnez <menuchoice> <guimenu>Logiciels</guimenu> <guimenu>Installer et supprimer des logiciels</guimenu> </menuchoice>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Cliquez sur <menuchoice> <guimenu>Afficher</guimenu> <guimenu>Modèles</guimenu> </menuchoice> et activez les modèles suivants :
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         <literal>Haute disponibilité</literal>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <literal>Geo Clustering for High Availability</literal>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </step>
+     <step>
+      <para>
+       Cliquez sur <guimenu>Accepter</guimenu> pour démarrer l'installation des paquetages.
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+
+  <important>
+   <title>installation des paquetages logiciels sur toutes les parties</title>
+   <para>
+    Les paquetages logiciels nécessaires pour la haute disponibilité et les grappes géographiques ne sont <emphasis>pas</emphasis> copiés automatiquement sur les noeuds de grappe.
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Installez SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">12 SP5</phrase></phrase> ainsi que les modèles <literal>Haute disponibilité</literal> et <literal>Geo Clustering for High Availability</literal> sur <emphasis>toutes</emphasis> les machines qui feront partie de votre grappe Geo.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Au lieu d'installer manuellement les paquetages sur toutes les machines qui feront partie de votre grappe, utilisez AutoYaST pour cloner des noeuds existants. Pour plus d'informations, reportez-vous au <xref linkend="sec-ha-installation-autoyast"/>. 
+     </para>
+     <para>
+      <remark>taroth 2017-06-29: @DEV/QA, is the following still true?</remark> Toutefois, l'extension Geo Clustering doit être installée <emphasis>manuellement</emphasis> sur toutes les machines faisant partie de la grappe géographique. AutoYaST n'est pas encore pris en charge pour Geo Clustering for SUSE Linux Enterprise High Availability Extension.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-ha-cluster-geo-init">
+  <title>Configuration du premier site d'une grappe géographique</title>
+
+  <para>
+   Utilisez le script <command>ha-cluster-geo-init</command> pour configurer une grappe existante en tant que premier site d'une grappe géographique.
+  </para>
+
+  <procedure xml:id="pro-ha-geo-quick-ha-cluster-geo-init">
+   <title>configuration du premier site (<systemitem>amsterdam</systemitem>) avec le script <command>ha-cluster-geo-init</command></title>
+   <step>
+    <para>
+     Définissez une adresse IP virtuelle par site de grappe qui peut être utilisée pour accéder au site. Supposons que nous utilisons <literal>192.168.201.100</literal> et <literal>192.168.202.100</literal> à cet effet. Vous ne devez pas encore configurer les adresses IP virtuelles en tant que ressources de grappe. Les scripts d'amorçage s'en chargeront.
+    </para>
+   </step>
+   <step>
+    <para>
+     Définissez le nom d'au moins un ticket qui accordera les droits pour l'exécution de certaines ressources sur un site de grappe. Utilisez un nom pertinent qui reflète les ressources qui dépendront du ticket (par exemple, <literal>ticket-nfs</literal>). Les scripts d'amorçage ont uniquement besoin du nom de ticket, vous pouvez définir les détails restants (dépendances de ticket des ressources) plus tard, comme décrit à la <xref linkend="sec-ha-geo-quick-next"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Connectez-vous à un noeud d'une grappe existante (par exemple, au noeud <literal>alice</literal> de la grappe <literal>amsterdam</literal>).
+    </para>
+   </step>
+   <step xml:id="st-ha-cluster-geo-init">
+    <para>
+     Exécutez le script <command>ha-cluster-geo-init</command>. Par exemple, utilisez les options suivantes :
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init</command> \
+  --clusters<co xml:id="co-geo-init-clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100" \
+  --tickets<co xml:id="co-geo-init-ticket"/> ticket-nfs \
+  --arbitrator<co xml:id="co-geo-init-arbitrator"/> 192.168.203.100</screen>
+    <calloutlist>
+     <callout arearefs="co-geo-init-clusters">
+       <para>
+    Les noms des sites de grappe (comme définis dans le fichier <filename>/etc/corosync/corosync.conf</filename>) et les adresses IP virtuelles que vous souhaitez utiliser pour chaque site de grappe. Dans ce cas, nous avons deux sites de grappe (<literal>amsterdam</literal> et <literal>berlin</literal>) avec une adresse IP virtuelle pour chacun.
+   </para>
+     </callout>
+     <callout arearefs="co-geo-init-ticket">
+      <para>
+       Le nom d'un ou de plusieurs tickets.
+      </para>
+     </callout>
+     <callout arearefs="co-geo-init-arbitrator">
+      <para>
+       Le nom d'hôte ou l'adresse IP d'une machine en dehors des grappes.
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   Le script d'amorçage crée le fichier de configuration booth et le synchronise pour les différents sites de grappe. Il crée également les ressources de grappe de base nécessaires pour le booth. L'<xref linkend="st-ha-cluster-geo-init" xrefstyle="seletc:label"/> de la <xref linkend="pro-ha-geo-quick-ha-cluster-geo-init" xrefstyle="select:label"/> conduirait à la configuration booth et aux ressources de grappe suivantes :
+  </para>
+
+  <example xml:id="ex-geo-init-booth-conf">
+   <title>configuration booth créée par le script <command>ha-cluster-geo-init</command></title>
+<screen># The booth configuration file is "/etc/booth/booth.conf". You need to
+# prepare the same booth configuration file on each arbitrator and
+# each node in the cluster sites where the booth daemon can be launched.
+
+# "transport" means which transport layer booth daemon will use.
+# Currently only "UDP" is supported.
+transport="UDP"
+port="9929"
+
+arbitrator="192.168.203.100"
+site="192.168.201.100"
+site="192.168.202.100"
+authfile="/etc/booth/authkey"
+ticket="ticket-nfs"
+expire="600"</screen>
+  </example>
+
+  <example xml:id="ex-geo-init-rsc-conf">
+   <title>ressources de grappe créées par le script <command>ha-cluster-geo-init</command></title>
+<screen>primitive<co xml:id="co-geo-quick-rsc-booth-ip"/> booth-ip IPaddr2 \
+  params rule #cluster-name eq amsterdam ip=192.168.201.100 \
+  params rule #cluster-name eq berlin ip=192.168.202.100 \
+primitive<co xml:id="co-geo-quick-rsc-booth-site"/> booth-site ocf:pacemaker:booth-site \
+  meta resource-stickiness=INFINITY \
+  params config=booth \
+  op monitor interval=10s
+group<co xml:id="co-geo-quick-rsc-g-booth"/> g-booth booth-ip booth-site \
+meta target-role=Stopped<co xml:id="co-geo-quick-rsc-stopped"/></screen>
+   <calloutlist>
+    <callout arearefs="co-geo-quick-rsc-booth-ip">
+     <para>
+      Une adresse IP virtuelle pour chaque site de grappe. Elle est requise par les daemons booth qui ont besoin d'une adresse IP persistante sur chaque site de grappe.
+     </para>
+    </callout>
+    <callout arearefs="co-geo-quick-rsc-booth-site">
+     <para>
+      Une ressource primitive pour le daemon booth. Elle communique avec les daemons booth sur les autres sites de grappe. Le daemon peut être démarré sur n'importe quel noeud du site, mais, pour que la ressource reste sur le même noeud, si possible, la permanence de la ressource doit être définie sur <literal>INFINITY</literal>.
+     </para>
+    </callout>
+    <callout arearefs="co-geo-quick-rsc-g-booth">
+     <para>
+      Un groupe de ressources de grappe pour les deux primitives. Avec cette configuration, chaque daemon de booth sera disponible sur son adresse IP individuelle, indépendamment du noeud sur lequel le daemon est exécuté.
+     </para>
+    </callout>
+    <callout arearefs="co-geo-quick-rsc-stopped">
+     <para>
+      Le groupe de ressources de grappe n'est pas démarré par défaut. Après vérification de la configuration de vos ressources de grappe (et l'ajout des ressources nécessaires pour terminer votre configuration), vous devez démarrer le groupe de ressources. Reportez-vous à la section <xref linkend="vl-ha-geo-quick-next-req"/> pour plus d'informations. 
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-ha-cluster-geo-join">
+  <title>Ajout d'un autre site à une grappe géographique</title>
+
+  <para>
+   Après avoir initialisé le premier site de votre grappe géographique, ajoutez la deuxième grappe avec le script <literal>ha-cluster-geo-join</literal>, comme décrit dans la <xref linkend="pro-ha-geo-quick-ha-cluster-geo-join" xrefstyle="select:label"/>. Le script doit avoir un accès SSH à un site de grappe déjà configuré et ajoutera la grappe actuelle à la grappe géographique.
+  </para>
+
+  <procedure xml:id="pro-ha-geo-quick-ha-cluster-geo-join">
+   <title>ajout du deuxième site (<literal>berlin</literal>) avec le script <command>ha-cluster-geo-join</command></title>
+   <step>
+    <para>
+     Connectez-vous à un noeud du site de grappe que vous souhaitez ajouter (par exemple, au noeud <literal>charlie</literal> de la grappe <literal>berlin</literal>).
+    </para>
+   </step>
+   <step xml:id="st-ha-cluster-geo-join">
+    <para>
+     Exécutez la commande <command>ha-cluster-geo-join</command>. Par exemple :
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-join</command> \
+  --cluster-node<co xml:id="co-geo-join-cluster-node"/> 192.168.201.100\
+  --clusters<co xml:id="co-geo-join-clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100"
+     </screen>
+    <calloutlist>
+     <callout arearefs="co-geo-join-cluster-node">
+      <para>
+       Indique à partir de quel emplacement le système doit copier la configuration booth. Utilisez l'adresse IP ou le nom d'hôte d'un noeud d'un site de grappe géographique déjà configuré. Vous pouvez également utiliser l'adresse IP virtuelle d'un site de grappe déjà existant (comme dans cet exemple). Vous pouvez aussi utiliser l'adresse IP ou le nom d'hôte d'un arbitre déjà configuré pour votre grappe géographique.
+      </para>
+     </callout>
+     <callout arearefs="co-geo-join-clusters">
+       <para>
+    Les noms des sites de grappe (comme définis dans le fichier <filename>/etc/corosync/corosync.conf</filename>) et les adresses IP virtuelles que vous souhaitez utiliser pour chaque site de grappe. Dans ce cas, nous avons deux sites de grappe (<literal>amsterdam</literal> et <literal>berlin</literal>) avec une adresse IP virtuelle pour chacun.
+   </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   Le script <command>ha-cluster-geo-join</command> copie la configuration booth à partir de <xref linkend="co-geo-join-cluster-node" xrefstyle="select:label"/> (voir <xref linkend="ex-geo-init-booth-conf" xrefstyle="select:label"/>). En outre, il crée les ressources de grappe nécessaires pour le booth (voir <xref linkend="ex-geo-init-rsc-conf" xrefstyle="select:label"/>).
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-ha-cluster-geo-init-arbitrator">
+  <title>Ajout de l'arbitre</title>
+
+  <para>
+   Une fois que vous avez configuré tous les sites de votre grappe géographique avec les scripts <command>ha-cluster-geo-init</command> et <command>ha-cluster-geo-join</command>, définissez l'arbitre avec le script <command>ha-cluster-geo-init-arbitrator</command>.
+  </para>
+
+  <procedure xml:id="pro-ha-geo-quick-ha-cluster-geo-init-arbitrator">
+   <title>configuration de l'arbitre avec le script <command>ha-cluster-geo-init-arbitrator</command></title>
+   <step>
+    <para>
+     Connectez-vous à la machine que vous souhaitez utiliser en tant qu'arbitre.
+    </para>
+   </step>
+   <step>
+    <para>
+     Exécutez la commande suivante. Par exemple :
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init-arbitrator</command> --cluster-node<co xml:id="co-geo-init-arbitrator-cluster-node"/> 192.168.201.100</screen>
+    <calloutlist>
+     <callout arearefs="co-geo-init-arbitrator-cluster-node">
+      <para>
+       Indique à partir de quel emplacement le système doit copier la configuration booth. Utilisez l'adresse IP ou le nom d'hôte d'un noeud d'un site de grappe géographique déjà configuré. Vous pouvez également utiliser l'adresse IP virtuelle d'un site de grappe déjà existant (comme dans cet exemple).
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   Le script <command>ha-cluster-geo-init-arbitrator</command> copie la configuration booth à partir de <xref linkend="co-geo-init-arbitrator-cluster-node"/> (voir <xref linkend="ex-geo-init-booth-conf" xrefstyle="select:label"/>). Il active et démarre également le service de booth sur l'arbitre. Ainsi, l'arbitre est prêt à communiquer avec les instances de booth sur les sites de grappe dès que les services de booth y sont aussi en cours d'exécution.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-monitor">
+  <title>Surveillance des sites de grappe</title>
+
+  <para>
+   Pour afficher les deux sites de grappe avec les ressources et le ticket que vous avez créés au cours du processus d'amorçage, utilisez Hawk2. L'interface Web Hawk2 vous permet de surveiller et de gérer plusieurs grappes (indépendantes) et grappes géographiques.
+  </para>
+
+  <itemizedlist>
+   <title>Conditions préalables</title>
+   <listitem>
+    <para>
+     Toutes les grappes à surveiller à partir du <guimenu>tableau de bord</guimenu> de Hawk2 doivent exécuter <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">12 SP5</phrase></phrase>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Si vous n'avez pas encore remplacé le certificat auto-signé pour Hawk2 par votre propre certificat (ou un certificat signé par une autorité de certification officielle) sur chaque noeud de grappe, effectuez l'opération suivante : connectez-vous à Hawk2 sur <emphasis>chaque</emphasis> noeud dans <emphasis>chaque</emphasis> grappe au moins une fois. Vérifiez le certificat (ou ajoutez une exception dans le navigateur afin d'ignorer l'avertissement). Sans cela, Hawk2 ne peut pas se connecter à la grappe.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro-ha-geo-quick-hawk2-dashboard">
+   <title>utilisation du tableau de bord Hawk2</title>
+   <step>
+    <para>
+     Démarrez un navigateur Web et entrez l'adresse IP virtuelle de votre premier site de grappe, <literal>amsterdam</literal> :
+    </para>
+<screen>https://192.168.201.100:7630/</screen>
+    <para>
+     Vous pouvez également utiliser l'adresse IP ou le nom d'hôte du noeud <literal>alice</literal> ou <literal>bob</literal>. Si vous avez configuré les deux noeuds avec les scripts d'amorçage, le service <literal>hawk</literal> doit s'exécuter sur les deux noeuds.
+    </para>
+   </step>
+   <step>
+    <para>
+     Connectez-vous à l'interface Web de Hawk2.
+    </para>
+   </step>
+   <step>
+    <para>
+     Dans la barre de navigation de gauche, sélectionnez <guimenu>Tableau de bord</guimenu>.
+    </para>
+    <para>
+     Hawk2 affiche une vue d'ensemble des noeuds et ressources sur le site de grappe actuel. En outre, il indique les <guimenu>tickets</guimenu> qui ont été configurés pour la grappe géographique. Si vous avez besoin d'informations sur les icônes utilisées dans cette vue, cliquez sur <guimenu>Legend</guimenu> (Légende).
+    </para>
+    <figure>
+     <title>tableau de bord Hawk2 avec un site de grappe (<literal>amsterdam</literal>)</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="95%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     Pour ajouter un tableau de bord pour le deuxième site de grappe, cliquez sur <guimenu>Ajouter une grappe</guimenu>.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Entrez le <guimenu>nom de grappe</guimenu> permettant d'identifier la grappe dans le <guimenu>Tableau de bord</guimenu>. Dans ce cas, il s'agit de <literal>berlin</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Entrez le nom d'hôte complet de l'un des noeuds de la grappe (dans ce cas, <literal>charlie</literal> ou <literal>doro</literal>).
+      </para>
+     </step>
+     <step>
+      <para>
+       Cliquez sur <guimenu>Ajouter</guimenu>. Hawk2 affiche un deuxième onglet pour le site de grappe nouvellement ajouté avec une vue d'ensemble de ses noeuds et ressources.
+      </para>
+      <figure>
+       <title>tableau de bord Hawk2 avec deux sites de grappe</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="95%" format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Pour afficher plus de détails sur un site de grappe ou sur sa gestion, basculez vers l'onglet du site et cliquez sur l'icône de la chaîne.
+    </para>
+    <para>
+     Hawk2 ouvre la vue <guimenu>État</guimenu> de ce site dans une nouvelle fenêtre de navigateur ou un nouvel onglet. Cette vue vous permet d'administrer cette partie de la grappe géographique.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-next">
+  <title>Étapes suivantes</title>
+
+  <para>
+   Les scripts d'amorçage de mise en grappe géographique constituent un moyen rapide pour configurer une grappe géographique de base qui peut être utilisée à des fins de test. Toutefois, pour convertir la grappe géographique résultante en une grappe géographique opérationnelle pouvant être utilisée dans des environnements de production, d'autres étapes sont requises (voir <xref linkend="vl-ha-geo-quick-next-req"/>).
+  </para>
+
+  <variablelist xml:id="vl-ha-geo-quick-next-req">
+   <title>Étapes requises pour terminer la configuration d'une grappe géographique</title>
+   <varlistentry xml:id="vle-ha-geo-quick-booth-service-sites">
+    <term>Démarrage des services de booth sur des sites de grappe</term>
+    <listitem>
+     <para>
+      Après le processus d'amorçage, le service de booth de l'arbitre ne peut pas encore communiquer avec les services de booth des sites de grappe, car ils ne sont pas démarrés par défaut.
+     </para>
+     <para>
+      Le service de booth pour chaque site de grappe est géré par le groupe de ressources de booth <literal>g-booth</literal> (voir <xref linkend="ex-geo-init-rsc-conf"/>). Pour démarrer une instance du service de booth par site, démarrez le groupe de ressources de booth respectif sur chaque site de grappe. Cela permet à toutes les instances de booth de communiquer entre elles.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Configuration des dépendances de tickets et ordre des contraintes</term>
+    <listitem>
+     <para>
+      Pour faire dépendre des ressources du ticket que vous avez créé au cours du processus d'amorçage de grappe géographique, configurez des contraintes. Pour chaque contrainte, définissez une <literal>stratégie relative aux pertes</literal> qui définit ce qu'il arriverait aux ressources respectives si le ticket était révoqué d'un site de grappe.
+     </para>
+     <para>
+      Pour plus de détails, reportez-vous au <xref linkend="cha-ha-geo-rsc"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Octroi initial d'un ticket à un site</term>
+    <listitem>
+     <para>
+      Avant que le booth puisse gérer un certain ticket au sein de la grappe géographique, vous devez d'abord <emphasis>l'attribuer</emphasis> à un site manuellement. Pour accorder un ticket, vous pouvez utiliser l'outil de ligne de commande du client de booth ou Hawk2.
+     </para>
+     <para>
+      Pour plus de détails, reportez-vous au <xref linkend="cha-ha-geo-manage"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   Les scripts d'amorçage créent les mêmes ressources de booth sur les deux sites de grappe et les mêmes fichiers de configuration booth sur tous les sites, y compris l'arbitre. Si vous étendez la configuration de grappe géographique (pour passer à un environnement de production), vous devrez probablement affiner la configuration booth et modifier la configuration des ressources de grappe liées au booth. Ensuite, vous devez synchroniser les modifications sur les autres sites de votre grappe géographique pour qu'elles soient prises en compte.
+  </para>
+
+  <note>
+   <title>synchronisation des modifications entre les différents sites de grappe</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Pour synchroniser les modifications de la configuration booth sur tous les sites de grappe (y compris l'arbitre), utilisez Csync2. Pour plus d'informations, reportez-vous au <xref linkend="cha-ha-geo-sync"/>. 
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Le CIB (base d'informations de la grappe) n'est pas synchronisé automatiquement entre les différents sites d'une grappe géographique. Cela signifie que toutes les modifications de la configuration des ressources requises sur tous les sites de grappe doivent être transférées vers les autres sites manuellement. Pour ce faire, ajoutez des balises aux ressources respectives, exportez-les à partir du CIB actuel, puis importez-les dans le CIB sur les autres sites de grappe. Pour plus de détails, reportez-vous au <xref linkend="sec-ha-geo-rsc-sync-cib"/>.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-more">
+  <title>Complément d'informations</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Pour plus de documentation sur ce produit, reportez-vous à l'adresse <link xlink:href="https://documentation.suse.com/sle-ha-12/"/>. Vous y trouverez notamment un manuel complet <literal>Geo Clustering Guide</literal> (Guide de mise en grappe géographique). Pour en savoir plus sur les tâches de configuration et d'administration, consultez ce manuel.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Un document avec des informations détaillées sur la procédure de réplication des données via DRBD sur des grappes Geo a été publié dans la série <literal>SUSE Best Practices</literal> (Meilleures pratiques SUSE) : <link xlink:href="https://documentation.suse.com/sbp/all/html/SBP-DRBD/index.html"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>
