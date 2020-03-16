@@ -706,7 +706,7 @@ softdog                16384  1</screen>
   <sect1 xml:id="sec-ha-inst-quick-test">
    <title>Testing the Cluster</title>
    <para>
-    <xref linkend="pro-ha-inst-quick-test"/> is a simple test to check if the
+    <xref linkend="sec-ha-inst-quick-test-resource-failover"/> is a simple test to check if the
     cluster moves the virtual IP address to the other node in case the node
     that currently runs the resource is set to <literal>standby</literal>.
    </para>
@@ -715,12 +715,18 @@ softdog                16384  1</screen>
     situation. If you have not set up your fencing mechanism correctly, the cluster
     will not work  properly.</para>
    <para>Before using the cluster in a production environment, test it thoroughly
-    according to your use cases.
+    according to your use cases or with the help of the &cmd.test.script;
+    script.
     <!-- toms 2016-08-01: For SP3, refer to the "Testing Cluster Guide" or
      to Lars Pinnes iptable rules
     -->
    </para>
-    <remark>toms 2016-07-27: Fate#321073
+   <sect2 xml:id="sec-ha-inst-quick-test-resource-failover">
+    <title>Testing Resource Failover</title>
+    <para>
+     As a quick test, the following procedure checks on resource failovers:
+    </para>
+   <remark>toms 2016-07-27: Fate#321073
     Tool for Standardize Testing of Basic Cluster Functionality</remark>
    <procedure xml:id="pro-ha-inst-quick-test">
     <title>Testing Resource Failover</title>
@@ -788,6 +794,140 @@ softdog                16384  1</screen>
        <keycap function="control"/><keycap>C</keycap>
       </keycombo>.
    </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-inst-quick-test-with-cluster-script">
+    <title>Testing with the &test.script; Command</title>
+    <para>
+     The command &cmd.test.script; runs standardized tests
+     for a cluster.
+     It triggers cluster failures and verifies configuration to find
+     problems. Before you use your cluster in production, it is
+     recommended to use this command to make sure everything works as expected.
+    </para>
+    <para>
+     The command supports the following checks:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <formalpara>
+       <title>Environment Check <option>-e</option>/<option>--env-check</option></title>
+       <para>
+        This test checks:
+       </para>
+      </formalpara>
+      <itemizedlist>
+       <listitem>
+        <para> Are host names resolvable? </para>
+       </listitem>
+       <listitem>
+        <para>
+         Is the time service enabled and started?
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         Does the current node have a watchdog configured?
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         Is the <command>firewalld</command> service started and are cluster-related ports
+         open?
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>Cluster State Check <option>-c</option>/<option>--cluster-check</option></title>
+       <para> Checks different states and services of the cluster. This test checks:</para>
+      </formalpara>
+      <itemizedlist>
+       <listitem>
+        <para>
+         Are cluster services (&pace;/&corosync;) enabled and running?
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         Is &stonith; enabled? It also checks, whether &stonith;-related
+         resources are configured and started.
+         If you configured SBD, is the SBD service started?
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         Does the cluster have a quorum?
+         Shows current DC nodes and nodes which are online,
+         offline, and unclean.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         Do we have started, stopped, or failed resources?
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>Split Brain Check <option>--split-brain-iptables</option></title>
+       <para>
+        Simulates a split brain scenario by blocking the &corosync; port.
+        Checks whether one node can be fenced as expected.
+       </para>
+      </formalpara>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>Kills the daemons for SBD, &corosync;, and &pace; <option>-kill-sbd</option>/<option>-kill-corosync</option>/<option>-kill-pacemakerd</option></title>
+       <para>
+        After running such a test, you can find a report in
+        <filename>/var/lib/ha-cluster-preflight-check</filename>.
+        The report includes test case description, action logging,
+        and explains possible results.
+       </para>
+      </formalpara>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>Fence Node Check <option>--fence-node</option></title>
+       <para>Fences the specific node passed from the command line.</para>
+      </formalpara>
+     </listitem>
+    </itemizedlist>
+    <para>
+     For example, to test the environment, run:
+    </para>
+    <screen>&prompt.root;<command>crm_mon -1</command>
+Stack: corosync
+Current DC: &node1; (version ...) - partition with quorum
+Last updated: Fri Mar 03 14:40:21 2020
+Last change: Fri Mar 03 14:35:07 2020 by root via cibadmin on &node1;
+
+2 nodes configured
+1 resource configured
+
+Online: [ &node1; &node2; ]
+Active resources:
+
+ stonith-sbd    (stonith:external/sbd): Started &node1;
+
+&prompt.root;&cmd.test.script; -e
+[2020/03/20 14:40:45]INFO: Checking hostname resolvable [Pass]
+[2020/03/20 14:40:45]INFO: Checking time service [Fail]
+ INFO: chronyd.service is available
+ WARNING: chronyd.service is disabled
+ WARNING: chronyd.service is not active
+[2020/03/20 14:40:45]INFO: Checking watchdog [Pass]
+[2020/03/20 14:40:45]INFO: Checking firewall [Fail]
+ INFO: firewalld.service is available
+ WARNING: firewalld.service is not active</screen>
+    <para>
+     You can inspect the result in <filename>/var/log/ha-cluster-preflight-check.log</filename>.
+    </para>
+   </sect2>
   </sect1>
 
   <sect1 xml:id="sec-ha-inst-quick-moreinfo">
