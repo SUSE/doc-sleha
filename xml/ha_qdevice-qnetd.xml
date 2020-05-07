@@ -1,0 +1,516 @@
+<!DOCTYPE chapter
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+<!--
+ 
+-->
+<chapter version="5.0" xml:id="cha-ha-qdevice"
+   xmlns="http://docbook.org/ns/docbook"
+   xmlns:xi="http://www.w3.org/2001/XInclude"
+   xmlns:xlink="http://www.w3.org/1999/xlink">
+   <title>QDevice and QNetd</title>
+   <info>
+      <abstract>
+         <para>
+            &qdevice; and &qnet; participate in quorum decisions.
+            With the assistance from the arbitrator <systemitem
+               class="daemon">corosync-qnetd</systemitem>, <systemitem
+               class="daemon">corosync-qdevice</systemitem> provides
+            a configurable number of votes, so allowing a cluster
+            to sustain more node failures than the standard quorum rules
+            allow. We strongly recommend deploying <systemitem class="daemon">corosync-qnetd</systemitem> and <systemitem class="daemon">corosync-qdevice</systemitem> for two-node clusters, but using &qnet; and &qdevice; is also recommended in general for clusters with an even number of nodes.  
+         </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+         <dm:maintainer/>
+         <dm:status>editing</dm:status>
+         <dm:deadline/>
+         <dm:priority/>
+         <dm:translation>yes</dm:translation>
+         <dm:languages/>
+         <dm:release/>
+         <dm:repository/>
+      </dm:docmanager>
+   </info>
+
+   <sect1 xml:id="sec-ha-qdevice-overview">
+      <title>Conceptual Overview</title>
+      <para>
+         In comparison to calculating quora among cluster nodes, the
+         &qdevice;-and-&qnet; approach has the following benefits:
+      </para>
+
+      <itemizedlist>
+         <listitem>
+            <para>
+               It provides better sustainability in case of node failures.
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               You can write your own heuristics scripts to affect votes. This is especially useful for complex setups, such as SAP applications.
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               It enables you to configure a &qnet; server to provide
+               votes for multiple clusters.
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               Allows using diskless SBD for two-node clusters.
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               It helps with quorum decisions for clusters with an even number of
+               nodes under split-brain situations, especially for two-node clusters.
+            </para>
+         </listitem>
+      </itemizedlist>
+
+      <para>
+        A setup with &qdevice;/&qnet; consists of the following components and
+         mechanisms:
+      </para>
+
+      <variablelist>
+         <title>&qdevice;/&qnet; Components and Mechanisms</title>
+         <varlistentry>
+            <term>&qnet; (<systemitem class="daemon">corosync-qnetd</systemitem>)</term>
+            <listitem>
+               <para>
+                  A systemd service (a daemon, the <quote>&qnet; server</quote>) which
+                  is not part of the cluster.
+                  The systemd service provides a vote to the <systemitem
+                     class="daemon">corosync-qdevice</systemitem> daemon.
+               </para>
+               <para>
+                  To improve security, <systemitem class="daemon">corosync-qnetd</systemitem>
+                  can work with TLS for client certificate checking.
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>&qdevice; (<systemitem class="daemon">corosync-qdevice</systemitem>)</term>
+            <listitem>
+               <para>
+                  A systemd service (a daemon) on each cluster node running together with
+                  &corosync;. This is the client of <systemitem>corosync-qnetd</systemitem>.
+                  Its primary use is to allow a cluster to sustain more node failures than
+                  standard quorum rules allow.
+               </para>
+               <para>
+                  &qdevice; is designed to work with different arbitrators. However, currently,
+                  only &qnet; is supported.
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>Algorithms</term>
+            <listitem>
+               <para>
+                  &qdevice; supports different algorithms which determine the behaviour
+                  how votes are assigned.
+                  Currently, the following exist:
+               </para>
+               <itemizedlist>
+                  <listitem>
+                     <para>
+                        FFSplit (<quote>fifty-fifty split</quote> is the default. It is used
+                        for clusters with an even number of nodes. If the cluster splits
+                        into two similar partitions, this algorithm provides one vote to one of
+                        the partitions, based on the results of heuristics checks and
+                        other factors.
+                     </para>
+                  </listitem>
+                  <listitem>
+                     <para>
+                       LMS (<quote>last man standing</quote>) allows the only
+                        remaining node that can see the &qnet; server to get the votes.
+                        So this algorithm is useful when a cluster with only one
+                        active node should remain quorate.
+                     </para>
+                  </listitem>
+               </itemizedlist>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>Heuristics</term>
+            <listitem>
+               <para>
+                  &qdevice; supports a set of commands (<quote>heuristics</quote>).
+                  The commands are executed locally on startup of cluster services,
+                  cluster membership change, successful connect to <systemitem
+                     class="daemon">corosync-qnetd</systemitem>, or optionally, at
+                  regular times.
+                  The heuristics can be set with the <parameter>quorum.device.heuristics</parameter>
+                  key (in the <filename>corosync.conf</filename> file) or with the
+                  <option>--qdevice-heuristics-mode</option> option.
+                  Both know the values <literal>off</literal> (default),
+                  <literal>sync</literal>, and <literal>on</literal>.
+                  The difference between <literal>sync</literal> and <literal>on</literal>
+                  is you can additonally execute the above commands regularly.
+               </para>
+               <para>
+                  Only if all commands executed successfully are the heuristics
+                  considered to have passed; otherwise, they failed. The heuristics' result is
+                  sent to <systemitem class="daemon">corosync-qnetd</systemitem> where
+                  it is used in calculations to determine which partition should be quorate.
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>Tiebreaker</term>
+            <listitem>
+               <para>
+                  This is used as a fallback if the cluster partitions are completely
+                  equal even with the same heuristics results. It can be configured
+                  to be the lowest, the highest, or a specific node ID.
+               </para>
+            </listitem>
+         </varlistentry>
+      </variablelist>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-require">
+      <title>Requirements and Prerequisites</title>
+      <para>
+         Before setting up &qdevice; and &qnet;, you need to prepare the
+         environment as the following:
+      </para>
+      <itemizedlist>
+         <listitem>
+            <remark>toms 2020-05-14: See also bsc#1171681</remark>
+            <para>
+               In addition to the cluster nodes, you have a separate machine
+               which will become the &qnet; server.
+               See <xref linkend="sec-ha-qdevice-setup-qnetd"/>.
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               A different physical network than the one that &corosync; uses.
+               It is recommended for &qdevice; to reach the &qnet; server.
+               Ideally, the &qnet; server should be in a separate rack than the
+               main cluster, or at least on a separate PSU and not in the same
+               network segment as the corosync ring or rings.
+            </para>
+         </listitem>
+      </itemizedlist>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-setup-qnetd">
+      <title>Setting Up the &qnet; Server</title>
+      <para>
+         The &qnet; server is not part of the cluster stack, it is also
+         not a real member of your cluster. As such, you cannot move resources
+         to this server.
+      </para>
+      <para>
+         The &qnet; server is almost <quote>state free</quote>. Usually, you do not need to
+         change anything in the configuration file <filename>/etc/sysconfig/corosync-qnetd</filename>.
+         By default, the <package>corosync-qnetd</package> service runs the daemon
+         as user <systemitem class="username">coroqnetd</systemitem>
+         in the group <systemitem class="groupname">coroqnetd</systemitem>. This avoids
+         running the daemon as &rootuser;.
+      </para>
+      <para>
+         To create a &qnet; server, proceed as follows:
+      </para>
+      <procedure>
+         <step>
+            <para>
+               On the machine that will become the  &qnet; server, install
+               &sls; &productnumber;.
+               <remark>toms 2020-05-15: See also bsc#1171681</remark>
+            </para>
+         </step>
+         <step>
+            <para>
+               Log in to the &qnet; server and install the following package:
+            </para>
+            <screen>&prompt.root;<command>zypper</command> install corosync-qnetd</screen>
+            <para>
+               You do not need to manually start the <systemitem class="daemon"
+                  >corosync-qnetd</systemitem> service. The bootstrap scripts
+               will take care of the startup process during the qdevice stage.
+      </para>
+         </step>
+      </procedure>
+
+      <para>
+         Your &qnet; server is ready to accept connections from a &qdevice; client
+         <systemitem>corosync-qdevice</systemitem>.
+         Further configuration is not needed.
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-qdevice">
+      <title>Connecting &qdevice; Clients to the &qnet; Server</title>
+      <para>
+         After you have set up your &qnet; server, you can set up
+         and run the clients.
+         You can connect the clients to the &qnet; server during the installation of your cluster
+         or you can add them later. In the following procedure we use
+         the latter approach. We assume a cluster with two cluster nodes
+         (&node1; and &node2;) and the &qnet; server (&node3;).
+      </para>
+      <procedure>
+         <remark>toms 2020-05-11: Is step 1 and step 2 really needed? Can I just
+         jump to step 3?</remark>
+         <step>
+            <para>
+               On &node1;, initialize your cluster:
+            </para>
+            <screen>&prompt.root;<command>crm</command> cluster init -y</screen>
+         </step>
+         <step>
+            <para>
+               On &node2;, join the cluster:
+            </para>
+            <screen>&prompt.root;<command>crm</command> cluster join -c &node1; -y</screen>
+         </step>
+         <step>
+            <para>
+               On &node1; and &node2;, bootstrap the <literal>qdevice</literal> stage.
+               Usually, in most cases the default settings are fine.
+               Provide at least <option>--qnetd-hostname</option> and the hostname or
+               IP address of the &qnet; server (&node3; in our case):
+            </para>
+            <screen>&prompt.root;<command>crm</command> cluster init qdevice --qnetd-hostname=&node3;</screen>
+            <para>
+               If you want to change the default settings, get a list of all
+               possible options with the command <command
+                  >crm cluster init qdevice --help</command>.
+               All options related to &qdevice; start with
+               <option>--qdevice-<replaceable>NAME</replaceable></option>.
+            </para>
+         </step>
+      </procedure>
+      <para>
+         If you have used the default settings, the command above creates a &qdevice; that has TLS enabled  and  uses the FFSplit algorithm.
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-heuristic">
+      <title>Setting Up a &qdevice; with Heuristics</title>
+      <para>
+         If you need additional control over how votes are determined, use heuristics.
+         Heuristics are a set of commands which are executed in parallel.
+      </para>
+      <para>
+         For this purpose, the command <command>crm cluster init qdevice</command>
+         provides the option <option>--qdevice-heuristics</option>. You can
+         pass one or more commands (separated by semicolon) with absolute paths.
+      </para>
+      <para>
+         For example, if your own command for heuristic checks is located at
+         <filename>/usr/sbin/my-script.sh</filename> you can run it on
+         one of your cluster nodes as follows:
+      </para>
+      <screen>&prompt.root;<command>crm</command
+> cluster init qdevice --qdevice-hostname=&node3; \
+     --qdevice-heuristics=/usr/sbin/my-script.sh  \
+     --qdevice-heuristics-mode=on</screen>
+      <para>
+         The command or commands can be written in any language such as Shell, Python, or Ruby.
+         If they succeed, they return <literal>0</literal> (zero), otherwise they return an error code.
+      </para>
+      <para>
+         You can also pass a set of commands. Only when all commands finish successfully (return code is zero), the heuristics have passed.
+      </para>
+      <para>
+         The <option>--qdevice-heuristics-mode=on</option> option lets the heuristics
+         commands run regularily.
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-status">
+      <title>Checking and Showing Quorum Status</title>
+      <!-- HINT:
+The Ring ID and some other parts are numbers which are actually an IP address.
+You can "decrypt" it by using Python:
+
+$ python3
+>>> import ipaddress
+# Convert a number to an IP address:
+>>> ipaddress.ip_address(3232235778)
+IPv4Address('192.168.1.2')
+# Convert an IP address to a number:
+>>> int(ipaddress.IPv4Address("192.168.1.2"))
+3232235778
+      -->
+      <para>
+         You can query the quorum status on one of your cluster nodes as shown in <xref linkend="ex-ha-qdevice-crm-corosync-status-quorum"/>.
+         It shows the status of your &qdevice; nodes.
+      </para>
+
+      <example xml:id="ex-ha-qdevice-crm-corosync-status-quorum">
+         <title>Status of &qdevice;</title>
+         <screen>&prompt.root;<command>corosync-quorumtool</command> <co xml:id="co-quorum-cmd"/>
+ Quorum information
+------------------
+Date:             ...
+Quorum provider:  corosync_votequorum
+Nodes:            2 <co xml:id="co-quorum-nodesnumber"/>
+Node ID:          3232235777 <co xml:id="co-quorum-nodeid"/>
+Ring ID:          3232235777/8
+Quorate:          Yes <co xml:id="co-quorum-quorate"/>
+
+Votequorum information
+----------------------
+Expected votes:   3
+Highest expected: 3
+Total votes:      3
+Quorum:           2
+Flags:            Quorate Qdevice
+
+Membership information
+----------------------
+    Nodeid      Votes    Qdevice Name
+ 3232235777         1    A,V,NMW &subnetI;.1 (local) <co xml:id="co-quorum-nodes"/>
+ 3232235778         1    A,V,NMW &subnetI;.2 <xref linkend="co-quorum-nodes"/>
+         0          1            Qdevice</screen>
+         <calloutlist>
+            <callout arearefs="co-quorum-cmd">
+               <para>
+                  As an alternative with an identical result, you can also use
+                  the <command>crm corosync status quorum</command> command.
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodesnumber">
+               <para>
+                  The number of expected nodes we are expecting. In this example, it is a
+                  two-node cluster.
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodeid">
+               <para>
+                  As the node ID is not explicitly specified in <filename>corosync.conf</filename>
+                  this ID is a 32-bit integer representation of the IP address.
+                  In this example, the value
+                  <literal>3232235777</literal> stands for the IP address <systemitem
+                     class="ipaddress">&subnetI;.1</systemitem>.
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-quorate">
+               <para>
+                  The quorum status. In this case, the cluster has quorum.
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodes">
+               <para>
+                  The status for each cluster node means:
+               </para>
+               <variablelist>
+                  <varlistentry>
+                     <term><literal>A</literal> (Alive) or <literal>NA</literal> (not alive)</term>
+                     <listitem>
+                        <para>
+                           Shows the connectivity status between &qdevice; and &corosync;.
+                           If there is a heartbeat between &qdevice; and &corosync;,
+                           it is shown as alive (A).
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>V</literal> (Vote) or <literal>NV</literal> (non vote)</term>
+                     <listitem>
+                        <para>
+                           Shows if the quorum device has given a vote (letter <literal>V</literal>)
+                           to the node.
+                           A letter <literal>V</literal> means that both nodes can communicate
+                           with each other. In a split-brain situation, one node would be
+                           set to <literal>V</literal> and the other node would be set to
+                           <literal>NV</literal>.
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>MW</literal> (Master wins) or
+                           <literal>NMW</literal>(not master wins)</term>
+                     <listitem>
+                        <para>
+                           Shows if the quorum device <parameter>master_wins</parameter>
+                           flag is set. By default, the flag is not set, so you see <literal>NMW</literal> (not master
+                           wins)
+                           See the man page votequorum_qdevice_master_wins(3) for more
+                           information.
+                        </para>
+                     </listitem>
+                  </varlistentry>
+               </variablelist>
+            </callout>
+         </calloutlist>
+      </example>
+
+      <para>
+         If you want to query the status of the &qnet; server, you get a similar output as
+         shown in <xref linkend="ex-ha-qdevice-crm-corosync-status-qnetd"/>:
+      </para>
+      <example xml:id="ex-ha-qdevice-crm-corosync-status-qnetd">
+         <title>Status of &qnet; Server</title>
+         <screen>&prompt.root;<command>corosync-qnetd-tool</command> <co xml:id="co-quorum-qnet-cmd"/>
+Cluster "hacluster": <co xml:id="co-quorum-qnet-name"/>
+    Algorithm:          Fifty-Fifty split <co xml:id="co-quorum-qnet-algo"/>
+    Tie-breaker:        Node with lowest node ID
+    Node ID 3232235777: <co xml:id="co-quorum-qnet-alice"/>
+        Client address:         ::ffff:&subnetI;.1:54732
+        HB interval:            8000ms
+        Configured node list:   3232235777, 3232235778
+        Ring ID:                aa10ab0.8
+        Membership node list:   3232235777, 3232235778
+        Heuristics:             Undefined (membership: Undefined, regular: Undefined)
+        TLS active:             Yes (client certificate verified)
+        Vote:                   ACK (ACK)
+    Node ID 3232235778:
+        Client address:         ::ffff:&subnetI;.2:43016
+        HB interval:            8000ms
+        Configured node list:   3232235777, 3232235778
+        Ring ID:                aa10ab0.8
+        Membership node list:   3232235777, 3232235778
+        Heuristics:             Undefined (membership: Undefined, regular: Undefined)
+        TLS active:             Yes (client certificate verified)
+        Vote:                   No change (ACK)</screen>
+       <calloutlist>
+          <callout arearefs="co-quorum-qnet-cmd">
+             <para>
+                As an alternative with an identical result, you can also use
+                the <command>crm corosync status qnetd</command> command.
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-name">
+             <para>
+                The name of your cluster as set in the configuration file
+                <filename>/etc/corosync/corosync.conf</filename> in the
+                <literal>totem.cluster_name</literal> section.
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-algo">
+             <para>
+                The algorithm currently used. In this example, it is <literal>FFSplit</literal>.
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-alice">
+             <para>
+                This is the entry for the node with the IP address
+                <systemitem class="ipaddress">&subnetI;.1</systemitem>.
+                TLS is active.
+             </para>
+          </callout>
+       </calloutlist>
+      </example>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-more">
+      <title>For More Information</title>
+      <para>
+         For additional information about &qdevice; and &qnet;
+         Man pages of corosync-qdevice(8), corosync-qnetd(8).
+      </para>
+   </sect1>
+</chapter>
