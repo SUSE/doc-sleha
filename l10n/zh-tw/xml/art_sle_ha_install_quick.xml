@@ -1,0 +1,758 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<?provo dirname="install_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_install_quick.xml" version="5.0" xml:lang="zh-tw" xml:id="art-sleha-install-quick">
+ <title>安裝與設定快速入門</title>
+ <subtitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></productnumber>
+  <productname><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname>
+  <date><?dbtimestamp ?>
+
+</date>
+  <xi:include href="ha_authors.xml"/>
+  <abstract>
+   <para>
+     此文件將引導您使用 <systemitem class="resource">ha-cluster-bootstrap</systemitem> 套件所提供的開機程序檔，完成最基本的雙節點叢集設定。其中包括將虛擬 IP 位址設定為叢集資源，以及在共享儲存上使用 SBD 做為節點圍籬區隔機制。
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:translation>是</dm:translation>
+  </dm:docmanager>
+ </info>
+
+  <sect1 xml:id="sec-ha-inst-quick-usage-scenario">
+   <title>使用案例</title>
+   <para>
+    透過本文件中介紹的程序，可完成對具有以下內容的雙節點叢集的最基本設定：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      兩個節點：<systemitem class="server">alice</systemitem> (IP：<systemitem class="ipaddress">192.168.1.1</systemitem>) 和 <systemitem class="server">bob</systemitem> (IP：<systemitem class="ipaddress">192.168.1.2</systemitem>)；兩者之間透過網路彼此連接。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      一個浮動的虛擬 IP 位址 (<systemitem class="ipaddress">192.168.2.1</systemitem>)。用戶端可透過此位址連接到服務，而不管此服務在哪個實體節點上執行。
+     </para>
+    </listitem>
+    <listitem>
+     <para>一個共享儲存裝置，用做 SBD 圍籬區隔機制。這樣可以避免電腦分裂的情況。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      若主動主機發生故障 (<emphasis>主動/被動</emphasis>設定)，資源會從一個節點容錯移轉到另一個節點。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    使用開機程序檔設定叢集後，我們將使用圖形 Hawk2 來監控叢集。它是叢集管理工具之一，隨附於 <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase> 中。為了對資源容錯移轉是否有效進行基本的測試，我們會將其中一個節點置於待命模式，然後檢查虛擬 IP 位址是否已移轉到另一個節點。
+   </para>
+   <para>
+    該雙節點叢集可用於測試的目的，也可以用做基本叢集組態，稍後再進行擴充。將叢集用於線上環境之前，請先根據自身要求對其進行修改。
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-req">
+   <title>系統要求</title>
+   <para>
+    本章介紹<xref linkend="sec-ha-inst-quick-usage-scenario" xrefstyle="select:label"/>中所述案例的關鍵系統要求。若要將叢集調整為可用於生產環境，請參閱<xref linkend="cha-ha-requirements"/>中的完整清單。
+   </para>
+
+  <sect2 xml:id="vl-ha-inst-quick-req-hw">
+   <title>硬體要求</title>
+   <variablelist>
+    <varlistentry>
+     <term>伺服器</term>
+     <listitem>
+      <para>
+       兩部已安裝<xref linkend="il-ha-inst-quick-req-sw"/>中指定的軟體的伺服器。
+      </para> <para>
+      伺服器可以是裸機，也可以是虛擬機器。它們不需要使用相同的硬體 (記憶體、磁碟空間等等)，但必須具有相同的架構。系統不支援跨平台叢集。
+     </para>
+      
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>通訊通道</term>
+     <listitem>  <para>
+       每個叢集節點至少有兩個 TCP/IP 通訊媒體。網路設備必須支援您希望用於叢集通訊的通信方式：多點傳播或單路廣播。通訊媒體應支援 100 Mbit/s 或更高的資料速率。對於受支援的叢集設定，需要兩個或以上的備援通訊路徑。可以透過以下方式來實現：</para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          網路裝置結合 (優先)。
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          Corosync 中的另一個通訊通道。
+         </para>
+        </listitem>
+       </itemizedlist> </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>節點圍籬區隔/STONITH</term>
+     <listitem>  <para>
+      若要避免<quote>電腦分裂</quote>的情況，叢集需要有節點圍籬區隔機制。在出現電腦分裂的情況下，叢集節點會因硬體或軟體故障或者網路連接斷開而分成兩個或更多互不相識的群組。圍籬區隔機制會隔離存在問題的節點 (通常是透過重設節點或關閉節點的電源)。這也稱為 STONITH (<quote>將其他節點爆頭</quote>)。節點圍籬區隔機制可以是實體裝置 (電源開關)，也可以是 SBD (依磁碟 STONITH) 等機制與監視程式相結合。使用 SBD 需要共享儲存。
+     </para> </listitem>
+    </varlistentry>
+   </variablelist>
+ </sect2>
+  <sect2 xml:id="il-ha-inst-quick-req-sw">
+   <title>軟體要求</title>
+   <para>
+   將加入叢集的所有節點上都至少需安裝以下模組和延伸：
+  </para>
+
+<itemizedlist>
+   <listitem>
+    <para>Base System Module <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para>Server Applications Module <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></para>
+   </listitem>
+  </itemizedlist>
+
+  </sect2>
+  <sect2 xml:id="vl-ha-inst-quick-req-other">
+   <title>其他要求與建議</title>
+   <variablelist>
+    <varlistentry>
+     <term>時間同步</term>  <listitem>
+   <para>
+     叢集節點必須與叢集外的 NTP 伺服器同步。自 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 15 起，採用 chrony 做為 NTP 的預設實作。如需詳細資訊，請參閱<link xlink:href="https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-ntp.html">
+     <citetitle>《SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP2 管理指南</phrase></phrase>》</citetitle></link>。
+    </para>
+    <para>
+     若節點未同步，叢集可能無法正常運作。此外，記錄檔案和叢集報告在未同步的情況下很難進行分析。使用開機程序檔時，若尚未設定 NTP，系統會向您發出警告。
+    </para>
+  </listitem> </varlistentry>
+    <varlistentry>
+     <term>主機名稱與 IP 位址</term>
+     <listitem>
+      <itemizedlist>
+       <listitem>
+        <para> 使用靜態 IP 位址。 </para>
+       </listitem>
+       <listitem>  <para>
+     在 <filename>/etc/hosts</filename> 檔案中列出了所有叢集節點，包括完全合格的主機名稱和簡短主機名稱。叢集的成員必須能夠籍由名稱找到彼此，這是一項基本要求。如果名稱不可用，內部叢集通訊將會失敗。
+   </para> </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>SSH</term>
+     <listitem>  <para>
+    所有叢集節點必須能透過 SSH 互相存取。諸如 <command>crm report</command> (用於疑難排解) 等工具以及 Hawk2 的<guimenu>歷程總管</guimenu>，要求節點之間透過無密碼的 SSH 方式來存取，否則它們只能從目前節點收集資料。
+  </para> <para> 若使用開機程序檔設定叢集，系統會自動建立並複製 SSH 金鑰。 </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-bootstrap">
+  <title>開機程序檔綜覽</title>
+  <para>
+   來自 <package>ha-cluster-bootstrap</package> 套件的所有指令都會執行開機程序檔，而且所需的時間和手動介入極少。
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     使用 <command>ha-cluster-init</command> 可定義叢集通訊所需的基本參數。如此可讓您擁有一個正常運作的單節點叢集。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用 <command>ha-cluster-join</command> 可將更多節點新增到叢集中。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用 <command>ha-cluster-remove</command> 可從叢集中移除節點。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   所有開機程序檔都會記錄至 <filename>/var/log/ha-cluster-bootstrap.log</filename>。查看此檔案即可瞭解開機程序的詳細資料。開機過程中設定的任何選項都可在之後使用 YaST 叢集模組加以修改。如需詳細資料，請參閱<xref linkend="cha-ha-ycluster"/>。
+  </para>
+  <para>每個程序檔都有相應的 man 頁面，其中涵蓋功能範圍、程序檔選項，以及程序檔可建立和修改的檔案的綜覽。
+  </para>
+  <para>
+   開機程序檔 <command>ha-cluster-init</command> 會檢查並設定以下元件：
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>NTP</term>
+    <listitem>
+     <para>
+      如果 NTP 未設定為在開機時啟動，則會出現一則訊息。自 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 15 起，採用 chrony 做為 NTP 的預設實作。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SSH</term>
+    <listitem>
+     <para>它會建立用於在叢集節點之間進行無密碼登入的 SSH 金鑰。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      它會設定 Csync2 在叢集中的所有節點之間複製組態檔案。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Corosync</term>
+    <listitem>
+     <para>它會設定叢集通訊系統。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SBD/監視程式</term>
+    <listitem>
+     <para>它會檢查是否存在監視程式，並詢問您是否將 SBD 設定為節點圍籬區隔系統。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>虛擬浮動 IP</term>
+    <listitem>
+     <para>它會詢問您是否設定虛擬 IP 位址以使用 Hawk2 進行叢集管理。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>防火牆</term>
+    <listitem>
+     <para>它會開啟叢集通訊所需的防火牆連接埠。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>叢集名稱</term>
+    <listitem>
+     <para>它會為叢集定義名稱，預設為 <systemitem>hacluster</systemitem>。叢集名稱是選擇性元件，對 Geo 叢集最有用。叢集名稱通常會反映位置，以便您更容易區分 Geo 叢集內部的站點。</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-installation">
+    <title>安裝 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></title>
+    <para>
+      <literal>High Availability</literal> 安裝模式 (在指令行上以 <literal>sles_ha</literal> 指定) 中包含了使用 High Availability Extension 設定和管理叢集的套件。此模式只在 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> 已做為 SUSE® Linux Enterprise Server 的延伸安裝後才能使用。
+    </para>
+    <para>
+      如需如何安裝延伸的資訊，請參閱<link xlink:href="https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-add-ons.html">
+       <citetitle>《Deployment Guide for SUSE Linux Enterprise Server</citetitle> <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase>》(SUSE Linux Enterprise Server 15 SP2 部署指南)</link>。
+    </para>
+
+    <procedure xml:id="pro-ha-inst-quick-pattern">
+      <title>安裝 <literal>High Availability</literal> 模式</title>
+       <para>
+        若尚未安裝此模式，請執行以下步驟：
+       </para>
+      <step>
+       <para>
+        透過指令行使用 Zypper 來安裝：</para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> install -t pattern ha_sles</screen>
+      </step>
+      <step>
+       <para>
+          在<emphasis>所有</emphasis>將成為叢集成員的機器上安裝 High Availability 模式。
+       </para>
+       <note>
+        <title>在所有參與方上安裝軟體套件</title>
+        <para>
+         若想自動安裝 SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase> 與 <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>
+         <phrase role="productnumber"><phrase os="sles"> 15 SP2</phrase></phrase>，請使用 AutoYaST 複製現有節點。如需詳細資訊，請參閱<xref linkend="sec-ha-installation-autoyast"/>。
+        </para>
+       </note>
+      </step>
+      <step>
+       <para>
+         在 SUSE Customer Center 上註冊機器。如需詳細資訊，請參閱<link xlink:href="https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-upgrade-offline.html#sec-update-registersystem">
+         <citetitle>《SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP2 升級指南</phrase></phrase>》</citetitle></link>。
+       </para>
+      </step>
+    </procedure>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-sbd">
+  <title>將 SBD 用做圍籬區隔機制</title>
+  
+   
+   <para>
+    若您擁有 SAN (儲存區域網路) 等共享儲存，可以使用它們來避免電腦分裂的情況。若要實現此目的，請設定 SBD 做為節點圍籬區隔機制。SBD 使用監視程式支援與<literal>外部/sbd</literal> STONITH 資源代辦。
+   </para>
+
+  <sect2 xml:id="sec-ha-inst-quick-sbd-req">
+   <title>SBD 的要求</title>
+   <para>
+    使用 <command>ha-cluster-init</command> 設定第一個節點時，可以決定是否使用 SBD。如果要使用，則需輸入共享儲存裝置的路徑。依預設，<command>ha-cluster-init</command> 會在要用於 SBD 的裝置上自動建立一個小分割區。
+   </para>
+   <para>若要使用 SBD，必須符合以下要求：</para>
+
+   <itemizedlist>
+    <listitem>
+     <para>針對叢集中的所有節點，共享儲存裝置的路徑必須永久且一致。請使用穩定的裝置名稱，例如 <filename>/dev/disk/by-id/dm-uuid-part1-mpath-abcedf12345</filename>。
+     </para>
+    </listitem>
+    <listitem>
+     <para> SBD 裝置<emphasis>不得</emphasis>使用基於主機的 RAID、LVM2，也不能位於 DRBD* 例項上。
+     </para>
+    </listitem>
+   </itemizedlist>
+
+  <para>
+   如需如何設定共享儲存的詳細資料，請參閱<link xlink:href="https://documentation.suse.com/sles/15-SP2/html/SLES-all/book-storage.html">
+    <citetitle>《SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP2 儲存管理指南</phrase></phrase>》</citetitle></link>。
+  </para>
+  
+  </sect2>
+
+  <sect2 xml:id="sec-ha-inst-quick-sbd-setup">
+   <title>對 SBD 啟用 Softdog 監視程式</title>
+   
+   <para>
+    依預設，SUSE Linux Enterprise 伺服器的核心中會啟用監視程式支援：本產品隨附了多個核心模組，可提供特定於硬體的監視程式驅動程式。High Availability Extension 使用 SBD 精靈做為<quote>饋送</quote>監視程式的軟體元件。
+   </para>
+   <para>
+    以下程序使用 <systemitem>softdog</systemitem> 監視程式。
+   </para>
+
+   
+   <important>
+    <title>Softdog 限制</title>
+    <para>
+     Softdog 驅動程式假設至少有一個 CPU 仍然在執行。如果所有 CPU 均已堵塞，則 softdog 驅動程式中應該將系統重新開機的代碼永遠都不會執行。相反地，即使所有 CPU 均已堵塞，硬體監視程式也仍然會繼續運作。
+    </para>
+    <para>強烈建議您於生產環境中使用叢集之前，以最適合您硬體的相應硬體模組取代 <systemitem>softdog</systemitem> 模組。
+    </para>
+    <para>不過，如果沒有與您的硬體相符的監視程式，則可以將 <systemitem class="resource">softdog</systemitem> 當成核心監視程式模組使用。</para>
+   </important>
+
+   <procedure xml:id="pro-ha-inst-quick-sbd-setup">
+    <step>
+     <para>
+      如<xref linkend="sec-ha-inst-quick-sbd-req"/>中所述建立永久的共享儲存。
+     </para>
+    </step>
+    <step>
+     <para>
+      啟用 softdog 監視程式：
+     </para>
+     
+     <screen><prompt role="root">root # </prompt><command>echo</command> softdog &gt; /etc/modules-load.d/watchdog.conf
+<prompt role="root">root # </prompt><command>systemctl</command> restart systemd-modules-load</screen>
+    </step>
+    <step>
+      
+     <para>測試 softdog 模組是否已正確載入：
+     </para>
+     <screen><prompt role="root">root # </prompt><command>lsmod</command> | grep dog
+softdog                16384  1</screen>
+    </step>
+  </procedure>
+
+   <remark>toms 2018-04-05: we need to add a bit more info here how you do
+    the tests and what to do when it fails.
+    However, this needs some further info from our developers. Some info can
+    be found in ha_storage_protection.xml.
+    Usually it boils down to "sbd -d DEV list" and "sbd -d DEV message bob test"
+   </remark>
+   <para>
+    強烈建議您測試 SBD 圍籬區隔機制是否能正常阻止電腦分裂情況。此類測試可透過阻擋 Corosync 叢集通訊來完成。
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-setup-1st-node">
+  <title>設定第一個節點</title>
+   <para>
+   使用 <command>ha-cluster-init</command> 程序檔設定第一個節點。此操作所需的時間和手動介入都極少。
+  </para>
+
+  <procedure xml:id="pro-ha-inst-quick-setup-ha-cluster-init">
+   <title>使用 <command>ha-cluster-init</command> 設定第一個節點 (<systemitem class="server">alice</systemitem>)</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 身分登入要當成叢集節點使用的物理機器或虛擬機器。
+    </para>
+   </step>
+   <step>
+    <para>
+     執行如下指令啟動開機程序檔：
+    </para>
+    <screen><prompt role="root">root # </prompt><command>ha-cluster-init</command> --name <replaceable>CLUSTERNAME</replaceable></screen>
+    <para>以一個有意義的名稱 (例如叢集的地理位置 <literal>amsterdam</literal>) 取代 <replaceable>CLUSTERNAME</replaceable> 預留位置。若要在稍後建立 Geo 叢集，這樣做特別有用，因為它使站點的識別變得簡單。
+    </para>
+    <remark>toms 2016-08-11: the following para relates to
+     (a) FATE#320604 allow unicast,
+     (b) FATE#320605 identify AWS and use unicast</remark>
+    <para>
+     如果您需要使用單點傳播而不是多路廣播 (預設方式) 來進行叢集通訊，請使用選項 <option>-u</option>。安裝後，在檔案 <filename>/etc/corosync/corosync.conf</filename> 中找到值 <literal>udpu</literal>。如果 <command>ha-cluster-init</command> 偵測到節點正在 Amazon Web Services (AWS) 上執行，該程序檔將自動使用單點傳播做為叢集的預設通訊方式。
+    </para>
+    <para>
+     這些程序檔會檢查是否存在 NTP 組態與硬體監視程式服務。這會產生 SSH 存取與 Csync2 同步所需的公用和私密 SSH 金鑰，並啟動相應的服務。
+    </para>
+    
+   </step>
+   <step>
+    <para>
+     設定叢集通訊層 (Corosync)：
+    </para>
+    <substeps>
+     <step>
+      <para>
+       輸入要繫結到的網路位址。程序檔預設將建議 <systemitem>eth0</systemitem> 網路位址。您也可以輸入不同的網路位址，如 <literal>bond0</literal> 位址。
+      </para>
+     </step>
+     <step>
+      <para>
+       輸入多路廣播位址。程序檔會建議一個隨機位址，您可將其做為預設值。當然，您特定的網路需要支援此多路廣播位址。
+      </para>
+     </step>
+     <step>
+      <para>
+       輸入多路廣播連接埠。程序檔會建議預設值 <literal>5405</literal>。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+    將 SBD 設定為節點圍籬區隔機制：</para>
+    <substeps>
+     <step>
+      <para>輸入 <literal>y</literal> 確認您要使用 SBD。</para>
+     </step>
+     <step>
+      <para>輸入要用於 SBD 的區塊裝置分割區的永久路徑 (請參閱<xref linkend="sec-ha-inst-quick-sbd"/>)。該路徑必須在叢集的所有節點間保持一致。</para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st-ha-cluster-init-ip">
+    
+    <para>設定使用 Hawk2 進行叢集管理所需的虛擬 IP 位址。(稍後，我們將使用此虛擬 IP 資源測試容錯移轉是否成功)。</para>
+    <substeps>
+     <step>
+      <para>輸入 <literal>y</literal> 確認您要設定虛擬 IP 位址。</para></step>
+     <step>
+      <para>為 Hawk2 的管理 IP 輸入想要的且未使用的 IP 位址：<literal>192.168.2.1</literal>
+      </para>
+      <para>您可以連接到此虛擬 IP 位址，而無需使用 Hawk2 登入個別叢集節點。</para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  <para>
+   最後，該程序檔將啟動 Pacemaker 服務以使叢集上線，並啟用 Hawk2。Hawk2 要使用的 URL 會顯示在螢幕上。
+  </para>
+
+  <para>
+   您現在便擁有了一個正常運作的單節點叢集。若要檢視其狀態，請執行以下步驟：
+  </para>
+  <procedure xml:id="pro-ha-inst-quick-hawk2-login">
+   <title>登入 Hawk2 Web 介面</title>
+   <step>
+    <para> 在任一機器上，啟動網頁瀏覽器並確定已啟用 JavaScript 和 Cookie。 </para>
+   </step>
+   <step>
+    <para> 輸入任一執行 Hawk Web 服務之叢集節點的 IP 位址或主機名稱做為 URL。或者，輸入您在<xref linkend="pro-ha-inst-quick-setup-ha-cluster-init"/>的<xref linkend="st-ha-cluster-init-ip"/>中設定的虛擬 IP 位址的位址。 </para>
+    <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    <note>
+     <title>證書警告</title>
+     <para> 當您首次嘗試存取該 URL 時，如果系統顯示證書警告，則表示使用了自行簽署的證書。依預設，自行簽署的證書不被視為可信證書。 </para>
+     <para> 請咨詢您的叢集操作人員取得證書詳細資料，以驗證該證書。 </para>
+     <para> 若仍要繼續，您可以在瀏覽器中新增一個例外以略過此警告。 </para>
+     
+    </note>
+   </step>
+   <step>
+    <para> 在 Hawk2 登入畫面中，輸入在開機程序中建立的使用者的 <guimenu>使用者名稱</guimenu>與<guimenu>密碼</guimenu> (使用者為 <systemitem class="username">hacluster</systemitem>，密碼為 <literal>linux</literal>)。</para>
+    <important>
+     <title>安全密碼</title>
+     <para>請立即以安全的密碼取代預設密碼：
+     </para>
+     <screen><prompt role="root">root # </prompt><command>passwd</command> hacluster</screen>
+    </important>
+   </step>
+   <step>
+    <para>
+     按一下<guimenu>登入</guimenu>。登入後，Hawk2 Web 介面依預設會顯示「狀態」畫面，其中包括目前叢集狀態的概覽：
+    </para>
+    <figure xml:id="fig-ha-inst-quick-one-node-status">
+     <title>Hawk2 中單節點叢集的狀態</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata width="80%" fileref="installquick-one-nodecluster.png"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-setup-2nd-node">
+  <title>新增第二個節點</title>
+  <para>
+    若您已設定並執行單節點叢集，請按<xref linkend="pro-ha-inst-quick-setup-ha-cluster-join" xrefstyle="select:label nopage"/> 中所述，使用 <command>ha-cluster-join</command> 開機程序檔新增第二個叢集節點。該程序檔只需要存取一個現存叢集節點，然後便會自動在目前機器上完成基本設定。如需詳細資料，請參閱 <command>ha-cluster-init</command> man 頁面。
+  </para>
+  <para>
+   開機程序檔負責變更特定於雙節點叢集的組態，例如 SBD 和 Corosync。
+  </para>
+  <procedure xml:id="pro-ha-inst-quick-setup-ha-cluster-join">
+   <title>使用 <command>ha-cluster-join</command> 新增第二個節點 (<systemitem class="server">bob</systemitem>)</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 身分登入要加入叢集的實體或虛擬機器。
+    </para>
+   </step>
+   <step>
+    <para>
+     執行如下指令啟動開機程序檔：
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-join</command></screen>
+    <para>
+     如果 NTP 未設定為在開機時啟動，則會出現一則訊息。該程序檔還會檢查硬體監視程式裝置 (在要設定 SBD 時，此類裝置非常重要)。如果不存在此類裝置，將會向您發出警告。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果您決定仍要繼續，系統將提示您輸入現存節點的 IP 位址。輸入第一個節點 (<systemitem class="server">alice</systemitem>) 的 IP 位址 <systemitem class="ipaddress">192.168.1.1</systemitem>)。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果尚未設定兩部機器之間的無密碼 SSH 存取，系統將提示您輸入現有節點的 <systemitem class="username">root</systemitem> 密碼。
+    </para>
+    <para>
+     登入指定節點後，程序檔將會複製 Corosync 組態，設定 SSH 與 Csync2，並使目前機器以新叢集節點的身分上線。除此之外，它還會啟動 Hawk2 所需的服務。 
+    </para>
+   </step>
+  </procedure>
+  <para>
+   在 Hawk2 中檢查叢集狀態。在<menuchoice>
+    <guimenu>狀態</guimenu>
+    <guimenu>節點</guimenu>
+   </menuchoice>下，您應該會看見兩個狀態為綠色的節點 (請參閱<xref linkend="fig-ha-inst-quick-two-node-cluster"/>)。
+  </para>
+
+  <figure xml:id="fig-ha-inst-quick-two-node-cluster">
+   <title>雙節點叢集的狀態</title>
+   <mediaobject>
+    <imageobject>
+     <imagedata width="80%" fileref="installquick-two-nodecluster-status.png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-test">
+   <title>測試叢集</title>
+   <para>
+    <xref linkend="sec-ha-inst-quick-test-resource-failover"/>是一項簡單的測試，可檢查當目前執行資源的節點被設定為<literal>待命</literal>時，叢集是否將虛擬 IP 位址移動到另一個節點。
+   </para>
+   <para>不過，實際測試會涉及特定的使用案例與情況，包括測試圍籬區隔機制以避免電腦分裂的情況。若尚未正確設定圍籬區隔機制，叢集將無法正常運作。</para>
+   <para>將該叢集用於生產環境之前，請依據自己的使用案例或者借助 <command>ha-cluster-preflight-check</command> 程序檔對叢集進行全面測試。
+    
+   </para>
+   <sect2 xml:id="sec-ha-inst-quick-test-resource-failover">
+    <title>測試資源容錯移轉</title>
+    <para>
+     請使用以下快速測試程序檢查資源容錯移轉：
+    </para>
+   <remark>toms 2016-07-27: Fate#321073
+    Tool for Standardize Testing of Basic Cluster Functionality</remark>
+   <procedure xml:id="pro-ha-inst-quick-test">
+    <title>測試資源容錯移轉</title>
+    <step>
+     <para>
+      開啟終端機並 ping <systemitem>192.168.2.1</systemitem> (即您的虛擬 IP 位址)。
+     </para>
+     <screen><prompt role="root">root # </prompt><command>ping</command> 192.168.2.1</screen>
+    </step>
+    <step>
+     <para>
+      按<xref linkend="pro-ha-inst-quick-hawk2-login"/>中所述登入您的叢集。
+     </para>
+    </step>
+    <step>
+     <para>
+      在 Hawk2 <menuchoice>
+       <guimenu>狀態</guimenu>
+       <guimenu> 資源</guimenu>
+      </menuchoice>中，檢查虛擬 IP 位址 (資源 <systemitem>admin_addr</systemitem>) 正在哪個節點上執行。假設資源正在 <systemitem class="server">alice</systemitem> 上執行。
+      </para>
+    </step>
+    <step>
+     <para>
+      將 <systemitem class="server">alice</systemitem> 置於<guimenu>待命</guimenu>模式 (請參閱<xref linkend="fig-ha-inst-quick-standby"/>)。
+     </para>
+     <figure xml:id="fig-ha-inst-quick-standby">
+      <title>處於待命模式的節點 <systemitem class="server">alice</systemitem></title>
+      <mediaobject>
+       <imageobject>
+        <imagedata width="60%" fileref="installquick-standby-node.png"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+     
+    </step>
+    <step>
+     <para>
+      按一下<menuchoice>
+       <guimenu> 狀態</guimenu>
+       <guimenu> 資源</guimenu>
+      </menuchoice>。資源 <systemitem>admin_addr</systemitem> 已移轉至 <systemitem class="server">bob</systemitem>。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    移轉時，您應該會看見不斷向虛擬 IP 位址進行 ping 的流程。這表示叢集設定與浮動 IP 正常運作。使用 <command> C</command> 可取消 <keycombo>
+       <keycap function="control"/><keycap>ping</keycap>
+      </keycombo> 指令。
+   </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-inst-quick-test-with-cluster-script">
+    <title>使用 ha-cluster-preflight-check 指令進行測試</title>
+    <para>
+     指令 <command>ha-cluster-preflight-check</command> 會對叢集執行標準化測試。它會觸發叢集故障，並驗證組態以找出問題。在生產環境中使用叢集之前，建議先使用此指令來確定一切符合預期。
+    </para>
+    <para>
+     該指令支援以下檢查：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <formalpara>
+       <title>環境檢查 <option>-e</option>/<option>--env-check</option></title>
+       <para>
+        此項測試將會檢查：
+       </para>
+      </formalpara>
+      <itemizedlist>
+       <listitem>
+        <para> 主機名稱是否可解析？ </para>
+       </listitem>
+       <listitem>
+        <para>
+         是否已啟用並啟動時間服務？
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         是否為目前節點設定了監視程式？
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         是否已啟用 <command>firewalld</command> 服務，並開啟了叢集相關的連接埠？
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>叢集狀態檢查 <option>-c</option>/<option>--cluster-check</option></title>
+       <para> 檢查叢集的不同狀態和服務。此項測試將會檢查：</para>
+      </formalpara>
+      <itemizedlist>
+       <listitem>
+        <para>
+         叢集服務 (Pacemaker/Corosync) 是否已啟用並正在執行？
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         是否已啟用 STONITH？它還會檢查是否已設定並啟動 STONITH 相關的資源。如果您設定了 SBD，SBD 服務是否已啟動？
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         叢集是否具有最低節點數？顯示目前 DC 節點，以及處於線上、離線和未清理狀態的節點。
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         是否存在已啟動、已停止或有故障的資源？
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>電腦分裂檢查 <option>--split-brain-iptables</option></title>
+       <para>
+        透過阻擋 Corosync 連接埠來模擬電腦分裂情境。檢查是否可如預期般圍籬區隔一個節點。
+       </para>
+      </formalpara>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>停止 SBD、Corosync 和 Pacemaker 的精靈 <option>-kill-sbd</option>/<option>-kill-corosync</option>/<option>-kill-pacemakerd</option></title>
+       <para>
+        執行此類測試後，可在 <filename>/var/lib/ha-cluster-preflight-check</filename> 中找到報告。該報告包括測試案例說明、動作記錄，以及對可能結果的說明。
+       </para>
+      </formalpara>
+     </listitem>
+     <listitem>
+      <formalpara>
+       <title>圍籬區隔節點檢查 <option>--fence-node</option></title>
+       <para>圍籬區隔從指令行傳遞的特定節點。</para>
+      </formalpara>
+     </listitem>
+    </itemizedlist>
+    <para>
+     例如，若要測試環境，請執行：
+    </para>
+    <screen><prompt role="root">root # </prompt><command>crm_mon -1</command>
+Stack: corosync
+Current DC: alice (version ...) - partition with quorum
+Last updated: Fri Mar 03 14:40:21 2020
+Last change: Fri Mar 03 14:35:07 2020 by root via cibadmin on alice
+
+2 nodes configured
+1 resource configured
+
+Online: [ alice bob ]
+Active resources:
+
+ stonith-sbd    (stonith:external/sbd): Started alice
+
+<prompt role="root">root # </prompt><command>ha-cluster-preflight-check</command> -e
+[2020/03/20 14:40:45]INFO: Checking hostname resolvable [Pass]
+[2020/03/20 14:40:45]INFO: Checking time service [Fail]
+ INFO: chronyd.service is available
+ WARNING: chronyd.service is disabled
+ WARNING: chronyd.service is not active
+[2020/03/20 14:40:45]INFO: Checking watchdog [Pass]
+[2020/03/20 14:40:45]INFO: Checking firewall [Fail]
+ INFO: firewalld.service is available
+ WARNING: firewalld.service is not active</screen>
+    <para>
+     可以在 <filename>/var/log/ha-cluster-preflight-check.log</filename> 中檢查結果。
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-moreinfo">
+   <title>更多資訊</title>
+    <para>
+     <link xlink:href="https://documentation.suse.com/sle-ha/15-SP2"/> 上提供了更多有關此產品的文件。如需其他組態和管理任務，請參閱全面的<link xlink:href="https://documentation.suse.com/sle-ha/15-SP2/html/SLE-HA-all/book-sleha-guide.html">
+      <citetitle>《管理指南》</citetitle></link>。
+    </para>
+   </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>
