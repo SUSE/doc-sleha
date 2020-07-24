@@ -1,0 +1,815 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_yast_cluster.xml" version="5.0" xml:id="cha-ha-ycluster">
+<?dbfo-need height="20em"?>
+
+
+ <title>YaSTクラスタモジュールの使用</title>
+ <info>
+  <abstract>
+   <para>YaSTクラスタモジュールでは、クラスタを手動で(最初から)設定するか、既存のクラスタのオプションを変更することができます。
+   </para>
+   <para>
+    ただし、クラスタの設定に自動化された方法を選ぶ場合は、<xref linkend="art-sleha-install-quick"/>を参照してください。このマニュアルでは、必要なパッケージのインストール方法と、<systemitem>ha-cluster-bootstrap</systemitem>スクリプトを使用して基本的な2ノードクラスタを設定する手順を説明しています。
+   </para>
+   <para>
+    たとえば、1つのノードをYaSTクラスタで設定してから、ブートストラップスクリプトの1つを使用して他のノードを統合させる(またはその逆も可能)など、両方のセットアップ方法を組み合わせることもできます。
+   </para>
+  </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec-ha-installation-terms">
+  <title>用語の定義</title>
+
+  <para>
+   YaSTクラスタモジュールおよびこの章で使用されているいくつかの主要な用語を以下に定義します。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>バインドネットワークアドレス(<systemitem>bindnetaddr</systemitem>)
+    </term>
+    <listitem>
+     <para>
+      Corosyncエグゼクティブのバインド先のネットワークアドレス。クラスタ間の設定ファイルの共有を簡素化するため、Corosyncはネットワークインタフェースネットマスクを使用して、ネットワークのルーティングに使用されるアドレスビットのみをマスクします。たとえば、ローカルインタフェースが<literal>192.168.5.92</literal>でネットマスクが<literal>255.255.255.0</literal>の場合、<systemitem>bindnetaddr</systemitem>は<literal>192.168.5.0</literal>に設定します。ローカルインタフェースが<literal>192.168.5.92</literal>でネットマスクが<literal>255.255.255.192</literal>の場合は、<systemitem>bindnetaddr</systemitem>を<literal>192.168.5.64</literal>に設定します。
+     </para>
+     <note>
+      <title>すべてのノードのネットワークアドレス</title>
+      <para>
+       すべてのノード上で同じCorosync設定が使用されるため、ネットワークアドレスは、特定のネットワークインタフェースのアドレスではなく、<systemitem>bindnetaddr</systemitem>として使用します。
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><systemitem class="resource">conntrackツール</systemitem></term>
+    <listitem>
+     <para>
+      カーネル内の接続トラッキングシステムとやり取りできるようにして、iptablesでの<emphasis>ステートフルな</emphasis>パケット検査を可能にします。High Availability Extensionによって、クラスタノード間の接続ステータスを同期化するために使用されます。詳細については、<link xlink:href="http://conntrack-tools.netfilter.org/"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      クラスタ内のすべてのノード、およびGeoクラスタ全体に設定ファイルを複製するために使用できる同期ツールです。Csync2は、同期グループ別にソートされた任意の数のホストを操作できます。各同期グループは、メンバーホストの独自のリストとその包含/除外パターン(同期グループ内でどのファイルを同期するか定義するパターン)を持っています。グループ、各グループに属するホスト名、および各グループの包含/除外ルールは、Csync2設定ファイル<filename>/etc/csync2/csync2.cfg</filename>で指定されます。
+     </para>
+     <para>
+      Csync2は、認証には、同期グループ内でIPアドレスと事前共有キーを使用します。管理者は、同期グループごとに1つのキーファイルを生成し、そのファイルをすべてのグループメンバーにコピーする必要があります。
+     </para>
+     <para>
+      Csync2の詳細については、<link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>既存のクラスタ</term>
+    <listitem>
+     <para>
+        <quote>既存のクラスタ</quote>という用語は、1つ以上のノードで構成されるクラスタを指すものとして使用されます。既存のクラスタは、通信チャネルを定義する基本的なCorosync設定を持ちますが、必ずしもリソース設定を持つとは限りません。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>マルチキャスト</term>
+    <listitem>
+     <para>
+        ネットワーク内で一対多数の通信に使用される技術で、クラスタ通信に使用できます。Corosyncはマルチキャストとユニキャストの両方をサポートしています。
+     </para>
+     <note>
+      <title>スイッチとマルチキャスト</title>
+      <para>
+       クラスタ通信にマルチキャストを使用するには、ご使用のスイッチがマルチキャストをサポートしていることを確認します。
+      </para>
+     </note>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-mcastaddr">
+    <term>マルチキャストアドレス(<systemitem>mcastaddr</systemitem>)
+   </term>
+    <listitem>
+     <para>
+        Corosyncエグゼクティブによるマルチキャストに使用されるIPアドレス。このIPアドレスはIPv4またはIPv6のいずれかに設定できます。IPv6ネットワークを使用する場合は、ノードのIDを指定する必要があります。プライベートネットワークでは、どのようなマルチキャストアドレスでも使用できます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>マルチキャストポート(<systemitem>mcastport</systemitem>)</term>
+    <listitem>
+     <para>
+        クラスタ通信に使用されるポート。Corosyncでは、マルチキャストの受信用に指定する<literal>mcastport</literal>と、マルチキャストの送信用の<literal>mcastport -1</literal>の、2つのポートを使用します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-rrp">
+    <term>冗長リングプロトコル(RRP)</term>
+    <listitem>
+     <para>
+       ネットワーク障害の一部または全体に対する災害耐性のために、複数の冗長ローカルエリアネットワークが使用できるようになります。この方法では、ひとつのネットワークが作動中である限り、クラスタ通信を維持できます。Corosyncはトーテム冗長リングプロトコルをサポートします。信頼できるソートされた方式でメッセージを配信するために、論理トークンパスリングがすべての参加ノードに課せられます。ノードがメッセージをブロードキャストできるのは、トークンを保持している場合のみです。
+     </para>
+     <para>
+      Corosyncに定義済みの冗長通信チャネルを持つ場合、RRPを使用してこれらのインタフェースの使用方法をクラスタに伝えます。RRPでは次の3つのモードを使用できます(<literal>rrp_mode</literal>)。
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <literal>active</literal>に設定した場合、Corosyncは両方のインタフェースをアクティブに使用します。ただし、このモードは非推奨の機能です。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>passive</literal>に設定した場合、Corosyncは代わりに使用可能なネットワークを介してメッセージを送信します。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>none</literal>に設定した場合、RRPは無効になります。
+       </para>
+      </listitem>
+     </itemizedlist>
+     
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ユニキャスト</term>
+    <listitem>
+     <para>
+        ひとつのあて先ネットワークにメッセージを送信する技術Corosyncはマルチキャストとユニキャストの両方をサポートしています。Corosyncでは、ユニキャストはUDP-unicast (UDPU)として実装されます。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-setup-yast-overview">
+   <title>YaSTクラスタモジュール</title>
+   <para>
+    YaSTを起動して、<menuchoice> <guimenu>高可用性</guimenu>
+    <guimenu>クラスタ</guimenu> </menuchoice>を選択します。または、コマンドラインでモジュールを開始します。
+   </para>
+  <screen>sudo yast2 cluster</screen>
+
+  <para>
+   次のリストは、YaSTクラスタモジュールで使用可能な画面の概要を示しています。この画面には、クラスタセットアップの成功に必要なパラメータが含まれているかどうか、またはそのパラメータがオプションであるかどうかも説明されています<emphasis/><emphasis/>。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>通信チャネル(必須)</term>
+    <listitem>
+     <para> クラスタノード間の通信に1つまたは2つの通信チャネルを定義できます。転送プロトコルとして、マルチキャスト(UDP)またはユニキャスト(UDPU)のいずれかを使用します。詳細については、<xref linkend="sec-ha-installation-setup-channels"/>を参照してください。</para>
+     <important>
+      <title>冗長通信パス</title>
+      <para>サポートされるクラスタセットアップでは、2つ以上の冗長通信パスが必要です。推奨される方法は、<xref linkend="cha-ha-netbonding"/>で説明されるように、ネットワークデバイスボンディングを使用することです。</para>
+      <para>使用できない場合は、Corosync内にの2つ目の通信チャネルを定義する必要があります。</para>
+     </important>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+      <term>セキュリティ(オプションだが推奨)</term>
+      <listitem>
+       <para>クラスタの認証設定を定義できます。共有シークレットが必要なHMAC/SHA1認証を使用して、メッセージを保護し、認証することができます。詳細については、<xref linkend="sec-ha-installation-setup-security"/>を参照してください。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term>Csync2の設定(オプションだが推奨)</term>
+       <listitem>
+     <para>
+      Csync2では、設定変更を追跡して、クラスタノード間でファイルの同期を取ることができます。詳細については、<xref linkend="sec-ha-installation-setup-csync2"/>を参照してください。
+     </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>conntrackdの設定(オプション)</term>
+        <listitem>
+         <para>
+          ユーザスペース<systemitem class="daemon">conntrackd</systemitem>を設定できます。iptablesでの「ステートフルな」<emphasis/>パケット検査のためにconntrackツールを使用します。詳細については、<xref linkend="sec-ha-installation-setup-conntrackd"/>を参照してください。
+         </para>
+        </listitem>
+      </varlistentry>
+   <varlistentry>
+    <term>サービス(必須)</term>
+    <listitem>
+     <para>
+      クラスタノードをオンラインにするためにサービスを設定できます。ブート時にPacemakerサービスを開始するかどうか、およびノード間の通信に必要なポートをファイアウォールで開くかどうかを定義します。詳細については、<xref linkend="sec-ha-installation-setup-services"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+   <para>
+    初めてクラスタモジュールを起動した場合は、モジュールが、ウィザードのように、基本設定に必要なすべてのステップをガイドします。そうでない場合は、左パネルのカテゴリをクリックして、ステップごとに設定オプションにアクセスします。
+   </para>
+
+   <note>
+    <title>YaSTクラスタモジュールの設定</title>
+     <para>YaSTクラスタモジュール内のいくつかの設定は、現在のノードにのみ適用されます。他の設定はCsync2を使用してすべてのノードに自動的に転送できます。これについての詳しい情報は次のセクションを参照してください。
+    </para>
+   </note>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-channels">
+   <title>通信チャネルの定義</title>
+   <para>
+    クラスタノード間で正常な通信を行うには、少なくとも1つの通信チャネルを定義します。<xref linkend="pro-ha-installation-setup-channel1-udp" xrefstyle="select:label"/>または<xref linkend="pro-ha-installation-setup-channel1-udpu" xrefstyle="select:label"/>のそれぞれで説明されるように、転送プロトコルとしてマルチキャスト(UDP)またはユニキャスト(UDPU)のいずれかを使用します。2番目の冗長チャネル(<xref linkend="pro-ha-installation-setup-channel2" xrefstyle="select:label"/>)を定義する場合は、両方の通信チャネルで「同じ」プロトコルを使用する必要があります。<emphasis/>
+   </para>
+   <note>
+    <title>パブリッククラウド: ユニキャストを使用する</title>
+    <para>
+     <phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase>をパブリッククラウドプラットフォームに展開する場合は、ユニキャストで通信してください。クラウドプラットフォームでは、一般的にマルチキャストでの通信がサポートされていません。
+    </para>
+   </note>
+   <para>YaST<guimenu>通信チャネル</guimenu>画面で定義されるすべての設定は、<filename>/etc/corosync/corosync.conf</filename>に書き込まれます。マルチキャストおよびユニキャストセットアップのサンプルファイルは、<filename>/usr/share/doc/packages/corosync</filename>にあります。
+   </para>
+   
+   <para>IPv4アドレスを使用する場合、ノードIDはオプションです。IPv6アドレスを使用する場合、ノードIDは必須です。各ノードにIDを手動で指定する代わりに、YaSTクラスタモジュールには、クラスタノードごとに固有のIDを自動的に生成するオプションが含まれています。</para>
+ 
+   <procedure xml:id="pro-ha-installation-setup-channel1-udp">
+    <title>最初の通信チャネルの定義(マルチキャスト)</title>
+    <para>
+     マルチキャストを使用する場合、すべてのクラスタノードに対して同じ<systemitem>bindnetaddr</systemitem>、<systemitem>mcastaddr</systemitem>、<systemitem>mcastport</systemitem>が使用されます。クラスタ内のすべてのノードは同じマルチキャストアドレスを使用することで互いを認識します。別のクラスタは、別のマルチキャストアドレスを使用します。
+    
+    </para>
+    <step>
+     <para>
+       YaSTクラスタモジュールを起動して、<guimenu>通信チャネル</guimenu>カテゴリに切り替えます。
+      </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>転送</guimenu>プロトコルを<literal>Multicast</literal>に設定します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>バインドネットワークアドレス</guimenu>を定義します。クラスタマルチキャストに使用するサブネットに値を設定します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>マルチキャストアドレス</guimenu>を定義します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>ポート</guimenu>を定義します。
+     </para>
+    </step>
+    <step>
+     <para>
+      クラスタノードごとに一意のIDを自動的に生成するには、<guimenu>ノードIDの自動生成</guimenu>を有効にしたままにします。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>クラスタ名</guimenu>を定義します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>期待する得票数</guimenu>の数を入力します。これは、パーティションされたクラスタでCorosyncが<xref linkend="gloss-quorum"/>を計算する場合に重要です。デフォルトでは、各ノードには<literal>1</literal>票が割り当てられています。<guimenu>期待する得票数</guimenu>の数は、クラスタ内のノード数と一致する必要があります。
+     </para>
+    </step>
+    <step>
+     <para>
+      変更内容を確認します。
+     </para>
+    </step>
+    <step>
+     <para>
+      必要な場合は、<xref linkend="pro-ha-installation-setup-channel2"/>で説明するように、Corosyncで冗長な通信チャネルを定義します。
+     </para>
+    </step>
+   </procedure>
+
+   <figure>
+    <title>YaSTクラスタ - マルチキャスト設定</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_comm_mcast.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_comm_mcast.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  <para>クラスタ通信にマルチキャストではなくユニキャストを使用する場合は、次の手順に従います。</para>
+   <procedure xml:id="pro-ha-installation-setup-channel1-udpu">
+    <title>最初の通信チャネルの定義(ユニキャスト)</title>
+    <step>
+     <para>
+      YaSTクラスタモジュールを起動して、<guimenu>通信チャネル</guimenu>カテゴリに切り替えます。
+     </para>
+    </step>
+      <step>
+       <para>
+        <guimenu>転送</guimenu>プロトコルを<literal>Unicast</literal>に設定します。
+       </para>
+      </step>
+      <step>
+       <para>
+        <guimenu>ポート</guimenu>を定義します。
+       </para>
+      </step>
+      <step>
+       <para>
+        ユニキャスト通信では、Corosyncはクラスタ内のすべてのノードのIPアドレスを認識する必要があります。クラスタの一部になる各ノードで、<guimenu>追加</guimenu>をクリックし、次の詳細を入力します。
+       </para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          <guimenu>IPアドレス</guimenu>
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>冗長IPアドレス</guimenu>(Corosyncで2つ目の通信チャネルを使用する場合にのみ必要)
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <guimenu>ノードID</guimenu>(<guimenu>ノードIDの自動生成</guimenu>オプションが無効になっている場合にのみ必要)
+         </para>
+        </listitem>
+       </itemizedlist>
+       <para>
+        クラスタメンバーのアドレスを変更または削除するには、<guimenu>編集</guimenu>または<guimenu>削除</guimenu>ボタンを使用します。
+       </para>
+      </step>
+    <step>
+     <para>
+      クラスタノードごとに一意のIDを自動的に生成するには、<guimenu>ノードIDの自動生成</guimenu>を有効にしたままにします。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>クラスタ名</guimenu>を定義します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>期待する得票数</guimenu>の数を入力します。これは、パーティションされたクラスタでCorosyncが<xref linkend="gloss-quorum"/>を計算する場合に重要です。デフォルトでは、各ノードには<literal>1</literal>票が割り当てられています。<guimenu>期待する得票数</guimenu>の数は、クラスタ内のノード数と一致する必要があります。
+     </para>
+    </step>
+    <step>
+     <para>
+      変更内容を確認します。
+     </para>
+    </step>
+    <step>
+     <para>
+      必要な場合は、<xref linkend="pro-ha-installation-setup-channel2"/>で説明するように、Corosyncで冗長な通信チャネルを定義します。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaSTクラスタ - ユニキャスト設定</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_comm_ucast.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_comm_ucast.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   
+   <para>
+    ネットワークデバイスボンディングが何らかの理由で使用できない場合、第2の選択は、Corosyncに冗長通信チャネル(2つ目のリング)を定義することです。この方法では、2つの物理的に分かれたネットワークが通信に使用できます。1つのネットワークが失敗しても、クラスタノードは、もう一方のネットワークを介して通信できます。
+   </para>
+   <para>Corosync内の追加の通信チャネルは2つ目のトークンパスリングを形成します。<filename>/etc/corosync/corosync.conf</filename>では、設定した最初のチャネルはプライマリリングで、リング番号<literal>0</literal>を取得します。2つ目のリング(冗長チャネル)はリング番号<literal>1</literal>を取得します。
+   </para>
+   <para>Corosyncに定義済みの冗長通信チャネルを持つ場合、RRPを使用してこれらのインタフェースの使用方法をクラスタに伝えます。RRPでは、2つの物理的に別個のネットワークが通信に使用されます。1つのネットワークが失敗しても、クラスタノードは、もう一方のネットワークを介して通信できます。</para>
+   <para>RRPでは次の3つのモードを使用できます。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <literal>active</literal>に設定した場合、Corosyncは両方のインタフェースをアクティブに使用します。ただし、このモードは非推奨の機能です。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <literal>passive</literal>に設定した場合、Corosyncは代わりに使用可能なネットワークを介してメッセージを送信します。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <literal>none</literal>に設定した場合、RRPは無効になります。
+     </para>
+    </listitem>
+   </itemizedlist>
+   
+  <procedure xml:id="pro-ha-installation-setup-channel2">
+   <title>冗長通信チャネルの定義</title>
+   <important>
+    <title>冗長リングおよび<filename>/etc/hosts</filename></title>
+    <para> Corosync内で複数のリングが設定されている場合、各ノードが複数のIPアドレスを持つことができます。これはすべてのノードの<filename>/etc/hosts</filename>に反映する必要があります。 </para>
+   </important>
+   <step>
+    <para> YaSTクラスタモジュールを起動して、<guimenu>通信チャネル</guimenu>カテゴリに切り替えます。 </para>
+   </step>
+   <step>
+    <para> <guimenu>冗長チャネル</guimenu>を有効にします。冗長チャネルは、定義した最初の通信チャネルと同じプロトコルを使用する必要があります。
+    </para>
+   </step>
+   <step>
+    <para> マルチキャストを使用する場合は冗長チャネル用に次のパラメータを入力します: 使用する<guimenu>バインドネットワークアドレス</guimenu>、<guimenu>マルチキャストアドレス</guimenu>、および<guimenu>ポート</guimenu>。 </para>
+    <para> ユニキャストを使用する場合は次のパラメータを定義します: 使用する<guimenu>バインドネットワークアドレス</guimenu>、および<guimenu>ポート</guimenu>。クラスタに参加するすべてのノードのIPアドレスを入力します。 </para>
+   </step>
+   <step>
+    <para>Corosyncに、異なるチャネルを使用する方法とタイミングを伝えるには、使用する<guimenu>rrp_mode</guimenu>を選択します。</para>
+    <itemizedlist>
+     <listitem>
+      <para> 通信チャネルが1つだけ定義されている場合、<guimenu>rrp-mode</guimenu>が自動的に無効化されます(値<literal>なし</literal>)。</para>
+     </listitem>
+     <listitem>
+      <para> <literal>active</literal>に設定した場合、Corosyncは両方のインタフェースをアクティブに使用します。ただし、このモードは非推奨の機能です。</para>
+     </listitem>
+     <listitem>
+      <para> <literal>passive</literal>に設定した場合、Corosyncは代わりに使用可能なネットワークを介してメッセージを送信します。 </para>
+     </listitem>
+    </itemizedlist>
+    <para>RRPの使用時に、High Availability Extensionは現在のリングの状態を監視し、障害発生後に冗長リングを自動的に再度有効化します。</para>
+    <para>または、<command>corosync-cfgtool</command>を使用してリングの状態を手動で確認します。使用可能なオプションは<option>-h</option>で参照できます。 </para>
+   </step>
+   <step>
+    <para> 変更内容を確認します。 </para>
+   </step>
+  </procedure>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-security">
+   <title>認証設定の定義</title>
+   <para>
+    クラスタの認証設定を定義するには、HMAC/SHA1認証を使用できます。共有シークレットが必要なHMAC/SHA認証を使用して、メッセージを保護し、認証する必要があります。指定した認証キー(パスワード)が、クラスタ中のすべてのノードで使用されます。
+   </para>
+  <procedure xml:id="pro-ha-installation-setup-security">
+   <title>安全な認証を有効にする</title>
+   <step>
+    <para> YaSTクラスタモジュールを起動し、<guimenu>セキュリティ</guimenu>カテゴリに切り替えます。 </para>
+   </step>
+   <step>
+    <para> <guimenu>安全認証の有効化</guimenu>をオンにします。 </para>
+   </step>
+   <step>
+    <para> 新しく作成したクラスタの場合は、<guimenu>認証キーファイルの生成</guimenu>をクリックします。認証キーが作成され、<filename>/etc/corosync/authkey</filename>に書き込まれます。 </para>
+    <para> ご使用のマシンを既存のクラスタに参加させたい場合、新しいキーファイルは生成しないでください。代わりに、いずれかのノードから<filename>/etc/corosync/authkey</filename>を(手動またはCsync2によって)ご使用のマシンにコピーします。 </para>
+   </step>
+   <step>
+    <para> 変更内容を確認します。YaSTが設定を<filename>/etc/corosync/corosync.conf</filename>に書き込みます。 </para>
+   </step>
+  </procedure>
+
+   <figure>
+    <title>YaSTクラスタ - セキュリティ</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_security.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_security.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-csync2">
+   <title>すべてのノードへの設定の転送</title>
+   <para>
+    結果として生成された設定ファイルをすべてのノードに手動でコピーする代わりに、<command>csync2</command>ツールを使用して、クラスタ内のすべてのノードにレプリケートします。
+   </para>
+   <para>
+    これには、次の基本手順を必要とします。
+   </para>
+   <procedure>
+    <step>
+     <para>
+      <xref linkend="pro-ha-installation-setup-csync2-yast" xrefstyle="select:title"/>。
+     </para>
+    </step>
+    <step>
+     <para>
+      <xref linkend="pro-ha-installation-setup-csync2-start" xrefstyle="select:title"/>。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    Csync2では、設定変更を追跡して、クラスタノード間でファイルの同期を取ることができます。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      操作に対して重要なファイルのリストを定義できます。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      (他のクラスタノードに対して)これらのファイルの変更を表示できます。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      1つのコマンドで複数の設定済みファイルの同期を取ることができます。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <filename>~/.bash_logout</filename>の単純なシェルスクリプトを使用して、システムからログアウトする前に、同期化されていない変更について通知できます。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    Csync2の詳細については、<link xlink:href="http://oss.linbit.com/csync2/"/>と<link xlink:href="http://oss.linbit.com/csync2/paper.pdf"/>にアクセスしてください。
+   </para>
+
+  <sect2 xml:id="pro-ha-installation-setup-csync2-yast">
+   <title>YaSTによるCsync2の設定</title>
+   <procedure>
+    <step>
+     <para> YaSTクラスタモジュールを起動して、<guimenu>Csync2</guimenu>カテゴリに切り替えます。 </para>
+    </step>
+    <step>
+     <para> 同期グループを指定するには、<guimenu>同期ホスト</guimenu>グループで<guimenu>追加</guimenu>をクリックし、クラスタ内のすべてのノードのローカルホスト名を入力します。ノードごとに、<command>hostname</command>コマンドから返された文字列を正確に使用する必要があります。 </para>
+     
+     <tip>
+      <title>ホスト名解決</title>
+      <para> ホスト名解決がネットワークで正しく機能しない場合は、各クラスタノードのホスト名とIPアドレスの組み合わせを指定することもできます。この指定には、<replaceable>HOSTNAME@IP</replaceable>文字列(たとえば、<literal>alice@192.168.2.100</literal>)を使用します。Csync2は、接続時にIPアドレスを使用します。 </para>
+     </tip>
+    </step>
+    <step xml:id="step-csync2-generate-key">
+     <para> <guimenu>事前共有キーの生成</guimenu>をクリックして、同期グループのキーファイルを生成します。キーファイルは、<filename>/etc/csync2/key_hagroup</filename>に書き込まれます。このファイルは、作成後に、クラスタのすべてのメンバーに手動でコピーする必要があります。 </para>
+    </step>
+    <step>
+     <para> すべてのノード間で、通常、同期される必要のあるファイルを<guimenu>同期ファイル</guimenu>リストに入れるには、<guimenu>推奨ファイルの追加</guimenu>をクリックします。 </para>
+    </step>
+    <step>
+     <para> 同期するファイルのリストからファイルを<guimenu>編集</guimenu>、<guimenu>追加</guimenu>、または<guimenu>削除</guimenu>するには、該当する各ボタンを使用します。ファイルごとに絶対パス名を入力する必要があります。 </para>
+    </step>
+    <step>
+     <para> <guimenu>Csync2をオンにする</guimenu>をクリックして、Csync2をアクティブにします。これによって次のコマンドが実行され、ブート時にCsync2が自動的に起動します。 </para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> enable csync2.socket</screen>
+    </step>
+    <step>
+     <para> 変更内容を確認します。YaSTがCsync2の設定内容を<filename>/etc/csync2/csync2.cfg</filename>に書き込みます。</para>
+    </step>
+    <step>
+     <para>ここで同期プロセスを開始するには、<xref linkend="sec-ha-setup-yast-csync2-sync"/>で続行します。 </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaSTクラスタ - Csync2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_sync.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_sync.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec-ha-setup-yast-csync2-sync">
+   <title>Csync2を使用した変更内容の同期</title>
+   <para> Csync2を使用してファイルを正常に同期するには、以下の前提条件が満たされている必要があります。 </para>
+   <itemizedlist>
+    <listitem>
+     <para> 同じCsync2設定をすべてのクラスタノードで使用できる必要があります。 </para>
+    </listitem>
+    <listitem>
+     <para> 同じCsync2認証キーをすべてのクラスタノードで使用できる必要があります。 </para>
+    </listitem>
+    <listitem>
+     <para> Csync2はすべてのクラスタノード上で実行されている必要があります。<emphasis/> </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> したがって、Csync2を初めて実行する前に、以下の準備を行う必要があります。 </para>
+
+   <procedure>
+    <title>Csync2による初期同期の準備</title>
+    <step>
+     <para>ファイル<filename>/etc/csync2/csync2.cfg</filename>を、<xref linkend="pro-ha-installation-setup-csync2-yast"/>で説明されるとおりに設定した後、すべてのノードに手動でコピーします。 </para>
+    </step>
+    <step>
+     <para> <xref linkend="pro-ha-installation-setup-csync2-yast" xrefstyle="select:label"/>の<xref linkend="step-csync2-generate-key"/>の1つのノードで作成した<filename>/etc/csync2/key_hagroup</filename>ファイルを、クラスタ内のすべてのノードにコピーしてください。<emphasis/>このファイルは、Csync2による認証で必要になります。ただし、すべてのノードで同じファイルでなければならないので、他のノードではファイルを再生成<emphasis/>しないでください。 </para>
+    </step>
+    
+    <step>
+     <para>すべてのノード上で次のコマンドを実行して、Csync2サービスを今すぐ開始します。 </para>
+     <screen><prompt role="root">root # </prompt><command>systemctl</command> start csync2.socket</screen>
+    </step>
+   </procedure>
+
+   <procedure xml:id="pro-ha-installation-setup-csync2-start">
+    <title>Csync2による設定ファイルの同期</title>
+
+    <step>
+     <para>最初にすべてのファイルを一度同期させるには、設定の「コピー元」であるマシン上で次のコマンドを実行します。<emphasis/> </para>
+     <screen><prompt role="root">root # </prompt><command>csync2</command> <option>-xv</option></screen>
+     <para> これによって、すべてのファイルをその他のノードにプッシュすることで、一度に同期を行います。すべてのファイルが正常に同期されると、Csync2がエラーなしで終了します。 </para>
+     <para> 同期対象の1つ以上のファイルが(現在のノードだけでなく)他のノード上で変更されている場合は、Csync2から衝突が報告されます。次の出力とよく似た出力が表示されます。 </para>
+     <screen>While syncing file /etc/corosync/corosync.conf:
+ERROR from peer hex-14: File is also marked dirty here!
+Finished with 1 errors.</screen>
+    </step>
+    <step>
+     <para> 現在のノードのファイルバージョンが<quote>最良</quote>だと確信する場合は、そのファイルを強制して再同期を行い、競合を解決できます。 </para>
+     <screen><prompt role="root">root # </prompt><command>csync2</command> <option>-f</option> /etc/corosync/corosync.conf
+<prompt role="root">root # </prompt><command>csync2</command> <option>-x</option></screen>
+    </step>
+   </procedure>
+   <para> Csync2オプションの詳細については、次のコマンドを実行してください</para>
+   <screen>csync2 -help</screen>
+   <note>
+    <title>変更後の同期のプッシュ</title>
+    <para> Csync2は変更のみをプッシュします。Csync2はマシン間でファイルを絶えず同期しているわけではありません。<emphasis/> </para>
+    <para> 同期が必要なファイルを更新する際はいつも、変更を加えたマシン上で<command>csync2 </command>
+     <option>-xv</option>を実行することで、変更をその他のマシンにプッシュする必要があります。変更されていないファイルが配置された他のマシン上でこのコマンドを実行しても、何も起こりません。 </para>
+   </note>
+  </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-conntrackd">
+   <title>クラスタノード間の接続ステータスの同期</title>
+   <para>
+    iptablesに対して<emphasis>ステートフルな</emphasis>パケット検査ができるようにするには、conntrackツールを設定して使用します。これには、次の基本手順を必要とします。
+   </para>
+   <procedure>
+    <step>
+     <para>
+      <xref linkend="pro-ha-installation-setup-conntrackd" xrefstyle="select:title"/>。
+     </para>
+    </step>
+    <step>
+     <para>
+      <systemitem class="daemon">conntrackd</systemitem> (クラス: <literal>ocf</literal>、プロバイダ: <literal>heartbeat</literal>)のリソースの設定。Hawk2を使用する場合、Hawk2によって提案されるデフォルト値を使用します。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    conntrackツールを設定したら、これをLinux Virtual Serverで使用できます。<xref linkend="cha-ha-lb" xrefstyle="select:title"/>を参照してください。
+   </para>
+
+   <procedure xml:id="pro-ha-installation-setup-conntrackd">
+    <title>YaSTによる<systemitem class="resource">conntrackd</systemitem>の設定</title>
+    <para>
+     YaSTクラスタモジュールを使用して、ユーザスペース<systemitem class="daemon">conntrackd</systemitem>を設定します。これには、その他の通信チャネルに使用されていない専用のネットワークインタフェースが必要です。デーモンは後でリソースエージェントによって起動できます。
+    </para>
+    <step>
+     <para>
+      YaSTクラスタモジュールを起動して、<guimenu>conntrackdの設定</guimenu>カテゴリに切り替えます。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>専用インタフェース</guimenu>を選択して、接続ステータスを同期します。選択したインタフェースのIPv4アドレスが自動的に検出され、YaSTに表示されます。これはすでに設定済みで、マルチキャストをサポートしている必要があります。
+
+     </para>
+    </step>
+    <step>
+     <para>
+      接続ステータスの同期に使用する<guimenu>マルチキャストアドレス</guimenu>を定義します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>グループ番号</guimenu>で、接続ステータスを同期させるグループのID番号を定義します。<remark>emap 2011-11-10: To where?
+       The other nodes? - taroth: good question :), will investigate</remark>
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>/etc/conntrackd/conntrackd.conf の生成</guimenu>をクリックして、<systemitem class="daemon">conntrackd</systemitem>の設定ファイルを作成します。
+     </para>
+    </step>
+    <step>
+     <para>
+      既存のクラスタでオプションを変更した場合、変更を確認して、クラスタモジュールを終了します。
+     </para>
+    </step>
+    <step>
+     <para>
+      クラスタ設定を先に進めるには、<guimenu>次へ</guimenu>をクリックして、<xref linkend="sec-ha-installation-setup-services"/>で続行します。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaSTクラスタ - <systemitem class="resource">conntrackd</systemitem></title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_conntrackd.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_conntrackd.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-services">
+   <title>サービスの設定</title>
+   <para>
+    YaSTクラスタモジュールは、ブート時にノード上で一定のサービスを開始するかどうか定義します。サービスを手動で開始または停止するためにモジュールを使用することもできます。クラスタノードをオンラインにし、クラスタリソースマネージャを起動するには、Pacemakerをサービスとして実行する必要があります。
+   </para>
+   <procedure xml:id="pro-ha-installation-setup-services">
+    <title>Pacemakerの有効化</title>
+    <step>
+     <para>
+      YaSTクラスタモジュール内で、<guimenu>サービス</guimenu>カテゴリに切り替えます。
+     </para>
+    </step>
+    <step>
+     <para>
+      このクラスタノードがブートするたびにPacemakerを起動するには、<guimenu>起動中</guimenu>グループで該当するオプションを選択します。<guimenu>起動中</guimenu>グループで、<guimenu>オフ</guimenu>を選択する場合は、このノードがブートするたびに手動でPacemakerを起動する必要があります。Pacemakerを手動で起動するには、次のコマンドを使用します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> cluster start</screen>
+    </step>
+    <step>
+     <para>
+      Pacemakerをただちに起動または停止するには、それぞれのボタンをクリックします。
+     </para>
+    </step>
+    <step>
+     <para>
+      現在のマシン上でのクラスタ通信に必要なポートをファイアウォールで開くには、<guimenu>ファイアウォールでポートを開く</guimenu>をアクティブにします。
+     </para>
+    </step>
+    <step>
+     <para>
+      変更内容を確認します。この設定は、すべてのクラスタノードではなく、ご使用のマシンにのみ適用されることにご注意ください。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>YaSTクラスタ - サービス</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_services.png" width="100%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_services.png" width="75%" format="PNG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-start">
+   <title>クラスタをオンラインにする</title>
+   <para>
+    最初のクラスタ設定が完了した後、<emphasis/>各クラスタノード上でPacemakerサービスを開始し、スタックをオンラインにします。
+   </para>
+   <procedure>
+    <title>Pacemakerの開始とその状態の確認</title>
+    <step>
+     <para>
+      既存のノードにログインします。
+     </para>
+    </step>
+    <step>
+     <para>
+      サービスがすでに実行していることを確認します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> cluster status</screen>
+     <para>
+      実行されていない場合、Pacemakerをすぐに開始します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> cluster start</screen>
+    </step>
+    <step>
+     <para>
+      それぞれのクラスタノードに対してこの手順を繰り返します。
+     </para>
+    </step>
+    <step>
+     <para>
+      ノードの1つで、<command>crm status</command>コマンドを使用してクラスタの状態を確認します。すべてのノードがオンラインの場合、出力は次のようになります。
+     </para>
+<screen><prompt role="root">root # </prompt>crm status
+Last updated: Thu Jul  3 11:07:10 2014
+Last change: Thu Jul  3 10:58:43 2014
+Current DC: alice (175704363) - partition with quorum
+2 Nodes configured
+0 Resources configured
+
+Online: [ alice bob ]</screen>
+     <para>
+      この出力は、クラスタリソースマネージャが起動し、リソースを管理できる状態にあることを示しています。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    基本設定を完了し、ノードがオンラインになったら、クラスタリソースの設定を開始できます。crmシェル(crmsh)やHawk2などのクラスタ管理ツールのいずれかを使用します。詳細については、<xref linkend="cha-ha-manual-config"/>または<xref linkend="cha-conf-hawk2"/>を参照してください。
+   </para>
+  </sect1>
+</chapter>

@@ -1,0 +1,667 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml" 
+  title="Profiling step"?>
+<?provo dirname="geo_quick/"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="art_sle_ha_geo_quick.xml" version="5.0" xml:lang="ja" xml:id="art-sleha-geo-quick">
+ <title>Geo Clusteringのクイックスタート</title>
+ <subtitle><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></subtitle>
+ <info>
+  <productnumber><phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></productnumber><productname><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase></productname><date>
+<?dbtimestamp ?>
+
+</date>
+   <xi:include href="ha_authors.xml"/>
+  <abstract>
+   <para>
+     Geoクラスタリングは、グローバルに分散したデータセンター全体でワークロードを保護します。このマニュアルでは、<systemitem class="resource">ha-cluster-bootstrap</systemitem>パッケージで提供されているGeoブートストラップスクリプトを使用して、基本的なGeoクラスタをセットアップする手順を説明します。
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec-ha-geo-quick-concept">
+  <title>概念の概要</title>
+
+  <para>
+   <phrase role="roductnamereg"><phrase os="sles">SUSE® Linux Enterprise High Availability Extension</phrase></phrase>を基にしたGeoクラスタは、各クラスタサイトが従来のクラスタ内の1つのクラスタノードに対応する<quote>オーバーレイ</quote>クラスタであると考えることができます。オーバーレイクラスタは、ブースクラスタチケットマネージャ(以後「ブース」と呼びます)によって管理されます。Geoクラスタ内のそれぞれの参加クラスタが<systemitem class="daemon">boothd</systemitem>というサービスを実行します。これは、他のサイトで実行されているブースデーモンに接続し、接続性の詳細を交換します。サイト全体でクラスタリソースを高可用性にするため、ブースはチケットと呼ばれるクラスタオブジェクトに依存します。チケットは指定のクラスタサイトの特定のリソースを実行する権利を付与します。ブースはすべてのチケットが一度に1サイトにのみ付与されることを保証します。
+  </para>
+  <para>
+   2つのブースインスタンス間の通信が途切れる場合、クラスタサイト間のネットワークの障害か、<emphasis/>または一方のクラスタサイトの停止が原因と考えられます。この場合、決定(サイト間のリソースのフェールオーバーなど)について合意状態に達するための追加のインスタンス(3つ目のクラスタサイトまたは<literal>アービトレータ</literal>)が必要です。アービトレータは特殊なモードでブースインスタンスを実行する(クラスタ外の)単一マシンです。各Geoクラスタは1つまたは複数のアービトレータを持つことができます。
+  </para>
+
+  <para>
+   <remark>toms 2017-07-04: for the future: maybe also add example IP addresses
+    to graphic (node IPs, VIPs for cluster sites)
+    </remark>
+   <remark>taroth 2017-12-29: FATE#322100 - adjust graphic in case two sites
+   *without* arbitrator becomes the default setup? (c#6)
+   </remark>
+  </para>
+
+  <figure xml:id="fig-ha-geo-quick-example-geosetup">
+   <title>2サイトクラスタ—2x2ノード+アービトレータ(オプション)</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ha_geocluster.svg" width="100%" format="SVG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ha_geocluster.png" width="85%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para>
+   2サイトGeoクラスタをアービトレータなしで実行することもできます。<emphasis/>この場合、Geoクラスタの管理者は手動でチケットを管理する必要があります。チケットを複数のサイトに同時に付与する必要がある場合は、ブースで警告が表示されます。
+  </para>
+
+  <para>
+   Geoクラスタの概念とコンポーネント、およびGeoクラスタで採用されているチケット管理の詳細については、<xref linkend="book-sleha-geo"/>を参照してください。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-scenario">
+  <title>使用シナリオ</title>
+
+  <para>
+   以下では、2つのクラスタサイトおよび1つのアービトレータを含む基本的なGeoクラスタを設定します。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     クラスタサイトが<literal>amsterdam</literal>および<literal>berlin</literal>という名前であることを想定しています。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     また、各サイトは2つのノードで構成されていることを想定しています。ノードの<literal>alice</literal>と<literal>bob</literal>は、クラスタ<literal>amsterdam</literal>に属しています。ノードの<literal>charlie</literal>と<literal>doro</literal>は、クラスタ<literal>berlin</literal>に属しています。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     サイト<literal>amsterdam</literal>は、仮想IPアドレス<literal>192.168.201.100</literal>を取得します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     サイト<literal>berlin</literal>は、仮想IPアドレス<literal>192.168.202.100</literal>を取得します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <remark>taroth 2017-12-29: FATE#322100 - move to Geo Guide? (c#6)</remark>アービトレータにはIPアドレス<literal>192.168.203.100</literal>が設定されていることを想定しています。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   続行する前に、次の要件が満たされているかどうか確認してください。
+  </para>
+
+  <variablelist>
+   <title>要件</title>
+   <varlistentry>
+    <term>2つの既存のクラスタ</term>
+    <listitem>
+     <para>
+      Geoクラスタに結合する既存のクラスタを少なくとも2つ持っている(2つのクラスタを最初に設定する必要がある場合は、<xref linkend="art-sleha-install-quick"/>の手順に従ってください)。
+      </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>意味のあるクラスタ名</term>
+    <listitem>
+     <para>
+      各クラスタに、その場所を反映した、<filename>/etc/corosync/corosync.conf</filename>に定義されている意味のあるクラスタ名が付いている。
+     </para>
+   </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>アービトレータ</term>
+    <listitem>
+     <para><remark>taroth 2017-12-29: FATE#322100 - move to Geo Guide? (see
+     c#6)</remark>既存のクラスタの一部ではなく、アービトレータとして使用される3つ目のマシンを設置している。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   各項目の詳細要件については、<xref linkend="sec-ha-geo-quick-req"/>も参照してください。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-req">
+  <title>要件</title>
+   <para>
+    クラスタの一部になるすべてのマシン(クラスタノードおよびアービトレータ)には、少なくとも次のモジュールと拡張機能が含まれている必要があります。
+   </para>
+
+<itemizedlist>
+   <listitem>
+    <para>Base System Module <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para>Server Applications Module <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></para>
+   </listitem>
+   <listitem>
+    <para><phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase></para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   マシンをインストールする際には、<systemitem>system role</systemitem>として<literal>HA GEO Node</literal>を選択します。これにより、デフォルトで<literal>Geo Clustering for High Availability (ha_geo)</literal>パターンのパッケージがインストールされる最小限のシステムになります。
+  </para>
+  <itemizedlist>
+   <title>ネットワーク要件</title>
+   <listitem>
+   <para>
+    各クラスタサイトに使用される仮想IPはGeoクラスタ間でアクセスできる必要があります。
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+     ブースインスタンスあたり1つのUDPポートと1つのTCPポートを通じて、サイトにアクセスできる必要があります。すなわち、間に配置されているすべてのファイアウォールとIPsesトンネルをこの要件に合わせて設定する必要があります。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     セットアップに関する他の決定によって、さらに多くのポートを開く必要が生じることがあります(たとえばDRBDやデータベースレプリケーション用など)。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <itemizedlist>
+  <title>その他の要件と推奨事項</title>
+  <listitem>
+   <para>
+    すべてのサイト上のすべてのクラスタノードはクラスタ外のNTPサーバと同期する必要があります。詳細については、『<link xlink:href="https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-ntp.html">SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase>の<citetitle>管理ガイド</citetitle>』</link>を参照してください。
+   </para>
+   <para>
+    ノードが同期されていない場合、ログファイルまたはクラスタレポートは分析が難しくなります。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Geoクラスタでは、<emphasis/>「奇数」のサイトを使用します。これにより、ネットワーク接続が途切れた場合に、引き続きサイトの過半数が確実に存在するようにします(スプリットブレインシナリオを回避するため)。クラスタサイトの数が偶数の場合は、チケットの自動フェールオーバーを処理するためにアービトレータを使用してください。アービトレータを使用しないときは、チケットを手動でフェールオーバーする必要があります。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    各サイトのクラスタには、<literal>amsterdam</literal>や<literal>berlin</literal>などの、意味のある名前があります。
+   </para>
+   <para>
+    各サイトのクラスタ名はそれぞれの<filename>/etc/corosync/corosync.conf</filename>ファイルで指定されています。
+   </para>
+<screen>totem {
+    [...]
+    cluster_name: amsterdam
+    }
+</screen>
+   <para>
+    次のcrmshコマンドを実行して名前を変更します。
+   </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> cluster rename <replaceable>NEW_NAME</replaceable></screen>
+   <para>
+    <systemitem class="service">pacemaker</systemitem>サービスを停止して起動し、変更内容を有効にします。
+   </para> <screen><prompt role="root">root # </prompt><command>crm</command> cluster restart</screen>
+  </listitem>
+ <listitem>
+   <para>
+     1つのクラスタ内に複数のアーキテクチャを混在させることはできません。ただし、Geoクラスタの各メンバーには異なるアーキテクチャを(クラスタサイト用、アービトレータ用といった具合に)割り当てることができます。たとえば、Geoクラスタを3つのメンバー(2つのクラスタサイトと1つのアービトレータ)で構成する場合、一方のクラスタサイトをIBM Z、他方のクラスタサイトをx86、アービトレータをPOWERで実行できます。
+   </para>
+ </listitem>
+</itemizedlist>
+
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-scripts">
+  <title>Geoブートストラップスクリプトの概要</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <command>ha-cluster-geo-init</command>を使用して、あるクラスタをGeoクラスタの最初のサイトにします。このスクリプトは、クラスタの名前、アービトレータ、1つまたは複数のチケットなどのパラメータを取得し、それらから<filename>/etc/booth/booth.conf</filename>を作成します。ブース設定を現在のクラスタサイトのすべてのノードにコピーします。また、現在のクラスタサイトのブースに必要なクラスタリソースも設定します。
+    </para>
+    <para>
+     詳細については、<xref linkend="sec-ha-geo-quick-ha-cluster-geo-init"/>を参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>ha-cluster-geo-join</command>を使用して、現在のクラスタを既存のGeoクラスタに追加します。このスクリプトは既存のクラスタサイトからブース設定をコピーし、それを現在のクラスタサイトのすべてのノード上の<filename>/etc/booth/booth.conf</filename>に書き込みます。また、現在のクラスタサイトのブースに必要なクラスタリソースも設定します。
+    </para>
+    <para>
+     詳細については、<xref linkend="sec-ha-geo-quick-ha-cluster-geo-join"/>を参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>ha-cluster-geo-init-arbitrator</command>を使用して、現在のマシンをGeoクラスタのアービトレータにします。このスクリプトは既存のクラスタサイトからブース設定をコピーし、それを<filename>/etc/booth/booth.conf</filename>に書き込みます。
+    </para>
+    <para>
+     詳細については、<xref linkend="sec-ha-geo-quick-ha-cluster-geo-init-arbitrator"/>を参照してください。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   すべてのブートストラップスクリプトは<filename>/var/log/ha-cluster-bootstrap.log</filename>にログを記録します。ブートストラッププロセスの詳細については、ログファイルを確認してください。ブートストラッププロセス中に設定されたオプションは後で変更できます(ブース設定の変更やリソースの変更など)。詳細については、「<xref linkend="book-sleha-geo"/>」を参照してください。
+  </para>
+
+
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-inst">
+  <title>インストール</title>
+
+  <para>
+   Geo Clustering for SUSE Linux Enterprise High Availability Extensionを使用することで、無制限の距離にまたがってHigh Availabilityクラスタを使用できるようになります。
+  </para>
+  <para>
+   Geoクラスタを設定するには、次のインストールパターンに含まれているパッケージが必要です。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <literal>High Availability</literal> (コマンドラインでは<literal>sles_ha</literal>で指定)
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <literal>Geo Clustering for High Availability</literal> (コマンドラインでは<literal>ha_geo</literal>で指定)
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   両方のパターンを使用できるための条件は、お使いのシステムをSUSEカスタマセンター(またはローカル登録サーバ)に登録済みであること、かつそれぞれのモジュールまたはインストールメディアを拡張として追加済みであることです。拡張をインストールする方法の詳細については、『<link xlink:href="https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-add-ons.html">SUSE Linux Enterprise <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase>の
+    <citetitle>導入ガイド</citetitle></link>』を参照してください。
+  </para>
+  <para>
+     コマンドラインを通じて両方のパターンからパッケージをインストールするには、Zypperを使用します。
+    </para>
+<screen><prompt role="root">root # </prompt><command>zypper</command> install -t pattern ha_sles ha_geo</screen>
+
+  <important>
+   <title>すべてのパーティへのソフトウェアパッケージのインストール</title>
+   <para>
+    High AvailabilityクラスタおよびGeoクラスタに必要なソフトウェアパッケージは、クラスタノードに自動的にコピー「されません」。<emphasis/>
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase>と、<literal>ha_sles</literal>パターンおよび<literal>ha_geo</literal>パターンを、Geoクラスタの一部となる「すべての」マシン<emphasis/>にインストールします。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      クラスタの一部となるすべてのマシンにパッケージを手動でインストールする代わりに、AutoYaSTを使用して既存のノードのクローンを作成します。詳細については、<xref linkend="sec-ha-installation-autoyast"/>を参照してください。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </important>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-ha-cluster-geo-init">
+  <title>Geoクラスタの最初のサイトの設定</title>
+
+  <para>
+   <command>ha-cluster-geo-init</command>スクリプトを使用して、既存のクラスタをGeoクラスタの最初のサイトにします。
+  </para>
+
+  <procedure xml:id="pro-ha-geo-quick-ha-cluster-geo-init">
+   <title><command>ha-cluster-geo-init</command>を使用した最初のサイト(<systemitem>amsterdam</systemitem>)の設定</title>
+   <step>
+    <para>
+     サイトへのアクセスに使用可能なクラスタサイトごとの仮想IPを定義します。この目的のために<literal>192.168.201.100</literal>および<literal>192.168.202.100</literal>を使用することを想定しています。仮想IPをクラスタリソースとして設定する必要はまだありません。これはブートストラップスクリプトによって実行されます。
+    </para>
+   </step>
+   <step>
+    <para>
+     クラスタサイトで特定のリソースを実行する権利を付与する少なくとも1つのチケットの名前を定義します。チケットに依存するリソースを反映する、意味のある名前を使用します(たとえば、<literal>ticket-nfs</literal>)。ブートストラップスクリプトはチケット名のみが必要です。<xref linkend="sec-ha-geo-quick-next"/>で説明されるように、後で既存の詳細(リソースのチケット依存関係)を定義できます。
+    </para>
+   </step>
+   <step>
+    <para>
+     既存のクラスタのノードにログインします(たとえば、クラスタ<literal>amsterdam</literal>のノード<literal>alice</literal>)。
+    </para>
+   </step>
+   <step xml:id="st-ha-cluster-geo-init">
+    <para>
+     <command>ha-cluster-geo-init</command>を実行します。たとえば、次のオプションを使用します。<remark>taroth 2017-12-29: FATE#322100 - remove the --arbitrator option?
+     (see c#6)</remark>
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init</command> \
+  --clusters<co xml:id="co-geo-init-clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100" \
+  --tickets<co xml:id="co-geo-init-ticket"/> ticket-nfs \
+  --arbitrator<co xml:id="co-geo-init-arbitrator"/> 192.168.203.100</screen>
+    <calloutlist>
+     <callout arearefs="co-geo-init-clusters">
+       <para>
+    クラスタサイトの名前(<filename>/etc/corosync/corosync.conf</filename>で定義される)および各クラスタサイトに使用する仮想IPアドレス。この場合、それぞれが1つの仮想IPアドレスを持つ2つのクラスタサイト(<literal>amsterdam</literal>および<literal>berlin</literal>)があります。
+   </para>
+     </callout>
+     <callout arearefs="co-geo-init-ticket">
+      <para>
+       1つまたは複数のチケットの名前。
+      </para>
+     </callout>
+     <callout arearefs="co-geo-init-arbitrator">
+      <para>
+       クラスタ外のマシンのホスト名またはIPアドレス。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   ブートストラップスクリプトはブース設定ファイルを作成し、それをクラスタサイト間で同期します。また、ブースに必要な基本的なクラスタリソースも作成します。<xref linkend="st-ha-cluster-geo-init" xrefstyle="seletc:label"/>の<xref linkend="pro-ha-geo-quick-ha-cluster-geo-init" xrefstyle="select:label"/>の結果、次のブース設定およびクラスタリソースが作成されます。<remark>taroth 2017-12-29: FATE#322100 - remove the arbitrator entry? (c#6)</remark>
+  </para>
+
+  <example xml:id="ex-geo-init-booth-conf">
+   <title><command>ha-cluster-geo-init</command>によって作成されたブース設定</title>
+<screen># The booth configuration file is "/etc/booth/booth.conf". You need to
+# prepare the same booth configuration file on each arbitrator and
+# each node in the cluster sites where the booth daemon can be launched.
+
+# "transport" means which transport layer booth daemon will use.
+# Currently only "UDP" is supported.
+transport="UDP"
+port="9929"
+
+arbitrator="192.168.203.100"
+site="192.168.201.100"
+site="192.168.202.100"
+authfile="/etc/booth/authkey"
+ticket="ticket-nfs"
+expire="600"</screen>
+  </example>
+
+  <example xml:id="ex-geo-init-rsc-conf">
+   <title><command>ha-cluster-geo-init</command>によって作成されたクラスタリソース</title>
+<screen>primitive<co xml:id="co-geo-quick-rsc-booth-ip"/> booth-ip IPaddr2 \
+  params rule #cluster-name eq amsterdam ip=192.168.201.100 \
+  params rule #cluster-name eq berlin ip=192.168.202.100 \
+primitive<co xml:id="co-geo-quick-rsc-booth-site"/> booth-site ocf:pacemaker:booth-site \
+  meta resource-stickiness=INFINITY \
+  params config=booth \
+  op monitor interval=10s
+group<co xml:id="co-geo-quick-rsc-g-booth"/> g-booth booth-ip booth-site \
+meta target-role=Stopped<co xml:id="co-geo-quick-rsc-stopped"/></screen>
+   <calloutlist>
+    <callout arearefs="co-geo-quick-rsc-booth-ip">
+     <para>
+      各クラスタサイトの仮想IPアドレス。各クラスタサイトで持続的なIPアドレスを必要とするブースデーモンによって要求されます。
+     </para>
+    </callout>
+    <callout arearefs="co-geo-quick-rsc-booth-site">
+     <para>
+      ブースデーモンのプリミティブリソース。他のクラスタサイト上のブースデーモンと通信します。デーモンはサイトの任意のノード上で起動できますが、可能な場合、リソースが同じノード上にとどまるようにするため、resource-stickiness (リソースの固着性)を<literal>INFINITY</literal>に設定します。
+     </para>
+    </callout>
+    <callout arearefs="co-geo-quick-rsc-g-booth">
+     <para>
+      両方のプリミティブのためのクラスタリソースグループ。この設定では、各ブースデーモンは、デーモンが実行しているノードとは関係なく、個々のIPアドレスで使用できます。 
+     </para>
+    </callout>
+    <callout arearefs="co-geo-quick-rsc-stopped">
+     <para>
+      クラスタリソースグループはデフォルトでは開始されません。クラスタリソースの設定を確認(およびセットアップを完了するために必要なリソースを追加)した後で、リソースグループを開始する必要があります。詳細については、<xref linkend="vl-ha-geo-quick-next-req"/>を参照してください。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-ha-cluster-geo-join">
+  <title>Geoクラスタへの別のサイトの追加</title>
+
+  <para>
+   Geoクラスタの最初のサイトを初期化した後で、<xref linkend="pro-ha-geo-quick-ha-cluster-geo-join" xrefstyle="select:label"/>で説明されるように、2つ目のクラスタを<literal>ha-cluster-geo-join</literal>を使用して追加します。このスクリプトはすでに設定されているクラスタサイトへのSSHアクセスを必要とします。また、現在のクラスタをGeoクラスタに追加します。
+  </para>
+
+  <procedure xml:id="pro-ha-geo-quick-ha-cluster-geo-join">
+   <title><command>ha-cluster-geo-join</command>を使用した2つ目のサイト(<literal>berlin</literal>)の追加</title>
+   <step>
+    <para>
+     追加するクラスタサイトのノードにログインします(たとえば、クラスタ<literal>berlin</literal>のノード<literal>charlie</literal>。)
+    </para>
+   </step>
+   <step xml:id="st-ha-cluster-geo-join">
+    <para>
+     <command>ha-cluster-geo-join</command>コマンドを実行します。次に例を示します。
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-join</command> \
+  --cluster-node<co xml:id="co-geo-join-cluster-node"/> 192.168.201.100\
+  --clusters<co xml:id="co-geo-join-clusters"/> "amsterdam=192.168.201.100 berlin=192.168.202.100"
+     </screen>
+    <calloutlist>
+     <callout arearefs="co-geo-join-cluster-node">
+      <para>
+       ブース設定のコピー元の場所を指定します。すでに設定されているGeoクラスタサイトのノードのIPアドレスまたはホスト名を使用します。(この例のように)既存のクラスタサイトの仮想IPアドレスを使用することもできます。または、Geoクラスタにすでに設定されているアービトレータのIPアドレスまたはホスト名を使用します。
+      </para>
+     </callout>
+     <callout arearefs="co-geo-join-clusters">
+       <para>
+    クラスタサイトの名前(<filename>/etc/corosync/corosync.conf</filename>で定義される)および各クラスタサイトに使用する仮想IPアドレス。この場合、それぞれが1つの仮想IPアドレスを持つ2つのクラスタサイト(<literal>amsterdam</literal>および<literal>berlin</literal>)があります。
+   </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   <command>ha-cluster-geo-join</command>スクリプトは<xref linkend="co-geo-join-cluster-node" xrefstyle="select:label"/>からブース設定をコピーします。<xref linkend="ex-geo-init-booth-conf" xrefstyle="select:label"/>を参照してください。また、ブースに必要なクラスタリソースを作成します(<xref linkend="ex-geo-init-rsc-conf" xrefstyle="select:label"/>を参照)。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-ha-cluster-geo-init-arbitrator">
+  <title>アービトレータの追加</title>
+
+  <para>
+   <remark>taroth 2017-12-29: FATE#322100 - move this section to Geo Guide? (c#6)</remark><command>ha-cluster-geo-init</command>および<command>ha-cluster-geo-join</command>を使用してGeoクラスタのすべてのサイトを設定した後で、<command>ha-cluster-geo-init-arbitrator</command>を使用してアービトレータを設定します。
+  </para>
+
+  <procedure xml:id="pro-ha-geo-quick-ha-cluster-geo-init-arbitrator">
+   <title><command>ha-cluster-geo-init-arbitrator</command>を使用したアービトレータの設定</title>
+   <step>
+    <para>
+     アービトレータとして使用するマシンにログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     次のコマンドを実行します。次に例を示します。
+    </para>
+<screen><prompt role="root">root # </prompt><command>ha-cluster-geo-init-arbitrator</command> --cluster-node<co xml:id="co-geo-init-arbitrator-cluster-node"/> 192.168.201.100</screen>
+    <calloutlist>
+     <callout arearefs="co-geo-init-arbitrator-cluster-node">
+      <para>
+       ブース設定のコピー元の場所を指定します。すでに設定されているGeoクラスタサイトのノードのIPアドレスまたはホスト名を使用します。または、(この例のように)既存のクラスタサイトの仮想IPアドレスを使用します。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+  </procedure>
+
+  <para>
+   <command>ha-cluster-geo-init-arbitrator</command>スクリプトは、ブース設定を<xref linkend="co-geo-init-arbitrator-cluster-node"/>からコピーします。<xref linkend="ex-geo-init-booth-conf" xrefstyle="select:label"/>を参照してください。また、アービトレータ上でブースサービスを有効化および開始します。このようにして、ブースサービスがクラスタサイトで実行されると、アービトレータはそれらのサイトのブースインスタンスと通信する準備が整います。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-monitor">
+  <title>クラスタサイトの監視</title>
+
+  <para>
+   両方のクラスタサイトのブートストラッププロセス中に作成したリソースおよびチケットを表示するには、Hawk2を使用します。Hawk2 Webインタフェースは、複数の(無関係な)クラスタとGeoクラスタを監視および管理できます。
+  </para>
+
+  <itemizedlist>
+   <title>前提条件</title>
+   <listitem>
+    <para>
+     Hawk2の<guimenu>ダッシュボード</guimenu>で監視するすべてのクラスタでは、<phrase role="productname"><phrase os="sles">SUSE Linux Enterprise High Availability Extension</phrase></phrase> <phrase role="productnumber"><phrase os="sles"> 15 SP2</phrase></phrase>を実行している必要があります。 
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     すべてのクラスタノードにあるHawk2の自己署名証明書を独自の証明書(または公式認証局によって署名された証明書)で置き換えていない場合は、<emphasis/>「すべての」クラスタの<emphasis/>「すべての」ノードで、少なくとも1回はHawk2にログインします。証明書を検証します(または、ブラウザで例外を追加して警告をスキップします)。そうしない場合、Hawk2はクラスタに接続できません。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro-ha-geo-quick-hawk2-dashboard">
+   <title>Hawk2 ダッシュボードの使用</title>
+   <step>
+    <para>
+     Webブラウザを起動し、最初のクラスタサイト<literal>amsterdam</literal>の仮想IPを入力します。
+    </para>
+<screen>https://192.168.201.100:7630/</screen>
+    <para>
+     または、<literal>alice</literal>または<literal>bob</literal>のIPアドレスまたはホスト名を使用します。ブートストラップスクリプトを使用して両方のノードを設定している場合は、<literal>hawk</literal>サービスが両方のノードで実行されるはずです。
+    </para>
+   </step>
+   <step>
+    <para>
+     Hawk2 Webインタフェースにログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーから、<guimenu>ダッシュボード</guimenu>を選択します。
+    </para>
+    <para>
+     Hawk2に、現在のクラスタサイトのリソースとノードの概要が表示されます。また、Geoクラスタに設定されているすべての<guimenu>チケット</guimenu>が表示されます。このビューで使用されるアイコンに関する情報が必要な場合は、<guimenu>凡例</guimenu>をクリックします。
+    </para>
+    <figure>
+     <title>最初のクラスタサイト(<literal>amsterdam</literal>)を表示するHawk2 ダッシュボード</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="100%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-dashboard-site1.png" width="95%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     2つ目のクラスタサイトのダッシュボードを追加するには、<guimenu>クラスタの追加</guimenu>をクリックします。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       <guimenu>ダッシュボード</guimenu>でクラスタを識別するための<guimenu>クラスタ名</guimenu>を入力します。この場合は、<literal>berlin</literal>です。
+      </para>
+     </step>
+     <step>
+      <para>
+       一方のクラスタノードの完全修飾ホスト名を入力します(この場合、<literal>charlie</literal>または<literal>doro</literal>)。
+      </para>
+     </step>
+     <step>
+      <para>
+       <guimenu>追加</guimenu>をクリックします。Hawk2に、新たに追加されたクラスタサイト用の2つ目のタブと、そのノードとリソースの概要が表示されます。
+      </para>
+      <figure>
+       <title>両方のクラスタサイトが表示されたHawk2 ダッシュボード</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-dashboard-two-sites.png" width="95%" format="PNG"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     クラスタサイトの詳細を表示するか、クラスタサイトを管理するには、サイトのタブを切り替えて、チェーンアイコンをクリックします。
+    </para>
+    <para>
+     Hawk2はこのサイトの<guimenu>ステータス</guimenu>ビューを新しいブラウザウィンドウかタブに表示します。このビューから、Geoクラスタへのこの参加を管理できます。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-next">
+  <title>次の手順</title>
+
+  <para>
+   Geoクラスタリングブートストラップスクリプトを使用すると、テスト目的で使用可能な基本的なGeoクラスタを迅速に設定できます。ただし、結果として生じたGeoクラスタを、運用環境で使用可能な機能するGeoクラスタに移行するには、さらに手順が必要です。<xref linkend="vl-ha-geo-quick-next-req"/>を参照してください。
+  </para>
+
+  <variablelist xml:id="vl-ha-geo-quick-next-req">
+   <title>Geoクラスタのセットアップを完了するために必要な手順</title>
+   <varlistentry xml:id="vle-ha-geo-quick-booth-service-sites">
+    <term>クラスタサイト上のブースサービスの開始</term>
+    <listitem>
+     <para>
+      ブートストラッププロセスの後で、アービトレータブースサービスはまだクラスタサイト上のブースサービスと通信できません。クラスタサイト上のブースサービスは、デフォルトでは開始されないためです。
+     </para>
+     <para>
+      各クラスタサイト用のブースサービスは、ブースリソースグループ<literal>g-booth</literal>によって管理されます(<xref linkend="ex-geo-init-rsc-conf"/>を参照)。サイトあたり1つのブースサービスインスタンスを開始するには、各クラスタサイト上でそれぞれのブースリソースグループを開始します。これにより、すべてのブースインスタンスが相互に通信できるようになります。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>チケット依存関係と順序の制約の設定</term>
+    <listitem>
+     <para>
+      リソースがGeoクラスタブートストラッププロセス中に作成したチケットに依存するようにするには、制約を設定します。制約ごとに、チケットがクラスタサイトから取り消された場合の各リソースの動作を定義する<literal>loss-policy</literal>を設定します。
+     </para>
+     <para>
+      詳細については、<xref linkend="cha-ha-geo-rsc"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>まずチケットをサイトに付与する</term>
+    <listitem>
+     <para>
+      ブースがGeoクラスタ内の特定のチケットを管理するためには、まずチケットを手動でサイトに<emphasis/>「付与」する必要があります。チケットを付与するには、ブースクライアントのコマンドラインツールまたはHawk2のいずれかを使用できます。
+     </para>
+     <para>
+      詳細については、<xref linkend="cha-ha-geo-manage"/>を参照してください。</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <para>
+   ブートストラップスクリプトは、両方のクラスタサイトで同一のブースリソース、およびアービトレータを含むすべてのサイトで同一のブース設定ファイルを作成します。(運用環境へ移行するため) Geoクラスタセットアップを拡張するときは、多くの場合、ブート設定を微調整し、ブース関連のクラスタリソースの設定を変更します。その後、Geoクラスタの他のサイトへの変更を有効にするため、変更内容を同期する必要があります。
+  </para>
+
+  <note>
+   <title>クラスタサイト間での変更の同期</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      ブース設定の変更をすべてのクラスタサイト(アービトレータを含む)に同期するには、Csync2を使用します。詳細については、<xref linkend="cha-ha-geo-sync"/>を参照してください。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      CIB (クラスタ情報データベース)は、Geoクラスタのクラスタサイト間で自動的に同期されません。つまり、すべてのクラスタサイトで必要なリソース設定の変更を他のサイトに手動で転送する必要があります。これを行うには、各リソースをタグ付けし、それらを現在のCIBからエクスポートして、他のクラスタサイト上のCIBにインポートします。詳細については、<xref linkend="sec-ha-geo-rsc-sync-cib"/>を参照してください。
+      </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-quick-more">
+  <title>その他の情報</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     本製品の他のマニュアルは、<link xlink:href="https://documentation.suse.com/sle-ha/15-SP2"/>で入手できます。設定および管理タスクの詳細については、包括的な『<link xlink:href="https://documentation.suse.com/sle-ha/15-SP2/html/SLE-HA-all/book-sleha-geo.html">
+      <citetitle>Geo Clusteringガイド</citetitle></link>』を参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     DRBDを介したGeoクラスタ間のデータレプリケーションに関する詳細については、次の『<link xlink:href="https://documentation.suse.com/sbp/all/html/SBP-DRBD/index.html"><citetitle>SUSE Best Practices</citetitle>』ドキュメント</link>を参照してください。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <xi:include href="common_copyright_quick.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>

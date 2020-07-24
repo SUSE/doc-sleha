@@ -1,0 +1,545 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_troubleshooting.xml" xml:id="app-ha-troubleshooting" version="5.0">
+ <title>トラブルシューティング</title>
+ <info>
+      <abstract>
+        <para>
+    時として理解しにくい奇妙な問題が発生することがあります。High Availabilityでの実験を開始したときには、特にそうです。それでも、High Availabilityの内部プロセスを詳しく調べるために使用できる、いくつかのユーティリティがあります。この章では、さまざまなソリューションを推奨します。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>編集</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec-ha-troubleshooting-install">
+  <title>インストールと最初のステップ</title>
+
+  <para>
+   パッケージのインストールやクラスタのオンライン化では、次のように問題をトラブルシュートします。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>HAパッケージはインストールされているか</term>
+    <listitem>
+     <para>
+      クラスタの構成を管理に必要なパッケージは、High Availability Extensionで使用できる<literal>High Availability</literal>インストールパターンに付属しています。
+     </para>
+     <para>
+      High Availability Extensionが各クラスタノードにSUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP2</phrase></phrase>の拡張としてインストールされているか、<guimenu>High Availability</guimenu>パターンが『インストールおよびセットアップクイックスタート』で説明するように各マシンにインストールされているか、確認します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>初期設定がすべてのクラスタノードについて同一か</term>
+    <listitem>
+     <para>
+      相互に通信するため、<xref linkend="cha-ha-ycluster"/>で説明するように、同じクラスタに属するすべてのノードは同じ<literal>bindnetaddr</literal>、<literal>mcastaddr</literal>、<literal>mcastport</literal>を使用する必要があります。
+     </para>
+     <para>
+      <filename>/etc/corosync/corosync.conf</filename>で設定されている通信チャネルとオプションがすべてのクラスタノードに関して同一かどうか確認します。
+     </para>
+     <para>
+      暗号化通信を使用する場合は、<filename>/etc/corosync/authkey</filename>ファイルがすべてのクラスタノードで使用可能かどうかを確認します。
+     </para>
+     <para>
+      すべての<filename>corosync.conf</filename>設定(<literal>nodeid</literal>以外)が同一で、すべてのノードの<filename>authkey</filename>ファイルが同一でなければなりません。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ファイアウォールで<literal>mcastport</literal>による通信が許可されているか</term>
+    <listitem>
+     <para>
+      クラスタノード間の通信に使用されるmcastportがファイアウォールでブロックされている場合、ノードは相互に認識できません。YaSTまたはブートストラップスクリプト(<xref linkend="cha-ha-ycluster"/>と<xref linkend="art-sleha-install-quick"/>でそれぞれ説明)で初期セットアップを行っているときに、ファイアウォール設定は通常、自動的に調整されます。
+     </para>
+     <para>
+      mcastportがファイアウォールでブロックされないようにするには、各ノードのファイアウォールの設定を確認します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>PacemakerとCorosyncが各クラスタノードで開始されているか</term>
+    <listitem>
+     <para>
+      通常、Pacemakerを開始すると、Corosyncサービスも開始します。両方のサービスが実行されているかどうかを確認するには、次のコマンドを実行します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> cluster status</screen>
+     <para>
+      両方のサービスが実行されていない場合は、次のコマンドを実行して開始します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> cluster start</screen>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-troubleshooting-log">
+  <title>ログ記録</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>ログファイルはどこにあるか </term>
+    <listitem>
+     <para>
+      Pacemakerのログファイルは、<filename>/var/log/pacemaker</filename>ディレクトリに書き込まれます。Pacemakerのメインログファイルは、<filename>/var/log/pacemaker/pacemaker.log</filename>です。ログファイルが見つからない場合は、Pacemaker独自の設定ファイルである<filename>/etc/sysconfig/pacemaker</filename>のログ設定を確認してください。<literal>PCMK_logfile</literal>がそこで設定されている場合、Pacemakerはこのパラメータで定義したパスを使用します。
+     </para>
+     <para>
+      すべての関連ログファイルを表示するクラスタ全体のレポートが必要な場合は、詳細については、<xref linkend="vle-ha-crmreport"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>監視を有効にしているのに、ログファイルに監視操作の記録が残っていないのはなぜですか。</term>
+    <listitem>
+     <para>
+      <systemitem class="daemon">pacemaker-execd</systemitem>デーモンは、エラーが発生しない限り、複数の監視操作をログに記録しません。複数の監視操作をすべてログ記録すると、多量のノイズが発生してしまいます。そのため、複数の監視操作は、1時間に1度だけ記録されます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>failed</literal>メッセージだけが出ました。詳細情報を取得できますか。</term>
+    <listitem>
+     <para>
+      コマンドに<literal>--verbose</literal>パラメータを追加してください。これを複数回行うと、デバッグ出力が非常に詳細になります。役立つヒントについては、ログ記録データ(<command>sudo journalctl -n</command>)を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ノードとリソースすべての概要を確認するにはどうしたらよいですか。</term>
+    <listitem>
+     <para>
+      <command>crm_mon</command>コマンドを使用してください。次のコマンドは、リソース操作履歴(<option>-o</option>オプション)と非アクティブなリソース(<option>-r</option>)を表示します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm_mon</command> -o -r</screen>
+     <para>
+      表示内容は、ステータスが変わると、更新されます(これをキャンセルするには、<keycombo> <keycap function="control"/> <keycap>  C</keycap>
+      </keycombo> を押します)。次に例を示します
+     </para>
+     <example>
+      <title>停止されたリソース</title>
+<screen>Last updated: Fri Aug 15 10:42:08 2014
+Last change: Fri Aug 15 10:32:19 2014
+ Stack: corosync
+Current DC: bob (175704619) - partition with quorum
+Version: 1.1.12-ad083a8
+2 Nodes configured
+3 Resources configured
+       
+Online: [ alice bob ]
+       
+Full list of resources:
+       
+my_ipaddress    (ocf:heartbeat:Dummy): Started bob
+my_filesystem   (ocf:heartbeat:Dummy): Stopped
+my_webserver    (ocf:heartbeat:Dummy): Stopped
+       
+Operations:
+* Node bob: 
+    my_ipaddress: migration-threshold=3
+      + (14) start: rc=0 (ok)
+      + (15) monitor: interval=10000ms rc=0 (ok)
+      * Node alice:</screen>
+     </example>
+     <para>
+      『<citetitle> Explained</citetitle> (Pacemaker )』PDF (<link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>から入手可能)では、「How are OCF Return Codes Interpreted?」<citetitle/>セクションで3つの異なる復元タイプを説明しています。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ログはどのように表示しますか。</term>
+    <listitem>
+     <para>クラスタで発生している現象をより詳しく表示するには、次のコマンドを使用します。</para>
+      <screen><prompt role="root">root # </prompt><command>crm</command> history log [<replaceable>NODE</replaceable>]</screen>
+      <para><replaceable>NODE</replaceable>は、調べたいノードに置き換えるか、空のままにします。詳細については、<xref linkend="sec-ha-troubleshooting-history"/>を参照してください。</para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-troubleshooting-resource">
+  <title>リソース</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>リソースはどのようにクリーンアップしますか。</term>
+    <listitem>
+     <para>
+      次のコマンドを使用してください。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> resource list
+crm resource cleanup <replaceable>rscid</replaceable> [<replaceable>node</replaceable>]</screen>
+     <para>
+      ノードを指定しないと、すべてのノードでリソースがクリーンアップされます。詳細については、<xref linkend="sec-ha-manual-config-cleanup"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>現在既知のリソースを一覧表示するにはどうしたらよいですか。</term>
+    <listitem>
+     <para>
+      コマンド<command>crm_resource list</command>を使用して、現在のリソースの情報を表示できます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>リソースを設定しましたが、いつも失敗します。なぜですか。</term>
+    <listitem>
+     <para>
+      OCFスクリプトを確認するには、たとえば、次の<command>ocf-tester</command>コマンドを使用します。
+     </para>
+<screen>ocf-tester -n ip1 -o ip=<replaceable>YOUR_IP_ADDRESS</replaceable> \
+  /usr/lib/ocf/resource.d/heartbeat/IPaddr</screen>
+     <para>
+      パラメータを増やすには、<option>-o</option>を複数回使用します。必須パラメータとオプションパラメータのリストは、<command>crm</command> <option> ra</option> <option> info</option>
+      <replaceable> AGENT</replaceable>の実行によって取得できます。たとえば、次のようにします。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> ra info ocf:heartbeat:IPaddr</screen>
+     <para>
+      ocf-testerを実行する場合は、その前に、リソースがクラスタで管理されていないことを確認してく
+ださい。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>リソースがフェールオーバーせず、エラーが出ないのはなぜですか。</term>
+    <listitem>
+     <para>
+      終端ノードはunclean(アンクリーン)と考えられる場合があります。その場合には、それをフェンシングする必要があります。STONITHリソースが動作していない、または存在しない場合、残りのノードはフェンシングが実行されるのを待機することになります。フェンシングのタイムアウトは通常長いので、問題の兆候がはっきりと現れるまでには(仮に現れたとしても)、かなり長い時間がかかることがあります。
+     </para>
+     <para>
+      さらに別の可能性としては、単にこのノードでのリソースの実行が許可されていないという場合があります。このことは、過去にエラーが発生し、それが正しく<quote>解決</quote>されていないために生じることがあります。または、以前に行った管理上の操作が原因である場合もあります。つまり、負のスコアを持つ場所の制約のためです。そのような場所の制約は、たとえば、<command>crm resource migrate</command>コマンドによって挿入されることがあります。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>リソースがどこで実行されるかを予測できないのはなぜですか。</term>
+    <listitem>
+     <para>
+      リソースに対して場所の制約が設定されていない場合、その配置は、(ほとんど)ランダムなノード選択によって決まります。どのノードでリソースを実行することが望ましいか、常に明示的に指定することをお勧めします。このことは、<emphasis>すべての</emphasis>リソースに対して、場所の初期設定を行う必要があるという意味ではありません。関連する(コロケーション)リソースのセットに対して優先指定を設定すれば十分です。ノードの優先指定は次のようになります。
+     </para>
+<screen>location rsc-prefers-alice rsc 100: alice</screen>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-troubleshooting-stonith">
+  <title>STONITHとフェンシング</title>
+
+  <variablelist>
+   <varlistentry>
+    <term>STONITHリソースが開始しないのはなぜですか。</term>
+    <listitem>
+     <para>
+      開始(または有効化)操作には、デバイスのステータスのチェックが含まれます。デバイスの準備ができていない場合、STONITHリソースの開始は失敗します。
+     </para>
+     <para>
+      同時に、STONITHプラグインは、ホストリストを生成するように要求されます。リストが空の場合、STONITHリソースが対象にできるものがないことになるので、いずれにせよシューティングは行われません。STONITHが動作しているホストの名前は、リストから除外されます。ノードが自分自身をシューティングすることはできないからです。
+     </para>
+     <para>
+      停電デバイスのような、シングルホスト管理デバイスを使用する場合、フェンシングの対象とするデバイスではSTONITHリソースの動作を<emphasis/>許可しないようにしてください。-INFINITYの、ノードの場所優先設定(制約)を使用してください。クラスタは、STONITHリソースを、起動できる別の場所に移動します。その際にはそのことが通知されます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>STONITHリソースを設定したのにフェンシングが行われないのはなぜですか。</term>
+    <listitem>
+     <para>
+      それぞれのSTONITHリソースは、ホストリストを持つ必要があります。このリストは、手動でSTONITHリソースの設定に挿入される場合、またはデバイス自体から取得される場合があります(たとえば出力名から)。この点は、STONITHプラグインの性質に応じて決まります。<systemitem>pacemaker-fenced</systemitem>は、このリストを基に、どのSTONITHリソースがターゲットノードのフェンシングを行えるかを判断します。ノードがリストに含まれている場合に限って、STONITHリソースはノードのシューティング(フェンシング)を行えます。
+     </para>
+     <para>
+      <systemitem>pacemaker-fenced</systemitem>は、動作しているSTONITHリソースから提供されたホストリスト内にノードを見つけられなかった場合、他のノードの<systemitem>pacemaker-fenced</systemitem>インスタンスに問い合わせます。他の<systemitem>pacemaker-fenced</systemitem>インスタンスのホストリストにもターゲットノードが含まれていなかった場合、フェンシング要求は、開始ノードでタイムアウトのために終了します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>STONITHリソースが失敗することがあるのはなぜですか。</term>
+    <listitem>
+     <para>
+      ブロードキャストトラフィックが多すぎると、電源管理デバイスが機能しなくなることがあります。監視操作を少なくして、余裕を持たせてください。フェンシングが一時的にのみ必要な場合(必要が生じないのが最善ですが)、デバイスのステータスは数時間に1回チェックすれば十分です。
+     </para>
+     <para>
+      また、この種のデバイスの中には、同時に複数の相手と通信するのを拒否するものもあります。このことは、ユーザが端末またはブラウザセッションを開いたままにしていて、クラスタがステータスのテストを行おうとした場合には、問題となり得ます。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-troubleshooting-history">
+   <title>履歴</title>
+   <variablelist>
+     <varlistentry>
+       <term>障害の発生したリソースからステータス情報またはログを取得するにはどうしたらよいですか。</term>
+       <listitem>
+         <para><command>history</command>コマンド、およびそのサブコマンド<command>resource</command>を使用します。
+         </para>
+         <screen><prompt role="root">root # </prompt><command>crm</command> history resource <replaceable>NAME1</replaceable></screen>
+         <para>これにより、指定したリソースのみの完全な遷移ログが得られます。ただし、複数のリソースを調査することも可能です。その場合、最初のリソース名の後に目的のリソース名を追加します。
+         </para>
+         <para>一定の命名規則(<xref linkend="app-naming" xrefstyle="select:number"/>を参照してください)に従っていれば、<command>resource</command>コマンドでリソースのグループを調査するのが容易になります。たとえば、次のコマンドは、<literal>db</literal>で始まるすべてのプリミティブを調査します。
+         </para>
+         <screen><prompt role="root">root # </prompt><command>crm</command> history resource db*</screen>
+         <para><filename>/var/cache/crm/history/live/alice/ha-log.txt</filename>のログファイルを表示します。</para>
+       </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term>履歴の出力を減らすにはどうしたらよいですか。</term>
+       <listitem>
+         <para><command>history</command>コマンドには、次の2つのオプションがあります。</para>
+         <itemizedlist>
+           <listitem>
+             <para><command>exclude</command>を使用する</para>
+           </listitem>
+           <listitem>
+             <para><command>timeframe</command>を使用する</para>
+           </listitem>
+         </itemizedlist>
+
+         <para><command>exclude</command>コマンドを使用すると、追加の正規表現を設定して、ログから特定のパターンを除外できます。たとえば、次のコマンドは、SSH、systemd、およびカーネルのメッセージをすべて除外します。 </para>
+         <screen><prompt role="root">root # </prompt><command>crm</command> history exclude ssh|systemd|kernel.</screen>
+
+         <para><command>timeframe</command>コマンドを使用して、出力を特定の範囲に制限します。たとえば、次のコマンドは、8月23日12:00～12:30のイベントをすべて表示します。</para>
+         <screen><prompt role="root">root # </prompt><command>crm</command> history timeframe "Aug 23 12:00" "Aug 23 12:30"</screen>
+       </listitem>
+     </varlistentry>
+     <varlistentry>
+       <term>後で検査できるように<quote>セッション</quote>を保存するにはどうしたらよいですか。</term>
+       <listitem>
+         <para>詳しい調査を要するバグまたはイベントが発生した場合、現在のすべての設定を保存しておくと役に立ちます。このファイルをサポートに送信したり、<command>bzless</command>で表示したりできます。次に例を示します。</para>
+         <screen><prompt role="custom">crm(live)history# </prompt><command>timeframe</command> "Oct 13 15:00" "Oct 13 16:00"
+<prompt role="custom">crm(live)history# </prompt><command>session</command> save tux-test
+<prompt role="custom">crm(live)history# </prompt><command>session</command> pack
+Report saved in '/root/tux-test.tar.bz2'</screen>
+       </listitem>
+     </varlistentry>
+   </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-troubleshooting-hawk2">
+  <title>Hawk2</title>
+  <variablelist>
+   <varlistentry xml:id="vle-trouble-hawk2-cert">
+    <term>自己署名証明書の置き換え</term>
+    <listitem>
+     <para> Hawk2の最初の起動で自己署名証明書に関する警告が発行されるのを避けるには、自動生成された証明書を、独自の証明書または公式認証局(CA)によって署名された証明書で置き換えてください。</para>
+     <procedure>
+      <step>
+       <para><filename>/etc/hawk/hawk.key</filename>を秘密鍵で置き換えます。</para>
+      </step>
+      <step>
+       <para><filename>/etc/hawk/hawk.pem</filename>をHawk2が提供する証明書で置き換えます。</para>
+      </step>
+     </procedure>
+     <para>
+      <literal>root:haclient</literal>にファイルの所有権を変更して、そのファイルがグループにアクセスできるようにします。</para>
+     <screen>chown root:haclient /etc/hawk/hawk.key /etc/hawk/hawk.pem
+chmod 640 /etc/hawk/hawk.key /etc/hawk/hawk.pem</screen>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-troubleshooting-misc">
+  <title>その他</title>
+
+  <variablelist>
+   <varlistentry>
+
+    <term>すべてのクラスタノードでコマンドを実行するにはどうしたらよいですか。</term>
+    <listitem>
+     <para>
+      この作業を実行するには、<command>pssh</command>コマンドを使用します。必要であれば <package>pssh</package>. ファイル(たとえば<filename>hosts.txt</filename>)を作成し、その中に操作する必要のあるノードのIPアドレスまたはホスト名を含めます。<command>ssh</command>を使用して<filename>hosts.txt</filename>ファイルに含まれている各ホストにログインしていることを確認します。準備ができたら、<command>pssh</command>を実行します。<filename>hosts.txt</filename>ファイルを(オプション<option>-h</option>で)指定し、対話モードを使用してください(オプション<option>-i</option>)。次のようになります。
+     </para>
+<screen>pssh -i -h hosts.txt "ls -l /corosync/*.conf"
+[1] 08:28:32 [SUCCESS] root@venus.example.com
+-rw-r--r-- 1 root root 1480 Nov 14 13:37 /etc/corosync/corosync.conf
+[2] 08:28:32 [SUCCESS] root@192.168.2.102
+-rw-r--r-- 1 root root 1480 Nov 14 13:37 /etc/corosync/corosync.conf</screen>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>クラスタはどのような状態でしょうか。</term>
+    <listitem>
+     <para>
+      クラスタの現在のステータスを確認するには、<literal>crm_mon</literal>か<command>crm</command>
+      <option> status</option>のどちらかを使用します。これによって、現在のDCと、現在のノードに認識されているすべてのノードとリソースが表示されます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>クラスタ内の一部のノードが相互に通信できないのはなぜですか。</term>
+    <listitem>
+     <para>
+      これにはいくつかの理由が考えられます。
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        まず設定ファイル<filename>/etc/corosync/corosync.conf</filename>を調べます。マルチキャストまたはユニキャストアドレスがクラスタ内のすべてのノードで同一かどうか確認します(キー<literal>mcastaddr</literal>を含む<literal>interface</literal>セクションを調べてください)。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        ファイアウォール設定を確認します。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        スイッチがマルチキャストまたはユニキャストアドレスをサポートしているか確認します。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        ノード間の接続が切断されていないかどうか確認します。その原因の大半は、ファイアウォールの設定が正しくないことです。また、これは<emphasis>スプリットブレイン</emphasis>の理由にもなり、クラスタがパーティション化されます。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>OCFS2デバイスをマウントできないのはなぜですか。</term>
+    <listitem>
+     <para>
+      ログメッセージ(<command>sudo journalctl -n</command>)に次の行があるか確認してください。
+     </para>
+<screen>Jan 12 09:58:55 alice pacemaker-execd: [3487]: info: RA output: [...]
+  ERROR: Could not load ocfs2_stackglue
+Jan 12 16:04:22 alice modprobe: FATAL: Module ocfs2_stackglue not found.</screen>
+     <para>
+      この場合、カーネルモジュール<filename>ocfs2_stackglue.ko</filename>がありません。インストールしたカーネルに応じて、パッケージ<filename>ocfs2-kmp-default</filename>、<filename>ocfs2-kmp-pae</filename>、または<filename>ocfs2-kmp-xen</filename>をインストールします。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-crmreport">
+
+    <term>すべてのクラスタノードの分析を含むレポートを作成するにはどうしたらよいですか。</term>
+    <listitem>
+     <para> crmシェルで、<command>crm report</command>を使用してレポートを作成します。このツールは以下を収集します。 </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        クラスタ全体のログファイル
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        パッケージ状態
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        DLM/OCFS2状態
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        システム情報
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        CIB履歴
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        コアダンプレポートの解析(debuginfoパッケージがインストールされている場合)
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      通常は、次のコマンドで<command>crm report</command>を実行します。
+     </para>
+<screen><prompt role="root">root # </prompt><command>crm report</command> -f 0:00 -n alice -n bob</screen>
+     <para>
+      このコマンドは、ホストaliceおよびbob上の午前0時以降のすべての情報を抽出し、現在のディレクトリに<literal>crm_report-</literal>DATE<filename>.tar.bz2<replaceable>という名前の</replaceable>*.tar.bz2</filename>アーカイブを作成します(例: <filename>crm_report-Wed-03-Mar-2012</filename>)。特定のタイムフレームのみを対象とする場合は、<option>-t</option>オプションを使用して終了時間を追加します。
+     </para>
+     <warning>
+      <title>機密の情報は削除してください</title>
+      <para>
+       <command>crm report</command>ツールは、CIBとPE入力ファイルから機密の情報を削除しようと試みますが、すべてを知ることはできません。機密性の高い情報がある場合は、<option>-p</option>オプションを使用して追加のパターンを指定してください(マニュアルページを参照)。ログファイルと<command>crm_mon</command>、<command>ccm_tool</command>、および<command>crm_verify</command>の出力は、<emphasis/>フィルタされません。
+      </para>
+      <para>
+       データをいずれの方法でも共有する前に、アーカイブをチェックして、公表したくない情報があればすべて削除してください。
+      </para>
+     </warning>
+     <para>
+      さらに追加のオプションを使用して、コマンドの実行をカスタマイズします。たとえば、Pacemakerクラスタがある場合は、確実にオプション<option>-A</option>を追加する必要があるでしょう。別のユーザがクラスタに対するパーミッションを持っている場合は、(<systemitem class="username">root</systemitem>および<systemitem class="username">hacluster</systemitem>に加えて)<option>-u</option>オプションを使用してこのユーザを指定します。非標準のSSHポートを使用する場合は、<option>-X</option>オプションを使用して、ポートを追加します(たとえば、ポート3479では、<literal>-X "-p 3479"</literal>を使用)。その他のオプションは、<command>crm report</command>のマニュアルページに記載されています。
+     </para>
+     <para>
+      <command>crm report</command>で、関連するすべてのログファイルを分析し、ディレクトリ(またはアーカイブ)を作成したら、<literal>ERROR</literal>という文字列(大文字)があるかどうかログファイルをチェックします。レポートの最上位ディレクトリにある最も重要なファイルは次のとおりです。
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><filename>analysis.txt</filename>
+       </term>
+       <listitem>
+        <para>
+         すべてのノードで同一である必要があるファイルを比較します。
+        </para>
+       </listitem>
+      </varlistentry>
+       <varlistentry>
+         <term><filename>corosync.txt</filename>
+         </term>
+         <listitem>
+           <para>
+             Corosync設定ファイルのコピーを格納します。
+           </para>
+         </listitem>
+       </varlistentry>
+       <varlistentry>
+       <term><filename>crm_mon.txt</filename>
+       </term>
+       <listitem>
+        <para>
+         <command>crm_mon</command>コマンドの出力を格納します。
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><filename>description.txt</filename>
+       </term>
+       <listitem>
+        <para>
+         ノード上のすべてのクラスタパッケージのバージョンを格納します。ノード固有の<filename>sysinfo.txt</filename>ファイルもあります。これは最上位ディレクトリにリンクしています。
+        </para>
+        <para>このファイルは、発生した問題を説明して<link xlink:href="https://github.com/ClusterLabs/crmsh/issues"/>に送信するためのテンプレートとして使用できます。</para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><filename>members.txt</filename></term>
+        <listitem>
+          <para>すべてのノードのリストです。</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><filename>sysinfo.txt</filename></term>
+        <listitem>
+          <para>関連するすべてのパッケージ名とそのバージョンのリストが記述されています。さらに、元のRPMパッケージとは異なる設定ファイルのリストもあります。</para>
+        </listitem>
+      </varlistentry>
+     </variablelist>
+     <para>
+      ノード固有のファイルは、ノードの名前を持つサブディレクトリに保存されます。ここには、それぞれのノードのディレクトリ<filename>/etc</filename>のコピーが保存されます。
+     </para>
+     
+     <para>
+      引数を単純化する必要がある場合は、設定ファイル<filename>/etc/crm/crm.conf</filename>のセクション<literal>report</literal>にデフォルト値を設定します。詳細は、マニュアルページ<command>man 8 crmsh_hb_report</command>に記載されています。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-troubleshooting-moreinfo">
+  <title>その他の情報</title>
+
+  <para>
+   クラスタリソースの設定、およびHigh Availabilityクラスタの管理とカスタマイズなど、Linuxの高可用性に関するその他の情報については、<link xlink:href="http://clusterlabs.org/wiki/Documentation"/>を参照してください。
+  </para>
+ </sect1>
+</appendix>

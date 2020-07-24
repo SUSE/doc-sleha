@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_storage_basics.xml" version="5.0" xml:id="cha-ha-storage-dlm">
+ <title>分散ロックマネージャ(DLM:Distributed Lock Manager)</title>
+ <info>
+  <abstract>
+   <para>
+    カーネル内の分散ロックマネージャ(DLM)は、OCFS2、GFS2、Cluster MD、およびCluster LVM (lvmlockd)によって使用されるベースコンポーネントで、各層でアクティブ/アクティブ構成のストレージが提供されます。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:translation>○</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec-ha-storage-dlm-protocol">
+  <title>DLM通信のプロトコル</title>
+
+  <para>
+   シングルポイント障害を回避するには、高可用性クラスタに対する冗長通信パスが重要となります。これはDLM通信においても当てはまります。ネットワークボンディング(Link Aggregation Control Protocol、LACP)が何らかの理由で使用できない場合、Corosyncで冗長通信チャネル(2番目のリング)を定義することを強くお勧めします。詳細については、<xref linkend="pro-ha-installation-setup-channel2"/>を参照してください。
+  </para>
+  <para>
+   <filename>/etc/corosync/corosync.conf</filename>の設定によって、DLMはその通信にTCPプロトコルを使用するか、SCTPプロトコルを使用するかを判断します。
+  </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+     <guimenu>rrp_mode</guimenu>を<literal>none</literal>に設定する場合(冗長リング設定が無効であることを意味する)、DLMは自動的にTCPを使用します。ただし、冗長通信チャネルを使用しない場合には、TCPリンクがダウンすると、DLM通信は失敗します。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+     <guimenu>rrp_mode</guimenu>が<literal>passive</literal>に設定され(これは通常の設定です)、<filename>/etc/corosync/corosync.conf</filename>の2番目の通信リングが正しく設定されている場合、DLMは自動的にSCTPを使用します。この場合、DLMメッセージングには、SCTPによって提供される冗長性機能があります。
+   </para>
+  </listitem>
+ </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec-ha-storage-generic-dlm-config">
+  <title>DLMクラスタリソースの設定</title>
+
+  <para>
+   DLMはPacemakerからのクラスタメンバーシップサービスを使用し、それらのサービスはユーザスペースで実行されます。したがって、DLMは、クラスタ内の各ノードに存在するクローンリソースとして設定する必要があります。
+  </para>
+
+  <note>
+   <title>いくつかの解決策のためのDLMリソース</title>
+   <para>
+    OCFS2、GFS2、Cluster MD、およびCluster LVM (lvmlockd)のすべてがDLMを使用するため、DLMに1つのリソースを設定するだけで十分です。DLMリソースはクラスタ内のすべてのノード上で実行されるので、リソースはクローンリソースとして設定されます。
+   </para>
+   <para>
+    OCFS2およびCluster LVMの両方を含むセットアップがある場合、OCFS2およびCluster LVMの両方に「1つの」<emphasis/>DLMリソースを設定するだけで十分です。
+   </para>
+  </note>
+
+  <procedure xml:id="pro-dlm-resources">
+   <title>DLMのベースグループの設定</title>
+   <para>
+    設定は複数のプリミティブおよび1つのベースクローンを含むベースグループで設定されます。ベースグループとベースクローンはどちらも、後でさまざまなシナリオで使用できます(例: OCFS2およびCluster LVM)。必要に応じてそれぞれのプリミティブを持つベースグループを拡張する必要があるだけです。ベースグループは内部コロケーションおよび順序付けを持つため、個々のグループ、クローン、その依存性をいくつも指定する必要がなく、セットアップ全体を容易にします。
+   </para>
+   <para>
+    クラスタ内の1つのノードについて、次の手順を実行してください。
+   </para>
+   <step>
+    <para>
+     シェルを起動し、<systemitem class="username">root</systemitem>または同等のものとしてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>crm</command> <option> configure</option>を実行します。
+    </para>
+   </step>
+   <step>
+    <para>
+     次のコマンドを入力して、DLMのプリミティブリソースを作成します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dlm ocf:pacemaker:controld \
+  op monitor interval="60" timeout="60"</screen>
+   </step>
+   <step>
+    <para>
+     DLMリソースおよび追加のストレージ関連のリソース用にベースグループを作成します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> g-storage dlm</screen>
+   </step>
+   <step>
+    <para>
+     <literal>g-storage</literal>グループのクローンを作成して、すべてのノードで実行できるようにします。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt> <command>clone</command> cl-storage g-storage \
+  meta interleave=true target-role=Started</screen>
+   </step>
+   <step>
+    <para>
+     <command>show</command>で変更内容をレビューします。
+    </para>
+   </step>
+   <step>
+    <para>
+     すべて正しければ、<command>commit</command>で変更を送信し、<command>exit</command>でcrmライブ設定を終了します。
+    </para>
+   </step>
+  </procedure>
+
+  <note>
+   <title>STONITHを無効にする際のエラー</title>
+   <para>
+    STONITHを使用しないクラスタはサポートされていません。テストまたはトラブルシューティングのためにグローバルクラスタオプション <varname>stonith-enabled</varname> を<literal>false</literal>に設定すると、DLMリリソースとそれに依存するすべてのサービス(Cluster LVM、GFS2、およびOCFS2など)は起動できません。
+   </para>
+  </note>
+ </sect1>
+</chapter>
