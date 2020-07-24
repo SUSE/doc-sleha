@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_storage_basics.xml" version="5.0" xml:id="cha-ha-storage-dlm">
+ <title>分布式锁管理器 (DLM)</title>
+ <info>
+  <abstract>
+   <para>
+    内核中的分布式锁管理器 (DLM) 是 OCFS2、GFS2、群集 MD 和群集 LVM (lvmlockd) 用于在每个相关层提供主动-主动储存的基础组件。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec-ha-storage-dlm-protocol">
+  <title>用于 DLM 通讯的协议</title>
+
+  <para>
+   为了避免单一故障点，非常有必要对高可用性群集配置冗余通讯路径。对于 DLM 通讯也是如此。如果出于任何原因无法使用网络绑定（聚合控制协议，LACP），则我们强烈建议在 Corosync 中定义冗余通讯通道（另一个环）。有关详细信息，请参见<xref linkend="pro-ha-installation-setup-channel2"/>。
+  </para>
+  <para>
+   然后，DLM 将根据 <filename>/etc/corosync/corosync.conf</filename> 中的配置确定是要使用 TCP 还是 SCTP 协议来进行通讯：
+  </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+     如果 <guimenu>rrp_mode</guimenu> 设置为 <literal>none</literal>（表示禁用冗余环配置），DLM 会自动使用 TCP。但是，如果未定义冗余通讯通道，在 TCP 链路断开的情况下，DLM 通讯将会失败。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+     如果 <guimenu>rrp_mode</guimenu> 设置为 <literal>passive</literal>（典型的设置），并且在 <filename>/etc/corosync/corosync.conf</filename> 中正确配置了另一个通讯环，DLM 将自动使用 SCTP。在这种情况下，DLM 讯息交换会获得 SCTP 提供的冗余功能。
+   </para>
+  </listitem>
+ </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec-ha-storage-generic-dlm-config">
+  <title>配置 DLM 群集资源</title>
+
+  <para>
+   DLM 使用 Pacemaker 提供的并在用户空间中运行的群集成员资格服务。因此，DLM 需要配置为群集中每个节点上都存在的克隆资源。
+  </para>
+
+  <note>
+   <title>多种解决方案的 DLM 资源</title>
+   <para>
+    由于 OCFS2、GFS2、群集 MD 和群集 LVM (lvmlockd) 全部使用 DLM，因此为 DLM 配置一个资源便已足够。由于 DLM 资源在群集中的所有节点上运行，因此它配置为克隆资源。
+   </para>
+   <para>
+    如果您的设置包含 OCFS2 和群集 LVM，则只需为 OCFS2 和群集 LVM 配置<emphasis>一个</emphasis> DLM 资源就够了。
+   </para>
+  </note>
+
+  <procedure xml:id="pro-dlm-resources">
+   <title>配置 DLM 的基础组</title>
+   <para>
+    这种配置由包含多个原始资源的基础组和一个基础克隆构成。之后，基本组和基本克隆便可用于各种方案（例如，用于 OCFS2 和群集 LVM）。您只需视需要使用相应的基元资源扩展基本组。由于基本组具有内部共置和顺序约束，您无需单独指定多个组、克隆及其依赖项，方便了总体设置。
+   </para>
+   <para>
+    在群集中的一个节点上执行以下步骤：
+   </para>
+   <step>
+    <para>
+     启动壳层，并以 <systemitem class="username">root</systemitem> 用户身份或同等身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     运行 <command>crm</command> <option> configure</option>。
+    </para>
+   </step>
+   <step>
+    <para>
+     输入以下命令以创建 DLM 的基元资源：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dlm ocf:pacemaker:controld \
+  op monitor interval="60" timeout="60"</screen>
+   </step>
+   <step>
+    <para>
+     为 DLM 资源和其他储存相关的资源创建一个基础组：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> g-storage dlm</screen>
+   </step>
+   <step>
+    <para>
+     克隆 <literal>g-storage</literal> 组，使它在所有节点上运行：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt> <command>clone</command> cl-storage g-storage \
+  meta interleave=true target-role=Started</screen>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 复查更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果全部都正确，请使用 <command>commit</command> 提交更改，并使用 <command>exit</command> 退出 crm 当前配置。
+    </para>
+   </step>
+  </procedure>
+
+  <note>
+   <title>禁用 STONITH 时出错</title>
+   <para>
+    未启用 STONITH 的群集不受支持。如果您出于测试或查错目的将全局群集选项 <varname>stonith-enabled</varname> 设置为 <literal>false</literal>，则 DLM 资源以及依赖于它的所有服务（例如群集 LVM、GFS2 和 OCFS2）将无法启动。
+   </para>
+  </note>
+ </sect1>
+</chapter>
