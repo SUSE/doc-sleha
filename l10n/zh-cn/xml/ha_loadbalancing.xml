@@ -1,42 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_loadbalancing.xml" version="5.0" xml:id="cha-ha-lb">
 
- <title>负载平衡</title>
+ <title>Load Balancing</title>
  <info>
       <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
         <dm:maintainer/>
-        <dm:status>编辑</dm:status>
+        <dm:status>editing</dm:status>
         <dm:deadline/>
         <dm:priority/>
-        <dm:translation>yes</dm:translation>
+        <dm:translation>no</dm:translation>
         <dm:languages/>
         <dm:release/>
         <dm:repository/>
       </dm:docmanager>
- <abstract>
-  <para>
-  在<emphasis>负载平衡</emphasis>的情况下，服务器群集对于外部客户端而言就如同是一台大型的快速服务器。这种看上去像是单台服务器的服务器被称为<emphasis>虚拟服务器</emphasis>。它包括一个或多个用于调度进来的请求的负载平衡器，以及若干台运行实际服务的真实服务器。完成 High Availability Extension 的负载平衡设置后，您就可以构建高度可缩放且高度可用的网络服务，例如 Web、超速缓存、邮件、FTP、媒体和 VoIP 服务。
+      <abstract>
+        <para>
+          <emphasis>Load Balancing</emphasis> makes a cluster of servers appear as
+  one large, fast server to outside clients. This apparent single server is
+  called a <emphasis>virtual server</emphasis>. It consists of one or more
+  load balancers dispatching incoming requests and several real servers
+  running the actual services. With a load balancing setup of High Availability Extension, you
+  can build highly scalable and highly available network services, such as
+  Web, cache, mail, FTP, media and VoIP services.
  </para>
- </abstract>
- </info>
+      </abstract>
+    </info>
     
  <sect1 xml:id="sec-ha-lb-overview">
-  <title>概念概述</title>
+  <title>Conceptual Overview</title>
   <para>
-   High Availability Extension 支持两种负载平衡技术：Linux 虚拟服务器 (LVS) 和 HAProxy。两者的主要差别在于，Linux 虚拟服务器在 OSI 第 4 层（传输层）上运行，可配置内核的网络层，而 HAProxy 在第 7 层（应用层）上的用户空间中运行。因此，Linux 虚拟服务器所需的资源更少但处理的负载更多，而 HAProxy 可以检查流量，执行 SSL 终止，并根据流量内容做出调度决策。
+   High Availability Extension supports two technologies for load balancing: Linux Virtual Server (LVS) and
+   HAProxy. The key difference is Linux Virtual Server operates at OSI layer 4
+   (Transport), configuring the network layer of kernel, while HAProxy
+   operates at layer 7 (Application), running in user space. Thus Linux Virtual Server
+   needs fewer resources and can handle higher loads, while HAProxy can
+   inspect the traffic, do SSL termination and make dispatching decisions
+   based on the content of the traffic.
   </para>
   <para>
-   另一方面，Linux 虚拟服务器包含两个不同的软件：IPVS（IP 虚拟服务器）和 KTCPVS（内核 TCP 虚拟服务器）。IPVS 提供第 4 层负载平衡，而 KTCPVS 提供第 7 层负载平衡。
+   On the other hand, Linux Virtual Server includes two different software:
+   IPVS (IP Virtual Server) and KTCPVS (Kernel TCP Virtual Server).
+   IPVS provides layer 4 load balancing whereas KTCPVS provides layer 7
+   load balancing.
   </para>
   <para>
-   本章概述了负载平衡与高可用性结合使用的概念，然后简要介绍了 Linux 虚拟服务器和 HAProxy。最后，提供了其他阅读材料的链接。
+   This section gives you a conceptual overview of load balancing
+   in combination with high availability, then briefly introduces you
+   to Linux Virtual Server and HAProxy. Finally, it points you to further reading.
   </para>
   <para>
-   真实的服务器和负载平衡器可通过高速 LAN 或地理位置分散的 WAN 互相连接。负载平衡器可将请求发送到不同的服务器。它们使群集的多个并行服务看似单个 IP 地址（虚拟 IP 地址，即 VIP）上的一个虚拟服务。发送请求时可使用 IP 负载平衡技术或应用程序级的负载平衡技术。系统的可伸缩性通过在群集中透明地添加或删除节点来实现。
+   The real servers and the load balancers may be interconnected by either
+   high-speed LAN or by geographically dispersed WAN. The load balancers
+   dispatch requests to the different servers. They make parallel services
+   of the cluster appear as one virtual service on a single IP address (the
+   virtual IP address or VIP). Request dispatching can use IP load balancing
+   technologies or application-level load balancing technologies.
+   Scalability of the system is achieved by transparently adding or removing
+   nodes in the cluster.
   </para>
 
   <para>
-   高可用性通过检测节点或服务故障并相应地照常重配置整个虚拟服务器系统来实现。
+   High availability is provided by detecting node or service failures and
+   reconfiguring the whole virtual server system appropriately, as usual.
   </para>
 
   <remark>Most of the following items are taken from FATE#316459. Not
@@ -44,46 +69,54 @@
   expert.</remark>
 
   <para>
-   有多种负载平衡策略。下面介绍适用于 Linux 虚拟服务器的一些第 4 层策略：
+   There are several load balancing strategies. Here are some Layer 4
+   strategies, suitable for Linux Virtual Server:
   </para>
 
   <itemizedlist>
    <listitem>
     <formalpara>
-     <title>循环复用</title>
+     <title>Round Robin</title>
      <para>
-      最简单的策略就是将每个连接轮流定向到不同的地址。例如，某个 DNS 服务器的多个条目可能与某个给定主机名对应。使用 DNS 循环复用时，该 DNS 服务器将轮流返回所有这些条目。因此，不同的客户端将看到不同的地址。
+      The simplest strategy is to direct each connection to a different
+      address, taking turns. For example, a DNS server can have several
+      entries for a given host name. With DNS round robin, the DNS server
+      will return all of them in a rotating order. Thus different clients
+      will see different addresses.
      </para>
     </formalpara>
    </listitem>
    <listitem>
     <formalpara>
-     <title>选择<quote>最佳</quote>服务器</title>
+     <title>Selecting the <quote>best</quote> server</title>
      <para>
-      可以使用<quote>第一台做出响应的服务器</quote>或<quote>负载最低的服务器</quote>方法实现平衡，不过此方案存在一些弱点。
+      Although this has several drawbacks, balancing could be implemented
+      with an <quote>the first server who responds</quote> or <quote>the
+      least loaded server</quote> approach.
      </para>
     </formalpara>
    </listitem>
    <listitem>
     <formalpara>
-     <title>平衡每台服务器的连接数</title>
+     <title>Balance number of connections per server</title>
      <para>
-      用户与服务器之间的负载平衡器可以在多台服务器之间划分用户数。
+      A load balancer between users and servers can divide the number of
+      users across multiple servers.
      </para>
     </formalpara>
    </listitem>
    <listitem>
     <formalpara>
-     <title>Geo 位置</title>
+     <title>Geo Location</title>
      <para>
-      可以将客户端定向到附近的服务器。
+      It is possible to direct clients to a server nearby.
      </para>
     </formalpara>
    </listitem>
   </itemizedlist>
 
   <para>
-   下面介绍适用于 HAProxy 的一些第 7 层策略：
+   Here are some Layer 7 strategies, suitable for HAProxy:
   </para>
 
   <itemizedlist>
@@ -91,56 +124,70 @@
     <formalpara>
      <title>URI</title>
      <para>
-      检查 HTTP 内容并将流量发送到最适合此特定 URL 的服务器。
+      Inspect the HTTP content and dispatch to a server most suitable for
+      this specific URI.
      </para>
     </formalpara>
    </listitem>
    <listitem>
     <formalpara>
-     <title>URL 参数，RDP Cookie</title>
+     <title>URL parameter, RDP cookie</title>
      <para>
-      检查会话参数的 HTTP 内容（可能在 post 参数中，或者 RDP（远程桌面协议）会话 Cookie 中），并将流量发送到为此会话提供服务的服务器。
+      Inspect the HTTP content for a session parameter, possibly in post
+      parameters, or the RDP (remote desktop protocol) session cookie, and
+      dispatch to the server serving this session.
      </para>
     </formalpara>
    </listitem>
   </itemizedlist>
 
   <para>
-   尽管存在一些重叠的情况，但在 LVS/<command>ipvsadm</command> 不足以满足要求的情况下，可以使用 HAProxy，反之亦然：
+   Although there is some overlap, HAProxy can be used in scenarios
+   where LVS/<command>ipvsadm</command> is not adequate and vice versa:
   </para>
 
   <itemizedlist>
    <listitem>
     <formalpara>
-     <title>SSL 终止</title>
+     <title>SSL termination</title>
      <para>
-      前端负载平衡器可以处理 SSL 层。因此，云节点不需要访问 SSL 密钥，而可以利用负载平衡器中的 SSL 加速器。
+      The front-end load balancers can handle the SSL layer. Thus the cloud
+      nodes do not need to have access to the SSL keys, or could take
+      advantage of SSL accelerators in the load balancers.
      </para>
     </formalpara>
    </listitem>
    <listitem>
     <formalpara>
-     <title>应用级别</title>
+     <title>Application level</title>
      <para>
-      HAProxy 在应用级别运行，因此，负载平衡决策受内容流的影响。这样，便可以基于 Cookie 和其他此类过滤器实现持久性。
+      HAProxy operates at the application level, allowing the load
+      balancing decisions to be influenced by the content stream. This
+      allows for persistence based on cookies and other such filters.
      </para>
     </formalpara>
    </listitem>
   </itemizedlist>
 
   <para>
-   另一方面，HAProxy 不能完全取代 LVS/<command>ipvsadm</command>：
+   On the other hand, LVS/<command>ipvsadm</command> cannot be fully
+   replaced by HAProxy:
   </para>
 
   <itemizedlist>
    <listitem>
     <para>
-     LVS 支持<quote>直接路由</quote>，在此模式下，负载平衡器只作用于入站流，而出站流量将直接路由到客户端。在非对称环境中，这有可能会大幅提高吞吐量。
+     LVS supports <quote>direct routing</quote>, where the load balancer is
+     only in the inbound stream, whereas the outbound traffic is routed to
+     the clients directly. This allows for potentially much higher
+     throughput in asymmetric environments.
     </para>
    </listitem>
    <listitem>
     <para>
-     LVS 支持状态连接表复制（通过 <systemitem class="daemon">conntrackd</systemitem>）。因此，负载平衡器能够实现对客户端和服务器透明的故障转移。
+     LVS supports stateful connection table replication (via
+     <systemitem class="daemon">conntrackd</systemitem>). This allows for
+     load balancer failover that is transparent to the client and server.
     </para>
    </listitem>
   </itemizedlist>
@@ -150,21 +197,22 @@
  <xi:include href="ha_lb_haproxy.xml"/>
 
  <sect1 xml:id="sec-ha-lb-more">
-  <title>更多信息</title>
+  <title>For More Information</title>
 
   <itemizedlist>
     <listitem>
       <para><link xlink:href="http://www.haproxy.org"/></para>
     </listitem>
     <listitem>
-      <para>项目主页 <link xlink:href="http://www.linuxvirtualserver.org/"/>。
+      <para>Project home page at <link xlink:href="http://www.linuxvirtualserver.org/"/>.
   </para>
     </listitem>
     <listitem>
-      <para>有关 <systemitem class="daemon">ldirectord</systemitem> 的更多信息，请参见其综合性手册页。</para>
+      <para>For more information about <systemitem class="daemon">ldirectord</systemitem>, refer to its
+        comprehensive man page.</para>
     </listitem>
     <listitem>
-      <para>LVS 知识库：<link xlink:href="http://kb.linuxvirtualserver.org/wiki/Main_Page"/></para>
+      <para>LVS Knowledge Base: <link xlink:href="http://kb.linuxvirtualserver.org/wiki/Main_Page"/></para>
     </listitem>
   </itemizedlist>
  </sect1>

@@ -1,109 +1,139 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_storage_basics.xml" version="5.0" xml:id="cha-ha-storage-dlm">
- <title>分布式锁管理器 (DLM)</title>
+ <title>Distributed Lock Manager (DLM)</title>
  <info>
-  <abstract>
-   <para>
-    内核中的分布式锁管理器 (DLM) 是 OCFS2、GFS2、群集 MD 和群集 LVM (lvmlockd) 用于在每个相关层提供主动-主动储存的基础组件。
+      <abstract>
+        <para>
+    The Distributed Lock Manager (DLM) in the kernel is the base component used
+    by OCFS2, GFS2, Cluster MD, and Cluster LVM (lvmlockd) to provide active-active
+    storage at each respective layer.
    </para>
-  </abstract>
-  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
-   <dm:translation>yes</dm:translation>
-  </dm:docmanager>
- </info>
- <sect1 xml:id="sec-ha-storage-dlm-protocol">
-  <title>用于 DLM 通讯的协议</title>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:translation>no</dm:translation>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec-ha-storage-dlm-protocol">
+  <title>Protocols for DLM Communication</title>
 
   <para>
-   为了避免单一故障点，非常有必要对高可用性群集配置冗余通讯路径。对于 DLM 通讯也是如此。如果出于任何原因无法使用网络绑定（聚合控制协议，LACP），则我们强烈建议在 Corosync 中定义冗余通讯通道（另一个环）。有关详细信息，请参见<xref linkend="pro-ha-installation-setup-channel2"/>。
+   To avoid single points of failure, redundant communication paths are important
+   for High Availability clusters. This is also true for DLM communication. If network bonding
+   (Link Aggregation Control Protocol, LACP) cannot be used for any reason, we
+   highly recommend to define a redundant communication channel (a second ring)
+   in Corosync. For details, see <xref linkend="pro-ha-installation-setup-channel2"/>.
   </para>
   <para>
-   然后，DLM 将根据 <filename>/etc/corosync/corosync.conf</filename> 中的配置确定是要使用 TCP 还是 SCTP 协议来进行通讯：
+   Depending on the configuration in <filename>/etc/corosync/corosync.conf</filename>, DLM then decides
+   whether to use the TCP or SCTP protocol for its communication:
   </para>
  <itemizedlist>
   <listitem>
    <para>
-     如果 <guimenu>rrp_mode</guimenu> 设置为 <literal>none</literal>（表示禁用冗余环配置），DLM 会自动使用 TCP。但是，如果未定义冗余通讯通道，在 TCP 链路断开的情况下，DLM 通讯将会失败。
+     If <guimenu>rrp_mode</guimenu> is set to <literal>none</literal> (which
+     means redundant ring configuration is disabled), DLM automatically uses
+     TCP. However, without a redundant communication channel, DLM communication
+     will fail if the TCP link is down.
    </para>
   </listitem>
   <listitem>
    <para>
-     如果 <guimenu>rrp_mode</guimenu> 设置为 <literal>passive</literal>（典型的设置），并且在 <filename>/etc/corosync/corosync.conf</filename> 中正确配置了另一个通讯环，DLM 将自动使用 SCTP。在这种情况下，DLM 讯息交换会获得 SCTP 提供的冗余功能。
+     If <guimenu>rrp_mode</guimenu> is set to <literal>passive</literal> (which
+     is the typical setting), and a second communication ring in <filename>/etc/corosync/corosync.conf</filename>
+     is configured correctly, DLM automatically uses SCTP. In this case, DLM
+     messaging has the redundancy capability provided by SCTP.
    </para>
   </listitem>
  </itemizedlist>
  </sect1>
  <sect1 xml:id="sec-ha-storage-generic-dlm-config">
-  <title>配置 DLM 群集资源</title>
+  <title>Configuring DLM Cluster Resources</title>
 
   <para>
-   DLM 使用 Pacemaker 提供的并在用户空间中运行的群集成员资格服务。因此，DLM 需要配置为群集中每个节点上都存在的克隆资源。
+   DLM uses the cluster membership services from Pacemaker which run in user
+   space. Therefore, DLM needs to be configured as a clone resource that is
+   present on each node in the cluster.
   </para>
 
   <note>
-   <title>多种解决方案的 DLM 资源</title>
+   <title>DLM Resource for Several Solutions</title>
    <para>
-    由于 OCFS2、GFS2、群集 MD 和群集 LVM (lvmlockd) 全部使用 DLM，因此为 DLM 配置一个资源便已足够。由于 DLM 资源在群集中的所有节点上运行，因此它配置为克隆资源。
+    As OCFS2, GFS2, Cluster MD, and Cluster LVM (lvmlockd) all use DLM, it is
+    enough to configure one resource for DLM. As the DLM resource runs on all
+    nodes in the cluster it is configured as a clone resource.
    </para>
    <para>
-    如果您的设置包含 OCFS2 和群集 LVM，则只需为 OCFS2 和群集 LVM 配置<emphasis>一个</emphasis> DLM 资源就够了。
+    If you have a setup that includes both OCFS2 and Cluster LVM, configuring
+    <emphasis>one</emphasis> DLM resource for both OCFS2 and Cluster LVM is enough.
    </para>
   </note>
 
   <procedure xml:id="pro-dlm-resources">
-   <title>配置 DLM 的基础组</title>
+   <title>Configuring a Base Group for DLM</title>
    <para>
-    这种配置由包含多个原始资源的基础组和一个基础克隆构成。之后，基本组和基本克隆便可用于各种方案（例如，用于 OCFS2 和群集 LVM）。您只需视需要使用相应的基元资源扩展基本组。由于基本组具有内部共置和顺序约束，您无需单独指定多个组、克隆及其依赖项，方便了总体设置。
+    The configuration consists of a base group that includes several primitives
+    and a base clone. Both base group and base clone can be used in various
+    scenarios afterward (for both OCFS2 and Cluster LVM, for example). You only need
+    to extend the base group with the respective primitives as needed. As the
+    base group has internal colocation and ordering, this simplifies the
+    overall setup as you do not need to specify several individual groups,
+    clones and their dependencies.
    </para>
    <para>
-    在群集中的一个节点上执行以下步骤：
+    Follow the steps below on one node in the cluster:
    </para>
    <step>
     <para>
-     启动壳层，并以 <systemitem class="username">root</systemitem> 用户身份或同等身份登录。
+     Start a shell and log in as <systemitem class="username">root</systemitem> or equivalent.
     </para>
    </step>
    <step>
     <para>
-     运行 <command>crm</command> <option> configure</option>。
+     Run <command>crm</command> <option>configure</option>.
     </para>
    </step>
    <step>
     <para>
-     输入以下命令以创建 DLM 的基元资源：
+     Enter the following to create the primitive resource for DLM:
     </para>
 <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> dlm ocf:pacemaker:controld \
   op monitor interval="60" timeout="60"</screen>
    </step>
    <step>
     <para>
-     为 DLM 资源和其他储存相关的资源创建一个基础组：
+     Create a base group for the DLM resource and further storage-related
+     resources:
     </para>
 <screen><prompt role="custom">crm(live)configure# </prompt><command>group</command> g-storage dlm</screen>
    </step>
    <step>
     <para>
-     克隆 <literal>g-storage</literal> 组，使它在所有节点上运行：
+     Clone the <literal>g-storage</literal> group so that it runs on all nodes:
     </para>
 <screen><prompt role="custom">crm(live)configure# </prompt> <command>clone</command> cl-storage g-storage \
   meta interleave=true target-role=Started</screen>
    </step>
    <step>
     <para>
-     使用 <command>show</command> 复查更改。
+     Review your changes with <command>show</command>.
     </para>
    </step>
    <step>
     <para>
-     如果全部都正确，请使用 <command>commit</command> 提交更改，并使用 <command>exit</command> 退出 crm 当前配置。
+     If everything is correct, submit your changes with
+     <command>commit</command> and leave the crm live configuration with
+     <command>exit</command>.
     </para>
    </step>
   </procedure>
 
   <note>
-   <title>禁用 STONITH 时出错</title>
+   <title>Failure When Disabling STONITH</title>
    <para>
-    未启用 STONITH 的群集不受支持。如果您出于测试或查错目的将全局群集选项 <varname>stonith-enabled</varname> 设置为 <literal>false</literal>，则 DLM 资源以及依赖于它的所有服务（例如群集 LVM、GFS2 和 OCFS2）将无法启动。
+    Clusters without STONITH are not supported. If you set the global cluster
+    option <varname>stonith-enabled</varname> to <literal>false</literal> for
+    testing or troubleshooting purposes, the DLM resource and all services
+    depending on it (such as Cluster LVM, GFS2, and OCFS2) will fail to start.
    </para>
   </note>
  </sect1>
