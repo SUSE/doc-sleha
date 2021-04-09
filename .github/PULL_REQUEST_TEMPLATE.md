@@ -1,12 +1,13 @@
 ### Description
+<!--
+ Add a few sentences describing the overall goals of this pull request.
+ If there are relevant Bugzilla or Jira entries, reference them.
+-->
 
-Add a few sentences describing the overall goals of this pull request.
-If there are relevant Bugzilla or Jira entries, reference them.
-
-### Checklist
-* Check all items that apply.
-
-*Are backports required?*
+### Backports
+<!--
+ Are backports required? Check all items that apply.
+-->
 
 - [ ] To maintenance/SLEHA15SP2
 - [ ] To maintenance/SLEHA15SP1
