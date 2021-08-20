@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_resources_i.xml" version="5.0" xml:id="cha-ha-geo-rsc">
+ <title>配置群集资源和约束</title>
+ 
+ <info>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+ 
+ <para>
+  除了定义特定群集设置所需的资源和约束外，Geo 群集还需要下文所述的其他资源和约束。可按以下示例中所示使用 crm 外壳 (crmsh) 或者使用 Hawk2 来配置这些资源和约束。
+ </para>
+ <para>
+  本章重点介绍特定于 Geo 群集的任务。有关您的首选群集管理工具的简介以及如何使用该工具配置资源和约束的一般说明，请参见以下其中一章：
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    <xref linkend="cha-conf-hawk2"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <xref linkend="cha-ha-manual-config"/>
+   </para>
+  </listitem>
+ </itemizedlist>
+ <para>
+  如果您是使用引导脚本设置 Geo 群集的，那么投票间所需的群集资源（包括 boothd 的资源组）均已配置好。在此情况下，您可以跳过<xref linkend="sec-ha-geo-rsc-boothd" xrefstyle="select:label"/>，只需执行以下剩余步骤即可完成群集资源配置。
+ </para>
+ <para>
+  如果您要手动设置 Geo 群集，则需要执行以下所有步骤：
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+
+    <xref linkend="sec-ha-geo-rsc-ticket-dep"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+
+    <xref linkend="sec-ha-geo-rsc-boothd"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+
+    <xref linkend="sec-ha-geo-rsc-order"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+
+    <xref linkend="sec-ha-geo-rsc-sync-cib"/>
+   </para>
+  </listitem>
+ </itemizedlist>
+ <important>
+  <title>不跨站点进行 CIB 同步</title>
+  <para>
+   CIB <emphasis>不会</emphasis>跨 Geo 群集的群集站点自动同步。需要为每个站点相应地配置必须在 Geo 群集中保持高度可用的所有资源，或者需要将这些资源传输到其他一个或多个站点。
+  </para>
+  <para>
+   为简化传输过程，可以在配置任何包含站点特定参数的资源时为参数指定取决于运行资源的群集站点名称的值（另请参见<xref linkend="cha-ha-geo-req"/>中的<citetitle>其他要求和建议</citetitle>）。
+  </para>
+  <para>
+   在一个站点上配置资源后，可以标记所有群集站点上所需的资源，从当前 CIB 导出这些资源，然后将其导入另一站点的 CIB。有关详细信息，请参见<xref linkend="sec-ha-geo-rsc-sync-cib"/>。
+  </para>
+ </important>
+
+ <sect1 xml:id="sec-ha-geo-rsc-ticket-dep">
+  <title>配置资源的票据依赖项</title>
+  <para>
+     对于 Geo 群集，可以指定哪些资源依赖于特定的票据。您可以与特定类型的约束一起，设置<literal>丢失策略</literal>，该策略定义撤消票据时应对相应资源采取哪些操作。<literal>loss-policy</literal> 属性可能具有以下值：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <literal>fence</literal>：屏蔽运行相关资源的节点。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>stop</literal>：停止相关资源。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>freeze</literal>：不对相关资源执行任何操作。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <literal>demote</literal>：将以 <literal>master</literal> 模式运行的相关资源降级为以 <literal>slave</literal> 模式运行。
+      </para>
+     </listitem>
+    </itemizedlist>
+  <procedure xml:id="pro-ha-geo-setup-rsc-constraints">
+   <title>使用 crmsh 配置资源的票据依赖项</title>
+   <step>
+    <para>
+     在群集 amsterdam 的其中一个节点上，启动外壳并以 <systemitem class="username">root</systemitem> 或同等身份登录。
+
+    </para>
+   </step>
+   <step>
+    <para>
+     输入 <command>crm configure</command> 切换到交互式 crm 外壳。
+    </para>
+   </step>
+   <step xml:id="step-ha-geo-setup-rsc-constraints">
+    <para>
+     配置约束，用于定义哪些资源依赖于特定的票据。例如，要使原始资源 <literal>rsc1</literal> 依赖于 <literal>ticketA</literal>，请运行以下命令：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_ticket</command> rsc1-req-ticketA ticketA: \
+  rsc1 loss-policy="fence"</screen>
+    <para>
+     如果已撤消 <literal>ticketA</literal>，应屏蔽运行资源的节点。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果希望其他资源依赖于其他票据，请使用 <command>rsc_ticket</command> 根据需要创建更多的约束。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 复查更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果全部都正确，请使用 <command>commit</command> 提交更改，并使用 <command>exit</command> 退出 crm 当前配置。
+    </para>
+    <para>
+     配置将保存到 CIB。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-rsc-boothd">
+  <title>配置 <systemitem class="daemon">boothd</systemitem> 的资源组</title>
+
+  <para>
+   如果您是使用 <systemitem>ha-cluster-init</systemitem> 引导脚本设置 Geo 群集的，则可以跳过下面的过程，因为在此情况下，boothd 的资源和资源组已配置好。
+  </para>
+  <para>
+      每个站点都需要运行 <systemitem class="daemon">boothd</systemitem> 的一个实例以与其他投票间守护程序通讯。该守护程序可以在任何节点上启动，因此应将其配置为原始资源。要使 <systemitem>boothd</systemitem> 资源保持在同一节点上，则在可行的情况下将资源粘性添加到配置中。每个守护程序都需要一个永久 IP 地址，因此请用虚拟 IP 地址配置另一个原始资源。将两个原始资源分组：</para>
+ <procedure>
+   <step>
+    <para>
+     在群集 <literal>amsterdam</literal> 的其中一个节点上，启动外壳并以 <systemitem class="username">root</systemitem> 或同等身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     输入 <command>crm configure</command> 切换到交互式 crm 外壳。
+    </para>
+   </step>
+   <step>
+    <para>
+     输入以下命令创建两个原始资源，并将它们添加到一个组 <literal>g-booth</literal>：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive</command> ip-booth ocf:heartbeat:IPaddr2 \
+  params iflabel="ha" nic="eth1" cidr_netmask="24"
+  params rule #cluster-name eq amsterdam ip="192.168.201.100" \
+  params rule #cluster-name eq berlin ip="192.168.202.100"
+<prompt role="custom">crm(live)configure# </prompt><command>primitive</command> booth-site ocf:pacemaker:booth-site \
+  meta resource-stickiness="INFINITY" \
+  params config="nfs" op monitor interval="10s"
+<prompt role="custom">crm(live)configure# </prompt><command>group</command> g-booth ip-booth booth-site</screen>
+    <para>
+     通过这种配置，每个投票间守护程序都将在各自的 IP 地址处可用，独立于运行守护程序的节点。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 复查更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果全部都正确，请使用 <command>commit</command> 提交更改，并使用 <command>exit</command> 退出 crm 当前配置。
+    </para>
+    <para>
+     配置将保存到 CIB。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-rsc-order">
+  <title>添加顺序约束</title>
+
+
+
+  <para>
+      如果票据已授予某个站点，但因任何原因导致该站点的所有节点无法托管 <systemitem class="daemon">boothd</systemitem> 资源组，则可能导致分布于不同地理位置的站点之间出现<quote>节点分裂</quote>现象。在这种情况下，系统无法通过任何 <systemitem class="daemon">boothd</systemitem> 实例针对其他站点安全地管理票据故障转移。要避免该票据出现潜在的并发性违规（票据同时授予给多个站点），请添加一个顺序约束： 
+     </para> 
+  <procedure>
+   <step>
+    <para>
+     在群集 amsterdam 的其中一个节点上，启动外壳并以 <systemitem class="username">root</systemitem> 或同等身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     输入 <command>crm configure</command> 切换到交互式 crm 外壳。
+    </para>
+   </step>
+   <step>
+    <para>
+     创建顺序约束，例如：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order</command> o-booth-before-rsc1 Mandatory: g-booth rsc1</screen>
+    <para>
+     该约束定义 <literal>rsc1</literal>（依赖于 <literal>ticketA</literal>）只能在 <literal>g-booth</literal> 资源组之后启动。
+    </para>
+   </step>
+   <step>
+    <para>
+     对于依赖于某个特定票据的任何其他资源，定义更多顺序约束。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 复查更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果全部都正确，请使用 <command>commit</command> 提交更改，并使用 <command>exit</command> 退出 crm 当前配置。
+    </para>
+    <para>
+     配置将保存到 CIB。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-rsc-sync-cib">
+
+
+  <title>将资源配置传输到其他群集站点</title>
+
+  <para>
+   完成或更改一个群集站点的资源配置后，请将该配置传输到 Geo 群集的其他站点。
+  </para>
+
+  <para>
+   为了简化传输，可以标记所有群集站点上所需的任何资源，从当前 CIB 导出这些资源，然后将其导入另一站点的 CIB。标记不会在资源之间创建任何共置或顺序关系。
+  </para>
+
+  <para>
+   <xref linkend="pro-ha-geo-rsc-sync-cib-export"/>和<xref linkend="pro-ha-geo-rsc-sync-cib-import"/>中提供了操作方法的示例。它们基于以下先决条件：
+  </para>
+
+  <itemizedlist>
+   <title>先决条件</title>
+   <listitem>
+    <para>
+     有一个包含两个站点的 Geo 群集：群集 <literal>amsterdam</literal> 和群集 <literal>berlin</literal>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     已在相应的 <filename>/etc/corosync/corosync.conf</filename> 文件中定义每个站点的群集名称。
+    </para>
+<screen>totem {
+     [...]
+     cluster_name: amsterdam
+     }</screen>
+    <para>
+     您可以手动完成此操作（即编辑 <filename>/etc/corosync/corosync.conf</filename>），也可以通过 YaST 群集模块进行（即切换到<guimenu>通讯通道</guimenu>类别，然后定义<guimenu>群集名称</guimenu>）。随后，请停止 <systemitem class="service">pacemaker</systemitem> 服务然后再将其启动，以使更改生效：
+    </para>
+    <screen><prompt role="root">root # </prompt><command>crm</command> cluster restart</screen></listitem>
+   <listitem>
+    <para>
+     已在站点 <literal>amsterdam</literal> 上的 CIB 中配置应在 Geo 群集中高度可用的投票间和所有服务的必要资源。这些资源将导入到站点 <literal>berlin</literal> 上的 CIB 中。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro-ha-geo-rsc-sync-cib-export">
+   <title>标记并导出资源配置</title>
+   <step>
+    <para>
+     登录到群集 <literal>amsterdam</literal> 的节点之一。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用以下命令启动群集：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> cluster start</screen>
+   </step>
+   <step>
+    <para>
+     输入 <command>crm configure</command> 切换到交互式 crm 外壳。
+    </para>
+   </step>
+   <step>
+    <para>
+     查看当前 CIB 配置：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt>show</screen>
+   </step>
+   <step>
+    <para>
+     使用标记 <literal>geo_resources</literal> 来标记 Geo 群集中需要的资源和约束：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>tag</command> geo_resources: \
+  <replaceable>LIST_OF_RESOURCES_and_CONSTRAINTS_FOR_REQUIRED_SERVICES</replaceable> <co xml:id="co-geo-rsc-any"/>\
+  rsc1-req-ticketA ip-booth booth-site g-booth o-booth-before-rsc1 <co xml:id="co-geo-rsc-booth"/></screen>
+    <calloutlist>
+     <callout arearefs="co-geo-rsc-any">
+      <para>
+       Geo 群集中所有站点上都需要的特定设置的任何资源和约束（例如，<link xlink:href="https://documentation.suse.com/sbp/all/html/SBP-DRBD/index.html"><citetitle>SUSE 最佳实践</citetitle>文档</link>中所述的 DRBD 的资源）。
+      </para>
+     </callout>
+     <callout arearefs="co-geo-rsc-booth">
+      <para>
+       boothd 的资源和约束（原始资源、投票间资源组、票据依赖项、其他顺序约束），请参见<xref linkend="sec-ha-geo-rsc-ticket-dep" xrefstyle="select:label"/>至<xref linkend="sec-ha-geo-rsc-order" xrefstyle="select:label"/>。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 查看更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果配置符合需要，请使用 <command>submit</command> 提交更改，然后使用 <command>exit</command> 退出 crm 在线外壳。
+    </para>
+   </step>
+   <step xml:id="st-ha-geo-rsc-sync-cib-export-start">
+    <para>
+     将标记的资源和约束导出到名为 <filename>exported.cib</filename> 的文件：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command> tag:geo_resources geo_resources &gt; exported.cib</screen>
+    <para>
+     命令 <command>crm configure show tag:</command><replaceable>标记名称</replaceable>将显示属于标记<replaceable>标记名称</replaceable>的所有资源。
+    </para>
+   </step>
+  </procedure>
+
+  <procedure xml:id="pro-ha-geo-rsc-sync-cib-import">
+   <title>导入标记的资源配置</title>
+   <para>
+    要将保存的配置文件导入到第二个群集站点的 CIB 中，请执行以下操作：
+   </para>
+   <step>
+    <para>
+     登录群集 <literal>berlin</literal> 的其中一个节点。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用以下命令启动群集：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm</command> cluster start</screen>
+   </step>
+   <step>
+    <para>
+     将群集 <literal>amsterdam</literal> 中的文件 <filename>exported.cib</filename> 复制到此节点。<remark>taroth
+        2014-11-26: alternatively, the CIB can be loaded from an URL - consider
+        if to mention this, too</remark>
+    </para>
+   </step>
+   <step>
+    <para>
+     将文件 <filename>exported.cib</filename> 中标记的资源和约束导入群集 <literal>berlin</literal> 的 CIB：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm configure load</command> update <replaceable>PATH_TO_FILE/exported.cib</replaceable></screen>
+    <para>
+     为 <command>crm configure load</command> 命令使用 <option>update</option> 参数时，crmsh 会尝试将文件内容集成到当前的 CIB 配置（而不是将当前 CIB 替换为文件内容）。
+    </para>
+   </step>
+   <step xml:id="st-ha-geo-rsc-sync-cib-import-stop">
+    <para>
+     使用以下命令查看更新的 CIB 配置：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm configure show</command></screen>
+    <para>
+     导入的资源和约束将显示在 CIB 中。
+    </para>
+   </step>
+  </procedure>
+
+
+ </sect1>
+</chapter>
