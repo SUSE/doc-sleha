@@ -1,1 +1,402 @@
-../../../../xml/ha_qdevice-qnetd.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_qdevice-qnetd.xml" version="5.0" xml:id="cha-ha-qdevice">
+   <title>QDeviceとQNetd</title>
+   <info>
+      <abstract>
+         <para>
+            QDeviceとQNetdはクォーラムの決定に参加します。アービトレータ<systemitem class="daemon">corosync-qnetd</systemitem>からの支援により、<systemitem class="daemon">corosync-qdevice</systemitem>は設定可能な投票数を提供するため、クラスタは標準のクォーラムルールで許可されているよりも多くのノード障害に耐えることができます。2ノードクラスタには<systemitem class="daemon">corosync-qnetd</systemitem>と<systemitem class="daemon">corosync-qdevice</systemitem>を展開することを強くお勧めしますが、ノード数が偶数のクラスタには一般的にQNetdとQDeviceを使用することもお勧めします。  
+         </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+         <dm:maintainer/>
+         <dm:status>編集</dm:status>
+         <dm:deadline/>
+         <dm:priority/>
+         <dm:translation>yes</dm:translation>
+         <dm:languages/>
+         <dm:release/>
+         <dm:repository/>
+      </dm:docmanager>
+   </info>
+
+   <sect1 xml:id="sec-ha-qdevice-overview">
+      <title>概念の概要</title>
+      <para>
+         クラスタノード間のクォーラを計算するのと比較して、QDevice-and-QNetdアプローチには次の利点があります。
+      </para>
+
+      <itemizedlist>
+         <listitem>
+            <para>
+               ノード障害が発生した場合の持続可能性が向上します。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               投票に影響する独自のヒューリスティックススクリプトを作成できます。これは、SAPアプリケーションなどの複雑なセットアップに特に役立ちます。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               複数のクラスタに投票を提供するようにQNetdサーバを設定できます。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               2ノードクラスタでディスクレスSBDを使用できます。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               スプリットブレイン状況下で偶数のノードを持つクラスタ、特に2ノードクラスタのクォーラムの決定に役立ちます。
+            </para>
+         </listitem>
+      </itemizedlist>
+
+      <para>
+        QDevice/QNetdを使用したセットアップは、次のコンポーネントとメカニズムで構成されます。
+      </para>
+
+      <variablelist>
+         <title>QDevice/QNetdコンポーネントとメカニズム</title>
+         <varlistentry>
+            <term>QNetd (<systemitem class="daemon">corosync-qnetd</systemitem>)</term>
+            <listitem>
+               <para>
+                  クラスタの一部ではないsystemdサービス(デーモン、<quote>QNetdサーバ</quote>)。systemdサービスは、<systemitem class="daemon">corosync-qdevice</systemitem>デーモンに投票を提供します。
+               </para>
+               <para>
+                  セキュリティを向上させるため、<systemitem class="daemon">corosync-qnetd</systemitem>は、クライアント証明書の確認にTLSと連携することができます。
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>QDevice (<systemitem class="daemon">corosync-qdevice</systemitem>)</term>
+            <listitem>
+               <para>
+                  Corosyncとともに実行されている各クラスタノード上のsystemdサービス(デーモン)。これは<systemitem>corosync-qnetd</systemitem>のクライアントです。その主な用途は、クラスタが標準のクォーラムルールが許可するよりも多くのノード障害に耐えることができるようにすることです。
+               </para>
+               <para>
+                  QDeviceはさまざまなアービトレータと連携するように設計されています。ただし、現在では、QNetdのみがサポートされています。
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>アルゴリズム</term>
+            <listitem>
+               <para>
+                  QDeviceは投票の割り当て方法の動作を決定する、さまざまなアルゴリズムをサポートしています。現在は、以下が存在します。
+               </para>
+               <itemizedlist>
+                  <listitem>
+                     <para>
+                        FFSplit (<quote>fifty-fifty split</quote>)がデフォルトです。これは、ノード数が偶数のクラスタに使用されます。クラスタが2つの同じパーティションに分割される場合、このアルゴリズムによりヒューリスティックスの確認と他の要因に基づいて、パーティションのいずれかに1票が提供されます。クラスタが2つの同様のパーティションに分割される場合、このアルゴリズムによりヒューリスティックスの確認と他の要因に基づいて、パーティションのいずれかに1票が提供されます。
+                     </para>
+                  </listitem>
+                  <listitem>
+                     <para>
+                       LMS (<quote>last man standing</quote>)では、QNetdサーバを確認できる残っている唯一のノードに1票が与えられます。QNetdサーバを確認できる残っている唯一のノードである場合に、1票が返されます。したがって、このアルゴリズムは、アクティブな1つのノードのみを持つクラスタがクォーラムに達した状態を維持する必要がある場合に役立ちます。
+                     </para>
+                  </listitem>
+               </itemizedlist>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>ヒューリスティックス</term>
+            <listitem>
+               <para>
+                  QDeviceは一連のコマンド(<quote>heuristics</quote>)をサポートしています。コマンドは、クラスタサービスの起動、クラスタメンバーシップの変更、<systemitem class="daemon">corosync-qnetd</systemitem>への接続の成功時にローカルで実行されるか、オプションで定期的に実行されます。ヒューリスティックスは <parameter>quorum.device.heuristics</parameter>
+                  キー(<filename>corosync.conf</filename>ファイル内)または<option>--qdevice-heuristics-mode</option>オプションを使用して設定できます。両方が<literal>off</literal> (デフォルト)、<literal>sync</literal>、および<literal>on</literal>の値を認識しています。<literal>sync</literal>と<literal>on</literal>の違いは、先に示したコマンドを定期的に補足的に実行できるということです。
+               </para>
+               <para>
+                  すべてのコマンドが正常に実行された場合にのみ、ヒューリスティックスは合格したとみなされ、そうでない場合は、失敗したとみなされます。ヒューリスティックスの結果は、<systemitem class="daemon">corosync-qnetd</systemitem>に送信され、そこでクォーラムに達するパーティションを決定するための計算に使用されます。
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>Tiebreaker</term>
+            <listitem>
+               <para>
+                  これは同じヒューリスティックスの結果の場合でも、クラスタパーティションが完全に等しい場合のフォールバックとして使用されます。最小、最大、または特定のノードIDに設定できます。
+               </para>
+            </listitem>
+         </varlistentry>
+      </variablelist>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-require">
+      <title>要件と前提条件</title>
+      <para>
+         QDeviceとQNetdを設定する前に、次のように環境を準備しておく必要があります。
+      </para>
+      <itemizedlist>
+         <listitem>
+            <remark>toms 2020-05-14: See also bsc#1171681</remark>
+            <para>
+               クラスタノードのほかに、QNetdサーバになる別のマシンが必要です。<xref linkend="sec-ha-qdevice-setup-qnetd"/>を参照してください。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               Corosyncが使用するものとは異なる物理ネットワーク。QDeviceがQNetdサーバに到達することをお勧めします。理想としては、QNetdサーバはメインクラスタとは別のラックに配置するか、少なくとも別のPSUに配置し、Corosyncリングと同じネットワークセグメントには配置しないでください。
+            </para>
+         </listitem>
+      </itemizedlist>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-setup-qnetd">
+      <title>QNetdサーバのセットアップ</title>
+      <para>
+         QNetdサーバはクラスタスタックの一部ではなく、クラスタの実際のメンバーでもありません。そのため、このサーバにリソースを移動することはできません。
+      </para>
+      <para>
+         QNetdサーバはほとんど<quote>ステートフリー</quote>です。通常、設定ファイル<filename>/etc/sysconfig/corosync-qnetd</filename>内を変更する必要はありません。デフォルトでは、 <package>corosync-qnetd</package> サービスは、グループ<systemitem class="groupname">coroqnetd</systemitem>のユーザ<systemitem class="username">coroqnetd</systemitem>としてデーモンを実行します。これにより、<systemitem class="username">root</systemitem>としてデーモンを実行する必要がなくなります。
+      </para>
+      <para>
+         QNetdサーバを作成するには、次の手順に従います。
+      </para>
+      <procedure>
+         <step>
+            <para>
+               QNetdサーバになるマシン上に、SUSE Linux Enterprise Server <phrase role="productnumber"><phrase os="sles">15 SP3</phrase></phrase>をインストールします。<remark>toms 2020-05-15: See also bsc#1171681</remark>
+            </para>
+         </step>
+         <step>
+            <para>
+               QNetdサーバにログインして、次のパッケージをインストールします。
+            </para>
+            <screen><prompt role="root">root # </prompt><command>zypper</command> install corosync-qnetd</screen>
+            <para>
+               <systemitem class="daemon">corosync-qnetd</systemitem>サービスを手動で開始する必要はありません。ブートストラップスクリプトは、qdeviceステージ中の起動プロセスを処理します。
+      </para>
+         </step>
+      </procedure>
+
+      <para>
+         QNetdサーバはQDeviceクライアント<systemitem>corosync-qdevice</systemitem>からの接続を受け入れる準備ができています。さらに設定する必要はありません。
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-qdevice">
+      <title>QDeviceクライアントをQNetdサーバに接続する</title>
+      <para>
+         QNetdサーバを設定した後で、クライアントを設定して実行することができます。クラスタのインストール中にQNetdサーバにクライアントを接続するか、後で追加することができます。次の手順では、後者の方法を使用します。2つのクラスタノード(aliceとbob)およびQNetdサーバ(charlie)を持つクラスタを想定しています。
+      </para>
+      <procedure>
+         <remark>toms 2020-05-11: Is step 2 and step 3 really needed? Can I just
+         jump to step 3?</remark>
+         <step>
+            <para>
+               すべてのノードで、パッケージ
+               <package>corosync-qdeviceがインストールされていることを確認します。</package>をインストールします:。
+            </para>
+            <screen><prompt role="root">root # </prompt><command>zypper</command> install corosync-qdevice</screen>
+         </step>
+         <step>
+            <para>
+               aliceで、クラスタを初期化します。
+            </para>
+            <screen><prompt role="root">root # </prompt><command>crm</command> cluster init -y</screen>
+         </step>
+         <step>
+            <para>
+               bobで、クラスタに参加します。
+            </para>
+            <screen><prompt role="root">root # </prompt><command>crm</command> cluster join -c alice -y</screen>
+         </step>
+         <step>
+            <para>
+               aliceとbobで、<literal>qdevice</literal>ステージをブートストラップします。ほとんどの場合、デフォルト設定で問題ありません。少なくとも<option>--qnetd-hostname</option>とQNetdサーバのホスト名またはIP アドレス(この場合はCharlie)を指定します。
+            </para>
+            <screen><prompt role="root">root # </prompt><command>crm</command> cluster init qdevice --qnetd-hostname=charlie</screen>
+            <para>
+               デフォルトの設定を変更する場合は、コマンド<command>crm cluster init qdevice --help</command>を使用してすべての可能なオプションのリストを取得します。QDeviceに関連するすべてのオプションは、<option>--qdevice-<replaceable>NAME</replaceable></option>で開始されます。
+            </para>
+         </step>
+      </procedure>
+      <para>
+         デフォルト設定を使用している場合、先に示したコマンドはTLSが有効で、FFSplitアルゴリズムを使用するQDeviceを作成します。
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-heuristic">
+      <title>ヒューリスティックスを使用したQDeviceの設定</title>
+      <para>
+         投票の決定方法をさらに制御する必要がある場合は、ヒューリスティックスを使用します。ヒューリスティックスは、並行して実行される一連のコマンドです。
+      </para>
+      <para>
+         この目的のため、コマンド<command>crm cluster init qdevice</command>はオプション<option>--qdevice-heuristics</option>を提供します。絶対パスを使用して1つ以上のコマンド(セミコロンで区切る)を渡すことができます。
+      </para>
+      <para>
+         たとえば、ヒューリスティックチェック用の独自のコマンドが<filename>/usr/sbin/my-script.sh</filename>にある場合は、次のようにクラスタノードのいずれかで実行できます。
+      </para>
+      <screen><prompt role="root">root # </prompt><command>crm</command> cluster init qdevice --qdevice-hostname=charlie \
+     --qdevice-heuristics=/usr/sbin/my-script.sh  \
+     --qdevice-heuristics-mode=on</screen>
+      <para>
+         コマンドは、Shell、Python、またはRubyなどの任意の言語で記述することができます。成功した場合は、<literal>0</literal> (ゼロ)を返し、失敗した場合はエラーコードを返します。
+      </para>
+      <para>
+         一連のコマンドを渡すこともできます。すべてのコマンドが正常に終了した場合のみ(戻りコードが0)、ヒューリスティックスが渡されます。
+      </para>
+      <para>
+         <option>--qdevice-heuristics-mode=on</option>オプションを使用すると、ヒューリスティックスコマンドを定期的に実行できます。
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-status">
+      <title>クォーラムステータスの確認と表示</title>
+      
+      <para>
+         <xref linkend="ex-ha-qdevice-crm-corosync-status-quorum"/>に示すように、クラスタノードのいずれかでクォーラムステータスを問い合わせることができます。QDeviceノードのステータスが表示されます。
+      </para>
+
+      <example xml:id="ex-ha-qdevice-crm-corosync-status-quorum">
+         <title>QDeviceのステータス</title>
+         <screen><prompt role="root">root # </prompt><command>corosync-quorumtool</command> <co xml:id="co-quorum-cmd"/>
+ Quorum information
+------------------
+Date:             ...
+Quorum provider:  corosync_votequorum
+Nodes:            2 <co xml:id="co-quorum-nodesnumber"/>
+Node ID:          3232235777 <co xml:id="co-quorum-nodeid"/>
+Ring ID:          3232235777/8
+Quorate:          Yes <co xml:id="co-quorum-quorate"/>
+
+Votequorum information
+----------------------
+Expected votes:   3
+Highest expected: 3
+Total votes:      3
+Quorum:           2
+Flags:            Quorate Qdevice
+
+Membership information
+----------------------
+    Nodeid      Votes    Qdevice Name
+ 3232235777         1    A,V,NMW 192.168.1.1 (local) <co xml:id="co-quorum-nodes"/>
+ 3232235778         1    A,V,NMW 192.168.1.2 <xref linkend="co-quorum-nodes"/>
+         0          1            Qdevice</screen>
+         <calloutlist>
+            <callout arearefs="co-quorum-cmd">
+               <para>
+                  同一の結果の代替として、<command>crm corosync status quorum</command>コマンドを使用することもできます。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodesnumber">
+               <para>
+                  予想されるノード数。この例では、2ノードクラスタです。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodeid">
+               <para>
+                  <filename>corosync.conf</filename>で、ノードIDが明示的に指定されていないため、このIDはIPアドレスの32ビットの整数表現です。この例では、値<literal>3232235777</literal>はIPアドレス<systemitem class="ipaddress">192.168.1.1</systemitem>を表しています。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-quorate">
+               <para>
+                  クォーラムステータス。この場合、クラスタにはクォーラムがあります。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodes">
+               <para>
+                  各クラスタノードのステータスは以下を意味します。
+               </para>
+               <variablelist>
+                  <varlistentry>
+                     <term><literal>A</literal> (アクティブ)または<literal>NA</literal> (非アクティブ)</term>
+                     <listitem>
+                        <para>
+                           QDeviceとCorosync間の接続ステータスを示します。QDeviceとCorosync間にハートビートがある場合は、アクティブ(A)として表示されます。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>V</literal> (投票)または<literal>NV</literal> (投票しない)</term>
+                     <listitem>
+                        <para>
+                           クォーラムデバイスがノードに投票(文字<literal>V</literal>)したかどうかを示します。文字<literal>V</literal>は、両方のノードが互いに通信できることを意味します。スプリットブレイン状態では、一方のノードが<literal>V</literal>に設定され、他方のノードは<literal>NV</literal>に設定されます。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>MW</literal> (マスターwins)または<literal>NMW</literal>(master winsでない)</term>
+                     <listitem>
+                        <para>
+                           クォーラムデバイス <parameter>master_wins</parameter>
+                           フラグが設定されているかどうかを示します。デフォルトでは、フラグが設定されていないため、<literal>NMW</literal> (master winsでない)が表示されます。詳細については、マニュアルページvotequorum_qdevice_master_wins(3)を参照してください。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>NR</literal> (未登録)</term>
+                     <listitem>
+                        <para>
+                           クラスタがクォーラムデバイスを使用していないことを示します。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+               </variablelist>
+            </callout>
+         </calloutlist>
+      </example>
+
+      <para>
+         QNetdサーバのステータスを問い合わせると、<xref linkend="ex-ha-qdevice-crm-corosync-status-qnetd"/>に示すのと同様の出力が得られます。
+      </para>
+      <example xml:id="ex-ha-qdevice-crm-corosync-status-qnetd">
+         <title>QNetdサーバのステータス</title>
+         <screen><prompt role="root">root # </prompt><command>corosync-qnetd-tool</command> <co xml:id="co-quorum-qnet-cmd"/>
+Cluster "hacluster": <co xml:id="co-quorum-qnet-name"/>
+    Algorithm:          Fifty-Fifty split <co xml:id="co-quorum-qnet-algo"/>
+    Tie-breaker:        Node with lowest node ID
+    Node ID 3232235777: <co xml:id="co-quorum-qnet-alice"/>
+        Client address:         ::ffff:192.168.1.1:54732
+        HB interval:            8000ms
+        Configured node list:   3232235777, 3232235778
+        Ring ID:                aa10ab0.8
+        Membership node list:   3232235777, 3232235778
+        Heuristics:             Undefined (membership: Undefined, regular: Undefined)
+        TLS active:             Yes (client certificate verified)
+        Vote:                   ACK (ACK)
+    Node ID 3232235778:
+        Client address:         ::ffff:192.168.1.2:43016
+        HB interval:            8000ms
+        Configured node list:   3232235777, 3232235778
+        Ring ID:                aa10ab0.8
+        Membership node list:   3232235777, 3232235778
+        Heuristics:             Undefined (membership: Undefined, regular: Undefined)
+        TLS active:             Yes (client certificate verified)
+        Vote:                   No change (ACK)</screen>
+       <calloutlist>
+          <callout arearefs="co-quorum-qnet-cmd">
+             <para>
+                同一の結果の代替として、<command>crm corosync status qnetd</command>コマンドを使用することもできます。
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-name">
+             <para>
+                <literal>totem.cluster_name</literal>セクションの設定ファイル<filename>/etc/corosync/corosync.conf</filename>で設定されているクラスタの名前。
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-algo">
+             <para>
+                現在使用されているアルゴリズム。この例では、<literal>FFSplit</literal>です。
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-alice">
+             <para>
+                これは、IPアドレスが<systemitem class="ipaddress">192.168.1.1</systemitem>のノードのエントリです。TLSがアクティブです。
+             </para>
+          </callout>
+       </calloutlist>
+      </example>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-more">
+      <title>詳細の参照先</title>
+      <para>
+         QDeviceとQNetdに関する追加情報については、corosync-qdevice(8)とcorosync-qnetd(8)のマニュアルページを参照してください。
+      </para>
+   </sect1>
+</chapter>
