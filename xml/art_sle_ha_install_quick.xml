@@ -786,8 +786,8 @@ info: Received command test from &node1; on disk <replaceable>SBDDEVICE</replace
   <sect1 xml:id="sec-ha-inst-quick-test">
    <title>Testing the Cluster</title>
    <para>
-    <xref linkend="pro-ha-inst-quick-test"/> is a simple test to check if the
-    cluster moves the virtual IP address to the other node in case the node
+    <xref linkend="sec-ha-inst-quick-test-resource-failover"/> is a simple test to check if the
+    cluster moves the virtual IP address to the other node if the node
     that currently runs the resource is set to <literal>standby</literal>.
    </para>
    <para>However, a realistic test involves specific use cases and scenarios,
@@ -795,79 +795,169 @@ info: Received command test from &node1; on disk <replaceable>SBDDEVICE</replace
     situation. If you have not set up your fencing mechanism correctly, the cluster
     will not work  properly.</para>
    <para>Before using the cluster in a production environment, test it thoroughly
-    according to your use cases.
+    according to your use cases or by using the &cmd.test.script;
+    command.
     <!-- toms 2016-08-01: For SP3, refer to the "Testing Cluster Guide" or
      to Lars Pinnes iptable rules
     -->
    </para>
+   <sect2 xml:id="sec-ha-inst-quick-test-resource-failover">
+    <title>Testing Resource Failover</title>
+    <para>
+     As a quick test, the following procedure checks on resource failovers:
+    </para>
     <remark>toms 2016-07-27: Fate#321073
     Tool for Standardize Testing of Basic Cluster Functionality</remark>
-   <procedure xml:id="pro-ha-inst-quick-test">
-    <title>Testing Resource Failover</title>
-    <step>
-     <para>
-      Open a terminal and ping <systemitem>&subnetII;.1</systemitem>,
-      your virtual IP address:
-     </para>
-     <screen>&prompt.root;<command>ping</command> &subnetII;.1</screen>
-    </step>
-    <step>
-     <para>
-      Log in to your cluster as described in <xref
-       linkend="pro-ha-inst-quick-hawk2-login"/>.
-     </para>
-    </step>
-    <step>
-     <para>
-      In &hawk2; <menuchoice>
-       <guimenu>Status</guimenu>
-       <guimenu>Resources</guimenu>
-      </menuchoice>,
-      check which node the virtual IP address (resource
-      <systemitem>admin_addr</systemitem>) is running on. <!--As we did not
-      configure any preferences, it will be an arbitrary node.-->
-      We assume the resource is running on <systemitem class="server">&node1;</systemitem>.
+    <procedure xml:id="pro-ha-inst-quick-test">
+     <title>Testing Resource Failover</title>
+     <step>
+      <para>
+       Open a terminal and ping <systemitem>&subnetII;.1</systemitem>,
+       your virtual IP address:
       </para>
-    </step>
-    <step>
-     <para>
-      Put <systemitem class="server">&node1;</systemitem> into
-      <guimenu>Standby</guimenu> mode (see <xref linkend="fig-ha-inst-quick-standby"/>).
+      <screen>&prompt.root;<command>ping</command> &subnetII;.1</screen>
+     </step>
+     <step>
+      <para>
+       Log in to your cluster as described in <xref
+        linkend="pro-ha-inst-quick-hawk2-login"/>.
+      </para>
+     </step>
+     <step>
+      <para>
+       In &hawk2; <menuchoice>
+        <guimenu>Status</guimenu>
+        <guimenu>Resources</guimenu>
+       </menuchoice>,
+       check which node the virtual IP address (resource
+       <systemitem>admin_addr</systemitem>) is running on. <!--As we did not
+       configure any preferences, it will be an arbitrary node.-->
+       We assume the resource is running on <systemitem class="server">&node1;</systemitem>.
+       </para>
+     </step>
+     <step>
+      <para>
+       Put <systemitem class="server">&node1;</systemitem> into
+       <guimenu>Standby</guimenu> mode (see <xref linkend="fig-ha-inst-quick-standby"/>).
+      </para>
+      <figure xml:id="fig-ha-inst-quick-standby">
+       <title>Node <systemitem class="server">&node1;</systemitem> in Standby Mode</title>
+       <mediaobject>
+        <imageobject>
+         <imagedata width="60%" fileref="installquick-standby-node.png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+      <!--
+      <remark>toms 2016-07-18: Should we add an alternative method? I've tested
+       it with "crm node standby NODE" to put the node "offline" temporarily.
+       Sometimes an administrator doesn't want to go to a server room, so it
+       could be more convenient.
+      </remark>
+      <remark>taroth 2016-07-20: good idea, need to discuss it with krig</remark>-->
+     </step>
+     <step>
+      <para>
+       Click <menuchoice>
+        <guimenu>Status</guimenu>
+        <guimenu>Resources</guimenu>
+       </menuchoice>. The resource <systemitem>admin_addr</systemitem>
+       has been migrated to <systemitem class="server">&node2;</systemitem>.
+      </para>
+     </step>
+    </procedure>
+    <para>
+     During the migration, you should see an uninterrupted flow of pings to
+     the virtual IP address. This shows that the cluster setup and the floating
+     IP work correctly. Cancel the <command>ping</command> command with
+     <keycombo>
+        <keycap function="control"/><keycap>C</keycap>
+       </keycombo>.
+    </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-inst-quick-test-with-cluster-script">
+    <title>Testing with the &cmd.test.script; command</title>
+    <para>
+     The command &cmd.test.script; triggers cluster failures to find
+     problems. Before you use your cluster in production, it is
+     recommended to use this command to make sure everything works as expected.
+    </para>
+    <para>
+     The command supports the following checks:
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term><option>--split-brain-iptables</option></term>
+      <listitem>
+       <para>
+        Simulates a split brain scenario by blocking the &corosync; port.
+        Checks whether one node can be fenced as expected.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><option>--kill-sbd</option>/<option>--kill-corosync</option>/
+       <option>--kill-pacemakerd</option></term>
+      <listitem>
+       <para>
+        Kills the daemons for SBD, &corosync;, and &pace;.
+        After running one of these tests, you can find a report in the
+        directory <filename>/var/lib/crmsh/crash_test/</filename>.
+        The report includes a test case description, action logging,
+        and an explanation of possible results.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><option>--fence-node <replaceable>NODE</replaceable></option></term>
+      <listitem>
+       <para>
+        Fences a specific node passed from the command line.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     For more information, see <command>crm cluster crash_test --help</command>.
+    </para>
+    <example xml:id="ex-test-with-cluster-script">
+     <title>Testing the cluster: node fencing</title>
+<screen>&prompt.root;<command>crm_mon -1</command>
+Stack: corosync
+Current DC: &node1; (version ...) - partition with quorum
+Last updated: Fri Mar 03 14:40:21 2020
+Last change: Fri Mar 03 14:35:07 2020 by root via cibadmin on &node1;
+
+2 nodes configured
+1 resource configured
+
+Online: [ &node1; &node2; ]
+Active resources:
+
+ stonith-sbd    (stonith:external/sbd): Started &node1;
+
+&prompt.root;&cmd.test.script; --fence-node &node2;
+
+==============================================
+Testcase:          Fence node &node2;
+Fence action:      reboot
+Fence timeout:     60
+
+!!! WARNING WARNING WARNING !!!
+THIS CASE MAY LEAD TO NODE BE FENCED.
+TYPE Yes TO CONTINUE, OTHER INPUTS WILL CANCEL THIS CASE [Yes/No](No): <command>Yes</command>
+INFO: Trying to fence node "&node2;"
+INFO: Waiting 60s for node "&node2;" reboot...
+INFO: Node "&node2;" will be fenced by "&node1;"!
+INFO: Node "&node2;" was successfully fenced by "&node1;"</screen>
+    </example>
+    <para>
+      To watch <systemitem class="server">&node2;</systemitem> change status during
+      the test, log in to &hawk2; and navigate to <menuchoice><guimenu>Status</guimenu>
+      <guimenu>Nodes</guimenu></menuchoice>.
      </para>
-     <figure xml:id="fig-ha-inst-quick-standby">
-      <title>Node <systemitem class="server">&node1;</systemitem> in Standby Mode</title>
-      <mediaobject>
-       <imageobject>
-        <imagedata width="60%" fileref="installquick-standby-node.png"/>
-       </imageobject>
-      </mediaobject>
-     </figure>
-     <!--
-     <remark>toms 2016-07-18: Should we add an alternative method? I've tested
-      it with "crm node standby NODE" to put the node "offline" temporarily.
-      Sometimes an administrator doesn't want to go to a server room, so it
-      could be more convenient.
-     </remark>
-     <remark>taroth 2016-07-20: good idea, need to discuss it with krig</remark>-->
-    </step>
-    <step>
-     <para>
-      Click <menuchoice>
-       <guimenu>Status</guimenu>
-       <guimenu>Resources</guimenu>
-      </menuchoice>. The resource <systemitem>admin_addr</systemitem>
-      has been migrated to <systemitem class="server">&node2;</systemitem>.
-     </para>
-    </step>
-   </procedure>
-   <para>
-    During the migration, you should see an uninterrupted flow of pings to
-    the virtual IP address. This shows that the cluster setup and the floating
-    IP work correctly. Cancel the <command>ping</command> command with
-    <keycombo>
-       <keycap function="control"/><keycap>C</keycap>
-      </keycombo>.
-   </para>
+   </sect2>
   </sect1>
 
   <sect1 xml:id="sec-ha-inst-quick-moreinfo">
