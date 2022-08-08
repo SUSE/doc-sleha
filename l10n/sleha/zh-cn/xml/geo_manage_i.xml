@@ -1,1 +1,214 @@
-../../../../xml/geo_manage_i.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_manage_i.xml" version="5.0" xml:id="cha-ha-geo-manage">
+ <title>管理 Geo 群集</title>
+<info>
+ <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+  <dm:translation>yes</dm:translation>
+ </dm:docmanager>
+</info>
+ <para>
+  在投票间能够管理 Geo 群集中的某个票据之前，您需要先通过投票间命令行客户端或 Hawk2 手动将其授予给某个站点。
+ </para>
+ <sect1 xml:id="sec-ha-geo-manage-cli">
+  <title>通过命令行管理票据</title>
+  <para> 按<xref linkend="sec-ha-geo-manage-cli-booth"/>中所述使用 <command>booth</command> 命令行工具授予、列出或撤消票据。
+  </para>
+  <warning>
+   <title><command>crm_ticket</command> 和 <command>crm site ticket</command></title>
+   <para> 如果由于某些原因投票间服务未运行，您也可以使用 <command>crm_ticket</command> 或 <command>crm site ticket</command> 完全以手动方式管理票据。这两个命令仅在群集节点上可用。使用这些命令要非常小心，因为它们<emphasis>无法</emphasis>校验同一票据是否已授予给其他站点。有关详细信息，请阅读手册页。 </para>
+   <para> 只要投票间在正常运行，请一律仅使用 <command>booth</command> 进行手动干预。 </para>
+  </warning>
+
+
+<sect2 xml:id="sec-ha-geo-manage-cli-booth">
+ <title><command>booth</command> 命令概述</title>
+  <para>
+   您可以在群集中的任何计算机上运行 <command>booth</command> 命令，而不仅仅是正在运行 <systemitem class="daemon">boothd</systemitem> 的计算机上。<command>booth</command> 命令会尝试通过查看投票间配置文件和本地定义的 IP 地址来查找<quote>本地</quote>群集。如果未指定 <command>booth</command> 应连接到的站点（使用 <option>-s</option> 选项），则其一律会连接到本地站点。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>列出所有票据</term>
+    <listitem>
+     <screen><prompt role="root">root # </prompt><command>booth</command> list
+ticket: ticketA, leader: none
+ticket: ticketB, leader: 10.2.12.101, expires: 2014-08-13 10:28:57</screen>
+     <para> 如果未使用 <option>-s</option> 指定特定的站点，将从本地投票间实例请求有关票据的信息。 </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>向站点授予票据</term>
+    <listitem>
+     <screen><prompt role="root">root # </prompt><command>booth</command> grant -s 192.168.201.100 ticketA
+booth[27891]: 2014/08/13_10:21:23 info: grant request sent, waiting for the result ...
+booth[27891]: 2014/08/13_10:21:23 info: grant succeeded!</screen>
+     <para> 在这种情况下，<literal>ticketA</literal> 将授予给站点 <literal>192.168.201.100</literal>，如果未使用 <option>-s</option> 选项，投票间将自动连接到当前站点（您运行投票间客户端的站点）并会请求 <command>grant</command> 操作。 </para>
+     <para> 在授予票据前，该命令将执行健全性检查。如果同一票据已授予给其他站点，则系统会向您发出警告，并提示您先从当前站点撤消该票据。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>从站点撤消票据</term>
+    <listitem>
+     <screen><prompt role="root">root # </prompt><command>booth</command> revoke ticketA
+booth[27900]: 2014/08/13_10:21:23 info: revoke succeeded!</screen>
+     <para> 投票间将检查当前向哪个站点授予了票据，并针对 <literal>ticketA</literal> 请求 <command>revoke</command> 操作。撤消操作将立即执行。 </para>
+     <para><command>grant</command> 和（在某些情况下）<command>revoke</command> 操作可能需要一段时间才会返回确切的操作结果。客户端将一直等待结果，直到达到票据的 <varname>timeout</varname> 值才会放弃等待。如果使用了 <option>-w</option> 选项，客户端将会无限期等待。在日志文件中或者使用 <command>crm_ticket -L</command> 命令查找确切的状态。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>强制执行授予操作</term>
+    <listitem>
+     <screen><prompt role="root">root # </prompt><command>booth</command> grant -F ticketA</screen>
+     <para>此命令的结果取决于您使用的是自动票据还是手动票据。</para>
+      <itemizedlist>
+       <listitem>
+       <formalpara>
+        <title>自动票据</title>
+        <para>只要投票间可确保仅将票据授予给一个站点，您就无法将同一票据授予给其他站点，即使使用 <option>-F</option> 选项也不例外。但如果出现节点分裂情况，投票间便可能无法检查是否在其他站点授予了自动票据。在此情况下，Geo 群集管理员可以覆盖自动过程，并手动将票据授予给仍在正常运行的站点。在此情况下，<option>-F</option> 选项会告知投票间<emphasis>不要</emphasis>等待来自其他不可访问的站点的响应（如果为此票据定义了参数 <parameter>expire</parameter> 和 <parameter>acquire-after</parameter>，这样将会忽略这两个参数）。投票间会立即将票据授予给指定站点。</para>
+       </formalpara>
+      </listitem>
+      <listitem>
+       <formalpara>
+        <title>手动票据</title>
+        <para>使用<emphasis>手动</emphasis>票据时，<command>booth grant -F</command> 可让投票间立即将票据授予给指定站点。</para>
+       </formalpara>
+      </listitem>
+     </itemizedlist>
+     <warning>
+      <title>潜在的数据丢失</title>
+      <para>使用 <command>booth grant -F</command> 之前，请确保没有其他联机站点拥有同一票据。如果同一票据授予给多个站点，则依赖于该票据的资源可能会在多个站点上同时启动。这会导致并发性违规并可能造成数据损坏。</para>
+      <para>作为 Geo 群集管理员，您需要在另一个站点恢复可访问状态时解决票据之间的冲突。</para>
+     </warning>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>下面几节提供了在不同情形下管理票据的一些示例。</para>
+ </sect2>
+ <sect2 xml:id="sec-ha-geo-manage-cli-booth-auto-ticket-move">
+  <title>手动转移自动票据</title>
+   <para>
+    假设您要将 <literal>ticketA</literal> 从站点 <literal>amsterdam</literal>（虚拟 IP 为 <literal>192.168.201.100</literal>）手动转移到站点 <literal>berlin</literal>（虚拟 IP 为 <literal>192.168.202.100</literal>），请执行以下操作：
+   </para>
+  <procedure>
+   <step>
+    <para> 登录 <literal>amsterdam</literal>。</para>
+   </step>
+   <step>
+    <para>
+     使用以下命令将 <literal>ticketA</literal> 设为待机状态：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm_ticket</command> -t ticketA -s</screen>
+   </step>
+   <step>
+    <para>
+     等待任一资源（视 <literal>ticketA</literal> 而定）停止或完全降级。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用以下命令从站点 <literal>amsterdam</literal> 撤消 <literal>ticketA</literal>：
+    </para>
+<screen><prompt role="root">root # </prompt><command>booth</command> revoke -s 192.168.201.100 ticketA</screen>
+   </step>
+   <step>
+    <para>
+     从原始站点撤消票据后，使用以下命令将 <literal>ticketA</literal> 授予给站点 <literal>berlin</literal>：
+    </para>
+<screen><prompt role="root">root # </prompt><command>booth</command> grant -s 192.168.202.100 ticketA</screen>
+    <para>这样依赖于此票据的资源便可以在站点 <literal>berlin</literal> 上启动。</para>
+   </step>
+   <step>
+    <para>
+     使用以下命令去除站点 <literal>amsterdam</literal> 上 <literal>ticketA</literal> 的待机模式：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm_ticket</command> -t ticketA -a</screen>
+     <para>如果 <literal>berlin</literal> 发生故障，依赖于 <literal>ticketA</literal> 的资源将自动故障转移到站点 <literal>amsterdam</literal>。
+     </para>
+   </step>
+  </procedure>
+ </sect2>
+ <sect2 xml:id="sec-ha-geo-manage-cli-booth-man-ticket-move">
+  <title>转移手动票据</title>
+   <para>
+    假设您要将手动票据 <literal>ticket-nfs</literal> 从站点 <literal>amsterdam</literal>（虚拟 IP 为 <literal>192.168.201.100</literal>）转移到站点 <literal>berlin</literal>（虚拟 IP 为 <literal>192.168.202.100</literal>），请执行以下操作：
+   </para>
+  <procedure>
+   <step>
+    <para>登录 <literal>amsterdam</literal>。</para>
+   </step>
+   <step>
+    <para>
+     使用以下命令将 <literal>ticket-nfs</literal> 设为待机状态：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm_ticket</command> -t ticket-nfs -s</screen>
+   </step>
+   <step>
+    <para>
+     等待依赖于 <literal>ticket-nfs</literal> 的任何资源停止或完全降级。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用以下命令从站点 <literal>amsterdam</literal> 撤消 <literal>ticket-nfs</literal>：
+    </para>
+<screen><prompt role="root">root # </prompt><command>booth</command> revoke -s 192.168.201.100 ticket-nfs</screen>
+   </step>
+   <step>
+    <para>
+     从原始站点撤消票据后，使用以下命令将 <literal>ticket-nfs</literal> 授予给站点 <literal>berlin</literal>：
+    </para>
+<screen><prompt role="root">root # </prompt><command>booth</command> grant -s 192.168.202.100 ticket-nfs</screen>
+    <para>这样依赖于此票据的资源便可以在站点 <literal>berlin</literal> 上启动。</para>
+   </step>
+   <step>
+    <para>
+     如果您要在任何时间将资源转移回 <literal>amsterdam</literal>，请在站点 <literal>amsterdam</literal> 上去除 <literal>ticket-nfs</literal> 的待机模式：
+    </para>
+<screen><prompt role="root">root # </prompt><command>crm_ticket</command> -t ticket-nfs -a</screen>
+   </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec-ha-geo-manage-cli-booth-man-ticket-failover">
+  <title>故障转移手动票据</title>
+   <para> 我们假设（手动管理的）票据 <literal>ticket-nfs</literal> 已授予给站点 <literal>amsterdam</literal>（虚拟 IP 为 <literal>192.168.201.100</literal>）。目前无法访问此站点。站点 <literal>berlin</literal>（虚拟 IP 为 <literal>192.168.202.100</literal>）仍然可用。 </para>
+  <procedure>
+   <step>
+    <para>
+      尝试联系站点 <literal>amsterdam</literal> 的本地管理员，并检查该站点是否发生故障。
+    </para>
+    <itemizedlist>
+     <listitem>
+       <para>如果是，请执行<xref linkend="step-login" xrefstyle="select:label"/>。</para>
+     </listitem>
+     <listitem>
+       <para>如果因连接问题而无法访问 <literal>amsterdam</literal>，但该节点仍在运行，可请本地群集管理员在站点 <literal>amsterdam</literal> 上将 <literal>ticket-nfs</literal> 设为待机模式：</para>
+<screen><prompt role="root">root # </prompt><command>crm_ticket</command> -t ticket-nfs -s</screen>
+       <para>此操作将撤回依赖于 <literal>ticket-nfs</literal> 的资源。现在便可放心将票据授予给其他站点。
+       </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step xml:id="step-login">
+    <para> 登录 <literal>berlin</literal>。</para>
+   </step>
+   <step>
+    <para> 使用 <option>-F</option> 选项将 <literal>ticket-nfs</literal> 授予给站点 <literal>berlin</literal>： </para>
+    <screen><prompt role="root">root # </prompt><command>booth</command> grant -F ticket-nfs</screen>
+    <para>系统会显示同一票据可能已授予给其他站点的警告，但会执行该命令。</para>
+   </step>
+   <step>
+    <para>使用以下命令检查结果：</para>
+    <screen><prompt role="root">root # </prompt><command>booth</command> list</screen>
+    <para>命令输出中应该会指出 <literal>berlin</literal> 现在是 <literal>ticket-nfs</literal> 的票据拥有者。依赖于此票据的所有资源都将在 <literal>berlin</literal> 上启动。</para>
+   </step>
+   <step>
+    <para>在尝试重新将 <literal>amsterdam</literal> 添加到 Geo 群集中之前，请务必撤消 <literal>amsterdam</literal> 上的 <literal>ticket-nfs</literal>：</para>
+    <screen><prompt role="root">root # </prompt><command>booth</command> revoke -s 192.168.201.100 ticket-nfs</screen>
+   </step>
+  </procedure>
+ </sect2>
+</sect1>
+ <xi:include href="geo_manage_hawk2_i.xml"/>
+</chapter>
