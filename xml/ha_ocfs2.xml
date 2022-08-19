@@ -308,8 +308,8 @@
   </procedure>
 
   <para>
-    For details on configuring the resource group for DLM, see <xref
-     linkend="pro-dlm-resources"/>.
+    For details on configuring the resource for DLM, see <xref
+     linkend="sec-ha-storage-generic-dlm-config"/>.
   </para>
  </sect1>
  <sect1 xml:id="sec-ha-ocfs2-create">
@@ -546,6 +546,9 @@
    You can either mount an &ocfs; volume manually or with the cluster
    manager, as described in <xref linkend="pro-ocfs2-mount-cluster"/>.
   </para>
+  <para>
+   To mount multiple &ocfs; volumes, see <xref linkend="pro-ocfs2-mount-multiple"/>.
+  </para>
 
   <procedure xml:id="pro-ocfs2-mount-manual">
    <title>Manually mounting an &ocfs; volume</title>
@@ -587,19 +590,19 @@
    <title>Mounting an &ocfs; volume with the cluster resource manager</title>
    <para>
     To mount an &ocfs; volume with the &ha; software, configure an
-    ocfs2 file system resource in the cluster. The following procedure uses
+    &ocfs; file system resource in the cluster. The following procedure uses
     the <command>crm</command> shell to configure the cluster resources.
     Alternatively, you can also use &hawk2; to configure the resources as
     described in <xref linkend="sec-ha-ocfs2-rsc-hawk2"/>.
    </para>
    <step>
     <para>
-     Start a shell and log in as &rootuser; or equivalent.
+     Log in to a node as &rootuser; or equivalent.
     </para>
    </step>
    <step>
     <para>
-     Run <command>crm</command> <option>configure</option>.
+     Run <command>crm configure</command>.
     </para>
    </step>
    <step>
@@ -620,20 +623,30 @@
      <xref linkend="pro-dlm-resources"/>.
     </para>
 <screen>&prompt.crm.conf;<command>modgroup</command> g-storage add ocfs2-1</screen>
-    <para>The <command>add</command> subcommand appends the new group
-     member by default. Because of the base group's internal colocation and ordering, Pacemaker
-     will only start the <systemitem class="resource">ocfs2-1</systemitem>
-     resource on nodes that also have a <literal>dlm</literal> resource
-     already running.
+    <para>
+     Because of the base group's internal colocation and ordering,
+     the <systemitem class="resource">ocfs2-1</systemitem> resource will only start
+     on nodes that also have a <literal>dlm</literal> resource already running.
     </para>
+    <important>
+     <title>Do not use a group for multiple &ocfs; resources</title>
+     <para>
+      Adding multiple &ocfs; resources to a group creates a dependency between
+      the &ocfs; volumes. For example, if you created a group with
+      <command>crm configure group g-storage dlm ocfs2-1 ocfs2-2</command>,
+      then stopping <literal>ocfs2-1</literal> will also stop
+      <literal>ocfs2-2</literal>, and starting <literal>ocfs2-2</literal>
+      will also start <literal>ocfs2-1</literal>.
+     </para>
+     <para>
+      To use multiple &ocfs; resources in the cluster, use colocation and order
+      constraints as described in <xref linkend="pro-ocfs2-mount-multiple"/>.
+     </para>
+    </important>
    </step>
    <step>
     <para>
      Review your changes with <command>show</command>.
-<!--taroth 2014-08-28: appendix file commented for now, because it needs
-      alignement with changes here:
-      To check if you have configured all needed resources, also refer to
-      <xref linkend="cha-ha-config-example"/>.-->
     </para>
    </step>
    <step>
@@ -641,6 +654,85 @@
      If everything is correct, submit your changes with
      <command>commit</command> and leave the crm live configuration with
      <command>quit</command>.
+    </para>
+   </step>
+  </procedure>
+
+  <procedure xml:id="pro-ocfs2-mount-multiple">
+   <title>Mounting multiple &ocfs; volumes with the cluster resource manager</title>
+   <para>
+    To mount multiple &ocfs; volumes in the cluster, configure an &ocfs; file system
+    resource for each volume, and colocate them with the <literal>dlm</literal>
+    resource you created in <xref linkend="pro-dlm-multiple-resources"/>.
+   </para>
+   <important role="compact">
+    <para>
+     Do <emphasis>not</emphasis> add multiple &ocfs; resources to a group with DLM.
+     This creates a dependency between the &ocfs; volumes. For example, if
+     <literal>ocfs2-1</literal> and <literal>ocfs2-2</literal> are in the same group,
+     then stopping <literal>ocfs2-1</literal> will also stop <literal>ocfs2-2</literal>.
+    </para>
+   </important>
+   <step>
+    <para>
+     Log in to a node as &rootuser; or equivalent.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run <command>crm configure</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Create the primitive for the first &ocfs; volume:
+    </para>
+<screen>&prompt.crm.conf;<command>primitive</command> ocfs2-1 Filesystem \
+  params directory="/srv/ocfs2-1" fstype=ocfs2 device="/dev/disk/by-partlabel/ocfs2-1" \
+  op monitor interval=20 timeout=40 \
+  op start timeout=60 interval=0 \
+  op stop timeout=60 interval=0</screen>
+   </step>
+   <step>
+    <para>
+     Create the primitive for the second &ocfs; volume:
+    </para>
+<screen>&prompt.crm.conf;<command>primitive</command> ocfs2-2 Filesystem \
+  params directory="/srv/ocfs2-2" fstype=ocfs2 device="/dev/disk/by-partlabel/ocfs2-2" \
+  op monitor interval=20 timeout=40 \
+  op start timeout=60 interval=0 \
+  op stop timeout=60 interval=0</screen>
+   </step>
+   <step>
+    <para>
+     Clone the &ocfs; resources so that they can run on all nodes:
+    </para>
+<screen>&prompt.crm.conf;<command>clone</command> cl-ocfs2-1 ocfs2-1 meta interleave=true
+&prompt.crm.conf;<command>clone</command> cl-ocfs2-2 ocfs2-2 meta interleave=true</screen>
+   </step>
+   <step>
+    <para>
+     Add a colocation constraint for both &ocfs; resources so that they can only
+     run on nodes where DLM is also running:
+    </para>
+<screen>&prompt.crm.conf;<command>colocation</command> co-ocfs2-with-dlm inf: ( cl-ocfs2-1 cl-ocfs2-2 ) cl-dlm</screen>
+   </step>
+   <step>
+    <para>
+     Add an order constraint for both &ocfs; resources so that they can only
+     start after DLM is already running:
+    </para>
+<screen>&prompt.crm.conf;<command>order</command> o-dlm-before-ocfs2 Mandatory: cl-dlm ( cl-ocfs2-1 cl-ocfs2-2 )</screen>
+   </step>
+   <step>
+    <para>
+     Review your changes with <command>show</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     If everything is correct, submit your changes with <command>commit</command>
+     and leave the crm live configuration with <command>quit</command>.
     </para>
    </step>
   </procedure>
