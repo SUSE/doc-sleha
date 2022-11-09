@@ -1,24 +1,32 @@
-### Description
-<!--
- Add a few sentences describing the overall goals of this pull request.
- If there are relevant Bugzilla or Jira entries, reference them.
--->
+### PR creator: Description
 
-### Backports
-<!--
- Are backports required? Check all items that apply.
--->
-
-- [ ] To maintenance/SLEHA15SP4
-- [ ] To maintenance/SLEHA15SP3
-- [ ] To maintenance/SLEHA15SP2
-- [ ] To maintenance/SLEHA15SP1
-- [ ] To maintenance/SLEHA15
-- [ ] To maintenance/SLEHA12SP5
-- [ ] To maintenance/SLEHA12SP4
+Describe the overall goals of this pull request.
 
 
-### References
-<!--
-Reference any Bugzilla or Jira issues
--->
+### PR creator: Are there any relevant issues/feature requests?
+
+* bsc#...
+* jsc#SLE-...
+
+
+### PR creator: Which product versions do the changes apply to?
+
+When opening a PR, check all versions of the documentation that your PR applies to.
+
+- SLE-HA 15
+  - [ ] 15 next *(current `main`, no backport necessary)*
+  - [ ] 15 SP4
+  - [ ] 15 SP3
+  - [ ] 15 SP2
+  - [ ] 15 SP1
+  - [ ] 15
+- SLE-HA 12
+  - [ ] 12 SP5
+  - [ ] 12 SP4
+
+### PR reviewer only: Have all backports been applied?
+
+The doc team member merging your PR will take care of backporting to older documents.
+When opening a PR, do *not* set the following check box.
+
+- [ ] all necessary backports are done
