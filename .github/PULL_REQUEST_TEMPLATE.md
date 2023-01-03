@@ -19,8 +19,7 @@ When opening a PR, check all versions of the documentation that your PR applies 
   - [ ] 15 SP3
   - [ ] 15 SP2
   - [ ] 15 SP1
-  - [ ] 15
-- SLE-HA 12
+ - SLE-HA 12
   - [ ] 12 SP5
   - [ ] 12 SP4
 
