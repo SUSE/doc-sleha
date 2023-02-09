@@ -1,0 +1,2016 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE chapter
+[
+  <!ENTITY % entities SYSTEM "generic-entities.ent">
+    %entities;
+]>
+
+<chapter xml:id="sec-ha-config-basics-resources" xml:lang="en"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Configuring cluster resources</title>
+ <info>
+  <abstract>
+   <para>
+    As a cluster administrator, you need to create cluster resources for
+    every resource or application you run on servers in your cluster. Cluster
+    resources can include Web sites, e-mail servers, databases, file systems,
+    virtual machines, and any other server-based applications or services you
+    want to make available to users at all times.
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker></dm:bugtracker>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+ <sect1 xml:id="sec-ha-config-basics-resources-types">
+  <title>Types of resources</title>
+  <para>
+   The following types of resources can be created:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>Primitives</term>
+    <listitem>
+     <para>
+      A primitive resource, the most basic type of resource.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Groups</term>
+    <listitem>
+     <para>
+      Groups contain a set of resources that need to be located together,
+      started sequentially and stopped in the reverse order.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Clones</term>
+    <listitem>
+     <para>
+      Clones are resources that can be active on multiple hosts. Any
+      resource can be cloned, provided the respective resource agent
+      supports it.
+     </para>
+     <para>
+      Promotable clones (also known as multi-state resources) are a
+      special type of clone resources that can be promoted.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-raclasses">
+  <title>Supported resource agent classes</title>
+  <para>
+   For each cluster resource you add, you need to define the standard that
+   the resource agent conforms to. Resource agents abstract the services
+   they provide and present an accurate status to the cluster, which allows
+   the cluster to be non-committal about the resources it manages. The
+   cluster relies on the resource agent to react appropriately when given a
+   start, stop or monitor command.
+  </para>
+  <para>
+   Typically, resource agents come in the form of shell scripts. The
+   &hasi; supports the following classes of resource agents:
+  </para>
+  <variablelist>
+   <varlistentry xml:id="vle-ha-resources-ocf-ra">
+    <term>Open Cluster Framework (OCF) resource agents</term>
+    <listitem>
+     <para>
+      OCF RA agents are best suited for use with &ha;, especially when
+      you need promotable clone resources or special monitoring abilities. The
+      agents are generally located in
+      <filename>/usr/lib/ocf/resource.d/<replaceable>provider</replaceable>/</filename>.
+      Their functionality is similar to that of LSB scripts. However, the
+      configuration is always done with environmental variables which allow
+      them to accept and process parameters easily.
+      OCF specifications have strict definitions of which exit codes must
+      be returned by actions, see <xref linkend="sec-ha-errorcodes"/>. The
+      cluster follows these specifications exactly.
+     </para>
+     <para>
+      All OCF Resource Agents are required to have at least the actions
+      <literal>start</literal>, <literal>stop</literal>,
+      <literal>status</literal>, <literal>monitor</literal>, and
+      <literal>meta-data</literal>. The <literal>meta-data</literal> action
+      retrieves information about how to configure the agent. For example,
+      to know more about the <literal>IPaddr</literal> agent by
+      the provider <literal>heartbeat</literal>, use the following command:
+     </para>
+<screen>OCF_ROOT=/usr/lib/ocf /usr/lib/ocf/resource.d/heartbeat/IPaddr meta-data</screen>
+     <para>
+      The output is information in XML format, including several sections
+      (general description, available parameters, available actions for the
+      agent).
+     </para>
+     <para>
+      Alternatively, use the &crmsh; to view information on OCF resource
+      agents. For details, see <xref linkend="sec-ha-manual-config-ocf"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Linux Standards Base (LSB) scripts</term>
+    <listitem>
+     <para>
+      LSB resource agents are generally provided by the operating
+      system/distribution and are found in
+      <filename>/etc/init.d</filename>. To be used with the cluster, they
+      must conform to the LSB init script specification. For example, they
+      must have several actions implemented, which are, at minimum,
+      <literal>start</literal>, <literal>stop</literal>,
+      <literal>restart</literal>, <literal>reload</literal>,
+      <literal>force-reload</literal>, and <literal>status</literal>. For
+      more information, see
+      <link xlink:href="http://refspecs.linuxbase.org/LSB_4.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html"/>.
+     </para>
+     <para>
+      The configuration of those services is not standardized. If you
+      intend to use an LSB script with &ha;, make sure that you
+      understand how the relevant script is configured. Often you can find
+      information about this in the documentation of the relevant package
+      in
+      <filename>/usr/share/doc/packages/<replaceable>PACKAGENAME</replaceable></filename>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Systemd</term>
+    <listitem>
+     <para>
+      Starting with &sle; 12, systemd is a replacement for the popular
+      System V init daemon. Pacemaker can manage systemd services if they
+      are present. Instead of init scripts, systemd has unit files.
+      Generally the services (or unit files) are provided by the operating
+      system. In case you want to convert existing init scripts, find more
+      information at
+      <link xlink:href="http://0pointer.de/blog/projects/systemd-for-admins-3.html"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Service</term>
+    <listitem>
+     <para>
+      There are currently many <quote>common</quote> types of system
+      services that exist in parallel: <literal>LSB</literal> (belonging to
+      System V init), <literal>systemd</literal>, and (in some
+      distributions) <literal>upstart</literal>. Therefore, Pacemaker
+      supports a special alias which intelligently figures out which one
+      applies to a given cluster node. This is particularly useful when the
+      cluster contains a mix of systemd, upstart, and LSB services.
+      Pacemaker will try to find the named service in the following order:
+      as an LSB (SYS-V) init script, a systemd unit file, or an Upstart
+      job.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Nagios</term>
+    <listitem>
+     <para>
+      Monitoring plug-ins (formerly called Nagios plug-ins) allow to
+      monitor services on remote hosts. Pacemaker can do remote monitoring
+      with the monitoring plug-ins if they are present. For detailed
+      information, see
+      <xref linkend="sec-ha-config-basics-remote-nagios"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>&stonith; (fencing) resource agents</term>
+    <listitem>
+     <para>
+      This class is used exclusively for fencing related resources. For
+      more information, see <xref linkend="cha-ha-fencing"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   The agents supplied with the &hasi; are written to OCF
+   specifications.
+  </para>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-timeouts">
+  <title>Timeout values</title>
+  <para>
+   Timeouts values for resources can be influenced by the following
+   parameters:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <varname>op_defaults</varname> (global timeout for operations),
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     a specific timeout value defined in a resource template,
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     a specific timeout value defined for a resource.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <note>
+   <title>Priority of values</title>
+   <para>
+    If a <emphasis>specific</emphasis> value is defined for a resource, it
+    takes precedence over the global default. A specific value for a
+    resource also takes precedence over a value that is defined in a
+    resource template.
+   </para>
+  </note>
+  <para>
+   Getting timeout values right is very important. Setting them too low
+   will result in a lot of (unnecessary) fencing operations for the
+   following reasons:
+  </para>
+  <orderedlist spacing="normal">
+   <listitem>
+    <para>
+     If a resource runs into a timeout, it fails and the cluster will try
+     to stop it.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     If stopping the resource also fails (for example, because the timeout
+     for stopping is set too low), the cluster will fence the node. It
+     considers the node where this happens to be out of control.
+    </para>
+   </listitem>
+  </orderedlist>
+  <para>
+   You can adjust the global default for operations and set any specific
+   timeout values with both &crmsh; and &hawk2;. The best practice for
+   determining and setting timeout values is as follows:
+  </para>
+  <procedure>
+   <title>Determining timeout values</title>
+   <step>
+    <para>
+     Check how long it takes your resources to start and stop (under load).
+    </para>
+   </step>
+   <step>
+    <para>
+     If needed, add the <varname>op_defaults</varname> parameter and set
+     the (default) timeout value accordingly:
+    </para>
+    <substeps performance="required">
+     <step>
+      <para>
+       For example, set <literal>op_defaults</literal> to
+       <literal>60</literal> seconds:
+      </para>
+<screen>&prompt.crm.conf;<command>op_defaults timeout=60</command></screen>
+     </step>
+     <step>
+      <para>
+       For resources that need longer periods of time, define individual
+       timeout values.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     When configuring operations for a resource, add separate
+     <literal>start</literal> and <literal>stop</literal> operations. When
+     configuring operations with &hawk2;, it will provide useful timeout
+     proposals for those operations.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-management">
+   <title>Creating primitive resources</title>
+   <para>
+    Before you can use a resource in the cluster, it must be set up. For
+    example, to use an Apache server as a cluster resource, set
+    up the Apache server first and complete the Apache configuration before
+    starting the respective resource in your cluster.
+   </para>
+   <para>
+    If a resource has specific environment requirements, make sure they are
+    present and identical on all cluster nodes. This kind of configuration
+    is not managed by the &hasi;. You must do this yourself.
+   </para>
+   <para>
+    You can create primitive resources using either &hawk2; or &crmsh;.
+   </para>
+   <note>
+    <title>Do not touch services managed by the cluster</title>
+    <para>
+     When managing a resource with the &hasi;, the same resource must not
+     be started or stopped otherwise (outside of the cluster, for example
+     manually or on boot or reboot). The &hasi; software is responsible
+     for all service start or stop actions.
+    </para>
+    <para>
+     If you need to execute testing or maintenance tasks after the services
+     are already running under cluster control, make sure to put the
+     resources, nodes, or the whole cluster into maintenance mode before you
+     touch any of them manually. For details, see
+     <xref linkend="sec-ha-maint-overview"/>.
+    </para>
+   </note>
+   <important>
+    <title>Resource IDs and node names</title>
+    <para>Cluster resources and cluster nodes should be named differently.
+     Otherwise &hawk2; will fail.</para>
+   </important>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-primitive">
+    <title>Creating primitive resources with &hawk2;</title>
+    <para>
+     To create the most basic type of resource, proceed as follows:
+    </para>
+    <procedure xml:id="pro-conf-hawk2-primitive-add">
+     <title>Adding a primitive resource with &hawk2;</title>
+     <step>
+      <para>
+       Log in to &hawk2;:
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       From the left navigation bar, select <menuchoice>
+       <guimenu>Configuration</guimenu> <guimenu>Add
+       Resource</guimenu> <guimenu>Primitive</guimenu> </menuchoice>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Enter a unique <guimenu>Resource ID</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       In case a resource template exists on which you want to base the resource
+       configuration, select the respective <guimenu>Template</guimenu>.
+      </para>
+     </step>
+     <step xml:id="step-ha-config-hawk2-primitive-start">
+      <para>
+       Select the resource agent <guimenu>Class</guimenu> you want to use:
+       <literal>lsb</literal>, <literal>ocf</literal>,
+       <literal>service</literal>, <literal>stonith</literal>, or
+       <literal>systemd</literal>. For more information, see
+       <xref
+         linkend="sec-ha-config-basics-raclasses"/>.
+      </para>
+     </step>
+     <step>
+      <para>
+       If you selected <literal>ocf</literal> as class, specify the
+       <guimenu>Provider</guimenu> of your OCF resource agent. The OCF
+       specification allows multiple vendors to supply the same resource agent.
+      </para>
+     </step>
+     <step>
+      <para>
+       From the <guimenu>Type</guimenu> list, select the resource agent you want
+       to use (for example, <guimenu>IPaddr</guimenu> or
+       <guimenu>Filesystem</guimenu>). A short description for this resource
+       agent is displayed.
+      </para>
+      <para>
+       With that, you have specified the resource basics.
+      </para>
+      <note>
+       <para>
+        The selection you get in the <guimenu>Type</guimenu> list depends on the
+        <guimenu>Class</guimenu> (and for OCF resources also on the
+        <guimenu>Provider</guimenu>) you have chosen.
+       </para>
+      </note>
+      <figure>
+       <title>&hawk2;&mdash;primitive resource</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-primitive-basic.png" width="100%"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-primitive-basic.png" width="100%"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+     <step>
+      <para>
+       After you have specified the resource basics, &hawk2; shows
+       the following categories. Either keep these categories as suggested by &hawk2;,
+       or edit them as required.
+      </para>
+
+      <variablelist>
+       <varlistentry>
+        <term>Parameters (instance attributes)</term>
+        <listitem>
+         <para>
+          Determines which instance of a service the resource controls.
+          When creating a resource, &hawk2; automatically shows any required
+          parameters. Edit them to get a valid resource configuration.
+         </para>
+         <para>
+          For more information, refer to <xref linkend="sec-ha-config-basics-inst-attr"/>.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>Operations</term>
+        <listitem>
+         <para>
+          Needed for resource monitoring. When creating a resource, &hawk2; displays
+          the most important resource operations (<literal>monitor</literal>,
+          <literal>start</literal>, and <literal>stop</literal>).
+         </para>
+         <para>
+          For more information, refer to <xref linkend="sec-ha-config-basics-operations"/>.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>Meta attributes</term>
+        <listitem>
+         <para>
+          Tells the CRM how to treat a specific resource. When creating a resource,
+          &hawk2; automatically lists the important meta
+          attributes for that resource (for example, the
+          <literal>target-role</literal> attribute that defines the initial state of
+          a resource. By default, it is set to <literal>Stopped</literal>, so the
+          resource will not start immediately).
+         </para>
+         <para>
+          For more information, refer to <xref linkend="sec-ha-config-basics-meta-attr"/>.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>Utilization</term>
+        <listitem>
+         <para>
+          Tells the CRM what capacity a certain resource requires from a node.
+         </para>
+         <para>
+          For more information, refer to <xref linkend="sec-config-hawk2-utilization"/>.
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+     </step>
+     <step>
+      <para>
+       Click <guimenu>Create</guimenu> to finish the configuration. A message at the
+       top of the screen shows if the action has been successful.
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-create">
+    <title>Creating primitive resources with &crmsh;</title>
+    <procedure xml:id="pro-ha-manual-config-create">
+     <step>
+      <para>
+       Log in as &rootuser; and start the <command>crm</command> tool:
+      </para>
+ <screen>&prompt.root;<command>crm configure</command></screen>
+     </step>
+     <step>
+      <para>
+       Configure a primitive IP address:
+      </para>
+ <screen>&prompt.crm.conf;<command>primitive myIP IPaddr \
+      params ip=127.0.0.99 op monitor interval=60s</command></screen>
+      <para>
+       The previous command configures a <quote>primitive</quote> with the
+       name <literal>myIP</literal>. You need to choose a class (here
+       <literal>ocf</literal>), provider (<literal>heartbeat</literal>), and
+       type (<literal>IPaddr</literal>). Furthermore, this primitive expects
+       other parameters like the IP address. Change the address to your
+       setup.
+      </para>
+     </step>
+     <step>
+      <para>
+       Display and review the changes you have made:
+      </para>
+ <screen>&prompt.crm.conf;<command>show</command></screen>
+     </step>
+     <step>
+      <para>
+       Commit your changes to take effect:
+      </para>
+ <screen>&prompt.crm.conf;<command>commit</command></screen>
+     </step>
+    </procedure>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-advanced-groups">
+   <title>Creating resource groups</title>
+   <para>
+    Some cluster resources depend on other components or resources. They
+    require that each component or resource starts in a specific order and
+    runs together on the same server with resources it depends on. To
+    simplify this configuration, you can use cluster resource groups.
+   </para>
+   <para>
+    You can create resource groups using either &hawk2; or &crmsh;.
+   </para>
+   <example xml:id="ex-ha-config-resource-group">
+    <title>Resource group for a web server</title>
+    <para>
+     An example of a resource group would be a Web server that requires an
+     IP address and a file system. In this case, each component is a
+     separate resource that is combined into a cluster resource group. The
+     resource group would run on one or more servers. In case of a software
+     or hardware malfunction, the group would fail over to another server
+     in the cluster, similar to an individual cluster resource.
+    </para>
+   </example>
+   <figure pgwide="0">
+    <title>Group resource</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="webserver_groupresource_a.svg" width="70%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="webserver_groupresource_a.png" width="63%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <para>
+    Groups have the following properties:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>Starting and stopping</term>
+     <listitem>
+      <para>
+       Resources are started in the order they appear in and stopped in the
+       reverse order.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Dependency</term>
+     <listitem>
+      <para>
+       If a resource in the group cannot run anywhere, then none of the
+       resources located after that resource in the group is allowed to
+       run.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Contents</term>
+     <listitem>
+      <para>
+       Groups may only contain a collection of primitive cluster resources.
+       Groups must contain at least one resource, otherwise the
+       configuration is not valid. To refer to the child of a group
+       resource, use the child's ID instead of the group's ID.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Constraints</term>
+     <listitem>
+      <para>
+       Although it is possible to reference the group's children in
+       constraints, it is usually preferable to use the group's name
+       instead.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Stickiness</term>
+     <listitem>
+      <para>
+       Stickiness is additive in groups. Every <emphasis>active</emphasis>
+       member of the group will contribute its stickiness value to the
+       group's total. So if the default
+       <literal>resource-stickiness</literal> is <literal>100</literal> and
+       a group has seven members (ﬁve of which are active), the group as
+       a whole will prefer its current location with a score of
+       <literal>500</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Resource monitoring</term>
+     <listitem>
+      <para>
+       To enable resource monitoring for a group, you must configure
+       monitoring separately for each resource in the group that you want
+       monitored.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-group">
+    <title>Creating resource groups with &hawk2;</title>
+    <note>
+     <title>Empty groups</title>
+     <para>
+      Groups must contain at least one resource, otherwise the configuration is
+      not valid. While creating a group, &hawk2; allows you to create more
+      primitives and add them to the group. For details, see
+      <xref linkend="sec-conf-hawk2-manage-edit"/>.
+     </para>
+    </note>
+    <procedure xml:id="pro-conf-hawk2-group">
+     <title>Adding a resource group with &hawk2;</title>
+     <step>
+      <para>
+       Log in to &hawk2;:
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       From the left navigation bar, select <menuchoice>
+       <guimenu>Configuration</guimenu> <guimenu>Add Resource</guimenu>
+       <guimenu>Group</guimenu> </menuchoice>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Enter a unique <guimenu>Group ID</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       To define the group members, select one or multiple entries in the list of
+       <guimenu>Children</guimenu>. Re-sort group members by dragging and
+       dropping them into the order you want by using the <quote>handle</quote>
+       icon on the right.
+      </para>
+     </step>
+     <step>
+      <para>
+       If needed, modify or add <guimenu>Meta Attributes</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Click <guimenu>Create</guimenu> to finish the configuration. A message at
+       the top of the screen shows if the action has been successful.
+      </para>
+     </step>
+    </procedure>
+    <figure>
+     <title>&hawk2;&mdash;resource group</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-rsc-group.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-rsc-group.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-group">
+    <title>Creating resource groups with &crmsh;</title>
+    <para>
+     The following example creates two primitives (an IP address and an
+     e-mail resource):
+    </para>
+    <procedure>
+     <step>
+      <para>
+       Run the <command>crm</command> command as system administrator. The
+       prompt changes to <literal>&crm.live;</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Configure the primitives:
+      </para>
+ <screen>&prompt.crm;<command>configure</command>
+ &prompt.crm.conf;<command>primitive Public-IP ocf:heartbeat:IPaddr \
+    params ip=1.2.3.4 id= Public-IP</command>
+ &prompt.crm.conf;<command>primitive Email systemd:postfix \
+    params id=Email</command></screen>
+     </step>
+     <step>
+      <para>
+       Group the primitives with their relevant identifiers in the correct
+       order:
+      </para>
+ <screen>&prompt.crm.conf;<command>group g-mailsvc Public-IP Email</command></screen>
+     </step>
+    </procedure>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-advanced-clones">
+   <title>Creating clone resources</title>
+   <para>
+    You may want certain resources to run simultaneously on multiple nodes
+    in your cluster. To do this you must configure a resource as a clone.
+    Examples of resources that might be configured as clones include
+    cluster file systems like OCFS2. You can clone any
+    resource provided. This is supported by the resource's Resource
+    Agent. Clone resources may even be configured differently depending on
+    which nodes they are hosted.
+   </para>
+   <para>
+    There are three types of resource clones:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>Anonymous clones</term>
+     <listitem>
+      <para>
+       These are the simplest type of clones. They behave identically
+       anywhere they are running. Because of this, there can only be one
+       instance of an anonymous clone active per machine.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Globally unique clones</term>
+     <listitem>
+      <para>
+       These resources are distinct entities. An instance of the clone
+       running on one node is not equivalent to another instance on another
+       node; nor would any two instances on the same node be equivalent.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Promotable clones (multi-state resources)</term>
+     <listitem>
+      <para>
+       Active instances of these resources are divided into two states,
+       active and passive. These are also sometimes called primary and
+       secondary. Promotable clones can be either
+       anonymous or globally unique. For more information, see
+       <xref linkend="sec-ha-config-basics-resources-advanced-masters"/>.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    Clones must contain exactly one group or one regular resource.
+   </para>
+   <para>
+    When configuring resource monitoring or constraints, clones have
+    different requirements than simple resources. For details, see
+    &paceex;, available from <link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>.
+   </para>
+   <para>
+    You can create clone resources using either &hawk2; or &crmsh;.
+   </para>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-clone">
+    <title>Creating clone resources with &hawk2;</title>
+    <note>
+     <title>Child resources for clones</title>
+     <para>
+      Clones can either contain a primitive or a group as child resources. In
+      &hawk2;, child resources cannot be created or modified while creating a
+      clone. Before adding a clone, create child resources and configure them as desired.
+     </para>
+    </note>
+    <procedure xml:id="pro-conf-hawk2-clone">
+     <title>Adding a clone resource with &hawk2;</title>
+     <step>
+      <para>
+       Log in to &hawk2;:
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       From the left navigation bar, select <menuchoice> <guimenu>Configuration</guimenu>
+      <guimenu>Add Resource</guimenu> <guimenu>Clone</guimenu> </menuchoice>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Enter a unique <guimenu>Clone ID</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       From the <guimenu>Child Resource</guimenu> list, select the primitive or
+       group to use as a sub-resource for the clone.
+      </para>
+     </step>
+     <step>
+      <para>
+       If needed, modify or add <guimenu>Meta Attributes</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Click <guimenu>Create</guimenu> to finish the configuration. A message at
+       the top of the screen shows if the action has been successful.
+      </para>
+     </step>
+    </procedure>
+    <figure>
+     <title>&hawk2;&mdash;clone resource</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-clone.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-clone.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-clone">
+    <title>Configuring clone resources with &crmsh;</title>
+     <para>
+      To create an anonymous clone resource, first create a primitive
+      resource and then refer to it with the <command>clone</command>
+      command.
+     </para>
+     <procedure>
+      <step>
+       <para>
+        Log in as &rootuser; and start the <command>crm</command>
+        interactive shell:
+       </para>
+ <screen>&prompt.root;<command>crm configure</command></screen>
+      </step>
+      <step>
+       <para>
+        Configure the primitive, for example:
+       </para>
+ <screen>&prompt.crm.conf;<command>primitive Apache apache</command></screen>
+      </step>
+      <step>
+       <para>
+        Clone the primitive:
+       </para>
+ <screen>&prompt.crm.conf;<command>clone cl-apache Apache</command></screen>
+      </step>
+     </procedure>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-advanced-masters">
+   <title>Creating promotable clones (multi-state resources)</title>
+   <para>
+    Promotable clones (formerly known as multi-state resources) are a
+    specialization of clones. They allow the
+    instances to be in one of two operating modes (primary or
+    secondary). Promotable clones must contain
+    exactly one group or one regular resource.
+   </para>
+   <para>
+    When configuring resource monitoring or constraints, promotable
+    clones have different requirements than simple resources. For
+    details, see &paceex;. The version for Pacemaker 1.1 is available from
+    <link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>.
+   </para>
+   <para>
+    You can create promotable clones using either &hawk2; or &crmsh;.
+   </para>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-ms">
+    <title>Creating promotable clones with &hawk2;</title>
+    <note>
+     <title>Child resources for multi-state resources</title>
+     <para>
+      Multi-state resources can either contain a primitive or a group as child
+      resources. In &hawk2;, child resources cannot be created or modified while
+      creating a multi-state resource. Before adding a multi-state resource,
+      create child resources and configure them as desired. For details, refer to
+      <xref linkend="sec-conf-hawk2-rsc-primitive"/> or
+      <xref linkend="sec-conf-hawk2-rsc-group"/>.
+     </para>
+    </note>
+    <procedure xml:id="pro-conf-hawk2-ms">
+     <title>Adding a promotable clone with &hawk2;</title>
+     <step>
+      <para>
+       Log in to &hawk2;:
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       From the left navigation bar, select <menuchoice>
+       <guimenu>Configuration</guimenu>  <guimenu>Add Resource</guimenu>
+       <guimenu>Multi-state</guimenu> </menuchoice>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Enter a unique <guimenu>Multi-state ID</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       From the <guimenu>Child Resource</guimenu> list, select the primitive or
+       group to use as a sub-resource for the multi-state resource.
+      </para>
+     </step>
+     <step>
+      <para>
+       If needed, modify or add <guimenu>Meta Attributes</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Click <guimenu>Create</guimenu> to finish the configuration. A message at
+       the top of the screen shows if the action has been successful.
+      </para>
+     </step>
+    </procedure>
+    <figure>
+     <title>&hawk2;&mdash;multi-state resource</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-multi-state.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-multi-state.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-clone-stateful">
+    <title>Creating promotable clones with &crmsh;</title>
+    <para>
+     To create a promotable clone resource, first create a primitive resource
+     and then the promotable clone resource. The promotable clone resource must
+     support at least promote and demote operations.
+    </para>
+    <procedure>
+     <step>
+      <para>
+       Log in as &rootuser; and start the <command>crm</command>
+       interactive shell:
+      </para>
+<screen>&prompt.root;<command>crm configure</command></screen>
+     </step>
+     <step>
+      <para>
+       Configure the primitive. Change the intervals if needed:
+      </para>
+<screen>&prompt.crm.conf;<command>primitive my-rsc ocf:myCorp:myAppl \
+    op monitor interval=60 \
+    op monitor interval=61 role=Master</command></screen>
+     </step>
+     <step>
+      <para>
+       Create the promotable clone resource:
+      </para>
+<screen>&prompt.crm.conf;<command>ms ms-rsc my-rsc</command></screen>
+     </step>
+    </procedure>
+  </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-templates">
+   <title>Creating resource templates</title>
+   <para>
+    If you want to create lots of resources with similar configurations,
+    defining a resource template is the easiest way. After having been
+    defined, it can be referenced in primitives&mdash;or in certain types
+    of constraints, as described in
+    <xref linkend="sec-ha-config-basics-constraints-templates"/>.
+   </para>
+   <para>
+    If a template is referenced in a primitive, the primitive will inherit
+    all operations, instance attributes (parameters), meta attributes, and
+    utilization attributes defined in the template. Additionally, you can
+    define specific operations or attributes for your primitive. If any of
+    these are defined in both the template and the primitive, the values
+    defined in the primitive will take precedence over the ones defined in
+    the template.
+   </para>
+   <para>
+    You can create resource templates using either &hawk2; or &crmsh;.
+   </para>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-template">
+    <title>Creating resource templates with &hawk2;</title>
+     <para>
+      Resource templates are configured like primitive resources.
+     </para>
+    <procedure xml:id="pro-conf-hawk2-template-add">
+     <title>Adding a resource template</title>
+     <step>
+      <para>
+       Log in to &hawk2;:
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       From the left navigation bar, select <menuchoice> <guimenu>Configuration</guimenu>
+       <guimenu>Add Resource</guimenu> <guimenu>Template</guimenu> </menuchoice>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Enter a unique <guimenu>Resource ID</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Follow the instructions in <xref linkend="pro-conf-hawk2-primitive-add"/>,
+       starting from
+       <xref linkend="step-ha-config-hawk2-primitive-start" xrefstyle="select:label"/>.
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-rsc-template">
+    <title>Creating resource templates with &crmsh;</title>
+    <para>
+     Use the <command>rsc_template</command> command to get familiar with the syntax:
+    </para>
+ <screen>&prompt.root;<command>crm configure rsc_template</command>
+ usage: rsc_template &lt;name&gt; [&lt;class&gt;:[&lt;provider&gt;:]]&lt;type&gt;
+         [params &lt;param&gt;=&lt;value&gt; [&lt;param&gt;=&lt;value&gt;...]]
+         [meta &lt;attribute&gt;=&lt;value&gt; [&lt;attribute&gt;=&lt;value&gt;...]]
+         [utilization &lt;attribute&gt;=&lt;value&gt; [&lt;attribute&gt;=&lt;value&gt;...]]
+         [operations id_spec
+             [op op_type [&lt;attribute&gt;=&lt;value&gt;...] ...]]</screen>
+    <para>
+     For example, the following command creates a new resource template with
+     the name <literal>BigVM</literal> derived from the
+     <literal>ocf:heartbeat:Xen</literal> resource and some default values
+     and operations:
+    </para>
+ <screen>&prompt.crm.conf;<command>rsc_template BigVM ocf:heartbeat:Xen \
+    params allow_mem_management="true" \
+    op monitor timeout=60s interval=15s \
+    op stop timeout=10m \
+    op start timeout=10m</command></screen>
+    <para>
+     Once you defined the new resource template, you can use it in primitives
+     or reference it in order, colocation, or rsc_ticket constraints. To
+     reference the resource template, use the <literal>@</literal> sign:
+    </para>
+ <screen>&prompt.crm.conf;<command>primitive MyVM1 @BigVM \
+    params xmfile="/etc/xen/shared-vm/MyVM1" name="MyVM1"</command></screen>
+    <para>
+     The new primitive MyVM1 is going to inherit everything from the BigVM
+     resource templates. For example, the equivalent of the above two would
+     be:
+    </para>
+ <screen>&prompt.crm.conf;<command>primitive MyVM1 Xen \
+    params xmfile="/etc/xen/shared-vm/MyVM1" name="MyVM1" \
+    params allow_mem_management="true" \
+    op monitor timeout=60s interval=15s \
+    op stop timeout=10m \
+    op start timeout=10m</command></screen>
+    <para>
+     If you want to overwrite some options or operations, add them to your
+     (primitive) definition. For example, the following new primitive MyVM2
+     doubles the timeout for monitor operations but leaves others untouched:
+    </para>
+ <screen>&prompt.crm.conf;<command>primitive MyVM2 @BigVM \
+    params xmfile="/etc/xen/shared-vm/MyVM2" name="MyVM2" \
+    op monitor timeout=120s interval=30s</command></screen>
+    <para>
+     A resource template may be referenced in constraints to stand for all
+     primitives which are derived from that template. This helps to produce a
+     more concise and clear cluster configuration. Resource template
+     references are allowed in all constraints except location constraints.
+     Colocation constraints may not contain more than one template reference.
+    </para>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-conf-stonith-rsc">
+  <title>Creating &stonith; resources</title>
+   &important-stonith;
+   <para>
+    By default, the global cluster option <literal>stonith-enabled</literal> is
+    set to <literal>true</literal>. If no &stonith; resources have been defined,
+    the cluster will refuse to start any resources. Configure one or more
+    &stonith; resources to complete the &stonith; setup. While &stonith; resources
+    are configured similarly to other resources, their behavior is different in
+    some respects. For details refer to <xref linkend="sec-ha-fencing-config"/>.
+   </para>
+   <para>
+    You can create &stonith; resources using either &hawk2; or &crmsh;.
+   </para>
+  <sect2 xml:id="sec-conf-hawk2-rsc-stonith">
+   <title>Creating &stonith; resources with &hawk2;</title>
+   <para>
+    To add a &stonith; resource for SBD, for libvirt (&kvm;/&xen;) or for vCenter/ESX Server,
+    the easiest way is to use the &hawk2; wizard.
+   </para>
+   <procedure xml:id="pro-conf-hawk2-stonith">
+    <title>Adding a &stonith; resource with &hawk2;</title>
+    <step>
+     <para>
+      Log in to &hawk2;:
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      From the left navigation bar, select <menuchoice>
+      <guimenu>Configuration</guimenu> <guimenu>Add
+      Resource</guimenu> <guimenu>Primitive</guimenu> </menuchoice>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Enter a unique <guimenu>Resource ID</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      From the <guimenu>Class</guimenu> list, select the resource agent class
+      <guimenu>stonith</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      From the <guimenu>Type</guimenu> list, select the &stonith; plug-in to
+      control your &stonith; device. A short description for this plug-in is
+      displayed.
+     </para>
+    </step>
+    <step>
+     <para>
+      &hawk2; automatically shows the required <guimenu>Parameters</guimenu> for
+      the resource. Enter values for each parameter.
+     </para>
+    </step>
+    <step>
+     <para>
+      &hawk2; displays the most important resource <guimenu>Operations</guimenu>
+      and proposes default values. If you do not modify any settings here,
+      &hawk2; adds the proposed operations and their default values when you
+      confirm.
+     </para>
+    </step>
+    <step>
+     <para>
+      If there is no reason to change them, keep the default <guimenu>Meta
+      Attributes</guimenu> settings.
+     </para>
+     <figure>
+      <title>&hawk2;&mdash;&stonith; resource</title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="hawk2-primitive-stonith.png" width="100%"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="hawk2-primitive-stonith.png" width="100%"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+    </step>
+    <step>
+     <para>
+      Confirm your changes to create the &stonith; resource.
+     </para>
+     <para>
+      A message at the top of the screen shows if the action has been
+      successful.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    To complete your fencing configuration, add constraints. For more details,
+    refer to <xref linkend="cha-ha-fencing"/>.
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-create-stonith">
+   <title>Creating &stonith; resources with &crmsh;</title>
+   <procedure>
+    <step>
+     <para>
+      Log in as &rootuser; and start the <command>crm</command>
+      interactive shell:
+     </para>
+<screen>&prompt.root;<command>crm configure</command></screen>
+    </step>
+    <step>
+     <para>
+      Get a list of all &stonith; types with the following command:
+     </para>
+<screen>&prompt.crm;<command>ra list stonith</command>
+apcmaster                  apcmastersnmp              apcsmart
+baytech                    bladehpi                   cyclades
+drac3                      external/drac5             external/dracmc-telnet
+external/hetzner           external/hmchttp           external/ibmrsa
+external/ibmrsa-telnet     external/ipmi              external/ippower9258
+external/kdumpcheck        external/libvirt           external/nut
+external/rackpdu           external/riloe             external/sbd
+external/vcenter           external/vmware            external/xen0
+external/xen0-ha           fence_legacy               ibmhmc
+ipmilan                    meatware                   nw_rpc100s
+rcd_serial                 rps10                      suicide
+wti_mpc                    wti_nps</screen>
+    </step>
+    <step xml:id="st-ha-manual-create-stonith-type">
+     <para>
+      Choose a &stonith; type from the above list and view the list of
+      possible options. Use the following command:
+     </para>
+<screen>&prompt.crm;<command>ra info stonith:external/ipmi</command>
+IPMI STONITH external device (stonith:external/ipmi)
+
+ipmitool based power management. Apparently, the power off
+method of ipmitool is intercepted by ACPI which then makes
+a regular shutdown. If case of a split brain on a two-node
+it may happen that no node survives. For two-node clusters
+use only the reset method.
+
+Parameters (* denotes required, [] the default):
+
+hostname (string): Hostname
+    The name of the host to be managed by this STONITH device.
+...</screen>
+    </step>
+    <step>
+     <para>
+      Create the &stonith; resource with the <literal>stonith</literal>
+      class, the type you have chosen in
+      <xref linkend="st-ha-manual-create-stonith-type" xrefstyle="select:label nopage"/>,
+      and the respective parameters if needed, for example:
+     </para>
+<screen>&prompt.crm;<command>configure</command>
+&prompt.crm.conf;<command>primitive my-stonith stonith:external/ipmi \
+    params hostname="&node1;" \
+    ipaddr="&subnetI;.221" \
+    userid="admin" passwd="secret" \
+    op monitor interval=60m timeout=120s</command></screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-monitoring">
+  <title>Configuring resource monitoring</title>
+  <para>
+   If you want to ensure that a resource is running, you must configure
+   resource monitoring for it. You can configure resource monitoring using
+   either &hawk2; or &crmsh;.
+  </para>
+  <para>
+   If the resource monitor detects a failure, the following takes place:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Log file messages are generated, according to the configuration
+     specified in the <literal>logging</literal> section of
+     <filename>/etc/corosync/corosync.conf</filename>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The failure is reflected in the cluster management tools (&hawk2;,
+     <command>crm status</command>), and in the CIB status section.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The cluster initiates noticeable recovery actions which may include
+     stopping the resource to repair the failed state and restarting the
+     resource locally or on another node. The resource also may not be
+     restarted, depending on the configuration and state of the cluster.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   If you do not configure resource monitoring, resource failures after a
+   successful start will not be communicated, and the cluster will always
+   show the resource as healthy.
+  </para>
+   <para>
+    Usually, resources are only
+    monitored by the cluster while they are running. However, to detect
+    concurrency violations, also configure monitoring for resources which are
+    stopped. For resource monitoring, specify a timeout and/or start delay
+    value, and an interval. The interval tells the CRM how often it should check
+    the resource status. You can also set particular parameters such as
+    <literal>timeout</literal> for <literal>start</literal> or
+    <literal>stop</literal> operations.
+   </para>
+   <para>
+    For more information about monitor operation parameters, see
+    <xref linkend="sec-ha-config-basics-operations"/>.
+   </para>
+
+  <sect2 xml:id="sec-conf-hawk2-rsc-monitor">
+   <title>Configuring resource monitoring with &hawk2;</title>
+   <procedure xml:id="pro-hawk2-operations">
+    <title>Adding and modifying an operation</title>
+    <step>
+     <para>
+      Log in to &hawk2;:
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      Add a resource as described in
+      <xref linkend="pro-conf-hawk2-primitive-add"/> or select an existing
+      primitive to edit.
+     </para>
+     <para>
+      &hawk2; automatically shows the most important
+      <guimenu>Operations</guimenu> (<literal>start</literal>,
+      <literal>stop</literal>, <literal>monitor</literal>) and proposes default
+      values.
+     </para>
+     <para>
+      To see the attributes belonging to each proposed value, hover the mouse
+      pointer over the respective value.
+     </para>
+     <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="hawk2-monitor-op.png" width="70%"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="hawk2-monitor-op.png" width="60%"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
+    </step>
+    <step>
+     <para>
+      To change the suggested <literal>timeout</literal> values for the
+      <literal>start</literal> or <literal>stop</literal> operation:
+     </para>
+     <substeps>
+      <step>
+       <para>
+        Click the pen icon next to the operation.
+       </para>
+      </step>
+      <step>
+       <para>
+        In the dialog that opens, enter a different value for the
+        <literal>timeout</literal> parameter, for example <literal>10</literal>,
+        and confirm your change.
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      To change the suggested <guimenu>interval</guimenu> value for the
+      <literal>monitor</literal> operation:
+     </para>
+     <substeps>
+      <step>
+       <para>
+        Click the pen icon next to the operation.
+       </para>
+      </step>
+      <step>
+       <para>
+        In the dialog that opens, enter a different value for the monitoring
+        <literal>interval</literal>.
+       </para>
+      </step>
+      <step>
+       <para>
+        To configure resource monitoring in the case that the resource is
+        stopped:
+       </para>
+       <substeps>
+        <step>
+         <para>
+          Select the <literal>role</literal> entry from the empty drop-down box
+          below.
+         </para>
+        </step>
+        <step>
+         <para>
+          From the <literal>role</literal> drop-down box, select
+          <literal>Stopped</literal>.
+         </para>
+        </step>
+        <step>
+         <para>
+          Click <guimenu>Apply</guimenu> to confirm your changes and to close
+          the dialog for the operation.
+         </para>
+        </step>
+       </substeps>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      Confirm your changes in the resource configuration screen. A message at
+      the top of the screen shows if the action has been successful.
+     </para>
+    </step>
+   </procedure>
+   <para>
+    For the processes that take place if the resource monitor detects a failure,
+    refer to <xref linkend="sec-ha-config-basics-monitoring"/>.
+   </para>
+   <para>
+    To view resource failures, switch to the <guimenu>Status</guimenu> screen in
+    &hawk2; and select the resource you are interested in. In the
+    <guimenu>Operations</guimenu> column click the arrow down icon and select
+    <guimenu>Recent Events</guimenu>. The dialog that opens lists recent actions
+    performed for the resource. Failures are displayed in red. To view the
+    resource details, click the magnifier icon in the
+    <guimenu>Operations</guimenu> column.
+   </para>
+   <figure>
+    <title>&hawk2;&mdash;resource details</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-rsc-details.png" width="70%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-rsc-details.png" width="60%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-monitor">
+   <title>Configuring resource monitoring with &crmsh;</title>
+   <para>
+    To monitor a resource, there are two possibilities: either define a
+    monitor operation with the <command>op</command> keyword or use the
+    <command>monitor</command> command. The following example configures an
+    Apache resource and monitors it every 60 seconds with the
+    <literal>op</literal> keyword:
+   </para>
+<screen>&prompt.crm.conf;<command>primitive apache apache \
+  params ... \
+  <emphasis>op monitor interval=60s timeout=30s</emphasis></command></screen>
+   <para>
+    The same can be done with:
+   </para>
+<screen>&prompt.crm.conf;<command>primitive apache apache \
+   params</command> ...
+&prompt.crm.conf;<command>monitor apache 60s:30s</command></screen>
+  <variablelist>
+   <varlistentry>
+    <term>Monitoring stopped resources</term>
+    <listitem>
+     <para>
+      Usually, resources are only monitored by the cluster as long as they
+      are running. However, to detect concurrency violations, also configure
+      monitoring for resources which are stopped. For example:
+     </para>
+  <screen>&prompt.crm.conf;<command>primitive dummy1 Dummy \
+    op monitor interval="300s" role="Stopped" timeout="10s" \
+    op monitor interval="30s" timeout="10s"</command></screen>
+     <para>
+      This configuration triggers a monitoring operation every
+      <literal>300</literal> seconds for the resource
+      <literal>dummy1</literal> when it is in
+      <literal>role="Stopped"</literal>. When running, it will be monitored
+      every <literal>30</literal> seconds.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Probing</term>
+    <listitem>
+     <para>
+      The CRM executes an initial monitoring for each resource on every
+      node, the so-called <literal>probe</literal>. A probe is also executed
+      after the cleanup of a resource. If multiple monitoring operations are
+      defined for a resource, the CRM will select the one with the smallest
+      interval and will use its timeout value as default timeout for
+      probing. If no monitor operation is configured, the cluster-wide
+      default applies. The default is <literal>20</literal> seconds (if not
+      specified otherwise by configuring the <varname>op_defaults</varname>
+      parameter). If you do not want to rely on the automatic calculation or
+      the <systemitem>op_defaults</systemitem> value, define a specific
+      monitoring operation for the <emphasis>probing</emphasis> of this
+      resource. Do so by adding a monitoring operation with the
+      <literal>interval</literal> set to <literal>0</literal>, for example:
+     </para>
+  <screen>&prompt.crm.conf;<command>primitive rsc1 ocf:pacemaker:Dummy \
+    op monitor interval="0" timeout="60"</command></screen>
+     <para>
+      The probe of <systemitem>rsc1</systemitem> will time out in
+      <literal>60s</literal>, independent of the global timeout defined in
+      <varname>op_defaults</varname>, or any other operation timeouts
+      configured. If you did not set <literal>interval="0"</literal> for
+      specifying the probing of the respective resource, the CRM will
+      automatically check for any other monitoring operations defined for
+      that resource and will calculate the timeout value for probing as
+      described above.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  </sect2>
+ </sect1>
+
+
+ <sect1 xml:id="sec-ha-manual-config-load">
+  <title>Loading resources from a file</title>
+  <para>
+   Parts or all of the configuration can be loaded from a local file or a
+   network URL. Three different methods can be defined:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><option>replace</option></term>
+    <listitem>
+     <para>
+      This option replaces the current configuration with the new source
+      configuration.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><option>update</option></term>
+    <listitem>
+     <para>
+      This option tries to import the source configuration. It adds new items
+      or updates existing items to the current configuration.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><option>push</option></term>
+    <listitem>
+     <para>
+      This option imports the content from the source into the current
+      configuration (same as <option>update</option>). However, it removes
+      objects that are not available in the new configuration.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   To load the new configuration from the file <filename>mycluster-config.txt</filename>
+   use the following syntax:
+  </para>
+  <screen>&prompt.root;<command>crm configure load push mycluster-config.txt</command></screen>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-meta-attr">
+   <title>Resource options (meta attributes)</title>
+   <para>
+    For each resource you add, you can define options. Options are used by
+    the cluster to decide how your resource should behave&mdash;they tell
+    the CRM how to treat a specific resource. Resource options can be set
+    with the <command>crm_resource --meta</command> command or with
+    &hawk2; as described in
+    <xref linkend="pro-conf-hawk2-primitive-add"/>.
+   </para>
+   <para>
+    The following resource options are available:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>priority</literal></term>
+     <listitem>
+      <para>
+       If not all resources can be active, the cluster stops lower
+       priority resources to keep higher priority resources active.
+      </para>
+      <para>
+       The default value is <literal>0</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>target-role</literal></term>
+     <listitem>
+      <para>
+       In what state should the cluster attempt to keep this resource?
+       Allowed values: <literal>Stopped</literal>, <literal>Started</literal>,
+       <literal>Unpromoted</literal>, <literal>Promoted</literal>.
+      </para>
+      <para>
+       The default value is <literal>Started</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>is-managed</literal></term>
+     <listitem>
+      <para>
+       Is the cluster allowed to start and stop the resource? Allowed
+       values: <literal>true</literal>, <literal>false</literal>. If the
+       value is set to <literal>false</literal>, the status of the
+       resource is still monitored and any failures are reported. This is
+       different from setting a resource to
+       <literal>maintenance="true"</literal>.
+      </para>
+      <para>
+       The default value is <literal>true</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>maintenance</literal></term>
+     <listitem>
+      <para>
+       Can the resources be touched manually? Allowed values:
+       <literal>true</literal>, <literal>false</literal>. If set to
+       <literal>true</literal>, all resources become unmanaged: the
+       cluster stops monitoring them and does not know their
+       status. You can stop or restart cluster resources without
+       the cluster attempting to restart them.
+      </para>
+      <para>
+       The default value is <literal>false</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>resource-stickiness</literal></term>
+     <listitem>
+      <para>
+       How much does the resource prefer to stay where it is?
+      </para>
+      <para>
+       The default value is <literal>1</literal> for individual clone instances,
+       and <literal>0</literal> for all other resources.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>migration-threshold</literal></term>
+     <listitem>
+      <para>
+       How many failures should occur for this resource on a node before
+       making the node ineligible to host this resource?
+      </para>
+      <para>
+       The default value is <literal>INFINITY</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>multiple-active</literal></term>
+     <listitem>
+      <para>
+       What should the cluster do if it ever finds the resource active on
+       more than one node? Allowed values: <literal>block</literal> (mark
+       the resource as unmanaged), <literal>stop_only</literal>,
+       <literal>stop_start</literal>.
+      </para>
+      <para>
+       The default value is <literal>stop_start</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>failure-timeout</literal></term>
+     <listitem>
+      <para>
+       How many seconds to wait before acting as if the failure did not
+       occur (and potentially allowing the resource back to the node on
+       which it failed)?
+      </para>
+      <para>
+       The default value is <literal>0</literal> (disabled).
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>allow-migrate</literal></term>
+     <listitem>
+      <para>
+       Whether to allow live migration for resources that support
+       <literal>migrate_to</literal> and <literal>migrate_from</literal>
+       actions. If the value is set to <literal>true</literal>, the resource can
+       be migrated without loss of state. If the value is set to <literal>false</literal>,
+       the resource will be shut down on the first node and restarted on the second node.
+      </para>
+      <para>
+       The default value is <literal>true</literal> for
+       <literal>ocf:pacemaker:remote</literal> resources, and
+       <literal>false</literal> for all other resources.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>remote-node</literal></term>
+     <listitem>
+      <para>
+       The name of the remote node this resource defines. This both
+       enables the resource as a remote node and defines the unique name
+       used to identify the remote node. If no other parameters are set,
+       this value is also assumed as the host name to connect to at the
+       <varname>remote-port</varname> port.
+      </para>
+      <para>
+       This option is disabled by default.
+      </para>
+      <warning>
+       <title>Use unique IDs</title>
+       <para>
+        This value must not overlap with any existing resource or node IDs.
+       </para>
+      </warning>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>remote-port</literal></term>
+     <listitem>
+      <para>
+       Custom port for the guest connection to pacemaker_remote.
+      </para>
+      <para>
+       The default value is <literal>3121</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>remote-addr</literal></term>
+     <listitem>
+      <para>
+       The IP address or host name to connect to if the remote node's
+       name is not the host name of the guest.
+      </para>
+      <para>
+       The default value is the value set by <literal>remote-node</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>remote-connect-timeout</literal></term>
+     <listitem>
+      <para>
+       How long before a pending guest connection times out?
+      </para>
+      <para>
+       The default value is <literal>60s</literal>.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-inst-attr">
+   <title>Instance attributes (parameters)</title>
+   <para>
+    The scripts of all resource classes can be given parameters which
+    determine how they behave and which instance of a service they control.
+    If your resource agent supports parameters, you can add them with the
+    <command>crm_resource</command> command or with
+    &hawk2; as described in
+    <xref linkend="pro-conf-hawk2-primitive-add"/>. In the
+    <command>crm</command> command line utility and in &hawk2;, instance
+    attributes are called <literal>params</literal> or
+    <literal>Parameter</literal>, respectively. The list of instance
+    attributes supported by an OCF script can be found by executing the
+    following command as &rootuser;:
+   </para>
+<screen>&prompt.root;<command>crm ra info <replaceable>[class:[provider:]]resource_agent</replaceable></command></screen>
+   <para>
+    or (without the optional parts):
+   </para>
+<screen>&prompt.root;<command>crm ra info <replaceable>resource_agent</replaceable></command></screen>
+   <para>
+    The output lists all the supported attributes, their purpose and default
+    values.
+   </para>
+   <note>
+    <title>Instance attributes for groups, clones or promotable clones</title>
+    <para>
+     Note that groups, clones and promotable clone resources do not have instance
+     attributes. However, any instance attributes set will be inherited by
+     the group's, clone's or promotable clone's children.
+    </para>
+   </note>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-operations">
+   <title>Resource operations</title>
+   <para>
+    By default, the cluster will not ensure that your resources are still
+    healthy. To instruct the cluster to do this, you need to add a monitor
+    operation to the resource's definition. Monitor operations can be
+    added for all classes or resource agents. For more information, refer to
+    <xref linkend="sec-ha-config-basics-monitoring"/>.
+   </para>
+   <table>
+    <title>Resource operation properties</title>
+    <tgroup cols="2">
+     <thead>
+      <row>
+       <entry>
+        <para>
+         Operation
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Description
+        </para>
+       </entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <para>
+         <literal>id</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Your name for the action. Must be unique. (The ID is not shown).
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>name</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         The action to perform. Common values: <literal>monitor</literal>,
+         <literal>start</literal>, <literal>stop</literal>.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>interval</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         How frequently to perform the operation. Unit: seconds
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>timeout</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         How long to wait before declaring the action has failed.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>requires</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         What conditions need to be satisfied before this action occurs.
+         Allowed values: <literal>nothing</literal>,
+         <literal>quorum</literal>, <literal>fencing</literal>. The default
+         depends on whether fencing is enabled and if the resource's class
+         is <literal>stonith</literal>. For &stonith; resources, the
+         default is <literal>nothing</literal>.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>on-fail</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         The action to take if this action ever fails. Allowed values:
+        </para>
+        <itemizedlist>
+         <listitem>
+          <para>
+           <literal>ignore</literal>: Pretend the resource did not fail.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>block</literal>: Do not perform any further operations
+           on the resource.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>stop</literal>: Stop the resource and do not start it
+           elsewhere.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>restart</literal>: Stop the resource and start it again
+           (possibly on a different node).
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>fence</literal>: Bring down the node on which the
+           resource failed (&stonith;).
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>standby</literal>: Move <emphasis>all</emphasis>
+           resources away from the node on which the resource failed.
+          </para>
+         </listitem>
+        </itemizedlist>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>enabled</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         If <literal>false</literal>, the operation is treated as if it does
+         not exist. Allowed values: <literal>true</literal>,
+         <literal>false</literal>.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>role</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Run the operation only if the resource has this role.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>record-pending</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Can be set either globally or for individual resources. Makes the
+         CIB reflect the state of <quote>in-flight</quote> operations on
+         resources.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry>
+        <para>
+         <literal>description</literal>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Description of the operation.
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+ </sect1>
+
+</chapter>
