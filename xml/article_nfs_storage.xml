@@ -367,7 +367,7 @@ include /etc/drbd.d/*.res;</screen>
      After activating the DRBD devices, create the NFS file system on
      <filename>/dev/drbd1</filename>:
     </para>
-    <screen>&prompt.root;<command>mkfs.ext3 /dev/drbd1</command></screen>
+    <screen>&prompt.root;<command>mkfs.ext4 /dev/drbd1</command></screen>
    </sect2>
   </sect1>
 
@@ -392,20 +392,27 @@ include /etc/drbd.d/*.res;</screen>
 
  <sect1 xml:id="sec-ha-quick-nfs-resources">
   <title>Creating cluster resources</title>
-  <para>The following sections cover the configuration of
-    the required resources for a highly available NFS cluster.
-    The configuration steps use the &crmshell;.
-    The following list shows the necessary cluster resources:
+  <para>
+   The following procedures describe how to configure the resources required
+   for a highly available NFS cluster.
   </para>
-  <variablelist xml:id="vl-ha-quick-nfs-overview-cluster-res">
+  <variablelist>
    <title>Overview of cluster resources</title>
    <varlistentry>
     <term>DRBD primitive and promotable clone resources</term>
     <listitem>
      <para>
       These resources are used to replicate data. The promotable clone resource
-      is switched to and from the Primary and Secondary roles as deemed
-      necessary by the cluster resource manager.
+      is switched to and from the primary and secondary roles as deemed necessary
+      by the cluster resource manager.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>File system resources</term>
+    <listitem>
+     <para>
+      These resources manage the NFS file system and file states.
      </para>
     </listitem>
    </varlistentry>
@@ -413,8 +420,7 @@ include /etc/drbd.d/*.res;</screen>
     <term>NFS kernel server resource</term>
     <listitem>
      <para>
-      With this resource, Pacemaker ensures that the NFS server daemons are
-      always available.
+      This resource manages the NFS server daemon.
      </para>
     </listitem>
    </varlistentry>
@@ -422,12 +428,22 @@ include /etc/drbd.d/*.res;</screen>
     <term>NFS exports</term>
     <listitem>
      <para>
-      One or more NFS exports, typically corresponding to the file system.
+      This resource is used to export the <filename>/srv/nfs/exportfs</filename>
+      directory to clients.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Virtual IP address</term>
+    <listitem>
+     <para>
+      The initial installation creates an administrative virtual IP address for &hawk2;.
+      Create another virtual IP address exclusively for NFS exports. This makes it
+      easier to apply security restrictions later.
      </para>
     </listitem>
    </varlistentry>
   </variablelist>
-
   <itemizedlist>
     <title>Example NFS scenario</title>
     <listitem>
@@ -441,8 +457,8 @@ include /etc/drbd.d/*.res;</screen>
          <literal>/srv/nfs/exportfs</literal>. </para>
     </listitem>
     <listitem>
-        <para>Into this export directory, the cluster will mount
-            <literal>ext3</literal> file systems from the DRBD device
+        <para>Into this export directory, the cluster mounts
+            <literal>ext4</literal> file systems from the DRBD device
          <filename>/dev/drbd1</filename>.
          This DRBD device sits on top of an LVM logical volume named
          <literal>/dev/nfs/exportfs</literal>.
@@ -458,167 +474,207 @@ include /etc/drbd.d/*.res;</screen>
   </itemizedlist>
 
   <sect2 xml:id="sec-ha-quick-nfs-resources-drbd">
-   <title>DRBD primitive and promotable clone resource</title>
+   <title>Creating DRBD primitive and promotable clone resources</title>
    <para>
-    To configure these resources, run the following commands from the
-   &crmshell;:
+    First, create cluster resources to manage the DRBD devices, and promotable
+    clones to allow these resources to run on both nodes.
    </para>
-<screen>&prompt.root;<command>crm configure</command>
-&prompt.crm.conf;<command>primitive drbd_nfs ocf:linbit:drbd \
-    params drbd_resource="nfs" \
+   <procedure>
+    <title>Creating DRBD resources for NFS</title>
+    <step>
+     <para>
+      Log in as &rootuser; and start the <command>crm</command> interactive shell:
+     </para>
+<screen>&prompt.root;<command>crm configure</command></screen>
+    </step>
+    <step>
+     <para>
+      Create a primitive for the DRBD resource <literal>nfs_exportfs</literal>:
+     </para>
+<screen>&prompt.crm.conf;<command>primitive drbd-nfs_exportfs ocf:linbit:drbd \
+  params drbd_resource="nfs_exportfs" \
   op monitor interval="15" role="Promoted" \
-  op monitor interval="30" role="Unpromoted"</command>
-&prompt.crm.conf;<command>clone clone-drbd_nfs drbd_nfs \
-  meta promotable="true" promoted-max="1" promoted-node-max="1" clone-max="2" \
-  clone-node-max="1" notify="true"</command>
-&prompt.crm.conf;<command>commit</command></screen>
-   <para>
-    This will create a Pacemaker promotable clone resource corresponding to the
-    DRBD resource <literal>nfs</literal>. Pacemaker should now activate your
-    DRBD resource on both nodes and promote it to the primary role on one of
-    them.
-   </para>
-   <para>
-    Check the state of the cluster with the <command>crm status</command>
-     command, or run <command>drbdadm status</command>.
-   </para>
-  </sect2>
-
-  <sect2 xml:id="sec-ha-quick-nfs-resources-nfsserver">
-   <title>NFS kernel server resource</title>
-   <para>
-    In the &crmshell;, the resource for the NFS server
-    daemons must be configured as a <emphasis>clone</emphasis> of a
-    <literal>systemd</literal> resource type.
-   </para>
-<screen>&prompt.crm.conf;<command>primitive nfsserver \
-  systemd:nfs-server \
-  op monitor interval="30s"</command>
-&prompt.crm.conf;<command>clone cl-nfsserver nfsserver \
-   meta interleave=true</command>
-&prompt.crm.conf;<command>commit</command></screen>
-   <para>
-    After you have committed this configuration, Pacemaker should start the
-    NFS Kernel server processes on both nodes.
-   </para>
-  </sect2>
-
-  <sect2 xml:id="sec-ha-quick-nfs-resources-lvm">
-   <title>File system resource</title>
-   <orderedlist>
-    <listitem>
+  op monitor interval="30" role="Unpromoted"</command></screen>
+    </step>
+    <step>
      <para>
-      Configure the file system type resource as follows (but
-      <emphasis>do not</emphasis> commit this configuration yet):
+      Create a primitive for the DRBD resource <literal>nfs_state</literal>:
      </para>
-<screen>&prompt.crm.conf;<command>primitive fs_work \
-  ocf:heartbeat:Filesystem \
-  params device=/dev/drbd0 \
-    directory=/srv/nfs/work \
-    fstype=ext3 \
-  op monitor interval="10s"</command></screen>
-    </listitem>
-    <listitem>
+<screen>&prompt.crm.conf;<command>primitive drbd-nfs_state ocf:linbit:drbd \
+  params drbd_resource="nfs_state" \
+  op monitor interval="15" role="Promoted" \
+  op monitor interval="30" role="Unpromoted"</command></screen>
+    </step>
+    <step>
      <para>
-      Combine these resources into a Pacemaker resource
-      <emphasis>group</emphasis>:
+      Create a promotable clone for the <literal>drbd-nfs_exportfs</literal>
+      primitive:
      </para>
-<screen>&prompt.crm.conf;<command>group g-nfs fs_work</command></screen>
-    </listitem>
-    <listitem>
+<screen>&prompt.crm.conf;<command>clone cl-nfs_exportfs drbd-nfs_exportfs \
+  meta promotable="true" promoted-max="1" promoted-node-max="1" \
+  clone-max="2" clone-node-max="1" notify="true"</command></screen>
+    </step>
+    <step>
      <para>
-      Add the following constraints to make sure that the group is started
-      on the same node on which the DRBD promotable clone resource is in the
-      primary role:
+      Create a promotable clone for the <literal>drbd-nfs_state</literal>
+      primitive:
      </para>
-<screen>&prompt.crm.conf;<command>order o-drbd_before_nfs Mandatory: \
-  clone-drbd_nfs:promote g-nfs:start</command>
-&prompt.crm.conf;<command>colocation col-nfs_on_drbd inf: \
-  g-nfs clone-drbd_nfs:Promoted</command></screen>
-    </listitem>
-    <listitem>
+<screen>&prompt.crm.conf;<command>clone cl-nfs_state drbd-nfs_state \
+  meta promotable="true" promoted-max="1" promoted-node-max="1" \
+  clone-max="2" clone-node-max="1" notify="true"</command></screen>
+    </step>
+    <step>
      <para>
       Commit this configuration:
      </para>
 <screen>&prompt.crm.conf;<command>commit</command></screen>
-    </listitem>
-   </orderedlist>
+    </step>
+   </procedure>
    <para>
-    After these changes have been committed, Pacemaker mounts the DRBD device
-    to <filename>/srv/nfs/work</filename> on the same node. Confirm this with
-    <command>mount</command> (or by looking at <filename
-     >/proc/mounts</filename>).
+    Pacemaker activates the DRBD resources on both nodes and promotes
+    them to the primary role on one of the nodes. Check the state of the
+    cluster with the <command>crm status</command> command, or run
+    <command>drbdadm status</command>.
    </para>
   </sect2>
 
-  <sect2 xml:id="sec-ha-quick-nfs-resources-nfsexport">
-   <title>NFS export resources</title>
+  <sect2 xml:id="sec-ha-quick-nfs-resources-lvm">
+   <title>Creating NFS file system resources</title>
    <para>
-    When your DRBD, LVM, and file system resources are working properly,
-    continue with the resources managing your NFS exports. To create highly
-    available NFS export resources, use the <literal>exportfs</literal>
-    resource type.
+    Next, create cluster resources to manage the NFS file system and file states.
+    <emphasis>Do not</emphasis> commit this configuration until after you add
+    the colocation and order constraints.
    </para>
-
-    <para>
-     To export the <filename>/srv/nfs/work</filename> directory to clients,
-     use the following primitive:
-    </para>
-    <orderedlist>
-     <listitem>
-      <para>
-       Create NFS exports with the following commands:
-      </para>
-<screen>&prompt.crm.conf;<command>primitive exportfs_work \
-  ocf:heartbeat:exportfs \
-    params directory="/srv/nfs/work" \
-      options="rw,mountpoint" \
-      clientspec="&nfs-clientspec;" \
-      wait_for_leasetime_on_stop=true \
-      fsid=100 \
+   <procedure>
+    <title>Creating file system resources for NFS</title>
+    <step>
+     <para>
+      Create a file system type resource for the NFS file system on
+      <literal>/dev/drbd1</literal>:
+     </para>
+<screen>&prompt.crm.conf;<command>primitive fs-nfs_exportfs Filesystem \
+  params device=/dev/drbd1 directory=/srv/nfs/exportfs fstype=ext4 \
   op monitor interval="30s"</command></screen>
-     </listitem>
-     <listitem>
-      <para>
-       After you have created these resources, append them to the existing
-       <literal>g-nfs</literal> resource group:
-      </para>
-<screen>&prompt.crm.conf;<command>modgroup g-nfs add exportfs_work</command></screen>
-     </listitem>
-     <listitem>
-      <para>
-       Commit this configuration:
-      </para>
+    </step>
+    <step>
+     <para>
+      Create a file system type resource for the NFS file states on
+      <literal>/dev/drbd2</literal>:
+     </para>
+<screen>&prompt.crm.conf;<command>primitive fs-nfs_state Filesystem \
+  params device=/dev/drbd2 directory=/var/lib/nfs fstype=ext4 \
+  op monitor interval="30s"</command></screen>
+    </step>
+    <step>
+     <para>
+      Add a colocation constraint to make sure that the two resources
+      always start on the same node:
+     </para>
+<screen>&prompt.crm.conf;<command>colocation co-nfs_exportfs-with-nfs_state \
+  inf: fs-nfs_exportfs fs-nfs_state</command></screen>
+    </step>
+    <step>
+     <para>
+      Add colocation constraints to make sure that each resource always starts
+      on the node where the related DRBD promotable clone is in the primary role:
+     </para>
+<screen>&prompt.crm.conf;<command>colocation co-nfs_exportfs-on-drbd \
+  inf: fs-nfs_exportfs cl-nfs_exportfs:Promoted</command>
+&prompt.crm.conf;<command>colocation co-nfs_state-on-drbd \
+  inf: fs-nfs_state cl-nfs_state:Promoted</command></screen>
+    </step>
+    <step>
+     <para>
+      Add order constraints to make sure the DRBD promotable clones always start
+      before the file system resources:
+     </para>
+<screen>&prompt.crm.conf;<command>order o-drbd-before-nfs_exportfs \
+  Mandatory: cl-nfs_exportfs:promote fs-nfs_exportfs:start</command>
+&prompt.crm.conf;<command>order o-drbd-before-nfs_state \
+  Mandatory: cl-nfs_state:promote fs-nfs_state:start</command></screen>
+    </step>
+    <step>
+     <para>
+      Commit this configuration:
+     </para>
 <screen>&prompt.crm.conf;<command>commit</command></screen>
+    </step>
+   </procedure>
+   <para>
+    Pacemaker mounts <literal>/dev/drbd1</literal> to <filename>/srv/nfs/exportfs</filename>,
+    and <literal>/dev/drbd2</literal> to <filename>/var/lib/nfs</filename>. Confirm this
+    with <command>mount</command>, or by looking at <filename >/proc/mounts</filename>.
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-quick-nfs-resources-nffserver-exportfs-vip">
+   <title>Creating NFS supporting resources</title>
+   <para>
+    Finally, create cluster resources for the NFS server daemon, the NFS exports,
+    and the virtual IP address. <emphasis>Do not</emphasis> commit this configuration
+    until after you add the colocation and order constraints.
+   </para>
+   <procedure>
+    <title>Creating supporting resources for NFS</title>
+    <step>
+     <para>
+      Create a primitive to manage the NFS server daemon:
+     </para>
+<screen>&prompt.crm.conf;<command>primitive p-nfsserver nfsserver \
+  params nfs_server_scope=SUSE \
+  op monitor interval=10s timeout=20s \
+  meta target-role=Started</command></screen>
+    </step>
+     <step>
       <para>
-       Pacemaker will export the NFS virtual file system root and the two
-       other exports.
+       Create a primitive for the NFS exports:
       </para>
-     </listitem>
-     <listitem>
+<screen>&prompt.crm.conf;<command>primitive p-nfs_exportfs exportfs \
+  params directory="/srv/nfs/exportfs" \
+  options="rw,mountpoint" clientspec="*" fsid=100 \
+  op monitor interval=30s \
+  meta target-role=Started</command></screen>
+     </step>
+     <step>
       <para>
        Confirm that the NFS exports are set up properly:
       </para>
 <screen>&prompt.root;<command>exportfs -v</command>
-/srv/nfs/work   <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(<replaceable>OPTIONS</replaceable>)</screen>
-     </listitem>
-    </orderedlist>
-  </sect2>
-
-  <sect2 xml:id="sec-ha-quick-nfs-resources-vip">
-   <title>Virtual IP address for NFS exports</title>
-   <para>
-    The initial installation creates an administrative virtual IP address for
-    &hawk2;. Although you could use this IP address for your NFS exports too,
-    create another one exclusively for NFS exports. This makes it easier to
-    apply security restrictions later. Use the following commands in the
-    &crmshell;:
-   </para>
-   <screen>&prompt.crm.conf;<command>primitive vip_nfs IPaddr2 \
-   params ip=&nfs-vip-exports; cidr_netmask=24 \
-   op monitor interval=10 timeout=20</command>
-&prompt.crm.conf;<command>modgroup g-nfs add vip_nfs</command>
-&prompt.crm.conf;<command>commit</command></screen>
+/srv/nfs/exportfs   <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(<replaceable>OPTIONS</replaceable>)</screen>
+     </step>
+    <step>
+     <para>
+      Create a primitive for the virtual IP address:
+     </para>
+<screen>&prompt.crm.conf;<command>primitive vip_nfs IPaddr2 \
+  params ip=&nfs-vip-exports; \
+  op monitor interval=10 timeout=20 \
+  meta target-role=Started</command></screen>
+    </step>
+    <step>
+     <para>
+      Add a colocation constraint to make sure that the NFS server daemon,
+      the NFS exports, and the virtual IP address all start on the same node
+      as the NFS file system resources:
+     </para>
+<screen>&prompt.crm.conf;<command>colocation co-nfs_resources-with-filesystem \
+  inf: vip_nfs p-nfs_exportfs p-nfsserver ( fs-nfs_exportfs fs-nfs_state )</command></screen>
+    </step>
+    <step>
+     <para>
+      Add an order constraint to make sure that the file system resources always start
+      before the NFS server daemon, the NFS exports, and finally the virtual IP address:
+     </para>
+<screen>&prompt.crm.conf;<command>order o-filesystem-before-nfs_resources \
+  Mandatory: ( fs-nfs_exportfs fs-nfs_state ) p-nfsserver p-nfs_exportfs vip_nfs</command></screen>
+    </step>
+    <step>
+     <para>
+      Commit these changes:
+     </para>
+<screen>&prompt.crm.conf;<command>commit</command></screen>
+    </step>
+   </procedure>
   </sect2>
  </sect1>
 
