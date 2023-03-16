@@ -190,10 +190,10 @@
      <title>Creating DRBD configurations</title>
      <step>
       <para>
-       Create the file <filename>/etc/drbd.d/nfs_exportfs.res</filename> with the
+       Create the file <filename>/etc/drbd.d/nfs-exportfs.res</filename> with the
         following contents:
       </para>
-<screen>resource nfs_exportfs {
+<screen>resource nfs-exportfs {
    device /dev/drbd1 minor 1; <co xml:id="co-ha-quick-nfs-drbd-device"/>
    disk   /dev/nfs/exportfs; <co xml:id="co-ha-quick-nfs-drbd-disk"/>
    meta-disk internal; <co xml:id="co-ha-quick-nfs-drbd-metadisk"/>
@@ -269,8 +269,8 @@
      </step>
      <step>
       <para>
-       Create the file <filename>/etc/drbd.d/nfs_state.res</filename> with the
-       same contents as <filename>/etc/drbd.d/nfs_exportfs.res</filename>, but
+       Create the file <filename>/etc/drbd.d/nfs-state.res</filename> with the
+       same contents as <filename>/etc/drbd.d/nfs-exportfs.res</filename>, but
        change the following lines:
       </para>
 <screen>resource nfs_<emphasis role="bold">state</emphasis> {
@@ -315,49 +315,50 @@ include /etc/drbd.d/*.res;</screen>
       </para>
      </step>
      <step>
-      <para>The first time you do this, execute the following
-        commands on <emphasis>both</emphasis> nodes (in our example, <systemitem>&node1;</systemitem>
-        and <systemitem>&node2;</systemitem>):
-      </para>
-<screen>&prompt.root;<command>drbdadm create-md nfs_exportfs</command>
-&prompt.root;<command>drbdadm up nfs_exportfs</command></screen>
       <para>
-       This initializes the metadata storage and creates the DRBD device.
+       Initialize the metadata storage. Run these commands on
+       <emphasis>both</emphasis> nodes:
       </para>
+<screen>&prompt.root;<command>drbdadm create-md nfs-exportfs</command>
+&prompt.root;<command>drbdadm create-md nfs-state</command></screen>
      </step>
      <step>
       <para>
-       If the DRBD devices on all nodes have the same data, skip
-       the initial resynchronization. Use the following command:
+       Create the DRBD devices. Run these commands on
+       <emphasis>both</emphasis> nodes:
       </para>
-      <screen>&prompt.root;<command>drbdadm new-current-uuid --clear-bitmap nfs_exportfs/0</command></screen>
+<screen>&prompt.root;<command>drbdadm up nfs-exportfs</command>
+&prompt.root;<command>drbdadm up nfs-state</command></screen>
+     </step>
+     <step>
+      <para>
+       The devices do not have data yet, so
+       you can run these commands to skip the initial synchronization:
+      </para>
+<screen>&prompt.root;<command>drbdadm new-current-uuid --clear-bitmap nfs-exportfs/1</command>
+&prompt.root;<command>drbdadm new-current-uuid --clear-bitmap nfs-state/2</command></screen>
      </step>
      <step>
        <para>Make <systemitem>&node1;</systemitem> primary:</para>
-       <screen>&prompt.root;<command>drbdadm primary --force nfs_exportfs</command></screen>
+<screen>&prompt.root;<command>drbdadm primary --force nfs-exportfs</command>
+&prompt.root;<command>drbdadm primary --force nfs-state</command></screen>
      </step>
       <step>
-       <para>Check the DRBD status:</para>
-       <screen>&prompt.root;<command>drbdadm status nfs_exportfs</command></screen>
+       <para>Check the DRBD status of <literal>nfs-exportfs</literal>:</para>
+<screen>&prompt.root;<command>drbdadm status nfs-exportfs</command></screen>
        <para>This returns the following message:</para>
-          <screen>nfs_exportfs role:Primary
+<screen>nfs-exportfs role:Primary
   disk:UpToDate
   &node1; role:Secondary
     peer-disk:UpToDate</screen>
-     </step>
-     <step>
-      <para>
-       Repeat these steps for the <literal>nfs_state</literal> configuration.
-      </para>
+     <para>
+      Checking the status of <literal>nfs-state</literal> should return the same message.
+     </para>
      </step>
     </procedure>
     <para>
      You can access the DRBD resources on the block devices
      <filename>/dev/drbd1</filename> and <filename>/dev/drbd2</filename>.
-
-     </para>
-     <para>
-      For more information about DRBD, refer to <xref linkend="cha-ha-drbd"/>.
      </para>
    </sect2>
 
@@ -428,8 +429,8 @@ include /etc/drbd.d/*.res;</screen>
     <term>NFS exports</term>
     <listitem>
      <para>
-      This resource is used to export the <filename>/srv/nfs/exportfs</filename>
-      directory to clients.
+      This resource is used to export the directory <filename>/srv/nfs/exportfs</filename>
+      to clients.
      </para>
     </listitem>
    </varlistentry>
@@ -489,37 +490,37 @@ include /etc/drbd.d/*.res;</screen>
     </step>
     <step>
      <para>
-      Create a primitive for the DRBD resource <literal>nfs_exportfs</literal>:
+      Create a primitive for the DRBD device <literal>nfs-exportfs</literal>:
      </para>
-<screen>&prompt.crm.conf;<command>primitive drbd-nfs_exportfs ocf:linbit:drbd \
-  params drbd_resource="nfs_exportfs" \
+<screen>&prompt.crm.conf;<command>primitive drbd_nfs-exportfs ocf:linbit:drbd \
+  params drbd_resource="nfs-exportfs" \
   op monitor interval="15" role="Promoted" \
   op monitor interval="30" role="Unpromoted"</command></screen>
     </step>
     <step>
      <para>
-      Create a primitive for the DRBD resource <literal>nfs_state</literal>:
+      Create a primitive for the DRBD device <literal>nfs-state</literal>:
      </para>
-<screen>&prompt.crm.conf;<command>primitive drbd-nfs_state ocf:linbit:drbd \
-  params drbd_resource="nfs_state" \
+<screen>&prompt.crm.conf;<command>primitive drbd_nfs-state ocf:linbit:drbd \
+  params drbd_resource="nfs-state" \
   op monitor interval="15" role="Promoted" \
   op monitor interval="30" role="Unpromoted"</command></screen>
     </step>
     <step>
      <para>
-      Create a promotable clone for the <literal>drbd-nfs_exportfs</literal>
+      Create a promotable clone for the <literal>drbd_nfs-exportfs</literal>
       primitive:
      </para>
-<screen>&prompt.crm.conf;<command>clone cl-nfs_exportfs drbd-nfs_exportfs \
+<screen>&prompt.crm.conf;<command>clone cl_nfs-exportfs drbd_nfs-exportfs \
   meta promotable="true" promoted-max="1" promoted-node-max="1" \
   clone-max="2" clone-node-max="1" notify="true"</command></screen>
     </step>
     <step>
      <para>
-      Create a promotable clone for the <literal>drbd-nfs_state</literal>
+      Create a promotable clone for the <literal>drbd_nfs-state</literal>
       primitive:
      </para>
-<screen>&prompt.crm.conf;<command>clone cl-nfs_state drbd-nfs_state \
+<screen>&prompt.crm.conf;<command>clone cl_nfs-state drbd_nfs-state \
   meta promotable="true" promoted-max="1" promoted-node-max="1" \
   clone-max="2" clone-node-max="1" notify="true"</command></screen>
     </step>
@@ -552,7 +553,7 @@ include /etc/drbd.d/*.res;</screen>
       Create a file system type resource for the NFS file system on
       <literal>/dev/drbd1</literal>:
      </para>
-<screen>&prompt.crm.conf;<command>primitive fs-nfs_exportfs Filesystem \
+<screen>&prompt.crm.conf;<command>primitive fs_nfs-exportfs Filesystem \
   params device=/dev/drbd1 directory=/srv/nfs/exportfs fstype=ext4 \
   op monitor interval="30s"</command></screen>
     </step>
@@ -561,7 +562,7 @@ include /etc/drbd.d/*.res;</screen>
       Create a file system type resource for the NFS file states on
       <literal>/dev/drbd2</literal>:
      </para>
-<screen>&prompt.crm.conf;<command>primitive fs-nfs_state Filesystem \
+<screen>&prompt.crm.conf;<command>primitive fs_nfs-state Filesystem \
   params device=/dev/drbd2 directory=/var/lib/nfs fstype=ext4 \
   op monitor interval="30s"</command></screen>
     </step>
@@ -570,28 +571,28 @@ include /etc/drbd.d/*.res;</screen>
       Add a colocation constraint to make sure that the two resources
       always start on the same node:
      </para>
-<screen>&prompt.crm.conf;<command>colocation co-nfs_exportfs-with-nfs_state \
-  inf: fs-nfs_exportfs fs-nfs_state</command></screen>
+<screen>&prompt.crm.conf;<command>colocation co_nfs-exportfs-with-nfs-state \
+  inf: fs_nfs-exportfs fs_nfs-state</command></screen>
     </step>
     <step>
      <para>
       Add colocation constraints to make sure that each resource always starts
       on the node where the related DRBD promotable clone is in the primary role:
      </para>
-<screen>&prompt.crm.conf;<command>colocation co-nfs_exportfs-on-drbd \
-  inf: fs-nfs_exportfs cl-nfs_exportfs:Promoted</command>
-&prompt.crm.conf;<command>colocation co-nfs_state-on-drbd \
-  inf: fs-nfs_state cl-nfs_state:Promoted</command></screen>
+<screen>&prompt.crm.conf;<command>colocation co_nfs-exportfs-on-drbd \
+  inf: fs_nfs-exportfs cl_nfs-exportfs:Promoted</command>
+&prompt.crm.conf;<command>colocation co_nfs-state-on-drbd \
+  inf: fs_nfs-state cl_nfs-state:Promoted</command></screen>
     </step>
     <step>
      <para>
       Add order constraints to make sure the DRBD promotable clones always start
       before the file system resources:
      </para>
-<screen>&prompt.crm.conf;<command>order o-drbd-before-nfs_exportfs \
-  Mandatory: cl-nfs_exportfs:promote fs-nfs_exportfs:start</command>
-&prompt.crm.conf;<command>order o-drbd-before-nfs_state \
-  Mandatory: cl-nfs_state:promote fs-nfs_state:start</command></screen>
+<screen>&prompt.crm.conf;<command>order o_drbd-before-nfs-exportfs \
+  Mandatory: cl_nfs-exportfs:promote fs_nfs-exportfs:start</command>
+&prompt.crm.conf;<command>order o_drbd-before-nfs-state \
+  Mandatory: cl_nfs-state:promote fs_nfs-state:start</command></screen>
     </step>
     <step>
      <para>
@@ -620,7 +621,7 @@ include /etc/drbd.d/*.res;</screen>
      <para>
       Create a primitive to manage the NFS server daemon:
      </para>
-<screen>&prompt.crm.conf;<command>primitive p-nfsserver nfsserver \
+<screen>&prompt.crm.conf;<command>primitive p_nfsserver nfsserver \
   params nfs_server_scope=SUSE \
   op monitor interval=10s timeout=20s \
   meta target-role=Started</command></screen>
@@ -629,7 +630,7 @@ include /etc/drbd.d/*.res;</screen>
       <para>
        Create a primitive for the NFS exports:
       </para>
-<screen>&prompt.crm.conf;<command>primitive p-nfs_exportfs exportfs \
+<screen>&prompt.crm.conf;<command>primitive p_exportfs exportfs \
   params directory="/srv/nfs/exportfs" \
   options="rw,mountpoint" clientspec="*" fsid=100 \
   op monitor interval=30s \
@@ -657,20 +658,20 @@ include /etc/drbd.d/*.res;</screen>
       the NFS exports, and the virtual IP address all start on the same node
       as the NFS file system resources:
      </para>
-<screen>&prompt.crm.conf;<command>colocation co-nfs_resources-with-filesystem \
-  inf: vip_nfs p-nfs_exportfs p-nfsserver ( fs-nfs_exportfs fs-nfs_state )</command></screen>
+<screen>&prompt.crm.conf;<command>colocation co_nfs-resources-with-filesystem \
+  inf: vip_nfs p_exportfs p_nfsserver ( fs_nfs-exportfs fs_nfs-state )</command></screen>
     </step>
     <step>
      <para>
       Add an order constraint to make sure that the file system resources always start
       before the NFS server daemon, the NFS exports, and finally the virtual IP address:
      </para>
-<screen>&prompt.crm.conf;<command>order o-filesystem-before-nfs_resources \
-  Mandatory: ( fs-nfs_exportfs fs-nfs_state ) p-nfsserver p-nfs_exportfs vip_nfs</command></screen>
+<screen>&prompt.crm.conf;<command>order o_filesystem-before-nfs-resources \
+  Mandatory: ( fs_nfs-exportfs fs_nfs-state ) p_nfsserver p_exportfs vip_nfs</command></screen>
     </step>
     <step>
      <para>
-      Commit these changes:
+      Commit this configuration:
      </para>
 <screen>&prompt.crm.conf;<command>commit</command></screen>
     </step>
@@ -693,21 +694,58 @@ include /etc/drbd.d/*.res;</screen>
 
   <para>In its simplest form, the command to mount the NFS export looks like
    this:</para>
-  <screen>&prompt.root;<command>mount -t nfs &nfs-vip-exports;:/srv/nfs/work /home/work</command></screen>
+  <screen>&prompt.root;<command>mount -t nfs &nfs-vip-exports;:/srv/nfs/exportfs /home/exportfs</command></screen>
   <para>
    To configure a specific transport protocol (<option>proto</option>)
    and maximum read and write request sizes (<option>rsize</option> and
     <option>wsize</option>), use:
   </para>
   <screen>&prompt.root;<command>mount -o rsize=32768,wsize=32768 \
-    &nfs-vip-exports;:/srv/nfs/work /home/work</command></screen>
+    &nfs-vip-exports;:/srv/nfs/exportfs /home/exportfs</command></screen>
   <para>
    If you need to be compatible with NFS version&nbsp;3, include the value
    <option>vers=3</option> after the <option>-o</option> option.
   </para>
   <para>
-   For further NFS mount options, consult the <command>nfs</command> man page.
+   For further NFS mount options, refer to the <command>nfs</command> man page.
   </para>
+  <warning>
+   <title>Low lease time can cause loss of file state</title>
+   <para>
+    NFS clients regularly renew their state with the NFS server. If the lease time
+    is too low, operating system or network delays can cause the timer to expire
+    before the renewal is complete, leading to loss of file state and I/O errors.
+   </para>
+   <para>
+    <literal>NFSV4LEASETIME</literal> is set on the NFS server in the file
+    <filename>/etc/sysconfig/nfs</filename>. The default is 90 seconds.
+    If lowering the lease time is necessary, we recommend a value of 60 or
+    higher. We strongly discourage values lower than 30.
+   </para>
+  </warning>
+ </sect1>
+ <sect1 xml:id="sec-ha-quick-nfs-more-info">
+  <title>For more information</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     For more details about the steps in this guide, refer to
+     <link xlink:href="https://www.suse.com/support/kb/doc/?id=000020396"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     For more information about NFS and LVM, refer to
+     <link xlink:href="https://documentation.suse.com/sles/html/SLES-all/book-storage.html">
+     &storage_guide; for &sles;</link>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     For more information about DRBD, refer to <xref linkend="cha-ha-drbd"/>.
+    </para>
+   </listitem>
+  </itemizedlist>
  </sect1>
  <xi:include href="common_legal.xml"/>
  </article>
