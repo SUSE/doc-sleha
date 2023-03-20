@@ -271,12 +271,37 @@
      <step>
       <para>
        Create the file <filename>/etc/drbd.d/nfs-state.res</filename> with the
-       same contents as <filename>/etc/drbd.d/nfs-share.res</filename>, but
-       change the following lines:
+       following contents. The differences from <filename>/etc/drbd.d/nfs-share.res</filename>
+       are shown in bold:
       </para>
 <screen>resource nfs_<emphasis role="bold">state</emphasis> {
-   device /dev/drbd<emphasis role="bold">2</emphasis> minor <emphasis role="bold">2</emphasis>;
-   disk   /dev/nfs/<emphasis role="bold">state</emphasis>;</screen>
+   device /dev/<emphasis role="bold">drbd2 minor 2</emphasis>;
+   disk   /dev/nfs/<emphasis role="bold">state</emphasis>;
+   meta-disk internal;
+
+   net {
+      protocol  C;
+      fencing resource-and-stonith;
+   }
+
+   handlers {
+      fence-peer "/usr/lib/drbd/crm-fence-peer.9.sh";
+      after-resync-target "/usr/lib/drbd/crm-unfence-peer.9.sh";
+      # ...
+   }
+
+   connection-mesh {
+      hosts     &node1; &node2;;
+   }
+   on &node1; {
+      address   &subnetI;.1:<emphasis role="bold">&drbd.port2;</emphasis>;
+      node-id   0;
+   }
+   on &node2; {
+      address   &subnetI;.2:<emphasis role="bold">&drbd.port2;</emphasis>;
+      node-id   1;
+   }
+}</screen>
      </step>
      <step>
       <para>
@@ -311,8 +336,8 @@ include /etc/drbd.d/*.res;</screen>
      <title>Activating DRBD devices</title>
      <step>
       <para>
-       If you use a firewall in your cluster, open port
-       <systemitem>&drbd.port;</systemitem> in your firewall configuration.
+       If you use a firewall in the cluster, open ports <systemitem>&drbd.port;</systemitem>
+       and <systemitem>&drbd.port2;</systemitem> in the firewall configuration.
       </para>
      </step>
      <step>
@@ -625,6 +650,10 @@ include /etc/drbd.d/*.res;</screen>
     and the virtual IP address. <emphasis>Do not</emphasis> commit this configuration
     until after you add the colocation and order constraints.
    </para>
+   <para>
+    Make sure the package <package>nfs-kernel-server</package> is installed before
+    performing this procedure.
+   </para>
    <procedure>
     <title>Creating supporting resources for NFS</title>
     <step>
@@ -657,13 +686,6 @@ include /etc/drbd.d/*.res;</screen>
        </para>
       </important>
      </step>
-     <step>
-      <para>
-       Confirm that the NFS exports are set up properly:
-      </para>
-<screen>&prompt.root;<command>exportfs -v</command>
-/srv/nfs/share   <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(<replaceable>OPTIONS</replaceable>)</screen>
-     </step>
     <step>
      <para>
       Create a primitive for the virtual IP address:
@@ -694,6 +716,19 @@ include /etc/drbd.d/*.res;</screen>
       Commit this configuration:
      </para>
 <screen>&prompt.crm.conf;<command>commit</command></screen>
+    </step>
+    <step>
+     <para>
+      Leave the <command>crm</command> interactive shell:
+     </para>
+<screen>&prompt.crm.conf;<command>quit</command></screen>
+    </step>
+    <step>
+     <para>
+      Confirm that the NFS exports are set up properly:
+     </para>
+<screen>&prompt.root;<command>exportfs -v</command>
+/srv/nfs/share   <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(<replaceable>OPTIONS</replaceable>)</screen>
     </step>
    </procedure>
   </sect2>
