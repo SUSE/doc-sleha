@@ -78,7 +78,8 @@
    </listitem>
    <listitem>
     <para>
-      A file system exported through NFS.
+      A file system exported through NFS, and a separate file system used to track
+      the NFS client states.
     </para>
    </listitem>
   </itemizedlist>
@@ -102,9 +103,9 @@
 
  <sect1 xml:id="sec-ha-quick-nfs-lvm">
    <title>Creating LVM devices</title>
-   <para>LVM (<emphasis>Logical Volume Manager</emphasis>) enables
-    flexible distribution of hard disk space over several file
-    systems.
+   <para>
+    LVM (Logical Volume Manager) enables flexible distribution of hard disk space
+    over several file systems.
    </para>
    <para>
     Use <command>crm cluster run</command> to create the LVM devices on both nodes at once.
@@ -113,7 +114,7 @@
     <title>Creating LVM devices for DRBD</title>
     <step>
      <para>
-      Create an LVM physical volume and replace <filename>/dev/sdb1</filename>
+      Create an LVM physical volume, replacing <filename>/dev/sdb1</filename>
       with your corresponding device for LVM:</para>
      <screen>&prompt.root;<command>crm cluster run "pvcreate /dev/sdb1"</command></screen>
     </step>
@@ -128,13 +129,20 @@
        volume group <systemitem>nfs</systemitem>:
       </para>
       <screen>&prompt.root;<command>crm cluster run "lvcreate -n share -L 20G nfs"</command></screen>
+      <para>
+       This volume will be used for the NFS exports.
+      </para>
      </step>
      <step>
       <para>
-       Create a second logical volume, named <systemitem>state</systemitem>,
-       in the volume group <systemitem>nfs</systemitem>:
+       Create a logical volume named <systemitem>state</systemitem> in the
+       volume group <systemitem>nfs</systemitem>:
       </para>
-      <screen>&prompt.root;<command>crm cluster run "lvcreate -n state -L 4G nfs"</command></screen>
+      <screen>&prompt.root;<command>crm cluster run "lvcreate -n state -L 8G nfs"</command></screen>
+      <para>
+       This volume will be used for the NFS client states. The 8 GB volume size
+       used in this example should support several thousand concurrent NFS clients.
+      </para>
      </step>
      <step>
       <para>
@@ -166,8 +174,7 @@
   </itemizedlist>
   <para>
     The following procedures will result in two DRBD devices: one device for the
-    <literal>ext4</literal> file system that will be exported, and a second device
-    to track the NFS client states.
+    NFS exports, and a second device to track the NFS client states.
    </para>
 
    <sect2 xml:id="sec-ha-quick-nfs-drbd-config">
@@ -199,12 +206,12 @@
       </para>
 <screen>resource nfs {
    volume 0 { <co xml:id="co-ha-quick-nfs-drbd-volume"/>
-      device           /dev/drbd0 minor 0; <co xml:id="co-ha-quick-nfs-drbd-device"/>
+      device           /dev/drbd1 minor 1; <co xml:id="co-ha-quick-nfs-drbd-device"/>
       disk             /dev/nfs/state; <co xml:id="co-ha-quick-nfs-drbd-disk"/>
       meta-disk        internal; <co xml:id="co-ha-quick-nfs-drbd-metadisk"/>
    }
    volume 1 {
-      device           /dev/drbd1 minor 1;
+      device           /dev/drbd2 minor 2;
       disk             /dev/nfs/share;
       meta-disk        internal;
    }
@@ -355,7 +362,7 @@ include /etc/drbd.d/*.res;</screen>
     </procedure>
     <para>
      You can access the DRBD resources on the block devices
-     <filename>/dev/drbd0</filename> and <filename>/dev/drbd1</filename>.
+     <filename>/dev/drbd1</filename> and <filename>/dev/drbd2</filename>.
      </para>
    </sect2>
 
@@ -369,15 +376,15 @@ include /etc/drbd.d/*.res;</screen>
      <title>Creating file systems for DRBD</title>
      <step>
       <para>
-       Create an <literal>ext4</literal> file system on <filename>/dev/drbd0</filename>:
-      </para>
-      <screen>&prompt.root;<command>mkfs.ext4 /dev/drbd0</command></screen>
-     </step>
-     <step>
-      <para>
        Create an <literal>ext4</literal> file system on <filename>/dev/drbd1</filename>:
       </para>
       <screen>&prompt.root;<command>mkfs.ext4 /dev/drbd1</command></screen>
+     </step>
+     <step>
+      <para>
+       Create an <literal>ext4</literal> file system on <filename>/dev/drbd2</filename>:
+      </para>
+      <screen>&prompt.root;<command>mkfs.ext4 /dev/drbd2</command></screen>
      </step>
     </procedure>
    </sect2>
@@ -453,14 +460,14 @@ include /etc/drbd.d/*.res;</screen>
     <listitem>
         <para>Into this export directory, the cluster mounts an
             <literal>ext4</literal> file system from the DRBD device
-         <filename>/dev/drbd1</filename>.
+         <filename>/dev/drbd2</filename>.
          This DRBD device sits on top of an LVM logical volume named
          <literal>/dev/nfs/share</literal>.
         </para>
     </listitem>
     <listitem>
      <para>
-      The DRBD device <literal>/dev/drbd0</literal> is used to share the
+      The DRBD device <literal>/dev/drbd1</literal> is used to share the
       NFS client states from <filename>/var/lib/nfs</filename>. This DRBD device
       sits on top of an LVM logical volume named <literal>/dev/nfs/state</literal>.
      </para>
@@ -531,7 +538,7 @@ include /etc/drbd.d/*.res;</screen>
       Create a primitive for the NFS client states on <literal>/dev/drbd1</literal>:
      </para>
 <screen>&prompt.crm.conf;<command>primitive fs_nfs-state Filesystem \
-  params device=/dev/drbd0 directory=/var/lib/nfs fstype=ext4 \
+  params device=/dev/drbd1 directory=/var/lib/nfs fstype=ext4 \
   op monitor interval=30s timeout=40s \
   op start timeout=60s interval=0s \
   op stop timeout=60s interval=0s</command></screen>
@@ -542,7 +549,7 @@ include /etc/drbd.d/*.res;</screen>
       <literal>/dev/drbd2</literal>:
      </para>
 <screen>&prompt.crm.conf;<command>primitive fs_nfs-share Filesystem \
-  params device=/dev/drbd1 directory=/srv/nfs/share fstype=ext4 \
+  params device=/dev/drbd2 directory=/srv/nfs/share fstype=ext4 \
   op monitor interval=30s timeout=40s \
   op start timeout=60s interval=0s \
   op stop timeout=60s interval=0s</command></screen>
@@ -578,8 +585,8 @@ include /etc/drbd.d/*.res;</screen>
     </step>
    </procedure>
    <para>
-    Pacemaker mounts <literal>/dev/drbd0</literal> to <filename>/var/lib/nfs</filename>,
-    and <literal>/dev/drbd1</literal> to <filename>srv/nfs/share</filename>. Confirm this
+    Pacemaker mounts <literal>/dev/drbd1</literal> to <filename>/var/lib/nfs</filename>,
+    and <literal>/dev/drbd2</literal> to <filename>srv/nfs/share</filename>. Confirm this
     with <command>mount</command>, or by looking at <filename >/proc/mounts</filename>.
    </para>
   </sect2>
@@ -730,15 +737,13 @@ include /etc/drbd.d/*.res;</screen>
     </step>
     <step>
      <para>
-      Check the state of the cluster:
+      Check the status of the cluster. The resources in the <literal>g_nfs</literal>
+      group should appear in the following order:
      </para>
   <screen>&prompt.root;<command>crm status</command>
   [...]
   Full List of Resources
     [...]
-    * Clone Set: cl_nfs [drbd_nfs] (promotable):
-      * Masters: [ &node1; ]
-      * Slaves: [ &node2; ]
     * Resource Group: g_nfs:
       * fs_nfs-state    (ocf:heartbeat:Filesystem):   Started &node1;
       * fs_nfs-share    (ocf:heartbeat:Filesystem):   Started &node1;
@@ -797,7 +802,7 @@ include /etc/drbd.d/*.res;</screen>
   to the cluster.
  </para>
  <para>
-  In this example, a new DRBD device named <literal>/dev/drbd2</literal> sits
+  In this example, a new DRBD device named <literal>/dev/drbd3</literal> sits
   on top of an LVM logical volume named <literal>/dev/nfs/share2</literal>.
  </para>
  <procedure>
@@ -814,7 +819,7 @@ include /etc/drbd.d/*.res;</screen>
     under the existing volumes:
    </para>
 <screen>   volume 2 {
-      device           /dev/drbd2;
+      device           /dev/drbd3;
       disk             /dev/nfs/share2;
       meta-disk        internal;
    }</screen>
@@ -853,9 +858,9 @@ include /etc/drbd.d/*.res;</screen>
   <step>
    <para>
     On the node that is in the <literal>Primary</literal> role, create an
-    <literal>ext4</literal> file system on <literal>/dev/drbd2</literal>:
+    <literal>ext4</literal> file system on <literal>/dev/drbd3</literal>:
    </para>
-<screen>&prompt.root;<command>mkfs.ext4 /dev/drbd2</command></screen>
+<screen>&prompt.root;<command>mkfs.ext4 /dev/drbd3</command></screen>
   </step>
   <step>
    <para>
@@ -865,10 +870,10 @@ include /etc/drbd.d/*.res;</screen>
   </step>
   <step>
    <para>
-    Create a primitive for the file system to be exported on <literal>/dev/drbd2</literal>:
+    Create a primitive for the file system to be exported on <literal>/dev/drbd3</literal>:
    </para>
 <screen>&prompt.crm.conf;<command>primitive fs_nfs-share2 Filesystem \
-  params device="/dev/drbd2" directory="/srv/nfs/share2" fstype=ext4 \
+  params device="/dev/drbd3" directory="/srv/nfs/share2" fstype=ext4 \
   op monitor interval=30s timeout=40s \
   op start timeout=60s interval=0s \
   op stop timeout=60s interval=0s</command></screen>
@@ -912,7 +917,8 @@ include /etc/drbd.d/*.res;</screen>
   </step>
   <step>
    <para>
-    Check the state of the cluster:
+    Check the status of the cluster. The resources in the <literal>g_nfs</literal>
+    group should appear in the following order:
    </para>
 <screen>&prompt.root;<command>crm status</command>
 [...]
