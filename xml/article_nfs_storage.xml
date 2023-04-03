@@ -206,12 +206,12 @@
       </para>
 <screen>resource nfs {
    volume 0 { <co xml:id="co-ha-quick-nfs-drbd-volume"/>
-      device           /dev/drbd1 minor 1; <co xml:id="co-ha-quick-nfs-drbd-device"/>
+      device           /dev/drbd0; <co xml:id="co-ha-quick-nfs-drbd-device"/>
       disk             /dev/nfs/state; <co xml:id="co-ha-quick-nfs-drbd-disk"/>
       meta-disk        internal; <co xml:id="co-ha-quick-nfs-drbd-metadisk"/>
    }
    volume 1 {
-      device           /dev/drbd2 minor 2;
+      device           /dev/drbd1;
       disk             /dev/nfs/share;
       meta-disk        internal;
    }
@@ -362,7 +362,7 @@ include /etc/drbd.d/*.res;</screen>
     </procedure>
     <para>
      You can access the DRBD resources on the block devices
-     <filename>/dev/drbd1</filename> and <filename>/dev/drbd2</filename>.
+     <filename>/dev/drbd0</filename> and <filename>/dev/drbd1</filename>.
      </para>
    </sect2>
 
@@ -376,15 +376,15 @@ include /etc/drbd.d/*.res;</screen>
      <title>Creating file systems for DRBD</title>
      <step>
       <para>
-       Create an <literal>ext4</literal> file system on <filename>/dev/drbd1</filename>:
+       Create an <literal>ext4</literal> file system on <filename>/dev/drbd0</filename>:
       </para>
-      <screen>&prompt.root;<command>mkfs.ext4 /dev/drbd1</command></screen>
+      <screen>&prompt.root;<command>mkfs.ext4 /dev/drbd0</command></screen>
      </step>
      <step>
       <para>
-       Create an <literal>ext4</literal> file system on <filename>/dev/drbd2</filename>:
+       Create an <literal>ext4</literal> file system on <filename>/dev/drbd1</filename>:
       </para>
-      <screen>&prompt.root;<command>mkfs.ext4 /dev/drbd2</command></screen>
+      <screen>&prompt.root;<command>mkfs.ext4 /dev/drbd1</command></screen>
      </step>
     </procedure>
    </sect2>
@@ -460,14 +460,14 @@ include /etc/drbd.d/*.res;</screen>
     <listitem>
         <para>Into this export directory, the cluster mounts an
             <literal>ext4</literal> file system from the DRBD device
-         <filename>/dev/drbd2</filename>.
+         <filename>/dev/drbd1</filename>.
          This DRBD device sits on top of an LVM logical volume named
          <literal>/dev/nfs/share</literal>.
         </para>
     </listitem>
     <listitem>
      <para>
-      The DRBD device <literal>/dev/drbd1</literal> is used to share the
+      The DRBD device <literal>/dev/drbd0</literal> is used to share the
       NFS client states from <filename>/var/lib/nfs</filename>. This DRBD device
       sits on top of an LVM logical volume named <literal>/dev/nfs/state</literal>.
      </para>
@@ -494,12 +494,8 @@ include /etc/drbd.d/*.res;</screen>
      </para>
 <screen>&prompt.crm.conf;<command>primitive drbd_nfs ocf:linbit:drbd \
   params drbd_resource="nfs" \
-  op monitor interval=15 role=Promoted timeout=20 \
-  op monitor interval=30 role=Unpromoted timeout=20 \
-  op start timeout=240 interval=0s \
-  op promote timeout=90 interval=0s \
-  op demote timeout=90 interval=0s \
-  op stop timeout=100 interval=0s</command></screen>
+  op monitor interval=15 role=Promoted \
+  op monitor interval=30 role=Unpromoted</command></screen>
     </step>
     <step>
      <para>
@@ -535,24 +531,18 @@ include /etc/drbd.d/*.res;</screen>
     <title>Creating file system resources for NFS</title>
     <step>
      <para>
-      Create a primitive for the NFS client states on <literal>/dev/drbd1</literal>:
+      Create a primitive for the NFS client states on <literal>/dev/drbd0</literal>:
      </para>
 <screen>&prompt.crm.conf;<command>primitive fs_nfs-state Filesystem \
-  params device=/dev/drbd1 directory=/var/lib/nfs fstype=ext4 \
-  op monitor interval=30s timeout=40s \
-  op start timeout=60s interval=0s \
-  op stop timeout=60s interval=0s</command></screen>
+  params device=/dev/drbd0 directory=/var/lib/nfs fstype=ext4</command></screen>
     </step>
     <step>
      <para>
       Create a primitive for the file system to be exported on
-      <literal>/dev/drbd2</literal>:
+      <literal>/dev/drbd1</literal>:
      </para>
 <screen>&prompt.crm.conf;<command>primitive fs_nfs-share Filesystem \
-  params device=/dev/drbd2 directory=/srv/nfs/share fstype=ext4 \
-  op monitor interval=30s timeout=40s \
-  op start timeout=60s interval=0s \
-  op stop timeout=60s interval=0s</command></screen>
+  params device=/dev/drbd1 directory=/srv/nfs/share fstype=ext4</command></screen>
     </step>
     <step>
      <para>
@@ -585,8 +575,8 @@ include /etc/drbd.d/*.res;</screen>
     </step>
    </procedure>
    <para>
-    Pacemaker mounts <literal>/dev/drbd1</literal> to <filename>/var/lib/nfs</filename>,
-    and <literal>/dev/drbd2</literal> to <filename>srv/nfs/share</filename>. Confirm this
+    Pacemaker mounts <literal>/dev/drbd0</literal> to <filename>/var/lib/nfs</filename>,
+    and <literal>/dev/drbd1</literal> to <filename>srv/nfs/share</filename>. Confirm this
     with <command>mount</command>, or by looking at <filename >/proc/mounts</filename>.
    </para>
   </sect2>
@@ -607,10 +597,7 @@ include /etc/drbd.d/*.res;</screen>
       Create a primitive to manage the NFS server daemon:
      </para>
 <screen>&prompt.crm.conf;<command>primitive p_nfsserver nfsserver \
-  params nfs_server_scope=SUSE \
-  op monitor timeout=20s interval=10s \
-  op start timeout=40s interval=0s \
-  op stop timeout=20s interval=0s</command></screen>
+  params nfs_server_scope=SUSE nfs_shared_infodir="/var/lib/nfs"</command></screen>
      <warning>
       <title>Low lease time can cause loss of file state</title>
       <para>
@@ -654,10 +641,8 @@ include /etc/drbd.d/*.res;</screen>
       </para>
 <screen>&prompt.crm.conf;<command>primitive p_exportfs exportfs \
   params directory="/srv/nfs/share" \
-  options="rw,mountpoint" clientspec="*" fsid=101 \
-  op monitor interval=30s timeout=90s \
-  op start timeout=40s interval=0s \
-  op stop timeout=120s interval=0s</command></screen>
+  options="rw,mountpoint" clientspec="192.168.1.0/24" fsid=101 \
+  op monitor interval=30s timeout=90s</command></screen>
       <para>
        The value of <literal>op monitor timeout</literal> must be higher
        than the value of <literal>stonith-timeout</literal>. To find the
@@ -712,10 +697,7 @@ include /etc/drbd.d/*.res;</screen>
       Create a primitive for the virtual IP address:
      </para>
 <screen>&prompt.crm.conf;<command>primitive vip_nfs IPaddr2 \
-  params ip=&nfs-vip-exports; \
-  op monitor interval=10 timeout=20 \
-  op start timeout=20s interval=0s \
-  op stop timeout=20s interval=0s</command></screen>
+  params ip=&nfs-vip-exports;</command></screen>
     </step>
     <step>
      <para>
@@ -802,7 +784,7 @@ include /etc/drbd.d/*.res;</screen>
   to the cluster.
  </para>
  <para>
-  In this example, a new DRBD device named <literal>/dev/drbd3</literal> sits
+  In this example, a new DRBD device named <literal>/dev/drbd2</literal> sits
   on top of an LVM logical volume named <literal>/dev/nfs/share2</literal>.
  </para>
  <procedure>
@@ -819,7 +801,7 @@ include /etc/drbd.d/*.res;</screen>
     under the existing volumes:
    </para>
 <screen>   volume 2 {
-      device           /dev/drbd3;
+      device           /dev/drbd2;
       disk             /dev/nfs/share2;
       meta-disk        internal;
    }</screen>
@@ -858,9 +840,9 @@ include /etc/drbd.d/*.res;</screen>
   <step>
    <para>
     On the node that is in the <literal>Primary</literal> role, create an
-    <literal>ext4</literal> file system on <literal>/dev/drbd3</literal>:
+    <literal>ext4</literal> file system on <literal>/dev/drbd2</literal>:
    </para>
-<screen>&prompt.root;<command>mkfs.ext4 /dev/drbd3</command></screen>
+<screen>&prompt.root;<command>mkfs.ext4 /dev/drbd2</command></screen>
   </step>
   <step>
    <para>
@@ -870,13 +852,10 @@ include /etc/drbd.d/*.res;</screen>
   </step>
   <step>
    <para>
-    Create a primitive for the file system to be exported on <literal>/dev/drbd3</literal>:
+    Create a primitive for the file system to be exported on <literal>/dev/drbd2</literal>:
    </para>
 <screen>&prompt.crm.conf;<command>primitive fs_nfs-share2 Filesystem \
-  params device="/dev/drbd3" directory="/srv/nfs/share2" fstype=ext4 \
-  op monitor interval=30s timeout=40s \
-  op start timeout=60s interval=0s \
-  op stop timeout=60s interval=0s</command></screen>
+  params device="/dev/drbd2" directory="/srv/nfs/share2" fstype=ext4</command></screen>
   </step>
   <step>
    <para>
@@ -891,10 +870,8 @@ include /etc/drbd.d/*.res;</screen>
    </para>
 <screen>&prompt.crm.conf;<command>primitive p_exportfs2 exportfs \
   params directory="/srv/nfs/share2" \
-  options="rw,mountpoint" clientspec="*" fsid=102 \
-  op monitor interval=30s timeout=90s \
-  op start timeout=40s interval=0s \
-  op stop timeout=120s interval=0s</command></screen>
+  options="rw,mountpoint" clientspec="192.168.1.0/24" fsid=102 \
+  op monitor interval=30s timeout=90s</command></screen>
   </step>
   <step>
    <para>
@@ -963,6 +940,12 @@ Full List of Resources
    <listitem>
     <para>
      For more information about DRBD, refer to <xref linkend="cha-ha-drbd"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     For more information about cluster resources, refer to
+     <xref linkend="sec-ha-config-basics-resources"/>.
     </para>
    </listitem>
   </itemizedlist>
