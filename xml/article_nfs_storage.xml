@@ -53,8 +53,8 @@
      Two floating, virtual IP addresses (<systemitem class="ipaddress"
       >&nfs-vip-hawk;</systemitem> and <systemitem class="ipaddress"
       >&nfs-vip-exports;</systemitem>), allowing clients to connect to
-     the service no matter which physical node it is running on.
-     One IP address is used for cluster administration with &hawk2;, the other
+     a service no matter which physical node it is running on.
+     One IP address is used for cluster administration with &hawk2;, and the other
      IP address is used exclusively for the NFS exports.
     </para>
    </listitem>
@@ -104,8 +104,8 @@
  <sect1 xml:id="sec-ha-quick-nfs-lvm">
    <title>Creating LVM devices</title>
    <para>
-    LVM (Logical Volume Manager) enables flexible distribution of hard disk space
-    over several file systems.
+    LVM (Logical Volume Manager) enables flexible distribution of storage space
+    across several file systems.
    </para>
    <para>
     Use <command>crm cluster run</command> to create the LVM devices on both nodes at once.
@@ -180,23 +180,11 @@
    <sect2 xml:id="sec-ha-quick-nfs-drbd-config">
     <title>Creating the DRBD configuration</title>
     <para>
-     For consistency reasons, it is highly recommended to follow this advice:
+     DRBD configuration files are kept in the <filename>/etc/drbd.d/</filename>
+     directory, and must end with a <filename class="extension">.res</filename>
+     extension. In this procedure, the configuration file is named
+     <filename>/etc/drbd.d/nfs.res</filename>.
     </para>
-    <itemizedlist>
-     <listitem>
-      <para>Use the directory <filename>/etc/drbd.d/</filename> for your
-      configuration.</para>
-     </listitem>
-     <listitem>
-      <para>Name the file according to the purpose of the resource.
-      </para>
-     </listitem>
-     <listitem>
-      <para>Put your resource configuration in a file with a
-       <filename class="extension">.res</filename> extension.
-      </para>
-     </listitem>
-    </itemizedlist>
     <procedure>
      <title>Creating a DRBD configuration</title>
      <step>
@@ -252,16 +240,16 @@
         </para>
        </callout>
        <callout arearefs="co-ha-quick-nfs-drbd-metadisk">
-        <para>Where the metadata format is stored. Using
+        <para>Where the metadata is stored. Using
          <literal>internal</literal>, the metadata is stored together with
          the user data on the same device. See the man page for further
          information.
         </para>
        </callout>
        <callout arearefs="co-ha-quick-nfs-drbd-protocol">
-        <para>The specified protocol to be used for this connection. For protocol
-         <literal>C</literal>, a write is considered to be complete when
-         it has reached all disks, be they local or remote.
+        <para>The protocol to use for this connection. Protocol <literal>C</literal>
+         provides better data availability, and does not consider a write to be
+         complete until it has reached all local and remote disks.
         </para>
        </callout>
        <callout arearefs="co-ha-quick-nfs-fencing-policy">
@@ -274,9 +262,7 @@
         <para>
          Enables resource-level fencing. If the DRBD replication link
          becomes disconnected, &pace; tries to promote the DRBD resource
-         to another node. During this process, the scripts were called.
-         See <xref linkend="sec-ha-drbd-fencing"/> for more
-         information.
+         to another node. For more information, refer to <xref linkend="sec-ha-drbd-fencing"/>.
         </para>
        </callout>
        <callout arearefs="co-ha-quick-nfs-connectionmesh">
@@ -598,6 +584,12 @@ include /etc/drbd.d/*.res;</screen>
      </para>
 <screen>&prompt.crm.conf;<command>primitive p_nfsserver nfsserver \
   params nfs_server_scope=SUSE nfs_shared_infodir="/var/lib/nfs"</command></screen>
+     <para>
+      The <literal>nfs_server_scope</literal> must be the same on all nodes in the
+      cluster that run the NFS server, but this is not set by default. All clusters
+      using &suse; software can use the same scope, so we recommend setting the value
+      to <literal>SUSE</literal>.
+     </para>
      <warning>
       <title>Low lease time can cause loss of file state</title>
       <para>
@@ -641,14 +633,23 @@ include /etc/drbd.d/*.res;</screen>
       </para>
 <screen>&prompt.crm.conf;<command>primitive p_exportfs exportfs \
   params directory="/srv/nfs/share" \
-  options="rw,mountpoint" clientspec="192.168.1.0/24" fsid=101 \
-  op monitor interval=30s timeout=90s</command></screen>
-      <para>
-       The value of <literal>op monitor timeout</literal> must be higher
-       than the value of <literal>stonith-timeout</literal>. To find the
-       <literal>stonith-timeout</literal> value, run <command>crm configure show</command>
-       and look under the <literal>property</literal> section.
-      </para>
+  options="rw,mountpoint" clientspec="192.168.1.0/24" fsid=101 \</command><co xml:id="co-exportfs-fsid"/>
+  <command>op monitor interval=30s timeout=90s</command><co xml:id="co-exportfs-monitor-timeout"/></screen>
+      <calloutlist>
+       <callout arearefs="co-exportfs-fsid">
+        <para>
+         The <literal>fsid</literal> must be unique for each NFS export resource.
+        </para>
+       </callout>
+       <callout arearefs="co-exportfs-monitor-timeout">
+        <para>
+         The value of <literal>op monitor timeout</literal> must be higher
+         than the value of <literal>stonith-timeout</literal>. To find the
+         <literal>stonith-timeout</literal> value, run <command>crm configure show</command>
+         and look under the <literal>property</literal> section.
+        </para>
+       </callout>
+      </calloutlist>
       <important>
        <title>Do not set <literal>wait_for_leasetime_on_stop=true</literal></title>
        <para>
@@ -696,8 +697,7 @@ include /etc/drbd.d/*.res;</screen>
      <para>
       Create a primitive for the virtual IP address:
      </para>
-<screen>&prompt.crm.conf;<command>primitive vip_nfs IPaddr2 \
-  params ip=&nfs-vip-exports;</command></screen>
+<screen>&prompt.crm.conf;<command>primitive vip_nfs IPaddr2 params ip=&nfs-vip-exports;</command></screen>
     </step>
     <step>
      <para>
