@@ -15,6 +15,7 @@ When opening a PR, check all versions of the documentation that your PR applies 
 
 - SLE-HA 15
   - [ ] 15 next *(current `main`, no backport necessary)*
+  - [ ] 15 SP5
   - [ ] 15 SP4
   - [ ] 15 SP3
   - [ ] 15 SP2
