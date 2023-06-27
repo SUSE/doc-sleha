@@ -1,0 +1,402 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_qdevice-qnetd.xml" version="5.0" xml:id="cha-ha-qdevice">
+   <title>QDevice 和 QNetd</title>
+   <info>
+      <abstract>
+         <para>
+            QDevice 和 QNetd 會參與最低節點數決定。在仲裁方 <systemitem class="daemon">corosync-qnetd</systemitem> 的協助下，<systemitem class="daemon">corosync-qdevice</systemitem> 會提供一個可設定的投票數，以使叢集可以承受大於標準仲裁規則所允許的節點故障數量。我們建議您對節點數為偶數的叢集 (特別是雙節點叢集) 部署 <systemitem class="daemon">corosync-qnetd</systemitem> 和 <systemitem class="daemon">corosync-qdevice</systemitem>。
+         </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+         <dm:maintainer/>
+         <dm:status>editing</dm:status>
+         <dm:deadline/>
+         <dm:priority/>
+         <dm:translation>yes</dm:translation>
+         <dm:languages/>
+         <dm:release/>
+         <dm:repository/>
+      </dm:docmanager>
+   </info>
+
+   <sect1 xml:id="sec-ha-qdevice-overview">
+      <title>概念綜覽</title>
+      <para>
+         與計算各叢集節點的定額相比，配合使用 QDevice 和 QNetd 的方法具有以下優點：
+      </para>
+
+      <itemizedlist>
+         <listitem>
+            <para>
+               發生節點故障時，會提供更好的可持續性。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               您可以撰寫自己的啟發程序檔來影響投票。這特別適合用於複雜設定 (例如 SAP 應用程式)。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               可讓您設定 QNetd 伺服器來為多個叢集提供投票。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               允許為雙節點叢集使用無磁碟 SBD。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               可協助節點數為偶數且處於電腦分裂狀況下的叢集 (特別是雙節點叢集) 做出最低節點數決定。
+            </para>
+         </listitem>
+      </itemizedlist>
+
+      <para>
+        使用 QDevice/QNetd 的設定由以下元件和機制構成：
+      </para>
+
+      <variablelist>
+         <title>QDevice/QNetd 元件和機制</title>
+         <varlistentry>
+            <term>QNetd (<systemitem class="daemon">corosync-qnetd</systemitem>)</term>
+            <listitem>
+               <para>
+                  一個不屬於叢集的 systemd 服務 (精靈，即 <quote>QNetd 伺服器</quote>)。向 <systemitem class="daemon">corosync-qdevice</systemitem> 精靈提供投票的 systemd 精靈。
+               </para>
+               <para>
+                  若要提高安全性，可以將 <systemitem class="daemon">corosync-qnetd</systemitem> 與 TLS 配合使用，以進行用戶端證書檢查。
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>QDevice (<systemitem class="daemon">corosync-qdevice</systemitem>)</term>
+            <listitem>
+               <para>
+                  每個叢集節點上與 Corosync 一併執行的 systemd 服務 (精靈)。這是 <systemitem>corosync-qnetd</systemitem> 的用戶端。其主要用途是讓叢集能夠承受大於標準最低節點數規則所允許的節點故障數量。
+               </para>
+               <para>
+                  QDevice 可以與不同的仲裁方配合工作，但目前僅支援與 QNetd 配合工作。
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>演算法</term>
+            <listitem>
+               <para>
+                  QDevice 支援多種不同的演算法，而這些演算法決定著如何指派投票的行為。目前提供的演算法如下：
+               </para>
+               <itemizedlist>
+                  <listitem>
+                     <para>
+                        FFSplit (<quote>fifty-fifty split</quote>) 為預設演算法，用於所含節點數為偶數的叢集。如果叢集分裂為兩個相似的部分，此演算法會依據啟發檢查結果和其他因素為其中一個部分提供一個投票。
+                     </para>
+                  </listitem>
+                  <listitem>
+                     <para>
+                       LMS (<quote>last man standing</quote>) 允許僅剩的那個節點看到 QNetd 伺服器以獲取投票。因此此演算法適用於只有一個使用中節點應達到法定數量的叢集。
+                     </para>
+                  </listitem>
+               </itemizedlist>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>啟發</term>
+            <listitem>
+               <para>
+                  QDevice 支援一組指令 (<quote>啟發</quote>)。這些指令在叢集服務啟動、叢集成員資格變更、成功連接至 <systemitem class="daemon">corosync-qnetd</systemitem> 時或 (選擇性) 定期在本地執行。可以使用 <parameter>quorum.device.heuristics</parameter> 鍵 (在 <filename>corosync.conf</filename> 檔案中) 或 <option>--qdevice-heuristics-mode</option> 選項來設定啟發。這兩種方式都可理解 <literal>off</literal> (預設值)、<literal>sync</literal> 和 <literal>on</literal> 值。<literal>sync</literal> 與 <literal>on</literal> 之間的區別在於，您可以另外定期執行以上指令。
+               </para>
+               <para>
+                  僅當所有指令都成功執行時，才會視為啟發已通過，否則視為啟發失敗。啟發的結果會傳送到 <systemitem class="daemon">corosync-qnetd</systemitem>，用於進行計算以確定哪個部分應達到法定數量。
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>決勝方</term>
+            <listitem>
+               <para>
+                  此項做為叢集的幾個部分完全均衡且啟發結果相同的情況下的後備措施。它可設定為最小、最大或為特定的節點 ID。
+               </para>
+            </listitem>
+         </varlistentry>
+      </variablelist>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-require">
+      <title>要求和先決條件</title>
+      <para>
+         設定 QDevice 和 QNetd 之前，您需要依如下所示準備環境：
+      </para>
+      <itemizedlist>
+         <listitem>
+            <para>
+               除了叢集節點外，您需準備一個單獨的機器，將其做為 QNetd 伺服器。請參閱<xref linkend="sec-ha-qdevice-setup-qnetd"/>。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               與 Corosync 所使用的實體網路不同的實體網路。建議 QDevice 使用該網路來連接 QNetd 伺服器。理想情況下，QNetd 伺服器應位於與主要叢集不同的機架中，或者至少位於一個單獨的 PSU 上，且不要位於與 Corosync 環狀網路相同的網路區段中。
+            </para>
+         </listitem>
+      </itemizedlist>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-setup-qnetd">
+      <title>設定 QNetd 伺服器</title>
+      <para>
+         QNetd 伺服器不是叢集堆疊的一部分，也不是叢集的實際成員。因此，您無法將資源轉移到此伺服器。
+      </para>
+      <para>
+         QNetd 伺服器幾乎<quote>無狀態</quote>。一般情況下，您無需變更組態檔案 <filename>/etc/sysconfig/corosync-qnetd</filename> 中的任何內容。依預設，<package>corosync-qnetd</package> 服務以 <systemitem class="groupname">coroqnetd</systemitem> 群組中的 <systemitem class="username">coroqnetd</systemitem> 使用者身分執行精靈。這可避免以 <systemitem class="username">root</systemitem> 身分執行精靈。
+      </para>
+      <para>
+         若要建立 QNetd 伺服器，請執行以下步驟：
+      </para>
+      <procedure>
+         <step>
+            <para>
+               在將做為 QNetd 伺服器的機器上，安裝 SUSE Linux Enterprise Server 15 SP5。
+            </para>
+         </step>
+         <step>
+          <para>
+           使用 <command>SUSEConnect --list-extensions</command> 中列出的指令啟用 SUSE Linux Enterprise High Availability Extension。
+          </para>
+         </step>
+         <step>
+            <para>
+               安裝 <package>corosync-qnetd</package> 套件：
+            </para>
+            <screen><prompt role="root"># </prompt><command>zypper install corosync-qnetd</command></screen>
+            <para>
+               您不需要手動啟動 <systemitem class="daemon">corosync-qnetd</systemitem> 服務。當您在叢集上設定 QDevice 時，該服務會自動啟動。
+      </para>
+         </step>
+      </procedure>
+
+      <para>
+         QNetd 伺服器現已準備好接受來自 QDevice 用戶端 <systemitem>corosync-qdevice</systemitem> 的連接。無需進行其他組態。
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-qdevice">
+      <title>將 QDevice 用戶端連接至 QNetd 伺服器</title>
+      <para>
+         設定好 QNetd 伺服器後，您便可以設定並執行用戶端。您可以在安裝叢集的過程中將用戶端連接至 Qnetd 伺服器，也可以稍後再新增。此程序會講解如何在稍後新增用戶端。
+      </para>
+      <procedure>
+         <step>
+            <para>
+             在所有節點上安裝 <package>corosync-qdevice</package> 套件：
+            </para>
+            <screen><prompt role="root"># </prompt><command>zypper install corosync-qdevice</command></screen>
+         </step>
+         <step>
+            <para>
+             在其中一個節點上，執行下面的指令以設定 QDevice：
+            </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init qdevice</command>
+Do you want to configure QDevice (y/n)? <command>y</command>
+HOST or IP of the QNetd server to be used []<command><replaceable>QNETD_SERVER</replaceable></command>
+TCP PORT of QNetd server [5403]
+QNetd decision ALGORITHM (ffsplit/lms) [ffsplit]
+QNetd TIE_BREAKER (lowest/highest/valid node id) [lowest]
+Whether using TLS on QDevice/QNetd (on/off/required) [on]
+Heuristics COMMAND to run with absolute path; For multiple commands, use ";" to separate []</screen>
+            <para>
+             按 <literal>y</literal> 確認您要設定 QDevice，然後輸入 QNetd 伺服器的主機名稱或 IP 位址。對於其餘欄位，您可以接受預設值，也可以視需要進行變更。
+            </para>
+            <important>
+             <title>無磁碟 SBD 和 QDevice 的 <literal>SBD_WATCHDOG_TIMEOUT</literal></title>
+             <para>
+              如果您將 Qdevice 與無磁碟 SBD 配合使用，<literal>SBD_WATCHDOG_TIMEOUT</literal> 值必須大於 QDevice 的 <literal>sync_timeout</literal> 值，否則 SBD 將會逾時並無法啟動。
+             </para>
+             <para>
+              <literal>sync_timeout</literal> 的預設值為 30 秒。因此，請確定在 <filename>/etc/sysconfig/sbd</filename> 中將 <literal>SBD_WATCHDOG_TIMEOUT</literal> 設定為更大的值 (例如 <literal>35</literal>)。
+             </para>
+            </important>
+         </step>
+      </procedure>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-heuristic">
+      <title>使用啟發設定 QDevice</title>
+      <para>
+         如果您需要對確定投票的方式進行額外的控制，請使用啟發。啟發是一組可同時執行的指令。
+      </para>
+      <para>
+         為了此目的，<command>crm cluster init qdevice</command> 指令提供了 <option>--qdevice-heuristics</option> 選項。您可以使用絕對路徑傳遞一或多個指令 (以分號分隔)。
+      </para>
+      <para>
+         例如，如果您自己的啟發檢查指令位於 <filename>/usr/sbin/my-script.sh</filename>，則可以在其中一個叢集節點上依如下方式執行該指令：
+      </para>
+      <screen><prompt role="root"># </prompt><command>crm cluster init qdevice --qnetd-hostname=charlie \
+     --qdevice-heuristics=/usr/sbin/my-script.sh \
+     --qdevice-heuristics-mode=on</command></screen>
+      <para>
+         您可以採用任何語言撰寫指令，例如 Shell、Python 或 Ruby 語言。如果指令成功執行，將傳回 <literal>0</literal> (零)，否則會傳回錯誤代碼。
+      </para>
+      <para>
+         您也可以傳遞一組指令。僅當所有指令都成功完成 (傳回代碼為 0) 後，啟發才會通過。
+      </para>
+      <para>
+         <option>--qdevice-heuristics-mode=on</option> 選項可讓啟發指令定期執行。
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-status">
+      <title>檢查和顯示最低節點數狀態</title>
+      
+      <para>
+         您可以查詢某個叢集節點上的最低節點數狀態，如<xref linkend="ex-ha-qdevice-crm-corosync-status-quorum"/>中所示。該範例顯示了 QDevice 節點的狀態。
+      </para>
+
+      <example xml:id="ex-ha-qdevice-crm-corosync-status-quorum">
+         <title>QDevice 的狀態</title>
+         <screen><prompt role="root"># </prompt><command>corosync-quorumtool</command><co xml:id="co-quorum-cmd"/>
+ Quorum information
+------------------
+Date:             ...
+Quorum provider:  corosync_votequorum
+Nodes:            2 <co xml:id="co-quorum-nodesnumber"/>
+Node ID:          3232235777 <co xml:id="co-quorum-nodeid"/>
+Ring ID:          3232235777/8
+Quorate:          Yes <co xml:id="co-quorum-quorate"/>
+
+Votequorum information
+----------------------
+Expected votes:   3
+Highest expected: 3
+Total votes:      3
+Quorum:           2
+Flags:            Quorate Qdevice
+
+Membership information
+----------------------
+    Nodeid      Votes    Qdevice Name
+ 3232235777         1    A,V,NMW 192.168.1.1 (local) <co xml:id="co-quorum-nodes"/>
+ 3232235778         1    A,V,NMW 192.168.1.2 <xref linkend="co-quorum-nodes"/>
+         0          1            Qdevice</screen>
+         <calloutlist>
+            <callout arearefs="co-quorum-cmd">
+               <para>
+                  或者，您也可以使用 <command>crm corosync status quorum</command> 指令獲得相同的結果。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodesnumber">
+               <para>
+                  我們預計的節點數量。在此範例中，這是一個雙節點叢集。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodeid">
+               <para>
+                  由於 <filename>corosync.conf</filename> 中未明確指定節點 ID，此 ID 會以 32 位元整數來表示 IP 位址。在此範例中，值 <literal>3232235777</literal> 表示 IP 位址 <systemitem class="ipaddress">192.168.1.1</systemitem>。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-quorate">
+               <para>
+                  最低節點數狀態。在此例中，叢集具有最低節點數。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodes">
+               <para>
+                  每個叢集節點的狀態的含意如下：
+               </para>
+               <variablelist>
+                  <varlistentry>
+                     <term><literal>A</literal> (保持連接) 或 <literal>NA</literal> (未連接)</term>
+                     <listitem>
+                        <para>
+                           顯示 QDevice 與 Corosync 之間的連接狀態。如果 QDevice 與 Corosync 之間存在活動訊號，則會顯示為保持連接 (A)。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>V</literal> (投票) 或 <literal>NV</literal> (無投票)</term>
+                     <listitem>
+                        <para>
+                           顯示最低節點數裝置是否已為節點投票 (字母 <literal>V</literal>)。字母 <literal>V</literal> 表示兩個節點可以相互通訊。在電腦分裂情況下，一個節點會設定為 <literal>V</literal>，另一個節點會設定為 <literal>NV</literal>。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>MW</literal> (主體獲勝) 或 <literal>NMW</literal> (不是主體獲勝)</term>
+                     <listitem>
+                        <para>
+                           指明是否設定了仲裁裝置 <parameter>master_wins</parameter> 旗標。預設不會設定該旗標，因此您會看到 <literal>NMW</literal> (不是主體獲勝)。請參閱 votequorum_qdevice_master_wins(3) 的 man 頁面獲取詳細資訊。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>NR</literal> (未註冊)</term>
+                     <listitem>
+                        <para>
+                           表示叢集未在使用最低節點數裝置。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+               </variablelist>
+            </callout>
+         </calloutlist>
+      </example>
+
+      <para>
+         如果您查詢 QNetd 伺服器的狀態，會獲得類似<xref linkend="ex-ha-qdevice-crm-corosync-status-qnetd"/>中所示的輸出：
+      </para>
+      <example xml:id="ex-ha-qdevice-crm-corosync-status-qnetd">
+         <title>QNetd 伺服器的狀態</title>
+         <screen><prompt role="root"># </prompt><command>corosync-qnetd-tool -lv</command><co xml:id="co-quorum-qnet-cmd"/>
+Cluster "hacluster": <co xml:id="co-quorum-qnet-name"/>
+    Algorithm:          Fifty-Fifty split <co xml:id="co-quorum-qnet-algo"/>
+    Tie-breaker:        Node with lowest node ID
+    Node ID 3232235777: <co xml:id="co-quorum-qnet-alice"/>
+        Client address:         ::ffff:192.168.1.1:54732
+        HB interval:            8000ms
+        Configured node list:   3232235777, 3232235778
+        Ring ID:                aa10ab0.8
+        Membership node list:   3232235777, 3232235778
+        Heuristics:             Undefined (membership: Undefined, regular: Undefined)
+        TLS active:             Yes (client certificate verified)
+        Vote:                   ACK (ACK)
+    Node ID 3232235778:
+        Client address:         ::ffff:192.168.1.2:43016
+        HB interval:            8000ms
+        Configured node list:   3232235777, 3232235778
+        Ring ID:                aa10ab0.8
+        Membership node list:   3232235777, 3232235778
+        Heuristics:             Undefined (membership: Undefined, regular: Undefined)
+        TLS active:             Yes (client certificate verified)
+        Vote:                   No change (ACK)</screen>
+       <calloutlist>
+          <callout arearefs="co-quorum-qnet-cmd">
+             <para>
+                您也可以在叢集的其中一個節點上使用 <command>crm corosync status qnetd</command> 指令，這種方法會獲得相同的結果。
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-name">
+             <para>
+                在組態檔案 <filename>/etc/corosync/corosync.conf</filename> 的 <literal>totem.cluster_name</literal> 區段中設定的叢集名稱。
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-algo">
+             <para>
+                目前使用的演算法，此範例中為 <literal>FFSplit</literal>。
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-alice">
+             <para>
+                這是 IP 位址為 <systemitem class="ipaddress">192.168.1.1</systemitem> 的節點的相應項目。TLS 處於使用中狀態。
+             </para>
+          </callout>
+       </calloutlist>
+      </example>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-more">
+      <title>更多資訊</title>
+      <para>
+         如需 QDevice 和 QNetd 的其他資訊，請參閱 corosync-qdevice(8) 和 corosync-qnetd(8) 的 man 頁面。
+      </para>
+   </sect1>
+</chapter>

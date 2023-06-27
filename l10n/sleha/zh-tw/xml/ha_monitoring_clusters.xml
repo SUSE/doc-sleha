@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_monitoring_clusters.xml" xml:id="cha-ha-monitor-clusters" xml:lang="zh-tw" version="5.1">
+ <title>監控叢集</title>
+ <info>
+  <abstract>
+   <para>
+    本章介紹如何監控叢集的健康情況以及檢視其歷程。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+ <xi:include href="ha_hawk2_monitor_i.xml"/>
+ <xi:include href="ha_hawk2_health_i.xml"/>
+ <xi:include href="ha_hawk2_history_i.xml"/>
+
+ <sect1 xml:id="sec-ha-config-basics-monitor-health">
+  <title>使用 <literal>SysInfo</literal> 資源代理程式監控系統健康情況</title>
+  <para>
+   為了避免發生節點因用完磁碟空間而無法管理指定給它的任何資源的情況，High Availability Extension 提供了資源代辦 <systemitem>ocf:pacemaker:SysInfo</systemitem>。使用該代辦可以監控節點的磁碟分割區狀態。SysInfo 資源代理程式會建立名為 <literal>#health_disk</literal> 的節點屬性，如果任何受監控磁碟的可用空間低於指定限額，該屬性就會設定為 <literal>red</literal>。
+  </para>
+  <para>
+   若要定義當節點狀態達到嚴重狀況時 CRM 應如何應對，可使用全域叢集選項 <systemitem>node-health-strategy</systemitem>。
+  </para>
+  <procedure xml:id="pro-ha-health-monitor">
+   <title>設定系統狀態監控</title>
+   <para>
+    若要在節點用完磁碟空間時將資源從該節點中移走，請執行以下步驟：
+   </para>
+   <step>
+    <para>
+     設定 <systemitem>ocf:pacemaker:SysInfo</systemitem> 資源：
+    </para>
+<screen><?dbsuse-fo font-size="0.71em"?>
+primitive sysinfo ocf:pacemaker:SysInfo \
+     params disks="/tmp /var"<co xml:id="co-disks"/> min_disk_free="100M"<co xml:id="co-min-disk-free"/> disk_unit="M"<co xml:id="co-disk-unit"/> \
+     op monitor interval="15s"</screen>
+    <calloutlist>
+     <callout arearefs="co-disks">
+      <para>
+       要監控的磁碟分割區。例如，<filename>/tmp</filename>、<filename>/usr</filename>、<filename>/var</filename> 和 <filename>/dev</filename>。若要指定多個分割區做為屬性值，請用空格分隔這些分割區。
+      </para>
+      <note>
+       <title>系統永遠會監控 <filename>/</filename> 檔案系統</title>
+       <para>
+        您無需在 <literal>disks</literal> 中指定根分割區 (<filename>/</filename>)。預設總是會對其進行監控。
+       </para>
+      </note>
+     </callout>
+     <callout arearefs="co-min-disk-free">
+      <para>
+       這些分割區需要的最小可用磁碟空間。(選擇性) 您可以指定用於度量的單位 (在上方的範例中使用的是 <literal>M</literal>，表示百萬位元組)。如果未指定，<systemitem>min_disk_free</systemitem> 預設會使用 <systemitem>disk_unit</systemitem> 參數中定義的單位。
+      </para>
+     </callout>
+     <callout arearefs="co-disk-unit">
+      <para>
+       用於報告磁碟空間的單位。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>
+     為完成資源組態設定，建立一個 <systemitem>ocf:pacemaker:SysInfo</systemitem> 複製品並在叢集的每個節點上將其啟動。
+    </para>
+   </step>
+   <step>
+    <para>
+     將 <systemitem>node-health-strategy</systemitem> 設定為 <literal>migrate-on-red</literal>：
+    </para>
+<screen>property node-health-strategy="migrate-on-red"</screen>
+    <para>
+     如果 <systemitem>#health_disk</systemitem> 屬性設定為 <literal>red</literal>，<systemitem class="daemon">pacemaker-schedulerd</systemitem> 會為該節點的資源分數加 <literal>-INF</literal>。這樣所有資源都會從此節點移出。STONITH 資源將是最後一個停止的資源，但即使 STONITH 資源不再執行，節點仍可處於圍籬區隔模式。圍籬區隔的節點可以直接存取 CIB 並將繼續工作。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   在節點的系統狀態變成 <literal>red</literal> 之後，解決導致問題發生的根源。然後清除 <literal>red</literal> 狀態，讓節點再次具備執行資源的資格。登入叢集節點，並使用下列其中一種方法：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     執行下列指令：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm node status-attr <replaceable>NODE</replaceable> delete #health_disk</command></screen>
+   </listitem>
+   <listitem>
+    <para>
+     在該節點上重新啟動叢集服務。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     將節點重新開機。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   節點將恢復正常狀態，並且可以重新執行資源。
+  </para>
+ </sect1>
+</chapter>

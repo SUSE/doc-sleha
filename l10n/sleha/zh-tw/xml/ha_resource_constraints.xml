@@ -1,0 +1,1302 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_resource_constraints.xml" xml:id="sec-ha-config-basics-constraints" xml:lang="zh-tw" version="5.1">
+ <title>設定資源條件約束</title>
+ <info>
+  <abstract>
+   <para>
+    設定所有資源只是工作的一部分。即使叢集知道所有需要的資源，也可能無法正確處理這些資源。使用資源條件約束可指定能在哪些叢集節點上執行資源、以何順序載入資源，以及特定資源相依於其他哪些資源。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+ <sect1 xml:id="sec-ha-config-basics-constraints-types">
+   <title>條件約束類型</title>
+   <para>
+    系統中的條件約束分為三種類型：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>資源位置
+    </term>
+     <listitem>
+      <para>
+       位置條件約束定義資源可以、不可以或偏好在哪些節點上執行。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>資源並存</term>
+     <listitem>
+      <para>
+       並存條件約束告知叢集哪些資源可以或不可以在同一個節點上執行。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>資源順序</term>
+     <listitem>
+      <para>
+       順序條件約束定義動作的順序。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <important>
+    <title>條件約束與特定資源類型的限制</title>
+    <itemizedlist>
+     <listitem>
+      <para>不要為資源群組的<emphasis>成員</emphasis>建立並存條件約束。應該建立指向整個資源群組的並存條件約束。其他所有類型的條件約束可安全地用於資源群組的成員。</para>
+     </listitem>
+     <listitem>
+      <para>不要對包含複製品資源或者已套用可升級複製品資源的資源使用任何條件約束。條件約束必須套用於複製品或可升級複製品資源，而不能套用於子資源。</para>
+     </listitem>
+    </itemizedlist>
+   </important>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-constraints-scores">
+   <title>分數和 infinity</title>
+   <para>
+    定義條件約束時，還需要處理分數。所有類型的分數對於叢集的工作方式而言都是不可或缺的。實際上，從移轉資源到決定要將已降級叢集中的哪個資源停止，所有這些操作都是透過操作分數來實現。系統會對每個資源都計算分數，針對某個資源分數為負數的所有節點都不能執行該資源。計算完針對資源的分數之後，叢集會選擇分數最高的節點。
+   </para>
+   <para>
+    <literal>INFINITY</literal> 目前定義為 <literal>1,000,000</literal>。與其相關的加法或減法計算遵循以下三項基本規則：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      任何值 + INFINITY = INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      任何值 - INFINITY = -INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      INFINITY - INFINITY = -INFINITY
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    定義資源條件約束時，您還要指定每個條件約束的分數。分數表示您要指定給此資源條件約束的值。系統會先套用分數較高的條件約束，然後再套用分數較低的條件約束。透過為指定資源建立不同分數的其他位置條件約束，即可指定資源將容錯移轉至之目標節點的順序。
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-constraints-templates">
+   <title>資源範本和條件約束</title>
+   <para>
+    如果您定義了一個資源範本 (請參閱<xref linkend="sec-ha-config-basics-resources-templates"/>)，則可以在以下類型的條件約束中參考該範本：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      順序條件約束
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      並存條件約束
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      rsc_ticket 條件約束 (適用於 Geo 叢集)
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    不過，並存條件約束不得包含對同個範本的多個參考。資源集不得包含對範本的參考。
+   </para>
+   <para>
+    條件約束中參考的資源範本代表由該範本衍生的所有基本資源。也就是說，這些條件約束將適用於所有參考了資源範本的基本資源。在條件約束中參考資源範本是另外一種使用資源集的方式，這種方式能夠大大簡化叢集設定。如需有關資源集的詳細資料，請參閱<xref linkend="sec-ha-config-basics-constraints-rscset"/>。
+   </para>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-conf-add-location-constraints">
+  <title>新增位置條件約束</title>
+  <para>
+   位置條件約束決定了資源在哪些節點上可以執行、優先執行或禁止執行。舉例而言，位置條件約束可以設為與特定資料庫相關的所有資源都在同一個節點上執行。可以為每個資源多次新增此類條件約束。系統會對指定的資源評估所有位置條件約束。
+  </para>
+  <para>
+   可以使用 Hawk2 或 crmsh 來新增位置條件約束。
+  </para>
+  <sect2 xml:id="sec-conf-hawk2-cons-loc">
+   <title>使用 Hawk2 新增位置條件約束</title>
+   <procedure xml:id="pro-hawk2-constraints-location">
+    <title>新增位置條件約束</title>
+    <step>
+     <para>
+      登入 Hawk2：
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      從左側導覽列中，選取<menuchoice>
+      <guimenu>組態</guimenu>  <guimenu>新增條件約束</guimenu>
+      <guimenu>位置</guimenu> </menuchoice>。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入唯一的<guimenu>條件約束 ID</guimenu>。
+     </para>
+    </step>
+    <step xml:id="step-hawk2-loc-rsc">
+     <para>
+      從<guimenu>資源</guimenu>清單中選取要為之定義條件約束的一個或多個資源。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入<guimenu>分數</guimenu>。分數表示您要指定給此資源條件約束的值。正值表示資源可以在您下一步中指定的<guimenu>節點</guimenu>上執行。負值表示資源不應在該節點上執行。系統會先套用分數較高的條件約束，然後再套用分數較低的條件約束。
+     </para>
+     <para>
+      有些常用的值也可以透過下拉式方塊設定：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        若要強制資源在該節點上執行，請按一下箭頭圖示並選取 <literal>Always</literal>。這會將分數設為 <literal>INFINITY</literal>。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        若要禁止資源在該節點上執行，請按一下箭頭圖示並選取 <literal>Never</literal>。如此會將分數設定為 <literal>-INFINITY</literal>，表示資源不得在該節點上執行。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        若要將分數設定為 <literal>0</literal>，請按一下箭頭圖示並選取 <literal>Advisory</literal>。這樣便會停用條件約束。如果您想設定資源發現，又不想對資源進行條件約束，即可採用這個辦法。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </step>
+    <step>
+     <para>
+      選取一個<guimenu>節點</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      按一下<guimenu>建立</guimenu>完成組態。螢幕頂部的訊息會顯示動作是否成功。
+     </para>
+    </step>
+   </procedure>
+   <figure pgwide="0">
+    <title>Hawk2 - 位置條件約束</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-loc-constraint.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-loc-constraint.png" width="100%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-constraints-locational">
+    <title>使用 crmsh 新增位置條件約束</title>
+    <para>
+     <command>location</command> 指令定義資源可在、不可在或偏好在哪些節點上執行。
+    </para>
+    <para>
+     下面的簡單範例中，將在名為 <literal>fs1</literal> 的節點上執行資源 <systemitem class="server">alice</systemitem> 的優先設定設為 100：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>location loc-fs1 fs1 100: alice</command></screen>
+    <para>
+     另一個範例是使用 ping 的位置：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive ping ping \
+    params name=ping dampen=5s multiplier=100 host_list="r1 r2"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>clone cl-ping ping meta interleave=true</command>
+<prompt role="custom">crm(live)configure# </prompt><command>location loc-node_pref internal_www \
+    rule 50: #uname eq alice \
+    rule ping: defined ping</command></screen>
+    <para>
+     參數 <parameter>host_list</parameter> 是要 ping 和計數的主機的空格分隔清單。位置條件約束的另一個使用案例是將基本資源分組為一個<emphasis>資源集</emphasis>。例如，如果多個資源依存於某個 ping 屬性來獲得網路連接，則此功能會十分有用。以前，需要在組態中複製 <literal>-inf/ping</literal> 規則數次，因而不必要地增加了複雜性。
+    </para>
+    <para>
+     下面的範例會建立參考虛擬 IP 位址 <varname>loc-alice</varname> 和 <varname>vip1</varname> 的資源集 <varname>vip2</varname>：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive vip1 IPaddr2 params ip=192.168.1.5</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive vip2 IPaddr2 params ip=192.168.1.6</command>
+<prompt role="custom">crm(live)configure# </prompt><command>location loc-alice { vip1 vip2 } inf: alice</command></screen>
+    <para>
+     在某些情況下，為 <command>location</command> 指令使用資源模式會有效且方便得多。資源模式是兩個斜線之間的規則運算式。例如，使用以下指令可使上述的虛擬 IP 位址全部都相符：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>location loc-alice /vip.*/ inf: alice</command></screen>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-conf-add-colocation-constraints">
+  <title>新增並存條件約束</title>
+  <para>
+   並存條件約束告知叢集哪些資源可以或不可以在同一個節點上執行。由於並存條件約束定義了資源之間的相依性，因此您至少需要兩個資源才能建立並存條件約束。
+  </para>
+  <para>
+   可以使用 Hawk2 或 crmsh 來新增並存條件約束。
+  </para>
+  <sect2 xml:id="sec-conf-hawk2-cons-col">
+   <title>使用 Hawk2 新增並存條件約束</title>
+   <procedure xml:id="pro-hawk2-constraints-colocation">
+    <title>新增並存條件約束</title>
+    <step>
+     <para>
+      登入 Hawk2：
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      從左側導覽列中，選取<menuchoice> <guimenu>組態</guimenu>
+      <guimenu>新增條件約束</guimenu> <guimenu>並存</guimenu> </menuchoice>。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入唯一的<guimenu>條件約束 ID</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入<guimenu>分數</guimenu>。分數決定了資源之間的位置關係。正值表示資源應該在同一個節點上執行。負值表示資源不應該在同一個節點上執行。該分數會結合其他因素來決定將資源配置於何處。
+     </para>
+     <para>
+      有些常用的值也可以透過下拉式方塊設定：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        若要強制資源在同一個節點上執行，請按一下箭頭圖示並選取 <literal>Always</literal>。這會將分數設為 <literal>INFINITY</literal>。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        若要禁止資源在同一個節點上執行，請按一下箭頭圖示並選取 <literal>Never</literal>。如此會將分數設定為 <literal>-INFINITY</literal>，表示資源不得在同一個節點上執行。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </step>
+    <step>
+     <para>
+      定義資源的條件約束：
+     </para>
+     <substeps performance="required">
+      <step xml:id="step-hawk2-col-rsc">
+       <para>
+        從<guimenu>資源</guimenu>類別的下拉式方塊中，選取某個資源 (或範本)。
+       </para>
+       <para>
+        資源隨即新增完畢，下方會顯示新的空白下拉式方塊。
+       </para>
+      </step>
+      <step>
+       <para>
+        重複此步驟以新增更多資源。
+       </para>
+       <para>
+        由於最頂端的資源依賴於下一個資源 (下面的資源依此類推)，叢集首先會決定向哪個位置放置最後一個資源，然後根據該決定放置依賴它的資源，依此類推。如果無法符合條件約束要求，叢集可能不允許執行相依資源。
+       </para>
+      </step>
+      <step>
+       <para>
+        若要交換共存條件約束中不同資源的順序，按一下其中一個資源的向上箭頭圖示，將該資源換至輸入項的上方。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      如果需要，可以為每個資源指定更多參數 (例如 <literal>Promote</literal>、<literal>Started</literal>、<literal>Demote</literal>、<literal>Stopped</literal>)。只需按一下資源旁邊的空白下拉式清單並選取所需的項目。
+     </para>
+    </step>
+    <step>
+     <para>
+      按一下<guimenu>建立</guimenu>完成組態。螢幕頂部的訊息會顯示動作是否成功。
+     </para>
+    </step>
+   </procedure>
+   <figure pgwide="0">
+    <title>Hawk2 - 並存條件約束</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-col-constraint.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-col-constraint.png" width="100%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-constraints-collocational">
+    <title>使用 crmsh 新增並存條件約束</title>
+    <para>
+     <command>colocation</command> 指令用於定義應在相同或不同主機上執行的資源。
+    </para>
+    <para>
+     您只能設定 +inf 或 -inf 範圍，即定義必須始終或永不在同一個節點上執行的資源。您也可以使用非 inf 範圍。在該情況下，並存只是一種<emphasis>建議</emphasis>，叢集可以決定不遵循該範圍，以便在有衝突發生時不停止其他資源。
+    </para>
+    <para>
+     例如，如果希望 <literal>resource1</literal> 和 <literal>resource2</literal> 資源永遠在同一個主機上執行，請使用以下條件約束：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>colocation coloc-2resource inf: resource1 resource2</command></screen>
+    <para>
+     對於主要從屬組態，除了在本地執行資源以外，還需要瞭解目前的節點是否為主要節點。
+    </para>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-conf-add-order-constraints">
+  <title>新增順序條件約束</title>
+  <para>
+   您可以使用順序條件約束，在另一個資源符合特定條件 (例如已啟動、已停止或已升級為主要資源) 之前或之後，立即啟動或停止某項服務。例如，在裝置可用於系統之前，不能掛接檔案系統。由於順序條件約束定義了資源之間的相依性，因此您至少需要兩個資源才能建立順序條件約束。
+  </para>
+  <para>
+   可以使用 Hawk2 或 crmsh 來新增順序條件約束。
+  </para>
+  <sect2 xml:id="sec-conf-hawk2-cons-order">
+   <title>使用 Hawk2 新增順序條件約束</title>
+   <procedure xml:id="pro-hawk2-constraints-order">
+    <title>新增順序條件約束</title>
+    <step>
+     <para>
+      登入 Hawk2：
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      在左側導覽列中，選取<menuchoice> <guimenu>組態</guimenu>
+      <guimenu>新增條件約束</guimenu> <guimenu>順序</guimenu> </menuchoice>。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入唯一的<guimenu>條件約束 ID</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入<guimenu>分數</guimenu>。若分數大於零，則強制執行順序條件約束，否則只是選擇性執行。
+     </para>
+     <para>
+      有些常用的值也可以透過下拉式方塊設定：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        若要將順序條件約束設為強制規則，請按一下箭頭圖示並選取 <literal>Mandatory</literal>。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        如果只想將順序條件約束設為一項建議，請按一下箭頭圖示並選取 <literal>Optional</literal>。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>Serialize</literal>：若要確保不會同時對資源執行兩個停止/啟動操作，請按一下箭頭圖示並選取 <literal>Serialize</literal>。這樣可以確保只有在一個資源完全啟動後，系統才能啟動其他資源。特別是對於在啟動期間會對主機產生大量負載的資源，通常會使用此方法。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </step>
+    <step>
+     <para>
+      對於順序條件約束通常可以啟用<guimenu>對稱</guimenu>選項。這會指定資源停止時使用相反順序。
+     </para>
+    </step>
+    <step>
+     <para>
+      定義資源的條件約束：
+     </para>
+     <substeps performance="required">
+      <step xml:id="step-hawk2-order-rsc">
+       <para>
+        從<guimenu>資源</guimenu>類別的下拉式方塊中，選取某個資源 (或範本)。
+       </para>
+       <para>
+        資源隨即新增完畢，下方會顯示新的空白下拉式方塊。
+       </para>
+      </step>
+      <step>
+       <para>
+        重複此步驟以新增更多資源。
+       </para>
+       <para>
+        最上面的資源最先啟動，然後是第二個資源，依此類推。通常資源會以相反的順序停止。
+       </para>
+      </step>
+      <step>
+       <para>
+        若要交換順序條件約束中不同資源的順序，按一下其中一個資源的向上箭頭圖示，將該資源換至輸入項的上方。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      如果需要，可以為每個資源指定更多參數 (例如 <literal>Promote</literal>、<literal>Started</literal>、<literal>Demote</literal>、<literal>Stopped</literal>)。只需按一下資源旁邊的空白下拉式清單並選取所需的項目。
+     </para>
+    </step>
+    <step>
+     <para>
+      確認變更以完成組態設定。螢幕頂部的訊息會顯示動作是否成功。
+     </para>
+    </step>
+   </procedure>
+   <figure pgwide="0">
+    <title>Hawk2 - 順序條件約束</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-order-constraint.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-order-constraint.png" width="100%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-constraints-ordering">
+    <title>使用 crmsh 新增順序條件約束</title>
+    <para>
+     <command>order</command> 指令定義動作順序。
+    </para>
+    <para>
+     例如，如果希望 <literal>resource1</literal> 永遠在 <literal>resource2</literal> 前面啟動，請使用以下條件約束：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order res1_before_res2 Mandatory: resource1 resource2</command></screen>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-constraints-rscset">
+   <title>使用資源集定義條件約束</title>
+   <para>
+     <emphasis>資源集</emphasis>是可用於定義位置、並存或順序條件約束的另一種方式，使用此方式，基本資源會全部歸入一個集合中。以前，為了實現此目的，需要定義一個資源群組 (並不總是能準確反映出設計目的)，或者將每種關係定義為個別的條件約束。隨著資源和組合數量的增長，後一種方法會導致條件約束劇增。透過資源集進行設定不一定會降低複雜程度，但更易於理解和維護。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 來設定資源集。
+   </para>
+
+   <sect2 xml:id="sec-conf-hawk2-cons-set">
+    <title>使用 Hawk2 透過資源集定義條件約束</title>
+    <procedure xml:id="pro-hawk2-constraints-sets">
+     <title>在條件約束中使用資源集</title>
+     <step>
+      <para>
+       若要在位置條件約束中使用資源集：
+      </para>
+      <substeps performance="required">
+       <step>
+        <para>
+         依照<xref linkend="pro-hawk2-constraints-location"/>所述操作，但<xref linkend="step-hawk2-loc-rsc" xrefstyle="select:label"/> 除外。不要選取單個資源，而是在按住 <keycap function="control"/> 或 <keycap function="shift"/> 的同時按下滑鼠來選取多個資源。如此就會在位置條件約束中建立一個資源集。
+        </para>
+       </step>
+       <step>
+        <para>
+         若要從位置條件約束中移除某個資源，請在按住 <keycap function="control"/> 的同時再次按一下該資源即可將其取消選取。
+        </para>
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para>
+       若要在並存或順序條件約束中使用資源集：
+      </para>
+      <substeps performance="required">
+       <step>
+        <para>
+         遵照<xref linkend="pro-hawk2-constraints-colocation"/>或<xref linkend="pro-hawk2-constraints-order"/>中的指示，但用於為條件約束定義資源的步驟除外 (<xref linkend="step-hawk2-col-rsc" xrefstyle="select:label"/> 或<xref linkend="step-hawk2-order-rsc"/>)：
+        </para>
+       </step>
+       <step>
+        <para>
+         新增多個資源。
+        </para>
+       </step>
+       <step>
+        <para>
+         若要建立資源集，按一下資源旁邊的鏈結圖示，將其鏈結到上方的資源。屬於資源集的資源四周以框架圍起，以此標示資源集。
+        </para>
+       </step>
+       <step>
+        <para>
+         您也可以將多個資源併入某個資源集，或建立多個資源集。
+        </para>
+        <figure>
+         <title>Hawk2 - 一個並存條件約束中的兩個資源集</title>
+         <mediaobject>
+          <imageobject role="fo">
+           <imagedata fileref="hawk2-constraint-set.png" width="100%"/>
+          </imageobject>
+          <imageobject role="html">
+           <imagedata fileref="hawk2-constraint-set.png" width="100%"/>
+          </imageobject>
+         </mediaobject>
+        </figure>
+       </step>
+       <step>
+        <para>
+         若要解除資源與其上方資源之間的鏈結，按一下該資源旁邊的剪刀圖示。
+        </para>
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para>
+       確認變更以完成條件約束組態。
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-config-basics-constraints-rscset-constraints">
+    <title>使用 crmsh 透過資源集定義條件約束</title>
+    <example xml:id="ex-config-basic-resourceset-loc">
+     <title>用於位置條件約束的資源集</title>
+     <para>
+      例如，您可以在 crmsh 中使用資源集 (<varname>loc-alice</varname>) 的以下組態，在同一個節點 <varname>vip1</varname> 上放置兩個虛擬 IP (<varname>vip2</varname> 和 <varname>alice</varname>)：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive vip1 IPaddr2 params ip=192.168.1.5</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive vip2 IPaddr2 params ip=192.168.1.6</command>
+<prompt role="custom">crm(live)configure# </prompt><command>location loc-alice { vip1 vip2 } inf: alice</command></screen>
+    </example>
+    <para>
+     如果想要使用資源集來取代並存條件約束的組態，請參考以下兩個範例：
+    </para>
+    <example>
+     <title>並存資源鏈</title>
+<screen>&lt;constraints&gt;
+    &lt;rsc_colocation id="coloc-1" rsc="B" with-rsc="A" score="INFINITY"/&gt;
+    &lt;rsc_colocation id="coloc-2" rsc="C" with-rsc="B" score="INFINITY"/&gt;
+    &lt;rsc_colocation id="coloc-3" rsc="D" with-rsc="C" score="INFINITY"/&gt;
+&lt;/constraints&gt;</screen>
+    </example>
+    <para>
+     資源集表達的相同組態：
+    </para>
+<screen>&lt;constraints&gt;
+   &lt;rsc_colocation id="coloc-1" score="INFINITY" &gt;
+    &lt;resource_set id="colocated-set-example" sequential="true"&gt;
+     &lt;resource_ref id="A"/&gt;
+     &lt;resource_ref id="B"/&gt;
+     &lt;resource_ref id="C"/&gt;
+     &lt;resource_ref id="D"/&gt;
+    &lt;/resource_set&gt;
+   &lt;/rsc_colocation&gt;
+&lt;/constraints&gt;</screen>
+    <para>
+     如果您想使用資源集來取代順序條件約束的組態，請考慮以下兩個範例：
+    </para>
+    <example>
+     <title>排序資源鏈</title>
+<screen>&lt;constraints&gt;
+    &lt;rsc_order id="order-1" first="A" then="B" /&gt;
+    &lt;rsc_order id="order-2" first="B" then="C" /&gt;
+    &lt;rsc_order id="order-3" first="C" then="D" /&gt;
+&lt;/constraints&gt;</screen>
+    </example>
+    <para>
+     可以使用包含排序資源的資源集來實現相同目的：
+    </para>
+    <example>
+     <title>以資源集表示的排序資源鏈</title>
+<screen>&lt;constraints&gt;
+    &lt;rsc_order id="order-1"&gt;
+    &lt;resource_set id="ordered-set-example" sequential="true"&gt;
+    &lt;resource_ref id="A"/&gt;
+    &lt;resource_ref id="B"/&gt;
+    &lt;resource_ref id="C"/&gt;
+    &lt;resource_ref id="D"/&gt;
+    &lt;/resource_set&gt;
+    &lt;/rsc_order&gt;
+&lt;/constraints&gt;</screen>
+    </example>
+    <para>
+     資源集可以是有序的 (<literal>sequential=true</literal>)，也可以是無序的 (<literal>sequential=false</literal>)。此外，可以使用 <literal>require-all</literal> 屬性在 <literal>AND</literal> 與 <literal>OR</literal> 邏輯之間切換。
+    </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-constraints-weak-bond">
+    <title>並存無相依項的資源集</title>
+    <para>
+     有時，將一組資源放置在同一個節點上 (定義並存條件約束) 會很有用，但前提是這些資源之間不存在硬性相依關係。例如，您要在同一個節點上放置兩個資源，但<emphasis>不</emphasis>希望叢集在其中一個資源失敗時重新啟動另一個資源。
+    </para>
+    <para>
+     可以在 crm 外圍程序中使用 <command>weak-bond</command> 指令實現此目的：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm configure assist weak-bond <replaceable>resource1</replaceable> <replaceable>resource2</replaceable></command></screen>
+    <para>
+     <command>weak-bond</command> 指令會使用指定的資源自動建立一個虛構資源和並存條件約束。
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-failover">
+   <title>指定資源容錯移轉節點</title>
+   <para>
+    資源在失敗時會自動重新啟動。如果無法在目前節點上重新啟動，或資源已在目前節點上失敗 <literal>N</literal> 次，則會嘗試容錯移轉至其他節點。每次資源失敗，其 failcount 值都會增加。您可以定義一個失敗計數，讓資源在失敗該次數 (<literal>migration-threshold</literal>) 之後移轉至新節點。若叢集中有兩個以上的節點，則特定資源容錯移轉所至的節點由 High Availability 軟體來選擇。
+   </para>
+   <para>
+    但是，您可以透過為該資源設定一或多個位置條件約束以及一個 <literal>migration-threshold</literal>，指定資源容錯移轉所至的節點。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 來指定資源容錯移轉節點。
+   </para>
+   <example xml:id="ex-ha-config-basics-failover">
+    <title>移轉限定值 - 處理流程</title>
+    <para>
+     例如，假設您已為資源 <literal>rsc1</literal> 設定位置條件約束，讓其偏向於在 <literal>alice</literal> 上執行。若資源在該節點上失敗，系統會檢查 <literal>migration-threshold</literal>，並將其與 failcount 進行比較。若 failcount &gt;= migration-threshold，則將資源移轉至優先設定次佳的節點。
+    </para>
+    <para>
+     達到限定值後，便不再允許該節點執行失敗的資源，除非資源的 failcount 被重設。此操作可由叢集管理員手動執行，也可透過設定資源的 <literal>failure-timeout</literal> 選項來完成。
+    </para>
+    <para>
+     例如，設定 <literal>migration-threshold=2</literal> 及 <literal>failure-timeout=60s</literal> 會在資源失敗兩次後將其移轉至新節點。一分鐘過後，允許該資源移回原節點 (視粘性與條件約束的分數而定)。
+    </para>
+   </example>
+   <para>
+    移轉限定值概念有兩種例外情況，發生於資源無法啟動或無法停止之時：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      啟動失敗會將 failcount 設定為 <literal>INFINITY</literal>，因此一旦發生便會立即移轉資源。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      停止失敗會導致圍籬區隔 (<literal>stonith-enabled</literal> 設定為 <literal>true</literal> 時，這是預設設定)。
+     </para>
+     <para>
+      如果未定義 STONITH 資源 (或 <literal>stonith-enabled</literal> 設定為 <literal>false</literal>)，資源將不會移轉。
+     </para>
+    </listitem>
+   </itemizedlist>
+
+   <sect2 xml:id="sec-conf-hawk2-failover">
+    <title>使用 Hawk2 指定資源容錯移轉節點</title>
+    <procedure xml:id="pro-hawk2-failover">
+     <title>指定容錯移轉節點</title>
+     <step>
+      <para>
+       登入 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       依<xref linkend="pro-hawk2-constraints-location"/> 所述為該資源設定位置條件約束。
+      </para>
+     </step>
+     <step>
+      <para>
+       依<literal>migration-threshold</literal>中的<xref linkend="pro-conf-hawk2-rsc-modify" xrefstyle="select:label title nopage"/> 所述將 <xref linkend="step-hawk2-rsc-modify-params" xrefstyle="select:label"/> 中繼屬性新增至該資源，並為該 migration-threshold 輸入一個值。該值應該為小於 INFINITY 的正數。
+      </para>
+     </step>
+     <step>
+      <para>
+       若要讓資源的 failcount 自動過期，請依<literal>failure-timeout</literal>中的<xref linkend="pro-conf-hawk2-primitive-add" xrefstyle="select:label title nopage"/> 所述將 <xref linkend="step-hawk2-rsc-modify-params" xrefstyle="select:label"/> 中繼屬性新增至該資源，並為該 <guimenu> 輸入一個</guimenu>值<literal>failure-timeout</literal>。
+      </para>
+      <informalfigure>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-failover-node.png" width="100%"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-failover-node.png" width="100%"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </step>
+     <step>
+      <para>
+       若要指定具有資源優先設定的其他容錯移轉節點，請建立其他位置條件約束。
+      </para>
+     </step>
+    </procedure>
+    <para>
+     您也可以隨時手動清理資源的 failcount，而不是等待資源的 failcount 自動過期。如需詳細資訊，請參閱<xref linkend="sec-conf-hawk2-manage-cleanup"/>。
+    </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-failover">
+    <title>使用 crmsh 指定資源容錯移轉節點</title>
+    <para>
+     若要判斷資源容錯移轉，請使用 meta 屬性 <literal>migration-threshold</literal>.如果在所有節點上的失敗計數都超過 <literal>migration-threshold</literal>，資源將保持停止狀態。例如：
+    </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>location rsc1-alice rsc1 100: alice</command></screen>
+    <para>
+     通常，<literal>rsc1</literal> 偏好在 <literal>alice</literal> 上執行。若資源在該節點上失敗，系統會檢查 <literal>migration-threshold</literal>，並將其與 failcount 進行比較。如果 <literal>failcount</literal> &gt;= <literal>migration-threshold</literal>，資源會移轉至優先設定次佳的節點。
+    </para>
+    <para>
+     根據 <option>start-failure-is-fatal</option> 選項的值，啟動失敗會將 failcount 設定為 inf。停止失敗將導致圍籬區隔。如果未定義 STONITH，資源將不會移轉。
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-failback">
+   <title>指定資源錯誤回復節點 (資源粘性)</title>
+   <para>
+    當原始節點恢復連接且位於叢集中時，資源可以錯誤回復至該節點。為防止資源錯誤回復到之前執行它的節點，或者要指定讓該資源錯誤回復到其他節點，請變更其資源粘性值。您可以在建立資源時或建立之後指定資源粘性。
+   </para>
+   <para>
+    指定資源粘性的值時，請考慮以下事項：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>值為 <literal>0</literal>：</term>
+     <listitem>
+      <para>
+       這是預設值。資源會放置在系統中的最佳位置。這表示當有<quote>更佳</quote>的或負載更低的節點可用時，則移動資源。此選項幾乎等同於自動錯誤回復，除了資源可能會移至原先節點 (資源之前於其上處於使用中狀態) 之外的節點這種情況。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值大於 <literal>0</literal>：</term>
+     <listitem>
+      <para>
+       資源偏向於留在目前的位置，但可能會在有更合適的節點時移動。值越高表示越偏向於將資源保留在目前的位置。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值小於 <literal>0</literal>：</term>
+     <listitem>
+      <para>
+       資源偏向於從其目前位置移開。絕對值越高表示越偏向於移動資源。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值為 <literal>INFINITY</literal>：</term>
+     <listitem>
+      <para>
+       資源永遠留在目前的位置，除非因節點不再適合執行資源 (節點關機、節點待命、達到 <literal>migration-threshold</literal> 或組態變更) 而強制關閉資源。此選項的作用幾乎等同於停用自動錯誤回復。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>值為 <literal>-INFINITY</literal>：</term>
+     <listitem>
+      <para>
+       總是從目前位置移出資源。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+   <sect2 xml:id="sec-config-hawk2-failback">
+    <title>使用 Hawk2 指定資源錯誤回復節點</title>
+    <procedure xml:id="pro-hawk2-stickiness">
+     <title>指定資源粘性</title>
+     <step>
+      <para>
+       登入 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       依<literal>resource-stickiness</literal> 中的<xref linkend="pro-conf-hawk2-rsc-modify" xrefstyle="select:label title nopage"/> 所述將 <xref linkend="step-hawk2-rsc-modify-params" xrefstyle="select:label"/> 中繼屬性新增至資源。
+      </para>
+     </step>
+     <step>
+      <para>
+       為 <literal>resource-stickiness</literal> 指定介於 <literal>-INFINITY</literal> 和 <literal>INFINITY</literal> 之間的值。
+      </para>
+      <informalfigure>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-rsc-stickiness.png" width="100%"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-rsc-stickiness.png" width="100%"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </step>
+    </procedure>
+   </sect2>
+
+   
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-utilization">
+   <title>依據資源負載影響放置資源</title>
+   <para>
+    並非所有資源都相同。有些資源 (例如 Xen 客體作業系統) 要求代管它們的節點符合其容量要求。如果放置資源後其所需的容量之和超過了提供的容量，資源效能便會下降 (甚至無法執行)。
+   </para>
+   <para>
+    鑒於此，High Availability Extension 允許您指定以下參數：
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      特定節點<emphasis>提供</emphasis>的容量。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      特定資源<emphasis>要求</emphasis>的容量。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      配置資源的整體策略。
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    可以使用 Hawk2 或 crmsh 來組態這些設定：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2：<xref linkend="sec-config-hawk2-utilization"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh：<xref linkend="sec-ha-manual-config-utilization"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    如果一個節點有足夠的可用容量來滿足資源的要求，則認為該節點符合資源要求。若要手動設定資源的要求以及節點提供的容量，可以利用使用率屬性。您可以依據自己的偏好命名使用率屬性，依據組態需要定義任意數量的名稱/值對。但是，屬性的值必須是整數。
+   </para>
+   <para>
+    如果具有使用率屬性的多個資源已分組或具有並存條件約束，High Availability Extension 會將這種情況考慮在內。如有可能，系統會將資源放置到可以符合<emphasis>所有</emphasis>容量要求的節點上。
+   </para>
+   <note>
+    <title>群組的使用率屬性</title>
+    <para>
+     使用者無法直接為資源群組設定使用率屬性。不過，若要簡化群組的組態設定，您可以新增具有群組中所有資源所需總容量的使用率屬性。
+    </para>
+   </note>
+   <para>
+    High Availability Extension 還提供了用於自動偵測和設定節點容量和資源要求的方法：
+   </para>
+   <para>
+    <systemitem>NodeUtilization</systemitem> 資源代辦可檢查節點的容量 (與 CPU 和 RAM 相關)。若要設定自動偵測，請建立類別、提供者和類型如下的複製品資源：<literal>ocf:pacemaker:NodeUtilization</literal>。每個節點上都應該執行一個該複製品例項。例項啟動後，將會在節點的 CIB 組態中新增使用率區段。如需詳細資訊，請參閱<command>crm ra info NodeUtilization</command>。
+   </para>
+   <para>
+    為了自動偵測資源的最低要求 (與 RAM 和 CPU 相關)，我們改進了 <systemitem>Xen</systemitem> 資源代辦。<systemitem>Xen</systemitem> 資源啟動後，該代理程式即會反映 RAM 和 CPU 使用情況。使用率屬性會自動新增至資源組態中。
+   </para>
+   <note>
+    <title>適用於 Xen 和 libvirt 的不同資源代理程式</title>
+    <para>
+     <systemitem>ocf:heartbeat:Xen</systemitem> 資源代辦不應與 <literal>libvirt</literal> 配合使用，因為 <literal>libvirt</literal> 需要能夠修改機器描述檔案。
+    </para>
+    <para>
+     對於 <literal>libvirt</literal>，請使用 <systemitem>ocf:heartbeat:VirtualDomain</systemitem> 資源代理程式。
+    </para>
+   </note>
+   <para>
+    除了偵測最低要求外，您還可以透過 <systemitem>VirtualDomain</systemitem> 資源代理程式監控目前的使用率。它可以偵測虛擬機器的 CPU 和 RAM 使用情況。若要使用此功能，請設定類別、提供者和類型如下的資源：<literal>ocf:heartbeat:VirtualDomain</literal>。可以使用以下例項屬性：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <varname>autoset_utilization_cpu</varname>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <varname>autoset_utilization_hv_memory</varname> (用於 Xen) 或 <varname>autoset_utilization_host_memory</varname> (用於 KVM)
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    這些屬性預設為 <literal>true</literal>。如此，每個監控週期都會更新 CIB 中的使用率值。如需詳細資訊，請參閱<command>crm ra info VirtualDomain</command>。
+   </para>
+   <note>
+    <title><literal>hv_memory</literal> 和 <literal>host_memory</literal></title>
+    <para>
+     在 <systemitem>NodeUtilization</systemitem> 和 <systemitem>VirtualDomain</systemitem> 資源代理程式中，<literal>hv_memory</literal> 和 <literal>host_memory</literal> 均預設為 <literal>true</literal>。但 Xen 只需要 <literal>hv_memory</literal>，KVM 只需要 <literal>host_memory</literal>。為了避免引起混淆，我們建議停用不需要的屬性。例如：
+    </para>
+    <example xml:id="ex-kvm-disable-hv-memory">
+     <title>在停用 <literal>hv_memory</literal> 的情況下為 KVM 建立資源代理程式</title>
+<screen><prompt role="root"># </prompt><command>crm configure primitive p_nu NodeUtilization \
+      params utilization_hv_memory=false \
+      op monitor timeout=20s interval=60</command>
+<prompt role="root"># </prompt><command>crm configure primitive p_vm VirtualDomain \
+      params autoset_utilization_hv_memory=false \
+      op monitor timeout=30s interval=10s</command></screen>
+    </example>
+    <example xml:id="ex-xen-disable-host-memory">
+     <title>在停用 <literal>host_memory</literal> 的情況下為 Xen 建立資源代理程式</title>
+<screen><prompt role="root"># </prompt><command>crm configure primitive p_nu NodeUtilization \
+      params utilization_host_memory=false \
+      op monitor timeout=20s interval=60</command>
+<prompt role="root"># </prompt><command>crm configure primitive p_vm VirtualDomain \
+      params autoset_utilization_host_memory=false \
+      op monitor timeout=30s interval=10s</command></screen>
+    </example>
+   </note>
+   <para>
+    無論是手動還是自動設定容量與要求，都必須使用 <literal>placement-strategy</literal> 內容 (在全域叢集選項中) 指定配置策略。可用的值如下：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>default</literal> (預設值)</term>
+     <listitem>
+      <para>
+       不考量使用率值。資源依據位置分數配置。如果分數相同，則在各節點上平均分配資源。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>utilization</literal>
+     </term>
+     <listitem>
+      <para>
+       判斷節點的可用容量是否足夠滿足資源的要求時，會參考使用率值。但是，依舊會依據配置給節點的資源數量完成負載平衡。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>minimal</literal>
+     </term>
+     <listitem>
+      <para>
+       判斷節點的可用容量是否足夠滿足資源的要求時，會參考使用率值。系統會儘可能將資源集中到少量節點上，以節省其餘節點上的能耗。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>balanced</literal>
+     </term>
+     <listitem>
+      <para>
+       判斷節點是否有足夠的可用容量來滿足資源的要求時，會考量使用率值。系統會嘗試將資源平均分配，以便最佳化資源效能。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <note>
+    <title>設定資源優先程度</title>
+    <para>
+     提供的配置策略效能最佳，它們雖然沒有使用複雜的啟發式解析程式，卻總能獲得最佳的配置效果。請確保資源的優先程度已正確設定，以便先排程最重要的資源。
+    </para>
+   </note>
+
+   <sect2 xml:id="sec-config-hawk2-utilization">
+    <title>使用 Hawk2 根據資源負載影響放置資源</title>
+    <para>
+     使用率屬性用於設定資源的要求以及節點提供的容量。您需要先設定節點的容量，然後才能設定資源所需的容量。
+    </para>
+    <procedure xml:id="pro-hawk2-utilization-node">
+     <title>設定節點提供的容量</title>
+     <step>
+      <para>
+       登入 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       從左側導覽列中，選取<menuchoice><guimenu>監控</guimenu>
+       <guimenu>狀態</guimenu></menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       在<guimenu>節點</guimenu>索引標籤上，選取要設定其容量的節點。
+      </para>
+     </step>
+     <step>
+      <para>
+       在<guimenu>操作</guimenu>欄中按一下向下箭頭圖示，然後選取<guimenu>編輯</guimenu>。
+      </para>
+      <para>
+       <guimenu>編輯節點</guimenu>螢幕即會開啟。
+      </para>
+     </step>
+     <step>
+      <para>
+       在<guimenu>使用率</guimenu>下，將使用率屬性的名稱輸入到空下拉方塊中。
+      </para>
+      <para>
+       該名稱可以是任意名稱 (例如 <literal>RAM_in_GB</literal>)。
+      </para>
+     </step>
+     <step>
+      <para>
+       按一下<guimenu>新增</guimenu>圖示以新增屬性。
+      </para>
+     </step>
+     <step>
+      <para>
+       在屬性旁邊的空文字方塊中輸入一個屬性值。該值必須是整數。
+      </para>
+      <informalfigure>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-utilization-node.png" width="100%"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-utilization-node.png" width="100%"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </step>
+     <step>
+      <para>
+       新增所需數量的使用率屬性，並為其新增相應的值。
+      </para>
+     </step>
+     <step>
+      <para>
+       確認您的變更。螢幕頂部的訊息會顯示動作是否成功。
+      </para>
+     </step>
+    </procedure>
+    <procedure xml:id="pro-hawk2-utilization-rsc">
+     <title>設定資源所需的容量</title>
+     <para>
+      請在建立基本資源或編輯現有基本資源時，設定特定資源需從節點中獲取的容量。
+     </para>
+     <para>
+      您需要先依<xref linkend="pro-hawk2-utilization-node" xrefstyle="select:label"/> 所述設定叢集節點的使用率屬性，之後才能將使用率屬性新增至資源。
+     </para>
+     <step>
+      <para>
+       登入 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       若要將使用率屬性新增至現有資源，請依照<xref linkend="sec-conf-hawk2-manage-edit"/>所述前往<menuchoice>
+       <guimenu>管理</guimenu><guimenu>狀態</guimenu> </menuchoice>，然後開啟資源組態對話方塊。
+      </para>
+      <para>
+       如果要建立新資源，請前往<menuchoice>
+       <guimenu>組態</guimenu><guimenu>新增資源</guimenu>
+       </menuchoice>，然後依照<xref linkend="sec-conf-hawk2-rsc-primitive"/>所述繼續操作。
+      </para>
+     </step>
+     <step>
+      <para>
+       在資料組態對話方塊中，轉到<guimenu>使用率</guimenu>類別。
+      </para>
+     </step>
+     <step>
+      <para>
+       從空下拉方塊中，選取您在<xref linkend="pro-hawk2-utilization-node" xrefstyle="select:label"/> 中已為節點設定的其中一個使用率屬性。
+      </para>
+     </step>
+     <step>
+      <para>
+       在屬性旁邊的空文字方塊中輸入一個屬性值。該值必須是整數。
+      </para>
+     </step>
+     <step>
+      <para>
+       新增所需數量的使用率屬性，並為其新增相應的值。
+      </para>
+     </step>
+     <step>
+      <para>
+       確認您的變更。螢幕頂部的訊息會顯示動作是否成功。
+      </para>
+     </step>
+    </procedure>
+    <para>
+     設定節點提供的容量以及資源所需的容量之後，請在全域叢集選項中設定位置策略。否則，容量組態不會生效。可以使用幾個策略來排程負載：例如，您可將負載集中於最少的節點上，或在所有可用的節點上平均分攤。
+    </para>
+    <procedure xml:id="pro-ha-config-hawk2-placement">
+     <title>設定放置策略</title>
+     <step>
+      <para>
+       登入 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       從左側導覽列中，選取<menuchoice>
+       <guimenu>組態</guimenu><guimenu>叢集組態</guimenu>
+       </menuchoice>以開啟相應的螢幕。該螢幕會顯示全域叢集選項和資源，以及操作預設值。
+      </para>
+     </step>
+     <step>
+      <para>
+       從螢幕上部的空下拉式方塊中選取 <literal>placement-strategy</literal>。
+      </para>
+      <para>
+       依預設，其值會設定為<guimenu>預設</guimenu>，表示不考慮使用率屬性和值。
+      </para>
+     </step>
+     <step>
+      <para>
+       根據要求將<guimenu>配置策略</guimenu>設定為適當的值。
+      </para>
+     </step>
+     <step>
+      <para>
+       確認您的變更。
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-utilization">
+    <title>使用 crmsh 根據資源負載影響放置資源</title>
+    <para>
+     若要設定資源的要求以及節點提供的容量，可以利用使用率屬性。您可以依據自己的偏好命名使用率屬性，依據組態需要定義任意數量的名稱/值對。在某些情況下，有些代辦 (例如 <systemitem class="resource">VirtualDomain</systemitem>) 會自行更新使用率。
+    </para>
+    <para>
+     在以下範例中，假設您已擁有叢集節點和資源的基本組態，現在還想要設定特定節點提供的容量和特定資源需要的容量。
+    </para>
+    <procedure>
+     <title>使用 <command>crm</command> 新增或修改使用率屬性</title>
+     <step>
+      <para>
+       以 <systemitem class="username">root</systemitem> 身分登入並啟動 <command>crm</command> 互動式外圍程序：
+      </para>
+ <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+     </step>
+     <step>
+      <para>
+       若要指定節點<emphasis>提供</emphasis>的容量，請使用以下指令，並以您的節點名稱取代佔位符 <replaceable>NODE_1</replaceable>：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>node <replaceable>NODE_1</replaceable> utilization hv_memory=16384 cpu=8</command></screen>
+      <para>
+       透過設定這些值，<replaceable>NODE_1</replaceable> 將會向資源提供 16 GB 記憶體和 8 個 CPU 核心。
+      </para>
+     </step>
+     <step>
+      <para>
+       若要指定資源<emphasis>需要</emphasis>的容量，請使用：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive xen1 Xen ... \
+      utilization hv_memory=4096 cpu=4</command></screen>
+      <para>
+       如此，資源會佔用 <replaceable>NODE_1</replaceable> 的 4096 個記憶體單元和 4 個 CPU 單元。
+      </para>
+     </step>
+     <step>
+      <para>
+       使用 <command>property</command> 指令設定配置策略：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>property</command> ...</screen>
+      <para>
+       可用的值如下：
+      </para>
+       <variablelist>
+    <varlistentry>
+     <term><literal>default</literal> (預設值)</term>
+     <listitem>
+      <para>
+       不考量使用率值。資源依據位置分數配置。如果分數相同，則在各節點上平均分配資源。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>utilization</literal>
+     </term>
+     <listitem>
+      <para>
+       判斷節點的可用容量是否足夠滿足資源的要求時，會參考使用率值。但是，依舊會依據配置給節點的資源數量完成負載平衡。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>minimal</literal>
+     </term>
+     <listitem>
+      <para>
+       判斷節點的可用容量是否足夠滿足資源的要求時，會參考使用率值。系統會儘可能將資源集中到少量節點上，以節省其餘節點上的能耗。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>balanced</literal>
+     </term>
+     <listitem>
+      <para>
+       判斷節點是否有足夠的可用容量來滿足資源的要求時，會考量使用率值。系統會嘗試將資源平均分配，以便最佳化資源效能。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <note>
+    <title>設定資源優先程度</title>
+    <para>
+     提供的配置策略效能最佳，它們雖然沒有使用複雜的啟發式解析程式，卻總能獲得最佳的配置效果。請確保資源的優先程度已正確設定，以便先排程最重要的資源。
+    </para>
+   </note>
+     </step>
+     <step>
+      <para>
+       在離開 crmsh 之前，提交您的變更：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+     </step>
+    </procedure>
+    <para>
+     以下範例展示了含有四個虛擬機器的三節點叢集，其中的各個節點完全相同：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>node alice utilization hv_memory="4000"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>node bob utilization hv_memory="4000"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>node charlie utilization hv_memory="4000"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive xenA Xen \
+    utilization hv_memory="3500" meta priority="10" \
+    params xmfile="/etc/xen/shared-vm/vm1"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive xenB Xen \
+    utilization hv_memory="2000" meta priority="1" \
+    params xmfile="/etc/xen/shared-vm/vm2"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive xenC Xen \
+    utilization hv_memory="2000" meta priority="1" \
+    params xmfile="/etc/xen/shared-vm/vm3"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive xenD Xen \
+    utilization hv_memory="1000" meta priority="5" \
+    params xmfile="/etc/xen/shared-vm/vm4"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>property placement-strategy="minimal"</command></screen>
+    <para>
+     這三個節點都啟動後，系統首先會將 xenA 放置到一個節點上，然後會放置 xenD。xenB 和 xenC 會配置在一起，或其中一個與 xenD 配置在一起。
+    </para>
+    <para>
+     如果一個節點失敗，表示可用的總記憶體太少，無法代管全部資源。xenA 與 xenD 會保證得到配置。但是，xenB 和 xenC 只有其中之一仍可以放置，並且由於它們的優先程度相同，因此結果尚不確定。若要解決這種不確定的狀況，您需要為其中一個設定較高的優先程度。
+    </para>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-constraints-more">
+  <title>更多資訊</title>
+  <para>
+   如需設定條件約束的詳細資訊，以及順序和並存基本概念的詳細背景資訊，請參閱 <link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/> 上的以下文件：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+      <citetitle>Pacemaker Explained</citetitle> 的 <citetitle>Resource Constraints</citetitle> 一章
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <citetitle>Colocation Explained</citetitle>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <citetitle>Ordering Explained</citetitle>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>

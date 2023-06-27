@@ -1,0 +1,667 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_managing_resources.xml" xml:id="cha-ha-manage-resources" xml:lang="ja" version="5.1">
+ <title>クラスタリソースの管理</title>
+ <info>
+  <abstract>
+   <para>
+    クラスタ内でリソースを設定したら、クラスタ管理ツールを使用して、リソースを起動、停止、クリーンアップ、削除、または移行します。この章では、リソース管理タスクにHawk2またはcrmshを使用する方法について説明します。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+<sect1 xml:id="sec-ha-resource-show">
+ <title>クラスタリソースの表示</title>
+ <sect2 xml:id="sec-ha-manual-config-show">
+  <title>crmshを使用したクラスタリソースの表示</title>
+  <para>
+   クラスタを管理する際には、コマンド<command>crm configure show</command>で、クラスタ設定、グローバルオプション、プリミティブなどの現在のCIBオブジェクトを一覧表示します。
+  </para>
+  <screen><prompt role="root"># </prompt><command>crm configure show</command>
+node 178326192: alice
+node 178326448: bob
+primitive admin_addr IPaddr2 \
+       params ip=192.168.2.1 \
+       op monitor interval=10 timeout=20
+primitive stonith-sbd stonith:external/sbd \
+       params pcmk_delay_max=30
+property cib-bootstrap-options: \
+       have-watchdog=true \
+       dc-version=1.1.15-17.1-e174ec8 \
+       cluster-infrastructure=corosync \
+       cluster-name=hacluster \
+       stonith-enabled=true \
+       placement-strategy=balanced \
+       standby-mode=true
+rsc_defaults rsc-options: \
+       resource-stickiness=1 \
+       migration-threshold=3
+op_defaults op-options: \
+       timeout=600 \
+       record-pending=true</screen>
+  <para>
+   多数のリソースがある場合、<command>show</command>の出力が冗長になります。出力を制限するには、リソースの名前を使用します。たとえば、プリミティブ<systemitem>admin_addr</systemitem>のみのプロパティを一覧表示するには、リソース名を<command>show</command>に付加します。
+  </para>
+  <screen><prompt role="root"># </prompt><command>crm configure show admin_addr</command>
+primitive admin_addr IPaddr2 \
+       params ip=192.168.2.1 \
+       op monitor interval=10 timeout=20</screen>
+  <para>
+   ただし、特定のリソースの出力をさらに制限したい場合があります。これは、「フィルタ」を使用して実現できます。<emphasis></emphasis>フィルタは特定のコンポーネントに出力を制限します。たとえば、ノードのみを一覧表示するには、<literal>type:node</literal>を使用します。
+  </para>
+  <screen><prompt role="root"># </prompt><command>crm configure show type:node</command>
+node 178326192: alice
+node 178326448: bob</screen>
+  <para>プリミティブにも興味がある場合には、<literal>or</literal>オペレータを使用します。</para>
+  <screen><prompt role="root"># </prompt><command>crm configure show type:node or type:primitive</command>
+node 178326192: alice
+node 178326448: bob
+primitive admin_addr IPaddr2 \
+       params ip=192.168.2.1 \
+       op monitor interval=10 timeout=20
+primitive stonith-sbd stonith:external/sbd \
+       params pcmk_delay_max=30</screen>
+  <para>
+   さらに、特定の文字列で開始するオブジェクトを検索するには次の表記を使用します。</para>
+  <screen><prompt role="root"># </prompt><command>crm configure show type:primitive and 'admin*'</command>
+primitive admin_addr IPaddr2 \
+       params ip=192.168.2.1 \
+       op monitor interval=10 timeout=20</screen>
+  <para>
+   使用可能なすべてのタイプを一覧表示するには、<command>crm configure show type:</command>と入力し、<keycap function="tab"/>キーを押します。Bash補完により、すべてのタイプのリストが表示されます。
+  </para>
+ </sect2>
+</sect1>
+
+<sect1 xml:id="sec-ha-resource-edit">
+ <title>リソースとグループの編集</title>
+ <para>
+  Hawk2またはcrmshのいずれかを使用してリソースまたはグループを編集できます。
+ </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-edit">
+  <title>Hawk2を使用したリソースとグループの編集</title>
+  <para>
+   リソースの作成後、必要に応じてパラメータ、操作、またはメタ属性を調整することで、いつでもその設定を編集できます。
+  </para>
+  <procedure xml:id="pro-conf-hawk2-rsc-modify">
+   <title>リソースまたはグループの変更</title>
+   <step>
+    <para>
+     Hawk2にログインします。
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     Hawk2の<guimenu>状態</guimenu>画面で、<guimenu>Resources (リソース)</guimenu>リストに移動します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>操作</guimenu>列で、変更したいリソースまたはグループの横にある下矢印アイコンをクリックして<guimenu>編集</guimenu>を選択します。
+    </para>
+    <para>
+     リソース設定画面が開きます。
+    </para>
+    <figure>
+     <title>Hawk2 - プリミティブリソースの編集</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-primitive-edit.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-primitive-edit.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+     <para>
+      設定画面の上部で、実行する操作を選択できます。
+     </para>
+     <para>
+      プリミティブリソースを編集する場合は、次の操作が使用できます。
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        リソースのコピー
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        リソースの名前変更(そのIDの変更)
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        リソースの削除
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      グループを編集する場合は、次の操作が使用できます。
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        このグループに追加される新しいプリミティブの作成
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        グループの名前変更(そのIDの変更)
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        グループメンバーを新しい順序にドラッグアンドドロップする
+       </para>
+      </listitem>
+     </itemizedlist>
+   </step>
+   <step xml:id="step-hawk2-rsc-modify-params">
+    <para>
+     新たなパラメータ、操作、またはメタ属性を追加するには、空のドロップダウンボックスから項目を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>操作</guimenu>カテゴリの値を編集するには、それぞれのカテゴリの<guimenu>編集</guimenu>アイコンをクリックして操作の別の値を入力し、<guimenu>適用</guimenu>をクリックします。
+    </para>
+   </step>
+   <step>
+    <para>
+     完了したら、リソース設定画面で<guimenu>適用</guimenu>ボタンをクリックして、パラメータ、操作、またはメタ属性の変更内容を確認します。
+    </para>
+    <para>
+     画面上部に、アクションが成功したかどうかを示すメッセージが表示されます。
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+ <sect2 xml:id="sec-conf-crm-manage-edit">
+  <title>crmshを使用したグループの編集</title>
+  <para>
+   グループメンバーの順序を変更するには、<command>modgroup</command>サブコマンドから<command>configure</command>コマンドを使用します。たとえば、次のコマンドを使用して、<literal>Public-IP</literal>の前にプリミティブ<literal>Email</literal>を移動します。
+  </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-mailsvc add Email before Public-IP</command></screen>
+  <para>
+   グループ(<literal>Email</literal>など)からリソースを削除する場合には、このコマンドを使用します。
+  </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-mailsvc remove Email</command></screen>
+ </sect2>
+</sect1>
+
+<sect1 xml:id="sec-ha-resource-start">
+ <title>クラスタリソースの起動</title>
+  <para>
+   クラスタリソースは、起動する前に、正しく設定されているようにします。たとえば、Apacheサーバをクラスタリソースとして使用する場合は、まず、Apacheサーバを設定します。クラスタでそれぞれのリソースを開始する前に、Apache設定を完了します。
+  </para>
+  <note>
+   <title>クラスタによって管理されるサービスには介入しないでくださいクラスタによって管理されるサービスは操作しないでください</title>
+   <para>
+    High Availability Extensionでリソースを管理しているときに、リソースを他の方法(クラスタ外で、たとえば、手動、ブート、再起動など)で開始したり、停止したりしてはなりません。High Availability Extensionソフトウェアが、すべてのサービスの開始または停止アクションを実行します。
+   </para>
+   <para>
+    ただし、サービスが適切に構成されているか確認したい場合は手動で開始しますが、High Availabilityが起動する前に停止してください。
+   </para>
+   <para>
+    現在クラスタで管理されているリソースへの介入については、まず、リソースを<literal>maintenance mode</literal>に設定します。詳細については、<xref linkend="pro-ha-maint-mode-rsc-hawk2"/>を参照してください。
+   </para>
+  </note>
+  <para>
+   Hawk2またはcrmshのいずれかを使用してクラスタリソースを開始できます。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-start">
+  <title>Hawk2を使用したクラスタリソースの開始</title>
+  <para>
+   Hawk2でリソースを作成するときには、<literal>target-role</literal>メタ属性でその初期状態を設定することができます。その値を<literal>stopped</literal>に設定した場合、リソースは、作成後、自動的に開始することはありません。
+  </para>
+  <procedure xml:id="pro-hawk2-rsc-start">
+   <title>新しいリソースの起動</title>
+   <step>
+    <para>
+     Hawk2にログインします。
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーから、<menuchoice><guimenu>監視機能</guimenu>
+     <guimenu>状態</guimenu></menuchoice>の順に選択します。<guimenu>Resources (リソース)</guimenu>のリストには<guimenu>状態</guimenu>も表示されます。
+    </para>
+   </step>
+   <step>
+    <para>
+     開始するリソースを選択し、その<guimenu>操作</guimenu>列で<guimenu>開始</guimenu>アイコンをクリックします。継続するには、表示されるメッセージに対して確認します。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   リソースが開始すると、Hawk2はすぐにリソースの<guimenu>状態</guimenu>を緑に変え、それがどのノードで実行されているかを表示します。
+  </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-start">
+   <title>crmshを使用したクラスタリソースの開始</title>
+   <para>
+    新しいクラスタリソースを開始するには、そのIDが必要です。
+   </para>
+   <procedure>
+    <title>crmshを使用したクラスタリソースの開始</title>
+    <step>
+     <para>
+      <systemitem class="username">root</systemitem>としてログインし、<command>crm</command>対話型シェルを開始します。
+     </para>
+ <screen><prompt role="root"># </prompt><command>crm</command></screen>
+    </step>
+    <step>
+     <para>
+      リソースレベルに切り替えます。
+     </para>
+ <screen><prompt role="custom">crm(live)# </prompt><command>resource</command></screen>
+    </step>
+    <step>
+     <para>
+      <command>start</command>でリソースを開始し、<keycap function="tab"/>キーを押してすべての既知のリソースを表示します。
+     </para>
+ <screen><prompt role="custom">crm(live)resource# </prompt><command>start <replaceable>ID</replaceable></command></screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+<sect1 xml:id="sec-ha-resource-stop">
+ <title>クラスタリソースの停止</title>
+ <sect2 xml:id="sec-ha-manual-config-stop">
+  <title>crmshを使用したクラスタリソースの停止</title>
+  <para>
+   1つ以上の既存のクラスタリソースを停止するには、各IDが必要です。
+  </para>
+  <procedure>
+   <title>crmshを使用したクラスタリソースの停止</title>
+   <step>
+    <para>
+     <systemitem class="username">root</systemitem>としてログインし、<command>crm</command>対話型シェルを開始します。
+    </para>
+<screen><prompt role="root"># </prompt><command>crm</command></screen>
+   </step>
+   <step>
+    <para>
+     リソースレベルに切り替えます。
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>resource</command></screen>
+   </step>
+   <step>
+    <para>
+     <command>stop</command>でリソースを停止し、<keycap function="tab"/>キーを押してすべての既知のリソースを表示します。
+    </para>
+<screen><prompt role="custom">crm(live)resource# </prompt><command>stop <replaceable>ID</replaceable></command></screen>
+    <para>
+     複数のリソースを一度に停止できます。
+    </para>
+    <screen><prompt role="custom">crm(live)resource# </prompt><command>stop <replaceable>ID1</replaceable> <replaceable>ID2</replaceable></command> ...</screen>
+   </step>
+  </procedure>
+ </sect2>
+</sect1>
+
+<sect1 xml:id="sec-ha-resource-clean">
+ <title>クラスタリソースのクリーンアップ</title>
+ <para>
+   リソースは、失敗した場合は自動的に再起動しますが、失敗のたびにリソースの失敗回数が増加します。
+  </para>
+  <para>
+   リソースに対して<literal>migration-threshold</literal>が設定されていた場合、失敗回数が移行しきい値に達すると、そのリソースはそのノードでは実行されなくなります。
+  </para>
+  <para>
+   リソースの失敗回数は、(リソースに<literal>failure-timeout</literal>オプションを設定することにより)自動的にリセットするか、またはHawk2またはcrmshのいずれかを使用して手動でリセットできます。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-cleanup">
+  <title>Hawk2を使用したクラスタリソースのクリーンアップ</title>
+  <procedure xml:id="pro-hawk2-clean">
+   <title>リソースのクリーンアップ</title>
+   <step>
+    <para>
+     Hawk2にログインします。
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーから、<guimenu>状態</guimenu>を選択します。<guimenu>Resources (リソース)</guimenu>のリストには<guimenu>状態</guimenu>も表示されます。
+    </para>
+   </step>
+   <step>
+    <para>
+     クリーンアップするリソースに移動します。<guimenu>操作</guimenu>列で、下矢印ボタンをクリックして<guimenu>クリーンアップ</guimenu>を選択します。継続するには、表示されるメッセージに対して確認します。
+    </para>
+    <para>
+     これにより、コマンド<command>crm resource cleanup</command>が実行され、すべてのノードでリソースがクリーンアップされます。
+    </para>
+   </step>
+  </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-cleanup">
+   <title>crmshを使用したクラスタリソースのクリーンアップ</title>
+   <procedure>
+    <title>crmshを使用したリソースのクリーンアップ</title>
+    <step>
+     <para>
+      シェルを開いて、<systemitem class="username">root</systemitem>ユーザとしてログインします。
+     </para>
+    </step>
+    <step>
+     <para>
+      すべてのリソースのリストを取得します。
+     </para>
+ <screen><prompt role="root"># </prompt><command>crm resource list</command>
+  ...
+ Resource Group: dlm-clvm:1
+         dlm:1  (ocf:pacemaker:controld) Started
+         clvm:1 (ocf:heartbeat:lvmlockd) Started</screen>
+    </step>
+    <step>
+     <para>
+      リソース<literal>dlm</literal>をクリーンアップするには、たとえば、以下の手順を実行します:。
+     </para>
+ <screen><prompt role="root"># </prompt><command>crm resource cleanup dlm</command></screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+<sect1 xml:id="sec-ha-resource-remove">
+ <title>クラスタリソースの削除</title>
+  <para>
+   クラスタからリソースを削除するには、以下のHawk2またはcrmshいずれかの手順に従って、設定エラーを回避します。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-remove">
+  <title>Hawk2を使用したクラスタリソースの削除</title>
+  <procedure xml:id="pro-hawk2-rsc-rm">
+   <title>クラスタリソースの削除</title>
+   <step>
+    <para>
+     Hawk2にログインします。
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     <xref linkend="pro-hawk2-clean"/>の説明に従って、すべてのノードでリソースをクリーンアップします。
+    </para>
+   </step>
+   <step>
+    <para>
+     リソースを停止します。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       左のナビゲーションバーから、<menuchoice><guimenu>監視機能</guimenu>
+       <guimenu>状態</guimenu></menuchoice>の順に選択します。<guimenu>Resources (リソース)</guimenu>のリストには<guimenu>状態</guimenu>も表示されます。
+      </para>
+     </step>
+     <step>
+      <para>
+       <guimenu>操作</guimenu>列で、リソースの横にある<guimenu>停止</guimenu>ボタンをクリックします。
+      </para>
+     </step>
+     <step>
+      <para>
+       継続するには、表示されるメッセージに対して確認します。
+      </para>
+      <para>
+       リソースが停止すると、<guimenu>状態</guimenu>列に変更が反映されます。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     リソースを削除します。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       左のナビゲーションバーから、<menuchoice><guimenu>環境設定</guimenu> <guimenu>設定の編集</guimenu></menuchoice>の順に選択します。
+      </para>
+     </step>
+     <step>
+      <para>
+       <guimenu>Resources (リソース)</guimenu>のリストで、それぞれのリソースに移動します。<guimenu>操作</guimenu>列で、リソースの横にある<guimenu>削除</guimenu>アイコンをクリックします。
+      </para>
+     </step>
+     <step>
+      <para>
+       継続するには、表示されるメッセージに対して確認します。
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-remove">
+   <title>crmshを使用したクラスタリソースの削除</title>
+   <procedure>
+    <title>crmshを使用したクラスタリソースの削除</title>
+    <step>
+     <para>
+      <systemitem class="username">root</systemitem>としてログインし、<command>crm</command>対話型シェルを開始します。
+     </para>
+ <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+    </step>
+    <step>
+     <para>
+      次のコマンドを実行して、リソースのリストを取得します。
+     </para>
+ <screen><prompt role="custom">crm(live)# </prompt><command>resource status</command></screen>
+     <para>
+      たとえば、出力はこのようになります(ここで、<quote>myIP</quote>はリソースの該当するID)。
+     </para>
+ <screen>myIP    (ocf:IPaddr:heartbeat) ...</screen>
+    </step>
+    <step>
+     <para>
+      該当するIDを持つリソースを削除します(これは、<command>commit</command>も含意します)。
+     </para>
+ <screen><prompt role="custom">crm(live)# </prompt><command>configure delete <replaceable>YOUR_ID</replaceable></command></screen>
+    </step>
+    <step>
+     <para>
+      変更をコミットします。
+     </para>
+ <screen><prompt role="custom">crm(live)# </prompt><command>configure commit</command></screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+<sect1 xml:id="sec-ha-resource-migrate">
+ <title>クラスタリソースの移行</title>
+  <para>
+   ソフトウェアまたはハードウェアの障害時には、クラスタは定義可能な特定のパラメータ(たとえばマイグレーションしきい値やリソースの固着性など)に従って、リソースを自動的にフェールオーバー(移行)させます。リソースをクラスタ内の別のノードに手動で移行させたり、リソースを現在のノードから移動して、クラスタに配置する場所を決定させたりすることもできます。
+  </para>
+  <para>
+   Hawk2またはcrmshのいずれかを使用してクラスタリソースを移行できます。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-migrate">
+  <title>Hawk2を使用したクラスタリソースの移行</title>
+  <procedure xml:id="pro-hawk2-rsc-migrate">
+   <title>リソースを手動で移行する</title>
+   <step>
+    <para>
+     Hawk2にログインします。
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーから、<menuchoice><guimenu>監視機能</guimenu>
+     <guimenu>状態</guimenu></menuchoice>の順に選択します。<guimenu>Resources (リソース)</guimenu>のリストには<guimenu>状態</guimenu>も表示されます。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>Resources (リソース)</guimenu>のリストで、それぞれのリソースを選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>操作</guimenu>列で、下矢印ボタンをクリックして<guimenu>移行</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     開くウィンドウには、次の選択肢があります。
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <guimenu>Away from current node (現在のノードから離れる)</guimenu>: これによって現在のノードに対して<literal>-INFINITY</literal>スコアによる場所の制約が作成されます。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       または、別のノードにリソースを移動できます。これによって移動先ノードに対して<literal>INFINITY</literal>スコアの場所の制約が作成されます。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+    <para>
+     選択内容を確認します。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   リソースを再び元に戻すには、次の手順に従います。
+  </para>
+  <procedure xml:id="pro-hawk2-rsc-migrate-back">
+   <title>リソースの移行解除</title>
+   <step>
+    <para>
+     Hawk2にログインします。
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     左のナビゲーションバーから、<menuchoice><guimenu>監視機能</guimenu>
+     <guimenu>状態</guimenu></menuchoice>の順に選択します。<guimenu>Resources (リソース)</guimenu>のリストには<guimenu>状態</guimenu>も表示されます。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>Resources (リソース)</guimenu>のリストで、それぞれのリソースに移動します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <guimenu>操作</guimenu>列で、下矢印ボタンをクリックして<guimenu>消去</guimenu>を選択します。継続するには、表示されるメッセージに対して確認します。
+    </para>
+    <para>
+     これによって、<command>crm_resource </command> <option>--clear</option>コマンドが使用されます。リソースは元の場所に戻ることができます。あるいは現在の場所に残ることもあります(リソースの固着性によって)。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   詳細については、<citetitle>Pacemaker Explained</citetitle>から入手できる『<link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>』を参照してください。「<citetitle>Resource Migration</citetitle>」セクションを参照してください。
+  </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-migrate">
+   <title>crmshを使用したクラスタリソースの移行</title>
+   <para>
+    この作業を行うには、<command>move</command>コマンドを使用します。たとえば、リソース<literal>ipaddress1</literal>を<systemitem class="domainname">bob</systemitem>というクラスタノードに移行するには、次のコマンドを使用します。
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm resource</command>
+ <prompt role="custom">crm(live)resource# </prompt><command>move ipaddress1 bob</command></screen>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-tags">
+  <title>タグの使用によるリソースのグループ化</title>
+  <para>
+   タグは、コロケーションの作成や関係の順序付けを行わずに、複数のリソースをただちに参照する方法です。これは、概念的に関連するリソースをグループ化するのに役立つ場合があります。たとえば、データベースに関連するいくつかのリソースがある場合、<literal>databases</literal>というタグを作成し、データベースに関連するすべてのリソースをこのタグに追加します。これにより、1つのコマンドでそれらすべてのリソースを停止または起動できます。
+  </para>
+  <para>
+   タグは制約でも使用できます。たとえば、次の場所制約<literal>loc-db-prefer</literal>は、<literal>databases</literal>でタグ付けしたリソースのセットに適用されます。
+  </para>
+<screen>location loc-db-prefer databases 100: alice</screen>
+  <para>
+   Hawk2またはcrmshのいずれかを使用してタグを作成できます。
+  </para>
+
+  <sect2 xml:id="sec-conf-hawk2-rsc-tag">
+   <title>Hawk2でタグを使用してリソースをグループ化する</title>
+   <procedure xml:id="pro-conf-hawk2-tag">
+    <title>タグの追加</title>
+    <step>
+     <para>
+      Hawk2にログインします。
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      左のナビゲーションバーから、<menuchoice>
+      <guimenu>環境設定</guimenu> <guimenu> Add Resource (リソースの追加)</guimenu> <guimenu>タグ</guimenu> </menuchoice>の順に選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>タグID</guimenu>に固有のIDを入力します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>オブジェクト</guimenu>リストから、このタグで参照するリソースを選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>作成</guimenu>をクリックして、設定を完了します。画面上部に、アクションが成功したかどうかを示すメッセージが表示されます。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>Hawk2 - タグ</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-tag.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-tag.png" width="100%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-tag">
+   <title>crmshでタグを使用してリソースをグループ化する</title>
+   <para>
+    たとえば、データベースに関連するいくつかのリソースがある場合、<literal>databases</literal>というタグを作成し、データベースに関連するすべてのリソースをこのタグに追加します。
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm configure tag databases: db1 db2 db3</command></screen>
+   <para>
+    これにより、1つのコマンドですべてを起動できます。
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm resource start databases</command></screen>
+   <para>
+    同様に、すべてを停止することもできます。
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm resource stop databases</command></screen>
+  </sect2>
+</sect1>
+
+</chapter>

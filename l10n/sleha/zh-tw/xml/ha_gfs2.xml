@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_gfs2.xml" version="5.0" xml:id="cha-ha-gfs2">
+ <title>GFS2</title>
+ <info>
+      <abstract>
+        <para>
+    全域檔案系統 2 (GFS2) 是適用於 Linux 電腦叢集的共用磁碟檔案系統。GFS2 允許所有節點同時直接存取同一個共用區塊儲存。GFS2 不提供斷線操作模式，也沒有用戶端角色或伺服器角色。GFS2 叢集中的所有節點以對等形式運作。GFS2 最多支援 32 個叢集節點。在叢集中使用 GFS2 需要透過硬體來存取共用儲存，並需要透過一個鎖定管理員來控制對儲存的存取。
+   </para>
+        <para>
+    如果效能是您的主要考量之一，SUSE 建議為您的叢集環境使用 OCFS2，而不要使用 GFS2。我們的測試表明，與採用此類設定的 GFS2 相比，OCFS2 的表現更好。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+
+    <important>
+     <title>GFS2 支援</title>
+     <para>
+      SUSE 僅支援唯讀模式的 GFS2。不支援寫入操作。
+     </para>
+    </important>
+
+    <sect1 xml:id="sec-ha-gfs2-utils">
+  <title>GFS2 套件和管理公用程式</title>
+
+  <para>
+   若要使用 GFS2，請確定叢集的每個節點上均已安裝適用於您的核心的 <package>gfs2-utils</package> 和相符的 <package>gfs2-kmp-*</package> 套件。
+  </para>
+
+  <para>
+   <package>gfs2-utils</package> 套件提供下列用於管理 GFS2 磁碟區的公用程式。如需有關語法的資訊，請參閱其 man 頁面。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>fsck.gfs2</term>
+    <listitem>
+     <para>
+      檢查檔案系統是否有錯誤，並選擇性修復錯誤。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>gfs2_jadd</term>
+    <listitem>
+     <para>
+      將更多記錄新增至 GFS2 檔案系統。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>gfs2_grow</term>
+    <listitem>
+     <para>
+      產生一個 GFS2 檔案系統。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>mkfs.gfs2</term>
+    <listitem>
+     <para>
+      在裝置上建立一個 GFS2 檔案系統，通常是一個共用裝置或分割區。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>tunegfs2</term>
+    <listitem>
+     <para>
+      用於檢視和控制 GFS2 檔案系統參數，例如  <varname>UUID</varname>, <varname>label</varname>, <varname>lockproto</varname> 和 <varname>locktable</varname>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-gfs2-create-service">
+  <title>設定 GFS2 服務和 STONITH 資源</title>
+
+  <para>
+   在可以建立 GFS2 磁碟區之前，必須先設定 DLM 和 STONITH 資源。
+  </para>
+
+  <procedure xml:id="pro-gfs2-stonith">
+   <title>設定 STONITH 資源</title>
+   <note>
+    <title>需要 STONITH 裝置</title>
+    <para>
+     您需要設定一部圍籬區隔裝置。如果沒有設定合適的 STONITH 機制 (如 <literal>external/sbd</literal>)，組態將失敗。
+    </para>
+   </note>
+   <step>
+    <para>
+     啟動外圍程序，並以 <systemitem class="username">root</systemitem> 或同等身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     依<xref linkend="pro-ha-storage-protect-sbd-create"/> 所述建立一個 SBD 分隔區。
+    </para>
+   </step>
+   <step>
+    <para>
+     執行 <command>crm configure</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     將 <literal>external/sbd</literal> 設定為圍籬區隔裝置，並將 <literal>/dev/sdb2</literal> 做為共用儲存裝置上專用於存放活動訊號和圍籬區隔資訊的分割區：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive sbd_stonith stonith:external/sbd \
+    params pcmk_delay_max=30 meta target-role="Started"</command></screen>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 檢閱所做的變更。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有設定均正確無誤，請使用 <command>commit</command> 提交變更，然後使用 <command>quit</command> 離開 crm 即時組態。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+    如需為 DLM 設定資源的詳細資料，請參閱<xref linkend="sec-ha-storage-generic-dlm-config"/>。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-gfs2-create">
+  <title>建立 GFS2 磁碟區</title>
+
+  <para>
+   依照<xref linkend="sec-ha-gfs2-create-service"/>所述將 DLM 設定為叢集資源後，將系統設定為使用 GFS2，並建立 GFS2 磁碟區。
+  </para>
+
+  <note>
+   <title>用於儲存應用程式和資料檔案的 GFS2 磁碟區</title>
+   <para>
+    一般情況下，建議您將應用程式檔案與資料檔案儲存在不同的 GFS2 磁碟區中。如果您的應用程式磁碟區和資料磁碟區對於掛接有不同的要求，請務必將它們儲存到不同的磁碟區中。
+   </para>
+  </note>
+
+  <para>
+   開始之前，請先準備您計劃用於 GFS2 磁碟區的區塊裝置。將裝置留為可用空間。
+  </para>
+
+  <para>
+   然後依照<command>mkfs.gfs2</command>所述，使用 <xref linkend="pro-gfs2-volume"/> 建立並格式化 GFS2 磁碟區。下面列出了此指令最重要的參數。如需詳細資訊及指令語法，請參閱 <command>mkfs.gfs2</command> man 頁面。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>鎖定通訊協定名稱 (<option>-p</option>)</term>
+    <listitem>
+     <para>
+      要使用的鎖定通訊協定的名稱。可接受的鎖定通訊協定包括 lock_dlm (用於共用儲存)；如果您將 GFS2 用做本地檔案系統 (只有 1 個節點)，則可以指定 lock_nolock 通訊協定。如果未指定此選項，將採用 lock_dlm 通訊協定。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>鎖定表名稱 (<option>-t</option>)</term>
+    <listitem>
+     <para>
+      對應於所用鎖定模組的鎖定表欄位。這是 <replaceable>clustername</replaceable>:<replaceable>fsname</replaceable>.<replaceable>clustername</replaceable> 值必須與叢集組態檔案 <filename>/etc/corosync/corosync.conf</filename> 中的值相符。只有此叢集的成員才允許使用此檔案系統。<replaceable>fsname</replaceable> 值是唯一的檔案系統名稱 (1 到 16 個字元)，用於將此 GFS2 檔案系統與建立的其他檔案系統區分開。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>記錄數量 (<option>-j</option>)</term>
+    <listitem>
+     <para>
+      要為 gfs2_mkfs 建立的記錄數量。將要掛接該檔案系統的每台機器至少需要有一個記錄。如果未指定此選項，將建立一個記錄。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <procedure xml:id="pro-gfs2-volume">
+   <title>建立並格式化 GFS2 磁碟區</title>
+   <para>
+    在其中<emphasis>一</emphasis>個叢集節點上執行下列步驟。
+   </para>
+   <step>
+    <para>
+     開啟終端機視窗，並以 <systemitem class="username">root</systemitem> 身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用指令 <command>crm
+     status</command> 檢查叢集是否上線。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>mkfs.gfs2</command> 公用程式建立並格式化磁碟區。如需此指令語法的資訊，請參閱 <command>mkfs.gfs2</command> man 頁面。
+    </para>
+    <para>
+     例如，若要在 <filename>/dev/sdb1</filename> 上建立最多支援 32 個叢集節點的新 GFS2 檔案系統，請使用以下指令：
+    </para>
+<screen><prompt role="root"># </prompt><command>mkfs.gfs2 -t hacluster:mygfs2 -p lock_dlm -j 32 /dev/sdb1</command></screen>
+    <para>
+     <systemitem class="server">hacluster</systemitem> 名稱與檔案 <filename>/etc/corosync/corosync.conf</filename> 中的 <option>cluster_name</option> 項目相關 (這是預設設定)。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-gfs2-mount">
+  <title>掛接 GFS2 磁碟區</title>
+
+  <para>
+   您可以手動掛接 GFS2 磁碟區，也可以依照<xref linkend="pro-gfs2-mount-cluster"/>所述使用叢集管理員來掛接。
+  </para>
+
+  <procedure xml:id="pro-gfs2-mount-manual">
+   <title>手動掛接 GFS2 磁碟區</title>
+   <step>
+    <para>
+     開啟終端機視窗，並以 <systemitem class="username">root</systemitem> 身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用指令 <command>crm
+     status</command> 檢查叢集是否上線。
+    </para>
+   </step>
+   <step>
+    <para>
+     從指令行掛接磁碟區，請使用 <command>mount</command> 指令。
+    </para>
+   </step>
+  </procedure>
+
+  <warning>
+   <title>手動掛接的 GFS2 裝置</title>
+   <para>
+    如果您為了進行測試手動掛接了 GFS2 檔案系統，在開始將其做為叢集資源使用前，請務必將其卸載以恢復原狀。
+   </para>
+  </warning>
+
+  <procedure xml:id="pro-gfs2-mount-cluster">
+   <title>使用叢集管理員掛接 GFS2 磁碟區</title>
+   <para>
+    若要使用高可用性軟體掛接 GFS2 磁碟區，請在叢集中設定 OCF 檔案系統資源。下面的程序將使用 <command>crm</command> 外圍程序來設定叢集資源。或者，您也可以使用 Hawk2 來設定資源。
+   </para>
+   <step>
+    <para>
+     啟動外圍程序，並以 <systemitem class="username">root</systemitem> 或同等身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     執行 <command>crm configure</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     設定 Pacemaker 以在叢集中的各節點上掛接 GFS2 檔案系統：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive gfs2-1 ocf:heartbeat:Filesystem \
+  params device="/dev/sdb1" directory="/mnt/shared" fstype="gfs2" \
+  op monitor interval="20" timeout="40" \
+  op start timeout="60" op stop timeout="60" \
+  meta target-role="Stopped"</command></screen>
+   </step>
+   <step>
+    <para>
+     將 <literal>gfs2-1</literal> 基本資源新增至您在<xref linkend="pro-dlm-resources"/>中建立的 <literal>g-storage</literal> 群組。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-storage add gfs2-1</command></screen>
+    <para>
+     受限於基本群組的內部並存與順序條件約束，<systemitem class="resource">gfs2-1</systemitem> 資源將僅在已有 <literal>dlm</literal> 資源在執行的節點上啟動。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 檢閱所做的變更。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有設定均正確無誤，請使用 <command>commit</command> 提交變更，然後使用 <command>quit</command> 離開 crm 即時組態。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>
