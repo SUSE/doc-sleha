@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_cluster_md.xml" xml:id="cha-ha-cluster-md" version="5.0">
+ <title>群集多设备（群集 MD）</title>
+ <info>
+      <abstract>
+        <para>群集多设备（群集 MD）是一项基于软件的群集 RAID 存储解决方案。目前，群集 MD 为群集提供了 RAID1 镜像冗余。在 SUSE Linux Enterprise High Availability Extension15 SP5 中，随附了 RAID10 技术预览版。如果您要尝试 RAID，请在相关 <literal>mirror</literal> 命令中用 <literal>10</literal>10 替换 <command>mdadm</command>。本章介绍如何创建和使用群集 MD。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec-ha-cluster-md-overview">
+  <title>概念概述</title>
+  <para>群集 MD 提供在群集环境中使用 RAID1 的支持。每个节点都会访问群集 MD 使用的磁盘或设备。如果群集 MD 的一个设备发生故障，则在运行时可以由另一个设备代替它，并且系统会对其进行重新同步以提供相同数量的冗余。群集 MD 需要使用 Corosync 和分布式锁管理器 (DLM) 进行协调和消息交换。
+  </para>
+  <para>
+   群集 MD 设备不会像其他常规 MD 设备一样在引导时自动启动。为确保 DLM 资源已启动，需要使用资源代理来启动群集设备。
+  </para>
+  
+ </sect1>
+ <sect1 xml:id="sec-ha-cluster-md-create">
+  <title>创建群集 MD RAID 设备</title>
+  <itemizedlist>
+   <title>要求</title>
+   <listitem>
+    <para>一个安装了 Pacemaker 的正在运行的群集。</para>
+   </listitem>
+   <listitem>
+    <para>DLM 的资源代理（请参见<xref linkend="sec-ha-storage-generic-dlm-config"/>）。</para>
+   </listitem>
+   <listitem>
+    <para>至少两个共享磁盘设备。您可以使用另外一个设备作为备用设备，以便在设备发生故障时自动进行故障转移。</para>
+   </listitem>
+   <listitem>
+    <para>安装的软件包 <package>cluster-md-kmp-default</package>。</para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   此过程使用 <literal>/dev/sd<replaceable>X</replaceable></literal> 设备名称作为示例。为了提高稳定性，请使用永久的设备名称，例如 <literal>/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></literal>。
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     请确保 DLM 资源在群集的每个节点上都正常运行，并使用以下命令检查资源状态：
+    </para>
+    <screen><prompt role="root"># </prompt><command>crm_resource -r dlm -W</command></screen>
+   </step>
+   <step>
+    <para>创建群集 MD 设备：</para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       如果您没有现有的常规 RAID 设备，请使用以下命令在运行 DLM 资源的节点上创建群集 MD 设备：
+      </para>
+      <screen><prompt role="root"># </prompt><command>mdadm --create /dev/md0 --bitmap=clustered \
+   --metadata=1.2 --raid-devices=2 --level=mirror /dev/sda /dev/sdb</command></screen>
+      <para>
+       由于群集 MD 只能与 1.2 版的元数据配合使用，因此建议使用 <option>--metadata</option> 选项来指定版本。有关其他有用选项，请参见 <command>mdadm</command> 手册页。在 <filename>/proc/mdstat</filename> 中监控重新同步进度。 </para>
+     </listitem>
+     <listitem>
+      <para>
+       如果您有现有的常规 RAID，请先清除现有位图，然后再创建群集位图：
+      </para>
+<screen><prompt role="root"># </prompt><command>mdadm --grow /dev/md<replaceable>X</replaceable> --bitmap=none</command>
+<prompt role="root"># </prompt><command>mdadm --grow /dev/md<replaceable>X</replaceable> --bitmap=clustered</command></screen>
+     </listitem>
+     <listitem>
+      <para>（可选）要创建带有用于自动故障转移的备用设备的群集 MD 设备，请在一个群集节点上运行以下命令：
+      </para>
+     <screen><prompt role="root"># </prompt><command>mdadm --create /dev/md0 --bitmap=clustered --raid-devices=2 \
+      --level=mirror --spare-devices=1 /dev/sda /dev/sdb /dev/sdc --metadata=1.2</command></screen>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+     <para>获取 UUID 以及相关的 MD 路径：</para>
+     <screen><prompt role="root"># </prompt><command>mdadm --detail --scan</command></screen>
+     <para>该 UUID 必须与超级块中存储的 UUID 匹配。有关 UUID 的细节，请参见 <command>mdadm.conf</command> 手册页。
+     </para>
+   </step>
+   <step>
+    <para>打开 <filename>/etc/mdadm.conf</filename>，然后添加 MD 设备名称及与其关联的设备。使用上一步中获得的 UUID： </para>
+<screen>DEVICE /dev/sda /dev/sdb
+ARRAY /dev/md0 UUID=1d70f103:49740ef1:af2afce5:fcf6a489</screen>
+   </step>
+   <step>
+    <para>打开 Csync2 的配置文件 <filename>/etc/csync2/csync2.cfg</filename>，并添加 <filename>/etc/mdadm.conf</filename>：</para>
+    <screen>group ha_group
+{
+   # ... list of files pruned ...
+   include /etc/mdadm.conf
+}</screen>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-cluster-md-ra">
+  <title>配置资源代理</title>
+  <para>按如下所示配置 CRM 资源：</para>
+  <procedure>
+   <step>
+    <para>创建 <systemitem>Raid1</systemitem> 原始资源：</para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive raider Raid1 \
+  params raidconf="/etc/mdadm.conf" raiddev=/dev/md0 \
+  force_clones=true \
+  op monitor timeout=20s interval=10 \
+  op start timeout=20s interval=0 \
+  op stop timeout=20s interval=0</command></screen>
+   </step>
+   <step>
+    <para>将 <systemitem>raider</systemitem> 资源添加到您已为 DLM 创建的存储基础组：</para>
+    <screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-storage add raider</command></screen>
+    <para><command>add</command> 子命令默认会追加新的组成员。 </para>
+   <para>
+    如果尚未克隆 <literal>g-storage</literal> 组，请执行该操作，以使其在所有节点上运行：
+   </para>
+   <screen><prompt role="custom">crm(live)configure# </prompt><command>clone cl-storage g-storage \
+    meta interleave=true target-role=Started</command></screen>
+    </step>
+   <step>
+    <para>使用 <command>show</command> 查看更改。</para>
+   </step>
+   <step>
+    <para>如果所有设置均正确无误，请使用 <command>commit</command> 提交您的更改。</para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-cluster-md-dev-add">
+  <title>添加设备</title>
+  <para>要将某个设备添加到现有的活动群集 MD 设备，请先使用命令 <quote> 确保该设备在每个节点上均</quote>可见<command>cat /proc/mdstat</command>。如果设备不可见，命令将会失败。
+  </para>
+  <para>
+   在一个群集节点上使用以下命令：
+  </para>
+  <screen><prompt role="root"># </prompt><command>mdadm --manage /dev/md0 --add /dev/sdc</command></screen>
+
+  <para>所添加的新设备的行为取决于群集 MD 设备的状态：</para>
+  <itemizedlist>
+   <listitem>
+    <para>如果只有一个镜像设备处于活动状态，则新设备将会成为镜像设备中的第二个设备，并且会启动恢复进程。</para>
+   </listitem>
+   <listitem>
+    <para>如果群集 MD 设备的两个设备都处于活动状态，则新添加的设备将会成为备用设备。</para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-cluster-md-dev-readd">
+  <title>重新添加暂时发生故障的设备</title>
+  <para>故障往往只发生于一时，并且仅限于一个节点。如果在执行 I/O 操作期间有任何节点发生了故障，则会在整个群集中将相应设备标记为失败。
+  </para>
+  <para> 例如，其中一个节点发生电缆故障，可能就会导致发生这种情况。更正此问题后，您可以重新添加设备。与添加新设备会同步整个设备不同，这样只会同步过时的部件。
+  </para>
+  <para>
+   要重新添加设备，请在一个群集节点上运行以下命令： </para>
+  <screen><prompt role="root"># </prompt><command>mdadm --manage /dev/md0 --re-add /dev/sdb</command></screen>
+ </sect1>
+
+
+ <sect1 xml:id="sec-ha-cluster-md-dev-remove">
+  <title>去除设备</title>
+  <para>在运行时去除设备以进行替换之前，请执行以下操作：</para>
+
+  <procedure>
+   <step>
+    <para>检查 <filename>/proc/mdstat</filename> 以确保设备处于失败状态。查看设备前面有无 <literal>(F)</literal>。</para>
+   </step>
+   <step>
+    <para>在一个群集节点上运行以下命令，以使设备失败：</para>
+    <screen><prompt role="root"># </prompt><command>mdadm --manage /dev/md0 --fail /dev/sda</command></screen>
+   </step>
+   <step>
+    <para>在一个群集节点上使用以下命令去除失败的设备：</para>
+    <screen><prompt role="root"># </prompt><command>mdadm --manage /dev/md0 --remove /dev/sda</command></screen>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-cluster-md-convert-raid">
+  <title>在灾难恢复站点将群集 MD 组合成常规 RAID</title>
+  <para>
+   进行灾难恢复时，您可能会遇到下面的情况：灾难恢复站点的基础架构中没有 Pacemaker 群集堆栈，但应用程序仍需访问现有群集 MD 磁盘上或备份中的数据。
+  </para>
+  <para>
+   您可以将群集 MD RAID 转换为常规 RAID，方法是使用 <option>--assemble</option> 操作和 <option>-U no-bitmap</option> 选项相应地更改 RAID 磁盘的元数据。
+   </para>
+   <para>
+    下面的示例介绍了如何组合数据恢复站点上的所有阵列：
+   </para>
+  <screen>while read i; do
+   NAME=`echo $i | sed 's/.*name=//'|awk '{print $1}'|sed 's/.*://'`
+   UUID=`echo $i | sed 's/.*UUID=//'|awk '{print $1}'`
+   mdadm -AR "/dev/md/$NAME" -u $UUID -U no-bitmap
+   echo "NAME =" $NAME ", UUID =" $UUID ", assembled."
+done &lt; &lt;(mdadm -Es)</screen>
+ </sect1>
+</chapter>

@@ -1,0 +1,733 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="article_installation.xml" version="5.0" xml:lang="ja" xml:id="article-installation">
+ <title><citetitle>Installation and Setup Quick Start</citetitle></title>
+ <info>
+  <productnumber>15 SP5</productnumber>
+  <productname>SUSE Linux Enterprise High Availability Extension</productname>
+  <date><?dbtimestamp format="Y"?> 年 <?dbtimestamp format="B"?> 月 <?dbtimestamp format="d"?> 日
+</date>
+  <xi:include href="common_copyright_gfdl.xml"/>
+  <abstract>
+   <para>
+     このマニュアルでは、crmシェルで提供されているブートストラップスクリプトを使用して、非常に基本的な2ノードクラスタをセットアップする手順を説明します。仮想IPアドレスをクラスタリソースとして設定する手順や、共有ストレージ上でSBDをノードフェンシングメカニズムとして使用する手順も記載されています。
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+  <sect1 xml:id="sec-ha-inst-quick-usage-scenario">
+   <title>使用シナリオ</title>
+   <para>
+    このマニュアルに記載されている手順に従うと、次のプロパティを持つ2ノードクラスタの最小セットアップになります。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      ネットワーク経由で相互に接続された2つのノード: <systemitem class="server">alice</systemitem> (IP: <systemitem class="ipaddress">192.168.1.1</systemitem>)および<systemitem class="server">bob</systemitem> (IP: <systemitem class="ipaddress">192.168.1.2</systemitem>)。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      実行しているノードがどれであれ、クライアントからの該当サービスへの接続を可能にする浮動仮想IPアドレス(<systemitem class="ipaddress">192.168.2.1</systemitem>)。このIPアドレスは、グラフィカル管理ツールHawk2への接続に使用します。
+     </para>
+    </listitem>
+    <listitem>
+     <para>SBDフェンシングメカニズムとして使用される共有ストレージデバイス。これによりスプリットブレインシナリオが回避されます。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      アクティブなホストが停止した場合における、一方のノードから他方のノードへのリソースのフェールオーバー(<emphasis></emphasis>「アクティブ/パッシブ」セットアップ)。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    この2ノードクラスタは、テスト目的で使用することも、後で拡張可能な最小クラスタ設定として使用することもできます。運用環境でクラスタを使用する前に、<xref linkend="book-administration"/>を参照して、ご自分の要件に従ってクラスタを変更してください。
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-req">
+   <title>システム要件</title>
+   <para>
+    この項では、<xref linkend="sec-ha-inst-quick-usage-scenario" xrefstyle="select:label"/>で説明されているシナリオの重要なシステム要件について説明します。運用環境で使用するためにクラスタを調整する方法については、<xref linkend="cha-ha-requirements"/>の一覧を参照してください。
+   </para>
+
+  <sect2 xml:id="vl-ha-inst-quick-req-hw">
+   <title>ハードウェア要件</title>
+   <variablelist>
+    <varlistentry>
+     <term>サーバ</term>
+     <listitem>
+      <para>
+       <xref linkend="il-ha-inst-quick-req-sw"/>で指定されているソフトウェアがインストールされた2台のサーバ。
+      </para>
+      <para>
+      サーバはベアメタルでも仮想マシンでも構いません。各サーバが同一のハードウェア設定(メモリ、ディスクスペースなど)になっている必要はありませんが、アーキテクチャは同じである必要があります。クロスプラットフォームのクラスタはサポートされていません。
+     </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>通信チャネル</term>
+     <listitem>  <para>
+       クラスタノードあたり、少なくとも2つのTCP/IP通信メディア。ネットワーク機器は、クラスタ通信に使用する通信手段(マルチキャストまたはユニキャスト)をサポートする必要があります。通信メディアは100Mbit/s以上のデータレートをサポートする必要があります。サポートされるクラスタセットアップでは、2つ以上の冗長通信パスが必要です。これは次のように実行できます。</para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          ネットワークデバイスボンディング(推奨)。
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          Corosync内の2つ目の通信チャネル。
+         </para>
+        </listitem>
+       </itemizedlist> </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>ノードフェンシング/STONITH</term>
+     <listitem>
+      <para>
+       スプリットブレインシナリオを回避するためのノードフェンシング(STONITH)デバイス。これは、物理デバイス(電源スイッチ)でも、SBD (ディスクによるSTONITH)のようなメカニズムとウォッチドッグを組み合わせたものでも構いません。SBDは、共有ストレージまたはディスクレスモードのいずれかで使用できます。このドキュメントでは、SBDを共有ストレージで使用する方法について説明します。次の要件を満たす必要があります。
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         共有ストレージデバイス。共有ストレージの設定については、<link xlink:href="https://documentation.suse.com/sles/html/SLES-all/book-storage.html">
+         <citetitle>Storage Administration Guide</citetitle> for SUSE Linux Enterprise Server</link>を参照してください。テスト目的で基本的な共有ストレージのみが必要な場合は、<xref linkend="ha-iscsi-for-sbd"/>を参照してください。
+        </para>
+       </listitem>
+       <listitem>
+        <para>共有ストレージデバイスのパスが永続的で、クラスタ内のすべてのノードで一致している必要があります。<filename>/dev/disk/by-id/dm-uuid-part1-mpath-abcedf12345</filename>などの固定デバイス名を使用してください。
+        </para>
+       </listitem>
+       <listitem>
+        <para> SBDデバイスでホストベースのRAIDやLVM2を使用したり、SBDデバイスをDRBD*インスタンス上に存在させることは「できません」。<emphasis></emphasis>
+        </para>
+       </listitem>
+      </itemizedlist>
+      <para>
+       STONITHの詳細については、<xref linkend="cha-ha-fencing"/>を参照してください。SBDの詳細については、<xref linkend="cha-ha-storage-protect"/>を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+ </sect2>
+  <sect2 xml:id="il-ha-inst-quick-req-sw">
+   <title>ソフトウェアの必要条件</title>
+   <para>
+   クラスタの一部になるすべてのノードには、少なくとも次のモジュールと拡張機能が含まれている必要があります。
+  </para>
+
+<itemizedlist>
+   <listitem>
+    <para>Basesystem Module 15 SP5</para>
+   </listitem>
+   <listitem>
+    <para>Server Applications Module 15 SP5</para>
+   </listitem>
+   <listitem>
+    <para>SUSE Linux Enterprise High Availability Extension15 SP5</para>
+   </listitem>
+  </itemizedlist>
+
+  </sect2>
+  <sect2 xml:id="vl-ha-inst-quick-req-other">
+   <title>その他の要件と推奨事項</title>
+   <variablelist>
+    <varlistentry>
+     <term>時刻同期</term>  <listitem>
+   <para>
+     クラスタノードはクラスタ外のNTPサーバに同期する必要があります。SUSE Linux Enterprise High Availability Extension 15以降、Chronyは、NTPでデフォルトで実装されるようになりました。詳細については、<link xlink:href="https://documentation.suse.com/sles-15/html/SLES-all/cha-ntp.html">
+     <citetitle>Administration Guide</citetitle> for SUSE Linux Enterprise Server 15 SP5</link>を参照してください。
+    </para>
+    <para>
+     ノードが同期されていない場合、クラスタが正常に動作しないことがあります。また、同期が行われていないと、ログファイルとクラスタレポートの分析が非常に困難になります。ブートストラップスクリプトを使用するときにNTPがまだ設定されていない場合、警告が表示されます。
+    </para>
+  </listitem> </varlistentry>
+    <varlistentry>
+     <term>ホスト名およびIPアドレス</term>
+     <listitem>
+      <itemizedlist>
+       <listitem>
+        <para> 静的IPアドレスを使用します。 </para>
+       </listitem>
+       <listitem>
+        <para>
+         プライマリIPアドレスのみがサポートされます。
+        </para>
+       </listitem>
+       <listitem>  <para>
+     <filename>/etc/hosts</filename>ファイルにあるすべてのクラスタノードを、完全修飾ホスト名およびショートホスト名で一覧表示します。クラスタのメンバーが名前で互いを見つけられることが重要です。名前を使用できない場合、内部クラスタ通信は失敗します。
+   </para> </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>SSH</term>
+     <listitem>  <para>
+    すべてのクラスタノードはSSHによって互いにアクセスできる必要があります。<command>crm report</command> (トラブルシューティング用)などのツールおよびHawk2の<guimenu>履歴エクスプローラ</guimenu>は、ノード間でパスワード不要のSSHアクセスを必要とします。それがない場合、現在のノードからしかデータを収集できません。
+  </para> <para> クラスタのセットアップにブートストラップスクリプトを使用した場合、SSHキーは自動的に作成されてコピーされます。 </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-bootstrap">
+  <title>ブートストラップスクリプトの概要</title>
+  <para>
+   次のコマンドは、最低限の時間と手動介入しか必要のないブートストラップスクリプトを実行します。
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <command>crm cluster init</command>を使用して、クラスタ通信に必要な基本パラメータを定義します。これによって1ノードクラスタの実行が可能になります。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>crm cluster join</command>で、他のノードをクラスタに追加します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>crm cluster remove</command>で、クラスタからノードを削除します。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   すべてのブートストラップスクリプトは<filename>/var/log/crmsh/crmsh.log</filename>にログを記録します。ブートストラッププロセスの詳細については、このファイルを確認してください。ブートストラッププロセス中に設定されたオプションは、YaSTクラスタモジュールで後で変更できます。詳細については<xref linkend="cha-ha-ycluster"/>を参照してください。
+  </para>
+  <para>
+   ブートストラップスクリプト<command>crm cluster init</command>が確認および設定するコンポーネントは、次のとおりです。
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>NTP</term>
+    <listitem>
+     <para>
+      NTPがブート時に開始するように設定されているかどうかをチェックします。設定されていない場合は、メッセージが表示されます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SSH</term>
+    <listitem>
+     <para>クラスタノード間でパスワード不要のログインを行うためのSSHキーを作成します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      クラスタ内のすべてのノードで設定ファイルを複製するようにCsync2を設定します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Corosync</term>
+    <listitem>
+     <para>クラスタ通信システムを設定します。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SBD/ウォッチドッグ</term>
+    <listitem>
+     <para>ウォッチドッグが存在するかどうかをチェックし、SBDをノードフェンシングメカニズムとして設定するかどうか確認メッセージを表示します。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>仮想浮動IP</term>
+    <listitem>
+     <para>Hawk2でのクラスタ管理用の仮想IPアドレスを設定するかどうか確認メッセージを表示します。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ファイアウォール</term>
+    <listitem>
+     <para>クラスタ通信に必要なポートをファイアウォールで開きます。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>クラスタ名</term>
+    <listitem>
+     <para>クラスタの名前を定義します。デフォルトでは<systemitem>hacluster</systemitem>です。これはオプションで、主にGeoクラスタで役立ちます。通常、クラスタ名は場所を反映し、Geoクラスタ内のサイトを識別しやすくします。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>QDevice/QNetd</term>
+    <listitem>
+     <para>
+      QDevice/QNetdを設定してクォーラムの決定に参加するかどうか確認メッセージを表示します。ノードが偶数のクラスタ、特に2ノードクラスタには、QDeviceとQNetdを使用することをお勧めします。
+     </para>
+     <para>
+      この設定についてはここでは説明しませんが、<xref linkend="cha-ha-qdevice"/>で説明されているように後で設定できます。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-installation">
+    <title>High Availabilityパッケージのインストール</title>
+    <para>
+      クラスタを設定および管理するためのパッケージは、<literal>High Availability</literal>インストールパターンに含まれています。このパターンは、SUSE Linux Enterprise High Availability Extensionのインストール後にのみ使用できます。
+    </para>
+    <para>
+     SUSE Linux Enterprise Serverのインストール中、またはインストール後にSUSE Customer Centerに登録し、High Availability Extensionをインストールできます。SUSE Linux Enterprise Serverの詳細については、<link xlink:href="https://documentation.suse.com/sles/html/SLES-all/cha-register-sle.html">
+     <citetitle>Deployment Guide</citetitle></link>を参照してください。
+    </para>
+    <procedure xml:id="pro-ha-inst-quick-pattern">
+      <title>High Availabilityパターンのインストール</title>
+      <step>
+       <para>
+        コマンドラインからHigh Availabilityパターンをインストールします。</para>
+<screen><prompt role="root"># </prompt><command>zypper install -t pattern ha_sles</command></screen>
+      </step>
+      <step>
+       <para>
+          クラスタの一部になる<emphasis>すべての</emphasis>マシンにHigh Availabilityパターンをインストールします。
+       </para>
+       <note>
+        <title>すべてのノードへのソフトウェアパッケージのインストール</title>
+        <para>
+         SUSE Linux Enterprise Server 15 SP5およびHigh Availability Extensionを自動インストールする場合は、AutoYaSTを使用して既存のノードのクローンを作成します。詳細については、<xref linkend="sec-ha-installation-autoyast"/>を参照してください。
+        </para>
+       </note>
+      </step>
+    </procedure>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-sbd">
+  <title>ノードフェンシングにSBDを使用する</title>
+   <para>
+    ブートストラップスクリプトでSBDを設定する前に、各ノードでウォッチドッグを有効にする必要があります。SUSE Linux Enterprise Serverには、ハードウェア固有のウォッチドッグドライバを提供する、いくつかのカーネルモジュールが付属しています。High Availability Extensionはウォッチドッグに<quote>フィード</quote>するソフトウェアコンポーネントとしてSBDデーモンを使用します。
+   </para>
+   <para>
+    次の手順では、<systemitem>softdog</systemitem>ウォッチドッグを使用します。
+   </para>
+
+   
+   <important>
+    <title>softdogの制限</title>
+    <para>
+     softdogドライバはCPUが最低1つは動作中であることを前提とします。すべてのCPUが固まっている場合、システムを再起動させるsoftdogドライバのコードは実行されません。これに対して、ハードウェアウォッチドッグはすべてのCPUが固まっていても動作し続けます。
+    </para>
+    <para>運用環境でクラスタを使用する前に、<systemitem>softdog</systemitem>モジュールを、ご使用のハードウェアに最適なハードウェアモジュールに置き換えることを強くお勧めします。
+    </para>
+    <para>ただし、ハードウェアに適合するウォッチドッグがない場合、カーネルウォッチドッグモジュールとして<systemitem class="resource">softdog</systemitem>を使用することができます。</para>
+   </important>
+
+   <procedure xml:id="pro-ha-inst-quick-sbd-setup">
+    <title>SBDのsoftdogウォッチドッグの有効化</title>
+    <step>
+     <para>
+      各ノードで、softdogウォッチドッグを有効にします。
+     </para>
+     
+     <screen><prompt role="root"># </prompt><command>echo softdog &gt; /etc/modules-load.d/watchdog.conf</command>
+<prompt role="root"># </prompt><command>systemctl restart systemd-modules-load</command></screen>
+    </step>
+    <step>
+     <para>softdogモジュールが正しくロードされているかどうかをテストします。
+     </para>
+     <screen><prompt role="root"># </prompt><command>lsmod | grep dog</command>
+softdog           16384  1</screen>
+    </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-setup-1st-node">
+  <title>最初のノードの設定</title>
+   <para>
+   <command>crm cluster init</command>スクリプトを使用して最初のノードを設定します。ここでは最小限の時間と手動介入しか必要ありません。
+  </para>
+
+  <procedure xml:id="pro-ha-inst-quick-setup-crm-cluster-init">
+   <title><systemitem class="server">alice</systemitem>を使用して最初のノード(<command>crm cluster init</command>)を設定する</title>
+   <step>
+    <para>
+     クラスタノードとして使用する物理または仮想マシンに<systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     ブートストラップスクリプトを起動します。
+    </para>
+    <screen><prompt role="root"># </prompt><command>crm cluster init --name <replaceable>CLUSTERNAME</replaceable></command></screen>
+    <para><replaceable>CLUSTERNAME</replaceable>プレースホルダを、クラスタの地理的な場所のような、意味のある名前で置き換えます(たとえば、<literal>amsterdam</literal>)。これによってサイトを識別しやすくなるため、後でGeoクラスタを作成する場合に特に役立ちます。
+    </para>
+    <para>
+     クラスタ通信にユニキャスト(デフォルト)の代わりにマルチキャストを使用する必要がある場合は、オプション<option>--multicast</option> (または<option>-U</option>)を使用します。
+    </para>
+    <para>
+     このスクリプトは、NTP設定とハードウェアウォッチドッグサービスを確認します。また、SSHアクセスとCsync2の同期に使用される公開および秘密SSHキーが生成され、それぞれのサービスが起動されます。
+    </para>
+   </step>
+   <step>
+    <para>
+     クラスタ通信層(Corosync)を設定します。
+    </para>
+    <substeps>
+     <step>
+      <para>
+       バインドするネットワークアドレスを入力します。デフォルトでは、スクリプトは<systemitem>eth0</systemitem>のネットワークアドレスを提案します。または、たとえば<literal>bond0</literal>のアドレスなど、別のネットワークアドレスを入力します。
+      </para>
+     </step>
+     <step>
+      <para>
+       提案されたポート(<literal>5405</literal>)を受け入れるか、別のポートを入力します。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+    SBDをノードフェンシングメカニズムとして設定します。</para>
+    <substeps>
+     <step>
+      <para>&lt;<literal>y</literal>&gt;キーを押して、SBDを使用することを確認します。</para>
+     </step>
+     <step>
+      <para>SBDに使用するブロックデバイスのパーティションの永続的なパスを入力します。パスはクラスタ内のすべてのノード全体で一致している必要があります。</para>
+       <para>このスクリプトは、SBDに使用するデバイスに小さなパーティションを作成します。</para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st-crm-cluster-init-ip">
+    <para>Hawk2でクラスタを管理するための仮想IPアドレスを設定します。</para>
+    <substeps>
+     <step>
+      <para>&lt;<literal>y</literal>&gt;キーを押して、仮想IPアドレスを設定することを確認します。</para></step>
+     <step>
+      <para>Hawk2の管理IPとして使用する、未使用のIPアドレス(<literal>192.168.2.1</literal>)を入力します。
+      </para>
+      <para>Hawk2で個々のクラスタノードにログインする代わりに、その仮想IPアドレスに接続できるようになります。</para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     QDeviceとQNetdを設定するかどうかを選択します。このドキュメントで説明されている最小限のセットアップについては、今のところ<literal>n</literal>で拒否してください。<xref linkend="cha-ha-qdevice"/>で説明されているように、後でQDeviceとQNetdを設定できます。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   最後に、スクリプトはクラスタサービスを開始し、クラスタをオンラインにして、Hawk2を有効にします。Hawk2に使用するURLが画面に表示されます。
+  </para>
+
+  <para>
+   1ノードクラスタが実行するようになります。状態を表示するには、次の手順に従います。
+  </para>
+  <procedure xml:id="pro-ha-inst-quick-hawk2-login">
+   <title>Hawk2 Webインタフェースへのログイン</title>
+   <step>
+    <para> 任意のコンピュータで、Webブラウザを起動し、JavaScriptとクッキーが有効なことを確認します。 </para>
+   </step>
+   <step>
+    <para>URLとして、ブートストラップスクリプトで設定した仮想IPアドレスを入力します。</para>
+    <screen>https://192.168.2.1:7630/</screen>
+    <note>
+     <title>証明書の警告</title>
+     <para> 初めてURLにアクセスしようとするときに証明書の警告が表示される場合は、自己署名証明書が使用されています。自己署名証明書は、デフォルトでは信頼されません。 </para>
+     <para> 証明書を検証するための詳細情報については、クラスタのオペレータに問い合わせてください。 </para>
+     <para> 続行するには、ブラウザに例外を追加して警告をバイパスします。 </para>
+    </note>
+   </step>
+   <step>
+    <para> Hawk2のログイン画面で、ブートストラップスクリプトで作成されたユーザの<guimenu>ユーザ名</guimenu>と<guimenu>パスワード</guimenu>を入力します(ユーザ<systemitem class="username">hacluster</systemitem>、パスワード<literal>linux</literal>)。</para>
+    <important>
+     <title>セキュリティ保護されたパスワード</title>
+     <para>デフォルトのパスワードはできるだけ早くセキュリティ保護されたパスワードに変更します。
+     </para>
+     <screen><prompt role="root"># </prompt><command>passwd hacluster</command></screen>
+    </important>
+   </step>
+   <step>
+    <para>
+     <guimenu>ログイン</guimenu>をクリックします。Hawk2 Webインタフェースには、デフォルトで状態画面が表示されます。
+    </para>
+    <figure xml:id="fig-ha-inst-quick-one-node-status">
+     <title>Hawk2の1ノードクラスタの状態</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata width="80%" fileref="installquick-one-nodecluster.png"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-setup-2nd-node">
+  <title>2つ目のノードの追加</title>
+  <para>
+    <command>crm cluster join</command>ブートストラップスクリプトを使用して、クラスタに2つ目のノードを追加します。スクリプトは既存のクラスタノードへのアクセスのみが必要で、ご使用のマシンで自動的に基本セットアップを完了します。
+  </para>
+  <para>
+   詳細については、<command>crm cluster join</command>のマニュアルページを参照してください。
+  </para>
+  <procedure xml:id="pro-ha-inst-quick-setup-crm-cluster-join">
+   <title><systemitem class="server">bob</systemitem>を使用して2つ目のノード(<command>crm cluster join</command>)を追加する</title>
+   <step>
+    <para>
+     クラスタに追加する物理マシンまたは仮想マシンに<systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     ブートストラップスクリプトを起動します。
+    </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join</command></screen>
+    <para>
+     NTPがブート時に開始するよう設定されていない場合、メッセージが表示されます。スクリプトは、ハードウェアウォッチドッグデバイスもチェックします。デバイスがないときは警告が表示されます。
+    </para>
+   </step>
+   <step>
+    <para>
+     それでも継続を選択する場合、既存のノードのIPアドレスが求められます。最初のノードのIPアドレスを入力します(<systemitem class="server">alice</systemitem>、<systemitem class="ipaddress">192.168.1.1</systemitem>)。
+    </para>
+   </step>
+   <step>
+    <para>
+     両方のマシン間にパスワードなしのSSHアクセスを設定していない場合、既存のノードの<systemitem class="username">root</systemitem>パスワードが求められます。
+    </para>
+    <para>
+     指定されたノードにログインした後、スクリプトはCorosync設定をコピーし、SSHとCsync2を設定して、現在のマシンを新しいクラスタノードとしてオンラインにし、Hawk2に必要なサービスを開始します。 
+    </para>
+   </step>
+  </procedure>
+  <para>
+   Hawk2でクラスタの状態を確認します。<menuchoice>
+    <guimenu>状態</guimenu>
+    <guimenu>ノード</guimenu>
+   </menuchoice>に、2つのノードが緑色の状態で表示されます。
+  </para>
+
+  <figure xml:id="fig-ha-inst-quick-two-node-cluster">
+   <title>2ノードクラスタの状態</title>
+   <mediaobject>
+    <imageobject>
+     <imagedata width="80%" fileref="installquick-two-nodecluster-status.png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-test">
+   <title>クラスタのテスト</title>
+   <para>
+    次のテストは、クラスタのセットアップに関する問題を特定するのに役立ちます。ただし、リアルなテストには、特定のユースケースとシナリオが含まれます。運用環境でクラスタを使用する前に、ご自分のユースケースに従ってクラスタを十分にテストしてください。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <command>sbd -d <replaceable>DEVICE_NAME</replaceable> list</command>コマンドは、SBDに表示されるすべてのノードを一覧表示します。このドキュメントで説明されているセットアップでは、出力に<systemitem class="server">alice</systemitem>と<systemitem class="server">bob</systemitem>の両方が表示されるはずです。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="sec-ha-inst-quick-test-resource-failover"/>は、現在リソースを実行しているノードを<literal>standby</literal>に設定した場合に、クラスタによって仮想IPアドレスが他方のノードに移動されるかどうかを確認する簡単なテストです。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="sec-ha-inst-quick-test-with-cluster-script"/>は、クラスタの障害をシミュレートし、結果を報告します。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <sect2 xml:id="sec-ha-inst-quick-test-resource-failover">
+    <title>リソースフェールオーバーのテスト</title>
+    <para>
+     簡単なテストとして、次の手順でリソースフェールオーバーを確認します。
+    </para>
+   <procedure xml:id="pro-ha-inst-quick-test">
+    <title>リソースフェールオーバーのテスト</title>
+    <step>
+     <para>
+      ターミナルを開き、使用している仮想IPアドレス<systemitem>192.168.2.1</systemitem>に対してpingを実行します。
+     </para>
+     <screen><prompt role="root"># </prompt><command>ping 192.168.2.1</command></screen>
+    </step>
+    <step>
+     <para>
+      Hawk2にログインします。
+     </para>
+    </step>
+    <step>
+     <para>
+      <menuchoice><guimenu>状態</guimenu><guimenu>リソース</guimenu></menuchoice>で、仮想IPアドレス(リソース<systemitem>admin_addr</systemitem>)がどのノードで実行されているかを確認します。この手順では、リソースが<systemitem class="server">alice</systemitem>で実行されていることを前提としています。
+      </para>
+    </step>
+    <step>
+     <para>
+      <systemitem class="server">alice</systemitem>を<guimenu>スタンバイ</guimenu>モードにします。
+     </para>
+     <figure xml:id="fig-ha-inst-quick-standby">
+      <title>スタンバイモードのノード<systemitem class="server">alice</systemitem></title>
+      <mediaobject>
+       <imageobject>
+        <imagedata width="60%" fileref="installquick-standby-node.png"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+     
+    </step>
+    <step>
+     <para>
+      <menuchoice>
+       <guimenu>ステータス</guimenu>
+       <guimenu>リソース</guimenu>
+      </menuchoice> の順にクリックします。リソース<systemitem>admin_addr</systemitem>は<systemitem class="server">bob</systemitem>にマイグレートされました。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    マイグレーション中は、仮想IPアドレスに対して連続してpingが実行されます。これは、クラスタセットアップと浮動IPが正常に機能していることを示します。<command>ping</command>C<keycombo>
+       <keycap function="control"/><keycap>を押して</keycap>
+      </keycombo>コマンドをキャンセルします。
+   </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-inst-quick-test-with-cluster-script">
+    <title><command>crm cluster crash_test</command>コマンドを使用したテスト</title>
+    <para>
+     <command>crm cluster crash_test</command>コマンドは、クラスタの障害をトリガして問題を見つけます。クラスタを運用環境で使用する前に、このコマンドを使用して、すべてが予期するように動作しているか確認することをお勧めします。
+    </para>
+    <para>
+     このコマンドは以下のチェックをサポートします。
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term><option>--split-brain-iptables</option></term>
+      <listitem>
+       <para>
+        Corosyncポートをブロックすることにより、スプリットブレインシナリオをシミュレートします。1つのノードが予期されるようにフェンシングできるかどうかをチェックします。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><option>--kill-sbd</option>/<option>--kill-corosync</option>/ <option>--kill-pacemakerd</option></term>
+      <listitem>
+       <para>
+        SBD、Corosync、およびPacemakerのデーモンを強制終了します。これらのテストのいずれかを実行すると、<filename>/var/lib/crmsh/crash_test/</filename>ディレクトリにレポートが表示されます。このレポートには、テストケースの説明、アクションログ、および考えられる結果の説明が含まれています。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><option>--fence-node <replaceable>NODE</replaceable></option></term>
+      <listitem>
+       <para>
+        コマンドラインから渡される特定のノードをフェンスします。
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     詳細については、<command>crm cluster crash_test --help</command>を参照してください。
+    </para>
+    <example xml:id="ex-test-with-cluster-script">
+     <title>クラスタのテスト: ノードフェンシング</title>
+<screen><prompt role="root"># </prompt><command>crm_mon -1</command>
+Stack: corosync
+Current DC: alice (version ...) - partition with quorum
+Last updated: Fri Mar 03 14:40:21 2020
+Last change: Fri Mar 03 14:35:07 2020 by root via cibadmin on alice
+
+2 nodes configured
+1 resource configured
+
+Online: [ alice bob ]
+Active resources:
+
+ stonith-sbd    (stonith:external/sbd): Started alice
+
+<prompt role="root"># </prompt><command>crm cluster crash_test</command><command> --fence-node bob</command>
+
+==============================================
+Testcase:          Fence node bob
+Fence action:      reboot
+Fence timeout:     60
+
+!!! WARNING WARNING WARNING !!!
+THIS CASE MAY LEAD TO NODE BE FENCED.
+TYPE Yes TO CONTINUE, OTHER INPUTS WILL CANCEL THIS CASE [Yes/No](No): <command>Yes</command>
+INFO: Trying to fence node "bob"
+INFO: Waiting 60s for node "bob" reboot...
+INFO: Node "bob" will be fenced by "alice"!
+INFO: Node "bob" was successfully fenced by "alice"</screen>
+    </example>
+    <para>
+      テスト中に<systemitem class="server">bob</systemitem>の変更状態を確認するには、Hawk2にログインして、<menuchoice><guimenu>状態</guimenu>
+      <guimenu>ノード</guimenu></menuchoice>に移動します。
+     </para>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-next">
+   <title>次のステップ</title>
+   <para>
+    ブートストラップスクリプトを使用すると、テスト目的で使用可能な基本的な高可用性クラスタを迅速に設定できます。ただし、このクラスタを、運用環境で使用可能な機能する高可用性クラスタに拡張するには、さらなるステップを実行することをお勧めします。
+   </para>
+   <variablelist xml:id="vl-ha-inst-quick-next-rec">
+    <title>高可用性クラスタのセットアップを完了するための推奨されるステップ</title>
+    <varlistentry>
+     <term>ノードの追加</term>
+     <listitem>
+      <para>
+       次のいずれかの方法を使用して、クラスタにノードを追加します。
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         個々のノードの場合は、<xref linkend="sec-ha-inst-quick-setup-2nd-node"/>の説明に従って<command>crm cluster join</command>スクリプトを使用します。
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         複数のノードの大量インストールの場合は、<xref linkend="sec-ha-installation-autoyast"/>の説明に従ってAutoYaSTを使用します。
+        </para>
+       </listitem>
+      </itemizedlist>
+      <para>
+       通常のクラスタには最大32ノードを含めることができます。<systemitem class="daemon">pacemaker_remote</systemitem>サービスを使用すると、高可用性クラスタを拡張して、この制限を超えて追加のノードを含めることができます。詳しくは「<xref linkend="article-pacemaker-remote"/>」を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>QDeviceの設定</term>
+     <listitem>
+      <para>
+       クラスタに偶数のノードがある場合は、クォーラムの決定に参加するようにQDeviceとQNetdを設定します。QDeviceは設定可能な投票数を提供するため、クラスタは標準のクォーラムルールで許可されているよりも多くのノード障害に耐えることができます。詳細については、<xref linkend="cha-ha-qdevice"/>を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>ハードウェアウォッチドッグの有効化</term>
+     <listitem>
+      <para>
+       運用環境でクラスタを使用する前に、<literal>softdog</literal>モジュールを、ご使用のハードウェアに最適なハードウェアモジュールに置き換えてください。詳細については、<xref linkend="sec-ha-storage-protect-watchdog"/>を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-moreinfo">
+   <title>詳細の参照先</title>
+    <para>
+     本製品の他のマニュアルは、<link xlink:href="https://documentation.suse.com/sle-ha/"/>で入手できます。設定および管理タスクの詳細については、包括的な<link xlink:href="https://documentation.suse.com/sle-ha/html/SLE-HA-all/book-sleha-guide.html">
+      <citetitle>Administration Guide</citetitle></link>を参照してください。
+    </para>
+   </sect1>
+ <xi:include href="ha_iscsi_for_sbd.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_monitoring_clusters.xml" xml:id="cha-ha-monitor-clusters" xml:lang="zh-cn" version="5.1">
+ <title>监视群集</title>
+ <info>
+  <abstract>
+   <para>
+    本章介绍如何监视群集运行状态并查看其历史记录。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+ <xi:include href="ha_hawk2_monitor_i.xml"/>
+ <xi:include href="ha_hawk2_health_i.xml"/>
+ <xi:include href="ha_hawk2_history_i.xml"/>
+
+ <sect1 xml:id="sec-ha-config-basics-monitor-health">
+  <title>使用 <literal>SysInfo</literal> 资源代理监视系统运行状态</title>
+  <para>
+   为避免节点耗尽磁盘空间而使得系统无法管理已分配给该节点的任何资源，High Availability Extension 提供了一个资源代理 <systemitem>ocf:pacemaker:SysInfo</systemitem>。使用此代理可监视节点在磁盘分区的状况。SysInfo 资源代理会创建名为 <literal>#health_disk</literal> 的节点属性，如果任何受监视磁盘的可用空间低于指定限额，该属性就会设置为 <literal>red</literal>。
+  </para>
+  <para>
+   要定义 CRM 在节点状况到达临界状态时应如何反应，请使用全局群集选项 <systemitem>node-health-strategy</systemitem>。
+  </para>
+  <procedure xml:id="pro-ha-health-monitor">
+   <title>配置系统运行状况监视</title>
+   <para>
+    要在某个节点耗尽磁盘空间时从该节点自动移除资源，请执行以下操作：
+   </para>
+   <step>
+    <para>
+     配置 <systemitem>ocf:pacemaker:SysInfo</systemitem> 资源：
+    </para>
+<screen><?dbsuse-fo font-size="0.71em"?>
+primitive sysinfo ocf:pacemaker:SysInfo \
+     params disks="/tmp /var"<co xml:id="co-disks"/> min_disk_free="100M"<co xml:id="co-min-disk-free"/> disk_unit="M"<co xml:id="co-disk-unit"/> \
+     op monitor interval="15s"</screen>
+    <calloutlist>
+     <callout arearefs="co-disks">
+      <para>
+       要监视的磁盘分区。例如，<filename>/tmp</filename>、<filename>/usr</filename>、<filename>/var</filename> 和 <filename>/dev</filename>。要指定多个分区作为属性值，请以空格进行分隔。
+      </para>
+      <note>
+       <title>系统始终会监视 <filename>/</filename> 文件系统</title>
+       <para>
+        您无需在 <literal>disks</literal> 中指定根分区 (<filename>/</filename>)。此分区默认将始终受到监视。
+       </para>
+      </note>
+     </callout>
+     <callout arearefs="co-min-disk-free">
+      <para>
+       这些分区所需的最小可用磁盘空间。您也可以指定度量单位（在上例中，<literal>M</literal> 表示兆字节）。如果未指定，<systemitem>min_disk_free</systemitem> 默认会使用 <systemitem>disk_unit</systemitem> 参数中定义的单位。
+      </para>
+     </callout>
+     <callout arearefs="co-disk-unit">
+      <para>
+       报告磁盘空间所使用的单位。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>
+     要完成资源配置，请创建 <systemitem>ocf:pacemaker:SysInfo</systemitem> 的克隆并在每个群集节点上启动此克隆。
+    </para>
+   </step>
+   <step>
+    <para>
+     将 <systemitem>node-health-strategy</systemitem> 设置为 <literal>migrate-on-red</literal>：
+    </para>
+<screen>property node-health-strategy="migrate-on-red"</screen>
+    <para>
+     如果 <systemitem>#health_disk</systemitem> 属性设置为 <literal>red</literal>，<systemitem class="daemon">pacemaker-schedulerd</systemitem> 会为该节点的资源分数加 <literal>-INF</literal>。这样所有资源都会从此节点中移出。STONITH 资源将是最后一个停止的资源，但即使 STONITH 资源不再运行，该节点仍可屏蔽。屏蔽对 CIB 有直接访问权且将继续起作用。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   当节点状况变成 <literal>red</literal> 状态后，解决会导致问题的状况。然后清除 <literal>red</literal> 状态，使节点能够再次运行资源。登录到群集节点并使用下列其中一种方法：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     执行以下命令：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm node status-attr <replaceable>NODE</replaceable> delete #health_disk</command></screen>
+   </listitem>
+   <listitem>
+    <para>
+     在该节点上重启动群集服务。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     重引导该节点。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   该节点将恢复正常状态并可再次运行资源。
+  </para>
+ </sect1>
+</chapter>

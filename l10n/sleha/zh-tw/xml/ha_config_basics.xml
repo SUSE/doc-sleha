@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_basics.xml" version="5.0" xml:id="cha-ha-config-basics">
+ <title>組態和管理基礎</title>
+ <info>
+      <abstract>
+        <para>
+    HA 叢集的主要目的是管理使用者服務。Apache Web 伺服器或資料庫便是使用者服務的典型範例。從使用者的角度來看，命令這些服務執某些特定操作，它們就會按要求執行。不過，對於叢集而言，它們只是可以啟動或停止的資源 — 服務的性質與叢集無關。
+   </para>
+        <para>
+    本章將介紹一些管理叢集時需要瞭解的基本概念。後續章節將介紹如何使用 High Availability Extension 提供的各種管理工具執行主要的組態與管理任務。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+
+  <sect1 xml:id="sec-ha-config-basics-scenarios">
+   <title>使用案例情境</title>
+   <para>叢集一般分為以下兩種類別：</para>
+   <itemizedlist>
+    <listitem>
+     <para>雙節點叢集</para>
+    </listitem>
+    <listitem>
+     <para>包含兩個以上節點的叢集。這通常表示節點數是奇數。</para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    新增不同的拓撲可以衍生不同的使用案例。下面是最常見的使用案例：
+   </para>
+
+   <variablelist>
+    <title>&#xa0;</title>
+    <varlistentry>
+     <term>位於一個位置的雙節點叢集</term>
+     <listitem>
+      <formalpara>
+       <title>組態：</title>
+       <para>FC SAN 或類似的共用儲存，第 2 層網路。</para>
+      </formalpara>
+      <formalpara>
+       <title>使用情境：</title>
+       <para>內嵌式叢集，注重服務的高可用性，而不是實現資料備援來進行資料複製。例如，此類設定可用於廣播電台或裝配生產線控制器。
+       </para>
+      </formalpara>
+     </listitem>
+    </varlistentry>
+    <varlistentry xml:id="vl-2x2node-2locs">
+     <term>位於兩個位置的雙節點叢集 (使用最為廣泛)</term>
+     <listitem>
+      <formalpara>
+       <title>組態：</title>
+       <para>對稱的延伸叢集，FC SAN，以及跨兩個位置的第 2 層網路。</para>
+      </formalpara>
+      <formalpara>
+       <title>使用情境：</title>
+       <para>經典的延伸叢集，注重服務的高可用性和本地資料備援。用於資料庫和企業資源規劃。過去數年來最熱門的設定之一。
+       </para>
+      </formalpara>
+     </listitem>
+    </varlistentry>
+    <varlistentry xml:id="vl-n-nodes-3locs">
+     <term>位於三個位置的奇數數量的節點</term>
+     <listitem>
+      <formalpara>
+       <title>組態：</title>
+       <para>2×N+1 個節點，FC SAN 跨兩個主要位置第三個輔助站點不部署 FC SAN，而是當成多數仲裁者使用。第 2 層網路至少跨兩個主要位置。
+       </para>
+      </formalpara>
+      <formalpara>
+       <title>使用情境：</title>
+       <para>經典的延伸叢集，注重服務的高可用性和資料備援。例如資料庫和企業資源規劃。
+       </para>
+      </formalpara>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-global">
+  <title>仲裁判斷</title>
+  <para>
+   當一個或多個節點與叢集其餘節點間的通訊失敗時，就會發生叢集分割。這些節點只能與同一分割區中的其他節點通訊，並不知道被隔開的節點的存在。如果叢集分割區具有多數節點 (或投票)，則將其定義為具有仲裁 (即<quote>達到法定數量</quote>)。透過<emphasis>仲裁計算</emphasis>來獲得此結果。若要圍籬區隔，就必須具有仲裁能力。
+   </para>
+   <para>
+   仲裁不是由 Pacemaker 計算或確定。Corosync 可以直接處理雙節點叢集的仲裁，無需變更 Pacemaker 組態。
+  </para>
+
+  <para>仲裁計算方式受以下因素的影響：</para>
+   <variablelist>
+    <varlistentry xml:id="vl-ha-config-basics-global-number-of-cluster-nodes">
+     <term>叢集節點數</term>
+     <listitem>
+         <para>為使服務保持執行狀態，包含兩個以上節點的叢集依賴仲裁 (多數投票數) 來解決叢集分割區。根據以下公式，您可以計算叢集正常運作所需的最小可作業節點數：</para>
+       <screen>N ≥ C/2 + 1
+
+N = minimum number of operational nodes
+C = number of cluster nodes</screen>
+      <para>例如，五節點叢集至少需要三個可作業節點 (或兩個可以容錯移轉的節點)。 </para>
+      <para>
+       我們強烈建議使用雙節點叢集或奇數數量的叢集節點。雙節點叢集適合跨兩個站點的延伸設定。所含節點數為奇數的叢集可以在單個站點上建構，也可以分散在三個站點之間。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Corosync 組態</term>
+     <listitem>
+      <para>Corosync 是一個訊息和成員資格層，具體請參閱<xref linkend="sec-ha-config-basics-corosync-2-node"/>和<xref linkend="sec-ha-config-basics-corosync-n-node"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+  <sect2 xml:id="sec-ha-config-basics-corosync-2-node">
+   <title>雙節點叢集的 Corosync 組態</title>
+   <para>
+    使用開機程序檔時，Corosync 組態包含一個 <literal>quorum</literal> 區段，其中包含以下選項：
+   </para>
+   <example xml:id="ex-ha-config-basics-corosync-quorum">
+    <title>雙節點叢集的 Corosync 組態摘要</title>
+    <screen>quorum {
+   # Enable and configure quorum subsystem (default: off)
+   # see also corosync.conf.5 and votequorum.5
+   provider: corosync_votequorum
+   expected_votes: 2
+   two_node: 1
+}</screen>
+   </example>
+   <para>
+    如果設定了 <literal>two_node: 1</literal>，預設會自動啟用 <literal>wait_for_all</literal> 選項。如果未啟用 <literal>wait_for_all</literal>，則叢集應在兩個節點上平行啟動。否則，第一個節點將對缺少的第二個節點執行啟動圍籬區隔。
+   </para>
+  </sect2>
+  <sect2 xml:id="sec-ha-config-basics-corosync-n-node">
+   <title>N 節點叢集的 Corosync 組態</title>
+   <para> 如果不使用雙節點叢集，我們強烈建議使用奇數數量的節點來構成 N 節點叢集。在仲裁組態方面，您具有以下選擇： </para>
+   <itemizedlist>
+    <listitem>
+     <para>使用 <command>crm cluster join</command> 指令新增更多的節點，或</para>
+    </listitem>
+    <listitem>
+     <para>手動調整 Corosync 組態。</para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    如果要手動調整 <filename>/etc/corosync/corosync.conf</filename>，請使用以下設定：
+   </para>
+   <example>
+    <title>N 節點叢集的 Corosync 組態摘要</title>
+    <screen>quorum {
+   provider: corosync_votequorum <co xml:id="co-corosync-quorum-n-node-corosync-votequorum"/>
+   expected_votes: <replaceable>N</replaceable> <co xml:id="co-corosync-quorum-n-node-expected-votes"/>
+   wait_for_all: 1 <co xml:id="co-corosync-quorum-n-node-wait-for-all"/>
+}</screen>
+    <calloutlist>
+     <callout arearefs="co-corosync-quorum-n-node-corosync-votequorum">
+      <para>使用 Corosync 的仲裁服務</para>
+     </callout>
+     <callout arearefs="co-corosync-quorum-n-node-expected-votes">
+      <para>預期投票數。可以在 <literal>quorum</literal> 區段中提供此參數，或者在提供了 <literal>nodelist</literal> 區段的情況下由系統自動計算此參數。</para>
+     </callout>
+     <callout arearefs="co-corosync-quorum-n-node-wait-for-all">
+      <para>
+       啟用「等待所有節點」(WFA) 功能。如果啟用了 WFA，僅在所有節點可見之後，叢集才會首次達到法定數量。若要避免啟動時出現某些競爭情形，可以將 <option>wait_for_all</option> 設定為 <literal>1</literal>。例如，在五節點叢集中，每個節點有一個投票，因此，<option>expected_votes</option> 設定為 <literal>5</literal>。如果三個或更多個節點彼此可見，則叢集分割區將達到法定數量，可以開始運作。
+      </para>
+     </callout>
+    </calloutlist>
+   </example>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-global-options">
+  <title>全域叢集選項</title>
+  <para> 全域叢集選項控制叢集在遇到特定情況時的運作方式。它們分為不同的組，可透過 Hawk2 和 <command>crm</command> 外圍程序等叢集管理工具來檢視和修改。 </para>
+  <para> 一般情況下，可以保留預先定義的值。但為了使叢集的關鍵功能正常運作，需要在進行基本叢集設定後調整以下參數：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <xref linkend="sec-ha-config-basics-global-quorum" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <xref linkend="sec-ha-config-basics-global-stonith" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+ <sect2 xml:id="sec-ha-config-basics-global-quorum">
+  <title>全域選項 <literal>no-quorum-policy</literal></title>
+  <para>
+   此全域選項定義在叢集分割區沒有仲裁能力 (節點多數不是該分割區的一部分) 時如何運作。
+  </para>
+  <para>
+   可用的值如下：
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><literal>ignore</literal>
+    </term>
+    <listitem>
+     <para/>
+     <para>
+      如果將 <literal>no-quorum-policy</literal> 設為 <literal>ignore</literal>，叢集分割區就會像其具有仲裁一樣運作，即使情況並非如此。叢集分割區可以發出圍籬區隔指令，並繼續進行資源管理。
+     </para>
+     <para>
+      在 SLES 11 中，建議對雙節點叢集使用此設定。從 SLES 12 開始，<literal>ignore</literal> 值已過時，不允許使用。Corosync 依據組態和條件為叢集節點或單個節點提供<quote>仲裁</quote> — 或者不提供仲裁。
+     </para>
+     <para>
+     對於雙節點叢集，當節點發生故障時，唯一有意義的行為就是永遠做出回應。第一個步驟永遠應該是嘗試圍籬區隔遺失的節點。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>freeze</literal>
+    </term>
+    <listitem>
+     <para>
+      如果失去仲裁能力，叢集分割區便會凍結。資源管理將繼續：執行中的資源不會停止 (但是可能會重新啟動，以便監控事件)，但是受影響的分割區內不會再啟動其他資源。
+     </para>
+     <para>
+      此設定適合某些資源依賴與其他節點之通訊的叢集 (例如，OCFS2 掛接)。在這種情況下，預設設定 <literal>no-quorum-policy=stop</literal> 不起作用，因為它將導致以下狀況：既無法停止這些資源，又無法連接對等節點。任何停止這些資源的嘗試最終都會逾時，並出現 <literal>stop
+      failure</literal>，觸發升級的復原與圍籬區隔。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>stop</literal> (預設值)</term>
+    <listitem>
+     <para>
+      如果失去仲裁能力，受影響的叢集分割區中的所有資源都會依序停止。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>suicide</literal>
+    </term>
+    <listitem>
+     <para>
+      如果失去仲裁能力，受影響叢集分割區中的所有節點都會被圍籬區隔。此選項只能與 SBD 結合使用，具體請參閱<xref linkend="cha-ha-storage-protect"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect2>
+
+ <sect2 xml:id="sec-ha-config-basics-global-stonith">
+  <title>全域選項 <literal>stonith-enabled</literal></title>
+  <para>
+   此全域選項定義是否套用圍籬區隔，以允許 STONITH 裝置關閉失敗的節點以及其上資源無法停止的節點。此全域選項預設為 <literal>true</literal>，因為正常的叢集運作需要使用 STONITH 裝置。依據預設值，如果未定義 STONITH 資源，叢集將拒絕啟動任何資源。
+  </para>
+  <para>
+   如果出於某種原因需要停用圍籬區隔，請將 <literal>stonith-enabled</literal> 設定為 <literal>false</literal>，但請注意，這樣做會影響您產品的支援狀態。此外，在 <literal>stonith-enabled="false"</literal> 的情況下，分散式鎖定管理員 (DLM) 等資源以及相依於 DLM 的所有服務 (例如 lvmlockd、GFS2 和 OCFS2) 都將無法啟動。
+  </para>
+  <important>
+   <title>不支援沒有 STONITH 的組態</title>
+   <para>
+    系統不支援沒有 STONITH 的叢集。
+   </para>
+  </important>
+  </sect2>
+ </sect1>
+
+
+ <xi:include href="ha_config_hawk2.xml"/>
+ <xi:include href="ha_config_cli.xml"/>
+
+
+ <sect1 xml:id="sec-ha-config-basics-more">
+  <title>更多資訊</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/"/>
+    </term>
+    <listitem>
+     <para>
+      用於高可用性叢集管理的進階指令列介面 crm 外圍程序 (crmsh) 的主頁。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/documentation"/>
+    </term>
+    <listitem>
+     <para>
+      提供有關 crm 外圍程序的多個文件，包括使用 crmsh 完成基本叢集設定的 <citetitle>Getting Started</citetitle> 教程，以及 crm 外圍程序的綜合性 <citetitle>Manual</citetitle>。後者的網址為 <link xlink:href="http://crmsh.github.io/man-2.0/"/>。<link xlink:href="http://crmsh.github.io/start-guide/"/> 上提供了教學課程。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://clusterlabs.org/"/>
+    </term>
+    <listitem>
+     <para>
+      Pacemaker 首頁，High Availability Extension 隨附的叢集資源管理員。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>
+    </term>
+    <listitem>
+     <para>
+      提供一些綜合手冊，以及一些解釋一般概念的簡短文件。例如：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+         <citetitle>Pacemaker Explained</citetitle>：包含全面詳細的參考資訊。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Colocation Explained</citetitle>
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Ordering Explained</citetitle>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>

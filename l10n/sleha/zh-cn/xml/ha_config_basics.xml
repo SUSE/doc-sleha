@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_basics.xml" version="5.0" xml:id="cha-ha-config-basics">
+ <title>配置和管理基础</title>
+ <info>
+      <abstract>
+        <para>
+    HA 群集的主要目的是管理用户服务。Apache Web 服务器或数据库便是一种典型的用户服务。从用户角度来看，服务就是在客户的要求下执行某些操作。但对群集来说，服务只是可以启动或停止的资源，其本质与群集无关。
+   </para>
+        <para>
+    本章将介绍一些管理群集时需要了解的基本概念。以下章节介绍如何使用 High Availability Extension 提供的每种管理工具执行主配置和管理任务。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+
+  <sect1 xml:id="sec-ha-config-basics-scenarios">
+   <title>使用情形</title>
+   <para>群集一般分为以下两种类别：</para>
+   <itemizedlist>
+    <listitem>
+     <para>双节点群集</para>
+    </listitem>
+    <listitem>
+     <para>包含两个以上节点的群集。这通常表示节点数是奇数。</para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    添加不同的拓扑可以衍生不同的用例。下面是最常见的用例：
+   </para>
+
+   <variablelist>
+    <title>&#xa0;</title>
+    <varlistentry>
+     <term>位于一个位置的双节点群集</term>
+     <listitem>
+      <formalpara>
+       <title>配置：</title>
+       <para>FC SAN 或类似的共享存储，第 2 层网络。</para>
+      </formalpara>
+      <formalpara>
+       <title>使用情形：</title>
+       <para>嵌入式群集，注重服务的高可用性，而不是实现数据冗余来进行数据复制。例如，此类设置可用于无线电台或装配生产线控制器。
+       </para>
+      </formalpara>
+     </listitem>
+    </varlistentry>
+    <varlistentry xml:id="vl-2x2node-2locs">
+     <term>位于两个位置的双节点群集（使用最广泛）</term>
+     <listitem>
+      <formalpara>
+       <title>配置：</title>
+       <para>对称的延伸群集，FC SAN，以及跨两个位置的第 2 层网络。</para>
+      </formalpara>
+      <formalpara>
+       <title>使用情形：</title>
+       <para>典型的延伸群集，注重服务的高可用性和本地数据冗余。用于数据库和企业资源规划。过去数年来最流行的设置之一。
+       </para>
+      </formalpara>
+     </listitem>
+    </varlistentry>
+    <varlistentry xml:id="vl-n-nodes-3locs">
+     <term>位于三个位置的奇数数目的节点</term>
+     <listitem>
+      <formalpara>
+       <title>配置：</title>
+       <para>2×N+1 个节点，FC SAN 跨两个主要位置第三个辅助站点不部署 FC SAN，而是充当多数仲裁者。第 2 层网络至少跨两个主要位置。
+       </para>
+      </formalpara>
+      <formalpara>
+       <title>使用情形：</title>
+       <para>典型的延伸群集，注重服务的高可用性和数据冗余。例如数据库和企业资源规划。
+       </para>
+      </formalpara>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-global">
+  <title>仲裁判定</title>
+  <para>
+   当一个或多个节点与群集的剩余节点之间的通讯失败时，即会发生群集分区。这些节点只能与同一分区中的其他节点通讯，并不知道被隔开的节点的存在。如果群集分区具有多数节点（或投票），则将其定义为具有仲裁（是<quote>具有法定票数的</quote>）。通过<emphasis>仲裁计算</emphasis>来获得此结果。要实现屏蔽，就必须具有仲裁。
+   </para>
+   <para>
+   仲裁不是由 Pacemaker 计算或确定。Corosync 可以直接处理双节点群集的仲裁，无需更改 Pacemaker 配置。
+  </para>
+
+  <para>仲裁计算方式受以下因素的影响：</para>
+   <variablelist>
+    <varlistentry xml:id="vl-ha-config-basics-global-number-of-cluster-nodes">
+     <term>群集节点数</term>
+     <listitem>
+         <para>为使服务保持运行状态，包含两个以上节点的群集依赖法定票数（多数票决）来解决群集分区。根据以下公式，您可以计算群集正常运行所需的最小工作节点数目：</para>
+       <screen>N ≥ C/2 + 1
+
+N = minimum number of operational nodes
+C = number of cluster nodes</screen>
+      <para>例如，五节点群集至少需要三个工作节点（或两个可以故障转移的节点）。 </para>
+      <para>
+       我们强烈建议使用双节点群集或奇数数目的群集节点。双节点群集适合跨两个站点的延伸设置。所含节点数为奇数的群集可以构建于单个站点上，也可以分散在三个站点之间。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Corosync 配置</term>
+     <listitem>
+      <para>Corosync 是一个消息交换和成员资格层，具体请参见<xref linkend="sec-ha-config-basics-corosync-2-node"/>和<xref linkend="sec-ha-config-basics-corosync-n-node"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+  <sect2 xml:id="sec-ha-config-basics-corosync-2-node">
+   <title>双节点群集的 Corosync 配置</title>
+   <para>
+    使用引导脚本时，Corosync 配置包含一个 <literal>quorum</literal> 段落，其中包含以下选项：
+   </para>
+   <example xml:id="ex-ha-config-basics-corosync-quorum">
+    <title>双节点群集的 Corosync 配置摘录</title>
+    <screen>quorum {
+   # Enable and configure quorum subsystem (default: off)
+   # see also corosync.conf.5 and votequorum.5
+   provider: corosync_votequorum
+   expected_votes: 2
+   two_node: 1
+}</screen>
+   </example>
+   <para>
+    如果设置了 <literal>two_node: 1</literal>，默认会自动启用 <literal>wait_for_all</literal> 选项。如果未启用 <literal>wait_for_all</literal>，则群集应在两个节点上并行启动。否则，第一个节点将对缺失的第二个节点执行启动屏蔽。
+   </para>
+  </sect2>
+  <sect2 xml:id="sec-ha-config-basics-corosync-n-node">
+   <title>N 节点群集的 Corosync 配置</title>
+   <para> 如果不使用双节点群集，我们强烈建议使用奇数数目的节点来构成 N 节点群集。在仲裁配置方面，您有以下选择： </para>
+   <itemizedlist>
+    <listitem>
+     <para>使用 <command>crm cluster join</command> 命令添加更多的节点，或</para>
+    </listitem>
+    <listitem>
+     <para>手动调整 Corosync 配置。</para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    如果要手动调整 <filename>/etc/corosync/corosync.conf</filename>，请使用以下设置：
+   </para>
+   <example>
+    <title>N 节点群集的 Corosync 配置摘录</title>
+    <screen>quorum {
+   provider: corosync_votequorum <co xml:id="co-corosync-quorum-n-node-corosync-votequorum"/>
+   expected_votes: <replaceable>N</replaceable> <co xml:id="co-corosync-quorum-n-node-expected-votes"/>
+   wait_for_all: 1 <co xml:id="co-corosync-quorum-n-node-wait-for-all"/>
+}</screen>
+    <calloutlist>
+     <callout arearefs="co-corosync-quorum-n-node-corosync-votequorum">
+      <para>使用 Corosync 的仲裁服务</para>
+     </callout>
+     <callout arearefs="co-corosync-quorum-n-node-expected-votes">
+      <para>预期投票数。可以在 <literal>quorum</literal> 段落中提供此参数，或者在提供了 <literal>nodelist</literal> 段落时由系统自动计算此参数。</para>
+     </callout>
+     <callout arearefs="co-corosync-quorum-n-node-wait-for-all">
+      <para>
+       启用“等待所有节点”(WFA) 功能。如果启用了 WFA，只有在所有节点可见之后，群集才会首次具有法定票数。要避免启动时出现某些资源争用情况，可以将 <option>wait_for_all</option> 设置为 <literal>1</literal>。例如，在五节点群集中，每个节点有一个投票，因此，<option>expected_votes</option> 设置为 <literal>5</literal>。如果三个或更多个节点彼此可见，则群集分区将具有法定票数，可以开始运行。
+      </para>
+     </callout>
+    </calloutlist>
+   </example>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-global-options">
+  <title>全局群集选项</title>
+  <para> 全局群集选项控制群集在遇到特定情况时的行为方式。它们被分成若干组，可通过 Hawk2 和 <command>crm</command> 外壳之类的群集管理工具来查看和修改。 </para>
+  <para> 通常可保留预定义值。但为了使群集的关键功能正常工作，需要在进行基本群集设置后调整以下参数：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <xref linkend="sec-ha-config-basics-global-quorum" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <xref linkend="sec-ha-config-basics-global-stonith" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+ <sect2 xml:id="sec-ha-config-basics-global-quorum">
+  <title>全局选项 <literal>no-quorum-policy</literal></title>
+  <para>
+   此全局选项定义在群集分区不具有法定票数（分区不具有多数节点投票）时应执行的操作。
+  </para>
+  <para>
+   可用值如下：
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><literal>ignore</literal>
+    </term>
+    <listitem>
+     <para/>
+     <para>
+      如果将 <literal>no-quorum-policy</literal> 设为 <literal>ignore</literal>，群集分区就会像其具有仲裁一样工作，即使情况并非如此。群集分区可以发出屏蔽命令，并继续进行资源管理。
+     </para>
+     <para>
+      在 SLES 11 中，建议对双节点群集使用此设置。从 SLES 12 开始，<literal>ignore</literal> 值已过时，不允许使用。Corosync 依据配置和条件为群集节点或单个节点提供<quote>仲裁</quote> — 或者不提供仲裁。
+     </para>
+     <para>
+     对于双节点群集，当节点发生故障时，唯一有意义的行为就是始终做出反应。第一个步骤始终应该是尝试屏蔽丢失的节点。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>freeze</literal>
+    </term>
+    <listitem>
+     <para>
+      如果失去法定票数，群集分区将会冻结。继续进行资源管理：正在运行的资源不会停止（但可能重启动以响应监视事件），但不会启动受影响分区中的任何其他资源。
+     </para>
+     <para>
+      如果群集中的某些资源依赖于与其他节点的通讯（例如，OCFS2 挂载），建议对此类群集使用此设置。在这种情况下，默认设置 <literal>no-quorum-policy=stop</literal> 不起作用，因为它将导致以下状况：既无法停止这些资源，又无法连接对等节点。反之，尝试停止这些资源最终将超时并导致 <literal>stop
+      failure</literal>，进而触发升级恢复和屏蔽。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>stop</literal>（默认值）</term>
+    <listitem>
+     <para>
+      如果失去法定票数，受影响群集分区中的所有资源都将以一种有序的方式停止。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>suicide</literal>
+    </term>
+    <listitem>
+     <para>
+      如果失去法定票数，受影响群集分区中的所有节点都将被屏蔽。此选项只能与 SBD 结合使用，具体请参见<xref linkend="cha-ha-storage-protect"/>。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect2>
+
+ <sect2 xml:id="sec-ha-config-basics-global-stonith">
+  <title>全局选项 <literal>stonith-enabled</literal></title>
+  <para>
+   此全局选项定义是否要应用屏蔽，以允许 STONITH 设备关闭发生故障的节点以及无法停止其资源的节点。默认情况下，此全局选项设置为 <literal>true</literal>，因为对于常规的群集操作，有必要使用 STONITH 设备。根据默认值，如果未定义 STONITH 资源，则群集将拒绝启动任何资源。
+  </para>
+  <para>
+   如果出于任何原因而需要禁用屏蔽，请将 <literal>stonith-enabled</literal> 设置为 <literal>false</literal>，但请注意，这会影响产品的支持状态。此外，在 <literal>stonith-enabled="false"</literal> 的情况下，分布式锁管理器 (DLM) 等资源以及依赖于 DLM 的所有服务（例如 lvmlockd、GFS2 和 OCFS2）都将无法启动。
+  </para>
+  <important>
+   <title>不支持无 STONITH 的群集</title>
+   <para>
+    不支持无 STONITH 资源的群集。
+   </para>
+  </important>
+  </sect2>
+ </sect1>
+
+
+ <xi:include href="ha_config_hawk2.xml"/>
+ <xi:include href="ha_config_cli.xml"/>
+
+
+ <sect1 xml:id="sec-ha-config-basics-more">
+  <title>更多信息</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/"/>
+    </term>
+    <listitem>
+     <para>
+      用于高可用性群集管理的高级命令行界面 crm 外壳 (crmsh) 的主页。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://crmsh.github.io/documentation"/>
+    </term>
+    <listitem>
+     <para>
+      提供有关 crm 外壳的若干文档，包括使用 crmsh 完成基本群集设置的 <citetitle>Getting Started</citetitle> 教程，以及 crm 外壳的综合性 <citetitle>Manual</citetitle>。后者可在 <link xlink:href="http://crmsh.github.io/man-2.0/"/> 上访问。<link xlink:href="http://crmsh.github.io/start-guide/"/> 上提供了相关教程。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://clusterlabs.org/"/>
+    </term>
+    <listitem>
+     <para>
+      Pacemaker 主页，随 High Availability Extension 提供的群集资源管理器。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>
+    </term>
+    <listitem>
+     <para>
+      提供数个综合性手册，以及一些解释一般概念的简短文档。例如：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+         <citetitle>Pacemaker Explained</citetitle>：包含全面、详细的参考信息。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Colocation Explained</citetitle>
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Ordering Explained</citetitle>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>

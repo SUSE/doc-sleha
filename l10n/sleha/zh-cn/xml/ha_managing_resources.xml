@@ -1,0 +1,667 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_managing_resources.xml" xml:id="cha-ha-manage-resources" xml:lang="zh-cn" version="5.1">
+ <title>管理群集资源</title>
+ <info>
+  <abstract>
+   <para>
+    配置群集中的资源后，可使用群集管理工具启动、停止、清理、去除或迁移资源。本章介绍如何使用 Hawk2 或 crmsh 执行资源管理任务。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+<sect1 xml:id="sec-ha-resource-show">
+ <title>显示群集资源</title>
+ <sect2 xml:id="sec-ha-manual-config-show">
+  <title>使用 crmsh 显示群集资源</title>
+  <para>
+   当管理群集时，<command>crm configure show</command> 命令会列出诸如群集配置、全局选项、原始资源及其他的当前 CIB 对象：
+  </para>
+  <screen><prompt role="root"># </prompt><command>crm configure show</command>
+node 178326192: alice
+node 178326448: bob
+primitive admin_addr IPaddr2 \
+       params ip=192.168.2.1 \
+       op monitor interval=10 timeout=20
+primitive stonith-sbd stonith:external/sbd \
+       params pcmk_delay_max=30
+property cib-bootstrap-options: \
+       have-watchdog=true \
+       dc-version=1.1.15-17.1-e174ec8 \
+       cluster-infrastructure=corosync \
+       cluster-name=hacluster \
+       stonith-enabled=true \
+       placement-strategy=balanced \
+       standby-mode=true
+rsc_defaults rsc-options: \
+       resource-stickiness=1 \
+       migration-threshold=3
+op_defaults op-options: \
+       timeout=600 \
+       record-pending=true</screen>
+  <para>
+   如果您有许多资源，<command>show</command> 的输出会十分冗长。为限制输出，请使用资源名称。例如，如果只想列出原始资源 <systemitem>admin_addr</systemitem> 的属性，请将资源名称追加到 <command>show</command> 后：
+  </para>
+  <screen><prompt role="root"># </prompt><command>crm configure show admin_addr</command>
+primitive admin_addr IPaddr2 \
+       params ip=192.168.2.1 \
+       op monitor interval=10 timeout=20</screen>
+  <para>
+   但在某些情况下，您可能希望更精确地限制特定资源的输出。那么，您可以使用<emphasis>过滤器</emphasis>。过滤器可将输出限定到特定组件。例如，要想仅列出节点，可使用 <literal>type:node</literal>：
+  </para>
+  <screen><prompt role="root"># </prompt><command>crm configure show type:node</command>
+node 178326192: alice
+node 178326448: bob</screen>
+  <para>如果您还想列出原始资源，请使用 <literal>or</literal> 运算符：</para>
+  <screen><prompt role="root"># </prompt><command>crm configure show type:node or type:primitive</command>
+node 178326192: alice
+node 178326448: bob
+primitive admin_addr IPaddr2 \
+       params ip=192.168.2.1 \
+       op monitor interval=10 timeout=20
+primitive stonith-sbd stonith:external/sbd \
+       params pcmk_delay_max=30</screen>
+  <para>
+   此外，要搜索以特定字符串开头的对象，请使用以下表示法：</para>
+  <screen><prompt role="root"># </prompt><command>crm configure show type:primitive and 'admin*'</command>
+primitive admin_addr IPaddr2 \
+       params ip=192.168.2.1 \
+       op monitor interval=10 timeout=20</screen>
+  <para>
+   要列出所有可用类型，请输入 <command>crm configure show type:</command>，然后按 <keycap function="tab"/> 键。Bash 补全功能会列出所有类型。
+  </para>
+ </sect2>
+</sect1>
+
+<sect1 xml:id="sec-ha-resource-edit">
+ <title>编辑资源和组</title>
+ <para>
+  可以使用 Hawk2 或 crmsh 来编辑资源或组。
+ </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-edit">
+  <title>使用 Hawk2 编辑资源和组</title>
+  <para>
+   创建资源后，您随时都可以编辑其配置，根据需要调整参数、操作或元属性。
+  </para>
+  <procedure xml:id="pro-conf-hawk2-rsc-modify">
+   <title>修改资源或组</title>
+   <step>
+    <para>
+     登录 Hawk2：
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     在 Hawk2 的<guimenu>状态</guimenu>屏幕中，转到<guimenu>资源</guimenu>列表。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>操作</guimenu>列中，单击要修改的资源或组旁边的向下箭头图标，然后选择<guimenu>编辑</guimenu>。
+    </para>
+    <para>
+     资源配置屏幕即会打开。
+    </para>
+    <figure>
+     <title>Hawk2 - 编辑原始资源</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-primitive-edit.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-primitive-edit.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+     <para>
+      在配置屏幕顶部，可以选择要执行的操作。
+     </para>
+     <para>
+      如果要编辑原始资源，可以执行以下操作：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        复制资源
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        重命名资源（更改其 ID）
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        删除资源
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      如果要编辑组，可以执行以下操作：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        创建要添加到此组的新原始资源
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        重命名组（更改其 ID）
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        拖动组成员以改变其排列顺序
+       </para>
+      </listitem>
+     </itemizedlist>
+   </step>
+   <step xml:id="step-hawk2-rsc-modify-params">
+    <para>
+     要添加新参数、操作或元属性，请从空下拉框中选择一项。
+    </para>
+   </step>
+   <step>
+    <para>
+     要编辑<guimenu>操作</guimenu>类别中的任何值，请单击相应项的<guimenu>编辑</guimenu>图标，为该操作输入不同的值，然后单击<guimenu>应用</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     完成后，单击资源配置屏幕中的<guimenu>应用</guimenu>按钮，以确认对参数、操作或元属性所做的更改。
+    </para>
+    <para>
+     如果操作成功，屏幕顶部会显示一条消息。
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+ <sect2 xml:id="sec-conf-crm-manage-edit">
+  <title>使用 crmsh 编辑组</title>
+  <para>
+   要更改组成员的顺序，请使用 <command>modgroup</command> 子命令中的 <command>configure</command> 命令。例如，使用下面的命令可将原始资源 <literal>Email</literal> 移到 <literal>Public-IP</literal> 前面：
+  </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-mailsvc add Email before Public-IP</command></screen>
+  <para>
+   要从组中去除某个资源（例如 <literal>Email</literal>），请使用以下命令：
+  </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-mailsvc remove Email</command></screen>
+ </sect2>
+</sect1>
+
+<sect1 xml:id="sec-ha-resource-start">
+ <title>启动群集资源</title>
+  <para>
+   启动群集资源之前，应确保资源设置正确。例如，如果使用 Apache 服务器作为群集资源，请先设置 Apache 服务器。完成 Apache 配置，然后再启动群集中的相应资源。
+  </para>
+  <note>
+   <title>不要操作由群集管理的服务</title>
+   <para>
+    当您正通过 High Availability Extension 管理资源时，就不能再启动或停止该资源（例如，不能在群集之外手动启动或停止，或者在引导或重引导时启动或停止）。High Availability Extension 软件负责所有服务的启动或停止操作。
+   </para>
+   <para>
+    但如果要检查服务是否配置正确，可手动启动该服务，不过请确保在 High Availability Extension 接管前再次停止该服务。
+   </para>
+   <para>
+    要对群集当前管理的资源进行干预，请先将资源设置为 <literal>maintenance mode</literal>。有关详细信息，请参见<xref linkend="pro-ha-maint-mode-rsc-hawk2"/>。
+   </para>
+  </note>
+  <para>
+   可以使用 Hawk2 或 crmsh 来启动群集资源。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-start">
+  <title>使用 Hawk2 启动群集资源</title>
+  <para>
+   使用 Hawk2 创建资源时，可通过 <literal>target-role</literal> 元属性设置其初始状态。如果将其值设置为 <literal>stopped</literal>，则该资源在创建后不会自动启动。
+  </para>
+  <procedure xml:id="pro-hawk2-rsc-start">
+   <title>启动新资源</title>
+   <step>
+    <para>
+     登录 Hawk2：
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     从左侧导航栏中，选择<menuchoice><guimenu>监视</guimenu>
+     <guimenu>状态</guimenu></menuchoice>。<guimenu>资源</guimenu>列表还会显示<guimenu>状态</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     选择要启动的资源。在其<guimenu>操作</guimenu>列中，单击<guimenu>启动</guimenu>图标。要继续，请对显示的消息进行确认。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   资源启动后，Hawk2 会将资源的<guimenu>状态</guimenu>变为绿色，并显示当前运行该资源的节点。
+  </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-start">
+   <title>使用 crmsh 启动群集资源</title>
+   <para>
+    要启动新群集资源，需要提供相应的标识符。
+   </para>
+   <procedure>
+    <title>使用 crmsh 启动群集资源</title>
+    <step>
+     <para>
+      以 <systemitem class="username">root</systemitem> 用户身份登录，然后启动 <command>crm</command> 交互式外壳：
+     </para>
+ <screen><prompt role="root"># </prompt><command>crm</command></screen>
+    </step>
+    <step>
+     <para>
+      切换到资源级别：
+     </para>
+ <screen><prompt role="custom">crm(live)# </prompt><command>resource</command></screen>
+    </step>
+    <step>
+     <para>
+      使用 <command>start</command> 启动资源，然后按 <keycap function="tab"/> 键显示所有已知资源：
+     </para>
+ <screen><prompt role="custom">crm(live)resource# </prompt><command>start <replaceable>ID</replaceable></command></screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+<sect1 xml:id="sec-ha-resource-stop">
+ <title>停止群集资源</title>
+ <sect2 xml:id="sec-ha-manual-config-stop">
+  <title>使用 crmsh 停止群集资源</title>
+  <para>
+   要停止一个或多个现有群集资源，需要提供相应的标识符。
+  </para>
+  <procedure>
+   <title>使用 crmsh 停止群集资源</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 用户身份登录，然后启动 <command>crm</command> 交互式外壳：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm</command></screen>
+   </step>
+   <step>
+    <para>
+     切换到资源级别：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>resource</command></screen>
+   </step>
+   <step>
+    <para>
+     使用 <command>stop</command> 停止资源，然后按 <keycap function="tab"/> 键显示所有已知资源：
+    </para>
+<screen><prompt role="custom">crm(live)resource# </prompt><command>stop <replaceable>ID</replaceable></command></screen>
+    <para>
+     您一次可以停止多个资源：
+    </para>
+    <screen><prompt role="custom">crm(live)resource# </prompt><command>stop <replaceable>ID1</replaceable> <replaceable>ID2</replaceable></command> ...</screen>
+   </step>
+  </procedure>
+ </sect2>
+</sect1>
+
+<sect1 xml:id="sec-ha-resource-clean">
+ <title>清理群集资源</title>
+ <para>
+   资源失败时会自动重启动，但每次失败都会增加资源的失败计数。
+  </para>
+  <para>
+   如果已为资源设置 <literal>migration-threshold</literal>，当失败次数达到迁移阈值时，节点将不再运行该资源。
+  </para>
+  <para>
+   可以自动重置资源的失败计数（通过设置资源的 <literal>failure-timeout</literal> 选项），也可使用 Hawk2 或 crmsh 手动重置。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-cleanup">
+  <title>使用 Hawk2 清理群集资源</title>
+  <procedure xml:id="pro-hawk2-clean">
+   <title>清理资源</title>
+   <step>
+    <para>
+     登录 Hawk2：
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     从左侧导航栏中，选择<guimenu>状态</guimenu>。<guimenu>资源</guimenu>列表还会显示<guimenu>状态</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     转到要清理的资源。在<guimenu>操作</guimenu>列中，单击向下箭头按钮并选择<guimenu>清理</guimenu>。要继续，请对显示的消息进行确认。
+    </para>
+    <para>
+     如此即会执行 <command>crm resource cleanup</command> 命令并在所有节点上清理该资源。
+    </para>
+   </step>
+  </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-cleanup">
+   <title>使用 crmsh 清理群集资源</title>
+   <procedure>
+    <title>使用 crmsh 清理资源</title>
+    <step>
+     <para>
+      打开外壳并以 <systemitem class="username">root</systemitem> 用户身份登录。
+     </para>
+    </step>
+    <step>
+     <para>
+      获取所有资源的列表。
+     </para>
+ <screen><prompt role="root"># </prompt><command>crm resource list</command>
+  ...
+ Resource Group: dlm-clvm:1
+         dlm:1  (ocf:pacemaker:controld) Started
+         clvm:1 (ocf:heartbeat:lvmlockd) Started</screen>
+    </step>
+    <step>
+     <para>
+      例如，要清理资源 <literal>dlm</literal>，请执行以下操作：
+     </para>
+ <screen><prompt role="root"># </prompt><command>crm resource cleanup dlm</command></screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+<sect1 xml:id="sec-ha-resource-remove">
+ <title>去除群集资源</title>
+  <para>
+   要从群集中去除资源，请按照下面的 Hawk2 或 crmsh 过程操作，以免出现配置错误。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-remove">
+  <title>使用 Hawk2 去除群集资源</title>
+  <procedure xml:id="pro-hawk2-rsc-rm">
+   <title>去除群集资源</title>
+   <step>
+    <para>
+     登录 Hawk2：
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     按<xref linkend="pro-hawk2-clean"/>中所述清理所有节点上的资源。
+    </para>
+   </step>
+   <step>
+    <para>
+     停止资源：
+    </para>
+    <substeps>
+     <step>
+      <para>
+       从左侧导航栏中，选择<menuchoice><guimenu>监视</guimenu>
+       <guimenu>状态</guimenu></menuchoice>。<guimenu>资源</guimenu>列表还会显示<guimenu>状态</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       在<guimenu>操作</guimenu>列中，单击资源旁边的<guimenu>停止</guimenu>按钮。
+      </para>
+     </step>
+     <step>
+      <para>
+       要继续，请对显示的消息进行确认。
+      </para>
+      <para>
+       资源停止后，<guimenu>状态</guimenu>列将会反映此变化。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     删除资源：
+    </para>
+    <substeps>
+     <step>
+      <para>
+       从左侧导航栏中，选择<menuchoice><guimenu>配置</guimenu> <guimenu>编辑配置</guimenu></menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       在<guimenu>资源</guimenu>列表中，转到相应资源。在<guimenu>操作</guimenu>列中，单击资源旁边的<guimenu>删除</guimenu>图标。
+      </para>
+     </step>
+     <step>
+      <para>
+       要继续，请对显示的消息进行确认。
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-remove">
+   <title>使用 crmsh 去除群集资源</title>
+   <procedure>
+    <title>使用 crmsh 去除群集资源</title>
+    <step>
+     <para>
+      以 <systemitem class="username">root</systemitem> 用户身份登录，然后启动 <command>crm</command> 交互式外壳：
+     </para>
+ <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+    </step>
+    <step>
+     <para>
+      运行以下命令来获取您的资源列表：
+     </para>
+ <screen><prompt role="custom">crm(live)# </prompt><command>resource status</command></screen>
+     <para>
+      例如，输出可能如下所示（其中<quote>myIP</quote>是资源的相应标识符）：
+     </para>
+ <screen>myIP    (ocf:IPaddr:heartbeat) ...</screen>
+    </step>
+    <step>
+     <para>
+      删除具有相关标识符的资源（也暗指 <command>commit</command>）：
+     </para>
+ <screen><prompt role="custom">crm(live)# </prompt><command>configure delete <replaceable>YOUR_ID</replaceable></command></screen>
+    </step>
+    <step>
+     <para>
+      提交更改：
+     </para>
+ <screen><prompt role="custom">crm(live)# </prompt><command>configure commit</command></screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+<sect1 xml:id="sec-ha-resource-migrate">
+ <title>迁移群集资源</title>
+  <para>
+   当软件或硬件发生故障时，群集会自动对资源进行故障转移（迁移），具体情况视您可以定义的特定参数（例如迁移阈值或资源粘性）而定。您也可以手动将资源迁移到群集中的其他节点，或将其从当前节点移出，让群集决定将资源放置在哪里。
+  </para>
+  <para>
+   可以使用 Hawk2 或 crmsh 来迁移群集资源。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-manage-migrate">
+  <title>使用 Hawk2 迁移群集资源</title>
+  <procedure xml:id="pro-hawk2-rsc-migrate">
+   <title>手动迁移资源</title>
+   <step>
+    <para>
+     登录 Hawk2：
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     从左侧导航栏中，选择<menuchoice><guimenu>监视</guimenu>
+     <guimenu>状态</guimenu></menuchoice>。<guimenu>资源</guimenu>列表还会显示<guimenu>状态</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>资源</guimenu>列表中，选择相应资源。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>操作</guimenu>列中，单击向下箭头按钮并选择<guimenu>迁移</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     随后打开的窗口中会提供以下选项：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <guimenu>离开当前节点</guimenu>：此选项会为当前节点创建一个分数为 <literal>-INFINITY</literal> 的位置约束。
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       或者，您也可以将资源移到另一节点上。此选项将为目标节点创建分数为 <literal>INFINITY</literal> 的位置约束。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+    <para>
+     确认您的选择。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   要使资源重新移回，请按如下操作：
+  </para>
+  <procedure xml:id="pro-hawk2-rsc-migrate-back">
+   <title>取消迁移资源</title>
+   <step>
+    <para>
+     登录 Hawk2：
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     从左侧导航栏中，选择<menuchoice><guimenu>监视</guimenu>
+     <guimenu>状态</guimenu></menuchoice>。<guimenu>资源</guimenu>列表还会显示<guimenu>状态</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>资源</guimenu>列表中，转到相应资源。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>操作</guimenu>列中，单击向下箭头按钮并选择<guimenu>清除</guimenu>。要继续，请对显示的消息进行确认。
+    </para>
+    <para>
+     Hawk2 会使用 <command>crm_resource </command> <option>--clear</option> 命令。资源可以移回到其原始位置，也可以留在当前位置（取决于资源粘性）。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   有关详细信息，请参见 <link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/> 上的 <citetitle>Pacemaker Explained</citetitle>。请参见 <citetitle>Resource Migration</citetitle> 部分。
+  </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-migrate">
+   <title>使用 crmsh 迁移群集资源</title>
+   <para>
+    可以使用 <command>move</command> 命令来完成此任务。例如，要将 <literal>ipaddress1</literal> 资源迁移到名为 <systemitem class="domainname">bob</systemitem> 的群集节点，请使用以下命令：
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm resource</command>
+ <prompt role="custom">crm(live)resource# </prompt><command>move ipaddress1 bob</command></screen>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-tags">
+  <title>使用标记对资源分组</title>
+  <para>
+   使用标记可以一次性引用多个资源，而无需在这些资源之间创建任何共置或顺序关系。此功能十分适用于对概念上相关的资源进行分组。例如，如果有多个资源与某个数据库相关，您可以创建一个名为 <literal>databases</literal> 的标记，并将与该数据库相关的所有资源都添加到此标记。这样，只需使用一条命令就能停止或启动所有这些资源。
+  </para>
+  <para>
+   标记也可以用于约束。例如，<literal>loc-db-prefer</literal> 位置约束将应用到标记了 <literal>databases</literal> 的一组资源：
+  </para>
+<screen>location loc-db-prefer databases 100: alice</screen>
+  <para>
+   可以使用 Hawk2 或 crmsh 来创建标记。
+  </para>
+
+  <sect2 xml:id="sec-conf-hawk2-rsc-tag">
+   <title>使用 Hawk2 通过标记对资源分组</title>
+   <procedure xml:id="pro-conf-hawk2-tag">
+    <title>添加标记</title>
+    <step>
+     <para>
+      登录 Hawk2：
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      从左侧导航栏中，选择<menuchoice>
+      <guimenu>配置</guimenu> <guimenu>添加资源</guimenu> <guimenu>标记</guimenu> </menuchoice>。
+     </para>
+    </step>
+    <step>
+     <para>
+      输入唯一的<guimenu>标记 ID</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      从<guimenu>对象</guimenu>列表中，选择要使用标记引用的资源。
+     </para>
+    </step>
+    <step>
+     <para>
+      单击<guimenu>创建</guimenu>以完成配置。如果操作成功，屏幕顶部会显示一条消息。
+     </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>Hawk2 - 标记</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-tag.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-tag.png" width="100%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-tag">
+   <title>使用 crmsh 通过标记对资源分组</title>
+   <para>
+    例如，如果有多个资源与某个数据库相关，您可以创建一个名为 <literal>databases</literal> 的标记，并将与该数据库相关的所有资源都添加到此标记：
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm configure tag databases: db1 db2 db3</command></screen>
+   <para>
+    这样，只需使用一条命令就能启动所有这些资源：
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm resource start databases</command></screen>
+   <para>
+    同样，也可以一次性停止所有这些资源：
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm resource stop databases</command></screen>
+  </sect2>
+</sect1>
+
+</chapter>

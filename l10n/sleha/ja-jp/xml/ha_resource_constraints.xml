@@ -1,0 +1,1302 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_resource_constraints.xml" xml:id="sec-ha-config-basics-constraints" xml:lang="ja" version="5.1">
+ <title>リソース制約の設定</title>
+ <info>
+  <abstract>
+   <para>
+    すべてのリソースを設定する以外にも、多くの作業が必要です。クラスタが必要なすべてのリソースを認識しても、正しく処理できるとは限りません。リソースの制約を指定して、リソースを実行可能なクラスタノード、リソースのロード順序、特定のリソースが依存している他のリソースを指定することができます。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+ <sect1 xml:id="sec-ha-config-basics-constraints-types">
+   <title>制約のタイプ</title>
+   <para>
+    使用可能な制約には3種類あります。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>リソースの場所
+    </term>
+     <listitem>
+      <para>
+       場所の制約はリソースを実行できるノード、できないノード、または実行に適したノードを定義するものです。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>リソースのコロケーション</term>
+     <listitem>
+      <para>
+       コロケーション制約は、ノード上で一緒に実行可能な、または一緒に実行することが禁止されているリソースをクラスタに伝えます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>リソースの順序</term>
+     <listitem>
+      <para>
+       アクションの順序を定義する、順序の制約です。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <important>
+    <title>制約および特定のタイプのリソースに関する制限</title>
+    <itemizedlist>
+     <listitem>
+      <para>リソースグループの「メンバー」<emphasis></emphasis>に対してコロケーション制約を作成しないでください。代わりに、リソースグループ全体を指すリソース制約を作成してください。その他のタイプの制約はすべて、リソースグループのメンバーに対して使用しても問題ありません。</para>
+     </listitem>
+     <listitem>
+      <para>クローンリソースまたはプロモータブルクローンリソースが適用されているリソースで制約を使用しないでください。制約はクローンまたはプロモータブルクローンリソースに適用する必要があり、その子リソースに適用することはできません。</para>
+     </listitem>
+    </itemizedlist>
+   </important>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-constraints-scores">
+   <title>スコアと無限大</title>
+   <para>
+    制約を定義する際は、スコアも扱う必要があります。あらゆる種類のスコアはクラスタの動作方法と密接に関連しています。スコアの操作によって、リソースのマイグレーションから、速度が低下したクラスタで停止するリソースの決定まで、あらゆる作業を実行できます。スコアはリソースごとに計算され、リソースに対して負のスコアが付けられているノードは、そのリソースを実行できません。リソースのスコアを計算した後、クラスタはスコアが最も高いノードを選択します。
+   </para>
+   <para>
+    <literal>INFINITY</literal>は現在<literal>1,000,000</literal>と定義されています。この値の増減は、次の3つの基本ルールに従います。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      任意の値+ INFINITY = INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      任意の値- INFINITY = -INFINITY
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      INFINITY - INFINITY = -INFINITY
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    リソース制約を定義する際は、各制約のスコアを指定します。スコアはこのリソース制約に割り当てる値を示します。スコアの高い制約は、それよりもスコアが低い制約より先に適用されます。1つのリソースに対して場所の制約を複数作成し、それぞれに異なるスコアを指定することで、リソースがフェールオーバーするノードの順序を指定できます。
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-constraints-templates">
+   <title>リソーステンプレートと制約</title>
+   <para>
+    リソーステンプレートを定義したら(<xref linkend="sec-ha-config-basics-resources-templates"/>を参照)、次のタイプの制約で参照できます。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      順序の制約
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      コロケーション制約
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      rsc_ticket制約(Geoクラスタの場合)
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    ただし、コロケーション制約には、テンプレートへの参照を複数含めることはできません。リソースセットには、テンプレートへの参照を含めることはできません。
+   </para>
+   <para>
+    制約内で参照されたリソーステンプレートは、そのテンプレートから派生するすべてのプリミティブを表します。これは、そのリソーステンプレートを参照しているすべてのプリミティブリソースに、この制約が適用されることを意味します。制約内でリソーステンプレートを参照すれば、リソースセットの代替となり、クラスタ設定をかなりの程度単純化することができます。リソースセットの詳細については、<xref linkend="sec-ha-config-basics-constraints-rscset"/>を参照してください。
+   </para>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-conf-add-location-constraints">
+  <title>場所制約の追加</title>
+  <para>
+   場所制約は、リソースを実行できるノード、実行に適したノード、または実行できないノードを決定します。たとえば、場所制約により、特定のデータベースに関連するすべてのリソースを同じノードに配置します。この種類の制約は、各リソースに複数追加できます。すべてのlocation制約は、所定のリソースに関して評価されます。
+  </para>
+  <para>
+   Hawk2またはcrmshのいずれかを使用して場所制約を追加できます。
+  </para>
+  <sect2 xml:id="sec-conf-hawk2-cons-loc">
+   <title>Hawk2を使用した場所制約の追加</title>
+   <procedure xml:id="pro-hawk2-constraints-location">
+    <title>場所制約の追加</title>
+    <step>
+     <para>
+      Hawk2にログインします。
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      左のナビゲーションバーから、<menuchoice>
+      <guimenu>環境設定</guimenu>  <guimenu> Add Constraint (制約の追加)</guimenu>
+      <guimenu> Location (場所)</guimenu> </menuchoice>の順に選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      固有の<guimenu>制約ID</guimenu>を入力します。
+     </para>
+    </step>
+    <step xml:id="step-hawk2-loc-rsc">
+     <para>
+      <guimenu>Resources (リソース)</guimenu>のリストから、制約を定義するリソースを1つまたは複数選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>スコア</guimenu>にスコアを入力します。スコアはこのリソース制約に割り当てる値を示します。正の値は、次のステップで指定する<guimenu>ノード</guimenu>でリソースを実行できることを示します。負の値は、リソースをそのノードで実行すべきではないことを示します。スコアの高い制約は、それよりもスコアが低い制約より先に適用されます。
+     </para>
+     <para>
+      使用頻度の高い次の値は、ドロップダウンボックスからも設定できます。
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        ノードで強制的にリソースを実行するには、矢印アイコンをクリックして<literal>Always</literal>を選択します。これにより、スコアは<literal>INFINITY</literal>に設定されます。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        ノードでリソースを実行しない場合、矢印アイコンをクリックして<literal>Never</literal> (実行しない)を選択します。これによりスコアは<literal>-INFINITY</literal>に設定され、リソースはそのノードで実行してはならないことになります。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        スコアを<literal>0</literal>に設定するには、矢印アイコンをクリックして<literal>Advisory</literal> (推奨値)を選択します。これにより制約が無効になります。これは、リソース検出を設定してもリソースを制約したくない場合に便利です。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </step>
+    <step>
+     <para>
+      <guimenu>ノード</guimenu>を選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>作成</guimenu>をクリックして、設定を完了します。画面上部に、アクションが成功したかどうかを示すメッセージが表示されます。
+     </para>
+    </step>
+   </procedure>
+   <figure pgwide="0">
+    <title>Hawk2 - 場所制約</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-loc-constraint.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-loc-constraint.png" width="100%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-constraints-locational">
+    <title>crmshを使用した場所制約の追加</title>
+    <para>
+     <command>location</command>コマンドは、リソースを実行できるノード、できないノード、または実行に適したノードを定義するものです。
+    </para>
+    <para>
+     <literal>fs1</literal>というIDを持つリソースを<systemitem class="server">alice</systemitem>という名前のノード上で実行するプリファレンスを100にする簡単な例を次に示します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>location loc-fs1 fs1 100: alice</command></screen>
+    <para>
+     もう1つの例は、pingによる場所の設定です。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive ping ping \
+    params name=ping dampen=5s multiplier=100 host_list="r1 r2"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>clone cl-ping ping meta interleave=true</command>
+<prompt role="custom">crm(live)configure# </prompt><command>location loc-node_pref internal_www \
+    rule 50: #uname eq alice \
+    rule ping: defined ping</command></screen>
+    <para>
+     パラメータ<parameter>host_list</parameter>は、pingおよびカウントするホストのスペースで区切られたリストです。場所の制約のもう1つの使用例は、<emphasis></emphasis>「リソースセット」としてのプリミティブのグループ化です。これは、たとえば、いくつかのリソースがネットワーク接続のping属性によって異なるときに役立つ場合があります。以前は、<literal>-inf/ping</literal>ルールを設定で何度も重複して指定する必要があったため、設定内容が不必要に複雑でした。
+    </para>
+    <para>
+     次の例では、仮想IPアドレス<varname>loc-alice</varname>および<varname>vip1</varname>を参照して、リソースセット<varname>vip2</varname>を作成します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive vip1 IPaddr2 params ip=192.168.1.5</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive vip2 IPaddr2 params ip=192.168.1.6</command>
+<prompt role="custom">crm(live)configure# </prompt><command>location loc-alice { vip1 vip2 } inf: alice</command></screen>
+    <para>
+     ある場合には、<command>location</command>コマンドでリソースパターンを使用すると、より効率的で便利です。リソースパターンは、2つのスラッシュ間の正規表現です。たとえば、前に示した仮想IPアドレスは、次とすべて一致させることができます。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>location loc-alice /vip.*/ inf: alice</command></screen>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-conf-add-colocation-constraints">
+  <title>コロケーション制約の追加</title>
+  <para>
+   コロケーション制約は、ノード上で一緒に実行可能な、または一緒に実行することが禁止されているリソースをクラスタに伝えます。コロケーション制約はリソース間の依存関係を定義するため、コロケーション制約を作成するには、少なくとも2つのリソースが必要です。
+  </para>
+  <para>
+   Hawk2またはcrmshのいずれかを使用してコロケーション制約を追加できます。
+  </para>
+  <sect2 xml:id="sec-conf-hawk2-cons-col">
+   <title>Hawk2を使用したコロケーション制約の追加</title>
+   <procedure xml:id="pro-hawk2-constraints-colocation">
+    <title>コロケーション制約の追加</title>
+    <step>
+     <para>
+      Hawk2にログインします。
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      左のナビゲーションバーから、<menuchoice> <guimenu>環境設定</guimenu>
+      <guimenu> Add Constraint (制約の追加)</guimenu> <guimenu>コロケーション</guimenu> </menuchoice>の順に選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      固有の<guimenu>制約ID</guimenu>を入力します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>スコア</guimenu>にスコアを入力します。スコアは複数のリソースの場所の関係を決定します。正の値は、リソースを同じノードで実行しなければならないことを示します。負の値は、リソースを同じノードで実行するべきではないことを示します。スコアと他の要因との組み合わせによって、ノードの配置先が決定します。
+     </para>
+     <para>
+      使用頻度の高い次の値は、ドロップダウンボックスからも設定できます。
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        同じノードで強制的にリソースを実行するには、矢印アイコンをクリックして<literal>Always</literal>を選択します。これにより、スコアは<literal>INFINITY</literal>に設定されます。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        リソースを同じノードで実行しない場合、矢印アイコンをクリックして<literal>Never</literal> (実行しない)を選択します。これによりスコアは<literal>-INFINITY</literal>に設定され、リソースは同じノードで実行してはならないことになります。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </step>
+    <step>
+     <para>
+      制約のリソースを定義するには、次の手順に従います。
+     </para>
+     <substeps performance="required">
+      <step xml:id="step-hawk2-col-rsc">
+       <para>
+        <guimenu>リソース</guimenu>カテゴリのドロップダウンボックスから、リソース(またはテンプレート)を選択します。
+       </para>
+       <para>
+        リソースが追加され、下に新しい空のドロップダウンボックスが表示されます。
+       </para>
+      </step>
+      <step>
+       <para>
+        この手順を繰り返してリソースを追加します。
+       </para>
+       <para>
+        最上位のリソースは次のリソースなど順に依存するため、クラスタはまず最後のリソースを置く場所を決め、次にその決定に基づいて依存するものを配置していきます。制約が満たされないと、クラスタは依存するリソースが実行しないようにすることがあります。
+       </para>
+      </step>
+      <step>
+       <para>
+        コロケーション制約内のリソースの順序を入れ替えるには、リソースの横にある上矢印アイコンをクリックして、その上のエントリと入れ替えます。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      必要に応じて、各リソースの他のパラメータ(<literal>Started</literal>、<literal>Stopped</literal>、<literal>Promote</literal>、<literal>Demote</literal>など)を指定します。リソースの横にある空のドロップダウンボックスをクリックして、目的のエントリを選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>作成</guimenu>をクリックして、設定を完了します。画面上部に、アクションが成功したかどうかを示すメッセージが表示されます。
+     </para>
+    </step>
+   </procedure>
+   <figure pgwide="0">
+    <title>Hawk2 - コロケーション制約</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-col-constraint.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-col-constraint.png" width="100%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-constraints-collocational">
+    <title>crmshを使用したコロケーション制約の追加</title>
+    <para>
+     <command>colocation</command>コマンドは、同じホストまたは別のホストで実行するべきリソースを定義するために使用します。
+    </para>
+    <para>
+     常に同じノードで実行する必要があるリソース、または同じノードで実行してはならないリソースを定義する場合には、それぞれ+infまたは-infのスコアを設定することだけが可能です。無限大以外のスコアの使用も可能です。その場合、コロケーションは<emphasis>advisory</emphasis>と呼ばれ、衝突が発生したときに他のリソースが停止しないようにするため、クラスタがそれらの制約に従わないこともあります。
+    </para>
+    <para>
+     たとえば、リソース<literal>resource1</literal>と<literal>resource2</literal>を常に同じホスト上で実行するには、次の制約を使用します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>colocation coloc-2resource inf: resource1 resource2</command></screen>
+    <para>
+     プライマリ/セカンダリ設定では、現在のノートがプライマリかどうかと、リソースをローカルに実行しているかどうかを把握することが必要です。
+    </para>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-conf-add-order-constraints">
+  <title>順序制約の追加</title>
+  <para>
+   順序の制約を使用して、開始、停止、プライマリへの昇格など、別のリソースが特殊な条件を満たす直前または直後に、サービスを開始または停止できます。たとえば、デバイスがシステムで利用できるようになるまで、ファイルシステムはマウントできません。順序制約はリソース間の依存関係を定義するため、順序制約を作成するには、少なくとも2つのリソースを作成する必要があります。
+  </para>
+  <para>
+   Hawk2またはcrmshのいずれかを使用して順序制約を追加できます。
+  </para>
+  <sect2 xml:id="sec-conf-hawk2-cons-order">
+   <title>Hawk2を使用した順序制約の追加</title>
+   <procedure xml:id="pro-hawk2-constraints-order">
+    <title>順序制約の追加</title>
+    <step>
+     <para>
+      Hawk2にログインします。
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      左のナビゲーションバーから、<menuchoice> <guimenu>環境設定</guimenu>
+      <guimenu> Add Constraint (制約の追加)</guimenu> <guimenu>順序</guimenu> </menuchoice>の順に選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      固有の<guimenu>制約ID</guimenu>を入力します。
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>スコア</guimenu>にスコアを入力します。スコアがゼロより大きい場合、順序制約は必須になりますが、そうでない場合はオプションです。
+     </para>
+     <para>
+      使用頻度の高い次の値は、ドロップダウンボックスからも設定できます。
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        順序制約を必須にする場合、矢印アイコンをクリックして<literal>Mandatory</literal> (必須)を選択します。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        順序制約を提案のみにする場合、矢印アイコンをクリックして<literal>Optional</literal> (オプション)を選択します。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>Serialize</literal> (順番に処理): リソースに対して2つの停止/開始アクションが同時に実行されないようにするには、矢印アイコンをクリックして<literal>Serialize</literal> (順番に処理)を選択します。これにより、1つのリソースの開始が完了しないと他のリソースを開始できなくなります。通常は、起動時にホストに高い負荷をかけるリソースに使用します。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </step>
+    <step>
+     <para>
+      順序の制約の場合、オプション<guimenu>シンメトリック</guimenu>は常に有効にしていてください。これは、リソースを停止するときには逆順で行うという指定です。
+     </para>
+    </step>
+    <step>
+     <para>
+      制約のリソースを定義するには、次の手順に従います。
+     </para>
+     <substeps performance="required">
+      <step xml:id="step-hawk2-order-rsc">
+       <para>
+        <guimenu>リソース</guimenu>カテゴリのドロップダウンボックスから、リソース(またはテンプレート)を選択します。
+       </para>
+       <para>
+        リソースが追加され、下に新しい空のドロップダウンボックスが表示されます。
+       </para>
+      </step>
+      <step>
+       <para>
+        この手順を繰り返してリソースを追加します。
+       </para>
+       <para>
+        一番上のリソースが最初に開始され、次に2番目に開始されます。通常、リソースは逆の順序で停止されます。
+       </para>
+      </step>
+      <step>
+       <para>
+        順序制約内のリソースの順序を入れ替えるには、リソースの横にある上矢印アイコンをクリックして、その上のエントリと入れ替えます。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      必要に応じて、各リソースの他のパラメータ(<literal>Started</literal>、<literal>Stopped</literal>、<literal>Promote</literal>、<literal>Demote</literal>など)を指定します。リソースの横にある空のドロップダウンボックスをクリックして、目的のエントリを選択します。
+     </para>
+    </step>
+    <step>
+     <para>
+      変更を確認して、設定を完了します。画面上部に、アクションが成功したかどうかを示すメッセージが表示されます。
+     </para>
+    </step>
+   </procedure>
+   <figure pgwide="0">
+    <title>Hawk2 - 順序制約</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-order-constraint.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-order-constraint.png" width="100%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-constraints-ordering">
+    <title>crmshを使用した順序制約の追加</title>
+    <para>
+     <command>order</command>コマンドは、アクションのシーケンスを定義します。
+    </para>
+    <para>
+     たとえば、常に<literal>resource1</literal>を<literal>resource2</literal>の前に開始するには、次の制約を使用します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order res1_before_res2 Mandatory: resource1 resource2</command></screen>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-constraints-rscset">
+   <title>リソースセットを使用して制約を定義する</title>
+   <para>
+     場所、コロケーション、または順序の制約を定義するための別のフォーマットとして、<emphasis>resource sets</emphasis>を使用することができます。リソースセットでは、プリミティブが1つのセットでグループ化されます。以前は、これはリソースグループを定義するか(デザインを正確に表現できない場合もあった)、個々の制約として各関係を定義することでこの操作が可能でした。個々の制約として定義した場合、多数のリソースとの組み合わせが増えるにつれて、制約が飛躍的に増加しました。リソースセットを介した設定で、冗長性が常に低減されるわけではありませんが、定義内容の把握と管理がより容易になります。
+   </para>
+   <para>
+    Hawk2またはcrmshのいずれかを使用してリソースセットを設定できます。
+   </para>
+
+   <sect2 xml:id="sec-conf-hawk2-cons-set">
+    <title>Hawk2でリソースセットを使用して制約を定義する</title>
+    <procedure xml:id="pro-hawk2-constraints-sets">
+     <title>制約のためにリソースセットを使用する</title>
+     <step>
+      <para>
+       場所制約内でリソースセットを使用するには:
+      </para>
+      <substeps performance="required">
+       <step>
+        <para>
+         <xref linkend="pro-hawk2-constraints-location"/>の説明に従って操作を進めます。ただし、<xref linkend="step-hawk2-loc-rsc" xrefstyle="select:label"/>は除きます。1つのリソースを選択する代わりに、<keycap function="control"/>または<keycap function="shift"/>を押しながらマウスをクリックして、複数のリソースを選択します。これにより、場所制約内でリソースセットが作成されます。
+        </para>
+       </step>
+       <step>
+        <para>
+         場所制約からリソースを削除するには、<keycap function="control"/>を押しながらリソースを再度クリックして、選択解除します。
+        </para>
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para>
+       コロケーションまたは順序の制約内でリソースセットを使用するには:
+      </para>
+      <substeps performance="required">
+       <step>
+        <para>
+         <xref linkend="pro-hawk2-constraints-colocation"/>または<xref linkend="pro-hawk2-constraints-order"/>の説明に従います。ただし、制約に対してリソースを定義する手順(<xref linkend="step-hawk2-col-rsc" xrefstyle="select:label"/>または<xref linkend="step-hawk2-order-rsc"/>)は除きます。
+        </para>
+       </step>
+       <step>
+        <para>
+         複数のリソースを追加します。
+        </para>
+       </step>
+       <step>
+        <para>
+         リソースセットを作成するため、リソースの横にあるチェーンアイコンをクリックして、そのリソースを上のリソースにリンクします。リソースセットは、セットに属しているリソースの周囲のフレームによって示されます。
+        </para>
+       </step>
+       <step>
+        <para>
+         リソースセット内の複数のリソースを結合したり、複数のリソースセットを作成したりできます。
+        </para>
+        <figure>
+         <title>Hawk2 - コロケーション制約の2つのリソースセット</title>
+         <mediaobject>
+          <imageobject role="fo">
+           <imagedata fileref="hawk2-constraint-set.png" width="100%"/>
+          </imageobject>
+          <imageobject role="html">
+           <imagedata fileref="hawk2-constraint-set.png" width="100%"/>
+          </imageobject>
+         </mediaobject>
+        </figure>
+       </step>
+       <step>
+        <para>
+         上のリソースからリソースをリンク解除するには、そのリソースの横にあるハサミアイコンをクリックします。
+        </para>
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para>
+       変更を確認して、制約の設定を完了します。
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-config-basics-constraints-rscset-constraints">
+    <title>crmshでリソースセットを使用して制約を定義する</title>
+    <example xml:id="ex-config-basic-resourceset-loc">
+     <title>場所制約のリソースセット</title>
+     <para>
+      たとえば、crmshでリソースセット(<varname>loc-alice</varname>)の次の設定を使用して、2つの仮想IP (<varname>vip1</varname>と<varname>vip2</varname>)を同じノード<varname>alice</varname>に配置できます。
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive vip1 IPaddr2 params ip=192.168.1.5</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive vip2 IPaddr2 params ip=192.168.1.6</command>
+<prompt role="custom">crm(live)configure# </prompt><command>location loc-alice { vip1 vip2 } inf: alice</command></screen>
+    </example>
+    <para>
+     リソースセットを使用してコロケーション制約の設定を置き換える場合は、次の2つの例を検討します。
+    </para>
+    <example>
+     <title>コロケートされたリソースのチェーン</title>
+<screen>&lt;constraints&gt;
+    &lt;rsc_colocation id="coloc-1" rsc="B" with-rsc="A" score="INFINITY"/&gt;
+    &lt;rsc_colocation id="coloc-2" rsc="C" with-rsc="B" score="INFINITY"/&gt;
+    &lt;rsc_colocation id="coloc-3" rsc="D" with-rsc="C" score="INFINITY"/&gt;
+&lt;/constraints&gt;</screen>
+    </example>
+    <para>
+     リソースセットで表される同一の設定:
+    </para>
+<screen>&lt;constraints&gt;
+   &lt;rsc_colocation id="coloc-1" score="INFINITY" &gt;
+    &lt;resource_set id="colocated-set-example" sequential="true"&gt;
+     &lt;resource_ref id="A"/&gt;
+     &lt;resource_ref id="B"/&gt;
+     &lt;resource_ref id="C"/&gt;
+     &lt;resource_ref id="D"/&gt;
+    &lt;/resource_set&gt;
+   &lt;/rsc_colocation&gt;
+&lt;/constraints&gt;</screen>
+    <para>
+     リソースセットを使用して順序の制約の設定を置き換える場合は、次の2つの例を検討します。
+    </para>
+    <example>
+     <title>順序付けされたリソースのチェーン</title>
+<screen>&lt;constraints&gt;
+    &lt;rsc_order id="order-1" first="A" then="B" /&gt;
+    &lt;rsc_order id="order-2" first="B" then="C" /&gt;
+    &lt;rsc_order id="order-3" first="C" then="D" /&gt;
+&lt;/constraints&gt;</screen>
+    </example>
+    <para>
+     順序付けされたリソースを持つリソースセットを使用して、同様な目的を達成できます。
+    </para>
+    <example>
+     <title>リソースセットとして表される順序付けされたリソースのチェーン</title>
+<screen>&lt;constraints&gt;
+    &lt;rsc_order id="order-1"&gt;
+    &lt;resource_set id="ordered-set-example" sequential="true"&gt;
+    &lt;resource_ref id="A"/&gt;
+    &lt;resource_ref id="B"/&gt;
+    &lt;resource_ref id="C"/&gt;
+    &lt;resource_ref id="D"/&gt;
+    &lt;/resource_set&gt;
+    &lt;/rsc_order&gt;
+&lt;/constraints&gt;</screen>
+    </example>
+    <para>
+     これらのセットは、順序付けされている(<literal>sequential=true</literal>)場合もあれば、順序付けされていない場合(<literal>sequential=false</literal>)場合もあります。また、<literal>require-all</literal>属性を使用して、<literal>AND</literal>および<literal>OR</literal>ロジック間を切り替えることができます。
+    </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-constraints-weak-bond">
+    <title>依存性なしのリソースセットのコロケーション</title>
+    <para>
+     同じノード上にリソースのグループを配置する方が役立つ場合がありますが(コロケーション制約を定義)、リソース間に困難な依存関係を持つことはありません。たとえば、同じノード上に2つのリソースを配置したいが、それらの一方で障害が発生した場合に他方をクラスタで再起動したくない場合があります。<emphasis></emphasis>
+    </para>
+    <para>
+     これは、<command>weak-bond</command>コマンドを使用して、crmシェルで実行できます。
+    </para>
+<screen><prompt role="root"># </prompt><command>crm configure assist weak-bond <replaceable>resource1</replaceable> <replaceable>resource2</replaceable></command></screen>
+    <para>
+     <command>weak-bond</command>コマンドの実装により、指定されたリソースを持つダミーリソースとコロケーション制約が自動的に作成されます。
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-failover">
+   <title>リソースフェールオーバーノードの指定</title>
+   <para>
+    リソースに障害が発生すると、自動的に再起動されます。現在のノードで再起動できない場合、または現在のノードで<literal>N</literal>回失敗した場合は、別のノードへのフェールオーバーが試行されます。リソースが失敗するたびに、その失敗回数が増加します。新しいノードへのマイグレートを行う基準(<literal>migration-threshold</literal>)となるリソースの失敗をいくつか定義できます。クラスタ内に3つ以上ノードがある場合、特定のリソースのフェールオーバー先のノードはHigh Availabilityソフトウェアが選択します。
+   </para>
+   <para>
+    ただし、リソースに1つ以上の場所の制約と<literal>migration-threshold</literal>を設定することで、そのリソースのフェールオーバー先にするノードを指定できます。
+   </para>
+   <para>
+    Hawk2またはcrmshのいずれかを使用してリソースフェールオーバーノードを指定できます。
+   </para>
+   <example xml:id="ex-ha-config-basics-failover">
+    <title>マイグレーションしきい値 - プロセスフロー</title>
+    <para>
+     たとえば、リソース「<literal>rsc1</literal>」に場所の制約を設定し、このリソースを「<literal>alice</literal>」で優先的に実行するように指定したと仮定します。そのノードで実行できなかった場合は、「<literal>migration-threshold</literal>」を確認して失敗回数と比較します。失敗回数 &gt;= マイグレーションしきい値の場合は、リソースは次の優先実行先として指定されているノードにマイグレートされます。
+    </para>
+    <para>
+     デフォルトでは、いったんしきい値に達すると、そのノードでは、リソースの失敗回数がリセットされるまで、失敗したリソースを実行できなくなります。これは、手動でクラスタ管理者が行うか、リソースに<literal>failure-timeout</literal>オプションを設定することで実行できます。
+    </para>
+    <para>
+     たとえば、<literal>migration-threshold=2</literal>と<literal>failure-timeout=60s</literal>を設定すると、リソースは、2回の失敗の後に新しいノードに移行します。そして、1分後に復帰できます(固着性と制約のスコアによる)。
+    </para>
+   </example>
+   <para>
+    移行しきい値の概念には2つの例外があり、これらの例外は、リソースの開始失敗か、停止失敗のどちらかで発生します。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      起動の失敗では、失敗回数が<literal>INFINITY</literal>に設定されるので、常に、即時に移行が行われます。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      停止時の失敗ではフェンシングが発生します(<literal>stonith-enabled</literal>がデフォルトである<literal>true</literal>に設定されている場合)。
+     </para>
+     <para>
+      STONITHリソースが定義されていない場合は(または<literal>stonith-enabled</literal>が<literal>false</literal>に設定されている場合)、リソースの移行は行われません。
+     </para>
+    </listitem>
+   </itemizedlist>
+
+   <sect2 xml:id="sec-conf-hawk2-failover">
+    <title>Hawk2を使用したリソースフェールオーバーノードの指定</title>
+    <procedure xml:id="pro-hawk2-failover">
+     <title>フェールオーバーノードの指定</title>
+     <step>
+      <para>
+       Hawk2にログインします。
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       <xref linkend="pro-hawk2-constraints-location"/>に記されている手順に従って、そのリソースの場所の制約を設定します。
+      </para>
+     </step>
+     <step>
+      <para>
+       <literal>migration-threshold</literal>、<xref linkend="pro-conf-hawk2-rsc-modify" xrefstyle="select:label title nopage"/>に説明されている手順に従ってリソースに<xref linkend="step-hawk2-rsc-modify-params" xrefstyle="select:label"/>メタ属性を追加し、migration-thresholdの値を入力します。INFINITYではない正の値を指定する必要があります。
+      </para>
+     </step>
+     <step>
+      <para>
+       リソースの失敗回数を自動的に失効させる場合は、<literal>failure-timeout</literal>、<xref linkend="pro-conf-hawk2-primitive-add" xrefstyle="select:label title nopage"/>に説明されている手順に従って<xref linkend="step-hawk2-rsc-modify-params" xrefstyle="select:label"/>メタ属性をそのリソースに追加し、<guimenu>の</guimenu>値<literal>failure-timeout</literal>を入力します。
+      </para>
+      <informalfigure>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-failover-node.png" width="100%"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-failover-node.png" width="100%"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </step>
+     <step>
+      <para>
+       リソースの初期設定として、追加のフェールオーバーノードを指定する場合は、追加の場所の制約を作成します。
+      </para>
+     </step>
+    </procedure>
+    <para>
+     リソースの失敗回数は、自動的に期限切れにする代わりに、いつでも、手動でクリーンアップすることもできます。詳細については、<xref linkend="sec-conf-hawk2-manage-cleanup"/>を参照してください。
+    </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-failover">
+    <title>crmshを使用したリソースフェールオーバーノードの指定</title>
+    <para>
+     リソースフェールオーバーを判定するには、メタ属性<literal>migration-threshold</literal>を使用します。すべてのノードで失敗回数が<literal>migration-threshold</literal>を超えると、リソースは停止したままになります。例:
+    </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>location rsc1-alice rsc1 100: alice</command></screen>
+    <para>
+     通常、<literal>rsc1</literal>は<literal>alice</literal>で実行されます。そのノードで実行できなかった場合は、「<literal>migration-threshold</literal>」を確認して失敗回数と比較します。<literal>failcount</literal> &gt;= <literal>migration-threshold</literal>の場合、リソースは次の優先実行先として指定されているノードにマイグレートされます。
+    </para>
+    <para>
+     開始が失敗すると、<option>start-failure-is-fatal</option>オプションによっては、失敗回数がinfに設定されます。stopの失敗により、フェンシングが発生します。STONITHが定義されていない場合には、リソースは移行しません。
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-failback">
+   <title>リソースフェールバックノードの指定(リソースの固着性)</title>
+   <para>
+    ノードがオンライン状態に戻り、クラスタ内にある場合は、リソースが元のノードにフェールバックすることがあります。リソースを実行していたノードにリソースをフェールバックさせたくない場合や、リソースのフェールバック先として別のノードを指定する場合は、リソースの固着性の値を変更します。リソースの固着性は、リソースの作成時でも、その後でも指定できます。
+   </para>
+   <para>
+    リソース固着性値の指定時には、次の予想される結果について考慮してください。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>0</literal>の値:</term>
+     <listitem>
+      <para>
+       これがデフォルトの設定です。リソースはシステム内で最適な場所に配置されます。現在よりも<quote>状態のよい</quote>、または負荷の少ないノードが使用可能になると、移動することを意味しています。このオプションは自動フェールバックとほとんど同じですが、以前アクティブだったノード以外でもリソースをフェールバックできるという点が異なります。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>0</literal>より大きい値:</term>
+     <listitem>
+      <para>
+       リソースは現在の場所に留まることを望んでいますが、状態がよいノードが使用可能になると移動される可能性があります。値が大きくなるほど、リソースが現在の場所に留まることを強く望んでいることを示します。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>0</literal>より小さい値:</term>
+     <listitem>
+      <para>
+       リソースは現在の場所から別な場所に移動することを望んでいます。絶対値が大きくなるほど、リソースが移動を強く望んでいることを示します。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>INFINITY</literal>の値:</term>
+     <listitem>
+      <para>
+       ノードがリソースの実行権利がなくなったために強制終了される場合(ノードのシャットダウン、ノードのスタンバイ、<literal>migration-threshold</literal>に到達、または設定変更)以外は、リソースは常に現在の場所に留まります。このオプションは自動フェールバックを無効にする場合とほとんど同じです。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>-INFINITY</literal>の値:</term>
+     <listitem>
+      <para>
+       リソースは現在の場所から常に移動されます。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+   <sect2 xml:id="sec-config-hawk2-failback">
+    <title>Hawk2を使用したリソースフェールバックノードの指定</title>
+    <procedure xml:id="pro-hawk2-stickiness">
+     <title>リソースの固着性の指定</title>
+     <step>
+      <para>
+       Hawk2にログインします。
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       <literal>resource-stickiness</literal>、<xref linkend="pro-conf-hawk2-rsc-modify" xrefstyle="select:label title nopage"/>に従って、<xref linkend="step-hawk2-rsc-modify-params" xrefstyle="select:label"/>メタ属性をリソースに追加します。
+      </para>
+     </step>
+     <step>
+      <para>
+       <literal>resource-stickiness</literal>の<literal>-INFINITY</literal>と<literal>INFINITY</literal>間の値を指定します。
+      </para>
+      <informalfigure>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-rsc-stickiness.png" width="100%"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-rsc-stickiness.png" width="100%"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </step>
+    </procedure>
+   </sect2>
+
+   
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-utilization">
+   <title>負荷インパクトに基づくリソースの配置</title>
+   <para>
+    すべてのリソースが同等ではありません。Xenゲストなどの一部のリソースでは、そのホストであるノードがリソースの容量要件を満たす必要があります。リソースの組み合わされたニーズが提供された容量より大きくなるようにリソースが配置されると、リソースのパフォーマンスが低下します(あるいは失敗することさえあります)。
+   </para>
+   <para>
+    これを考慮に入れて、High Availability Extensionでは、次のパラメータを指定できます。
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      一定のノードが<emphasis>提供する</emphasis>容量
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      一定のリソースが<emphasis>要求する</emphasis>容量
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      リソースの配置に関する全体的なストラテジ
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    Hawk2またはcrmshのいずれかを使用してこれらを設定できます。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hawk2: <xref linkend="sec-config-hawk2-utilization"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      crmsh: <xref linkend="sec-ha-manual-config-utilization"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    ノードは、リソースの要件を満たすだけの空き容量があれば、そのリソースに対して資格があるとみなされます。リソースの要件とノードが提供する容量を手動で設定するには、使用属性を使用します。使用属性に任意の名前を付け、設定に必要なだけ名前/値のペアを定義します。ただし、属性値は、整数にする必要があります。
+   </para>
+   <para>
+    使用属性を持つ複数のリソースがグループ化されていたり、これらにコロケーション制約がある場合、High Availability Extensionではそのことを考慮に入れます。可能な場合、これらのリソースは、「すべての」容量要件を満たすことができるノードに配置されます。<emphasis></emphasis>
+   </para>
+   <note>
+    <title>グループの使用属性</title>
+    <para>
+     リソースグループに対して使用属性を直接設定することはできません。ただし、グループの設定を簡素化するために、グループ内のすべてのリソースに必要な合計容量を含む使用属性を追加することができます。
+    </para>
+   </note>
+   <para>
+    High Availability Extensionには、ノードの容量とリソースの要件を自動的に検出し、設定する手段も用意されています。
+   </para>
+   <para>
+    <systemitem>NodeUtilization</systemitem>リソースエージェントは、ノードの容量をチェックします(CPUとRAMについて)。自動検出を設定するには、クラス、プロバイダ、タイプが<literal>ocf:pacemaker:NodeUtilization</literal>のクローンリソースを作成します。このクローンのインスタンスが各ノードに1つずつ実行している必要があります。インスタンスが開始すると、CIBでそのノードの設定にutilizationセクションが追加されます。詳細については、<command>crm ra info NodeUtilization</command>を参照してください。
+   </para>
+   <para>
+    リソースの最小要件の自動検出(RAMとCPU)に配慮し、<systemitem>Xen</systemitem>リソースエージェントが改良されました。<systemitem>Xen</systemitem>リソースは、開始時点でRAMとCPUの消費状況を反映します。リソース設定には、使用属性が自動的に追加されます。
+   </para>
+   <note>
+    <title>Xenとlibvirtに異なるリソースエージェントを適用</title>
+    <para>
+     <systemitem>ocf:heartbeat:Xen</systemitem>リソースエージェントは、<literal>libvirt</literal>に使用するべきではありません。<literal>libvirt</literal>ではマシン記述ファイルの変更が想定されているためです。
+    </para>
+    <para>
+     <literal>libvirt</literal>には、<systemitem>ocf:heartbeat:VirtualDomain</systemitem>リソースエージェントを使用します。
+    </para>
+   </note>
+   <para>
+    最小要件を検出することに加え、<systemitem>VirtualDomain</systemitem>リソースエージェントを通して現在の利用状況を監視することができ、仮想マシンでのCPUとRAMの使用状況を検出します。この機能を使用するには、クラス、プロバイダ、およびタイプが<literal>ocf:heartbeat:VirtualDomain</literal>のリソースを設定します。次のインスタンス属性を使用できます: 
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <varname>autoset_utilization_cpu</varname>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <varname>autoset_utilization_hv_memory</varname> (Xen用)または<varname>autoset_utilization_host_memory</varname> (KVM用)
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    これらの属性のデフォルトは<literal>true</literal>です。これにより、監視サイクルのたびにCIBで使用値が更新されます。詳細については、<command>crm ra info VirtualDomain</command>を参照してください。
+   </para>
+   <note>
+    <title><literal>hv_memory</literal> および <literal>host_memory</literal></title>
+    <para>
+     <systemitem>NodeUtilization</systemitem>および<systemitem>VirtualDomain</systemitem>リソースエージェントでは、<literal>hv_memory</literal>および<literal>host_memory</literal>はデフォルトで両方とも<literal>true</literal>です。ただし、Xenは<literal>hv_memory</literal>のみを必要とし、KVMは<literal>host_memory</literal>のみを必要とします。混乱を避けるために、不要な属性を無効にすることをお勧めします。例:
+    </para>
+    <example xml:id="ex-kvm-disable-hv-memory">
+     <title><literal>hv_memory</literal>を無効にしてKVM用のリソースエージェントを作成する</title>
+<screen><prompt role="root"># </prompt><command>crm configure primitive p_nu NodeUtilization \
+      params utilization_hv_memory=false \
+      op monitor timeout=20s interval=60</command>
+<prompt role="root"># </prompt><command>crm configure primitive p_vm VirtualDomain \
+      params autoset_utilization_hv_memory=false \
+      op monitor timeout=30s interval=10s</command></screen>
+    </example>
+    <example xml:id="ex-xen-disable-host-memory">
+     <title><literal>host_memory</literal>を無効にしてXen用のリソースエージェントを作成する</title>
+<screen><prompt role="root"># </prompt><command>crm configure primitive p_nu NodeUtilization \
+      params utilization_host_memory=false \
+      op monitor timeout=20s interval=60</command>
+<prompt role="root"># </prompt><command>crm configure primitive p_vm VirtualDomain \
+      params autoset_utilization_host_memory=false \
+      op monitor timeout=30s interval=10s</command></screen>
+    </example>
+   </note>
+   <para>
+    容量と要件を手動と自動のどちらで設定する場合でも、<literal>placement-strategy</literal>プロパティ(グローバルクラスタオプション内)で、配置ストラテジを指定する必要があります。次の値を使用できます。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><literal>default</literal> (デフォルト値)</term>
+     <listitem>
+      <para>
+       使用値は考慮しません。リソースは、場所のスコアに従って割り当てられます。スコアが同じであれば、リソースはノード間で均等に分散されます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>utilization</literal>
+     </term>
+     <listitem>
+      <para>
+       リソースの要件を満たすだけの空き容量がノードにあるかどうか決定する際に、利用率を確認します。ただし、負荷分散は、まだ、ノードに割り当てられたリソースの数に基づいて行われます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>minimal</literal>
+     </term>
+     <listitem>
+      <para>
+       リソースの要件を満たすだけの空き容量がノードにあるかどうか決定する際に、利用率を確認します。できるだけ少ない数のノードにリソースを集中しようとします(残りのノードの電力節約のため)。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>balanced</literal>
+     </term>
+     <listitem>
+      <para>
+       リソースの要件を満たすだけの空き容量がノードにあるかどうか決定する際に、利用率を確認します。リソースを均等に分散して、リソースのパフォーマンスを最適化しようとします。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <note>
+    <title>リソース優先度の設定</title>
+    <para>
+     使用できる配置ストラテジは、最善策であり、まだ、複雑なヒューリスティックソルバで、常に最適な割り当て結果を得るには至っていません。リソースの優先度を正しく設定して、最重要なリソースが最初にスケジュールされるようにしてください。
+    </para>
+   </note>
+
+   <sect2 xml:id="sec-config-hawk2-utilization">
+    <title>Hawk2を使用した負荷インパクトに基づくリソースの配置</title>
+    <para>
+     使用属性は、リソースの要件と、ノードが提供する容量の両方を設定するために使用されます。リソースが要求する容量を設定するには、その前にノードの容量を設定する必要があります。
+    </para>
+    <procedure xml:id="pro-hawk2-utilization-node">
+     <title>ノードが提供する容量の設定</title>
+     <step>
+      <para>
+       Hawk2にログインします。
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       左のナビゲーションバーから、<menuchoice><guimenu>監視機能</guimenu>
+       <guimenu>状態</guimenu></menuchoice>の順に選択します。
+      </para>
+     </step>
+     <step>
+      <para>
+       <guimenu>ノード</guimenu>タブで、容量を設定するノードを選択します。
+      </para>
+     </step>
+     <step>
+      <para>
+       <guimenu>操作</guimenu>列で、下矢印アイコンをクリックして<guimenu>編集</guimenu>を選択します。
+      </para>
+      <para>
+       <guimenu>ノードの編集</guimenu>画面が開きます。
+      </para>
+     </step>
+     <step>
+      <para>
+       <guimenu>使用率</guimenu>の下で、使用属性の名前を空のドロップダウンボックスに入力します。
+      </para>
+      <para>
+       名前は任意です(<literal>RAM_in_GB</literal>など)。
+      </para>
+     </step>
+     <step>
+      <para>
+       属性を追加するには、<guimenu>追加</guimenu>アイコンをクリックします。
+      </para>
+     </step>
+     <step>
+      <para>
+       属性の隣の空のテキストボックスに、属性値を入力します。値は整数にする必要があります。
+      </para>
+      <informalfigure>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-utilization-node.png" width="100%"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-utilization-node.png" width="100%"/>
+        </imageobject>
+       </mediaobject>
+      </informalfigure>
+     </step>
+     <step>
+      <para>
+       必要なだけ使用属性を追加し、これらの属性すべての値を追加します。
+      </para>
+     </step>
+     <step>
+      <para>
+       変更内容を確認します。画面上部に、アクションが成功したかどうかを示すメッセージが表示されます。
+      </para>
+     </step>
+    </procedure>
+    <procedure xml:id="pro-hawk2-utilization-rsc">
+     <title>リソースが要求する容量の設定</title>
+     <para>
+      プリミティブリソースを作成するときや、既存のプリミティブリソースを編集するときに、特定のリソースがノードに要求する容量を設定します。
+     </para>
+     <para>
+      リソースに使用属性を追加する前に、<xref linkend="pro-hawk2-utilization-node" xrefstyle="select:label"/>で説明するように、クラスタノードの使用属性を設定しておく必要があります。
+     </para>
+     <step>
+      <para>
+       Hawk2にログインします。
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       既存のリソースに使用属性を追加する場合、<xref linkend="sec-conf-hawk2-manage-edit"/>に示すように、<menuchoice>
+       <guimenu>Manage (管理)</guimenu><guimenu>状態</guimenu> </menuchoice>の順に移動して、［リソース設定］ダイアログを開きます。
+      </para>
+      <para>
+       新しいリソースを作成する場合、<xref linkend="sec-conf-hawk2-rsc-primitive"/>に示すように、<menuchoice>
+       <guimenu>設定</guimenu><guimenu>Add Resource (リソースの追加)</guimenu>
+       </menuchoice>の順に移動して進みます。
+      </para>
+     </step>
+     <step>
+      <para>
+       ［リソース設定］ダイアログで、<guimenu>使用率</guimenu>カテゴリに移動します。
+      </para>
+     </step>
+     <step>
+      <para>
+       空のドロップダウンボックスから、<xref linkend="pro-hawk2-utilization-node" xrefstyle="select:label"/>でノードに対して設定した使用属性のいずれかを選択します。
+      </para>
+     </step>
+     <step>
+      <para>
+       属性の隣の空のテキストボックスに、属性値を入力します。値は整数にする必要があります。
+      </para>
+     </step>
+     <step>
+      <para>
+       必要なだけ使用属性を追加し、これらの属性すべての値を追加します。
+      </para>
+     </step>
+     <step>
+      <para>
+       変更内容を確認します。画面上部に、アクションが成功したかどうかを示すメッセージが表示されます。
+      </para>
+     </step>
+    </procedure>
+    <para>
+     ノードが提供する容量とリソースが要求する容量を設定してから、配置ストラテジをグローバルクラスタオプションに設定します。そうしないと、容量設定は有効になりません。負荷のスケジュールに使用できるストラテジがいくつかあります。たとえば、負荷をできるだけ少ない数のノードに集中したり、使用可能なすべてのノードに均等に分散できます。
+    </para>
+    <procedure xml:id="pro-ha-config-hawk2-placement">
+     <title>配置ストラテジの設定</title>
+     <step>
+      <para>
+       Hawk2にログインします。
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       左のナビゲーションバーから、<menuchoice>
+       <guimenu>環境設定</guimenu><guimenu>クラスタ設定</guimenu>
+       </menuchoice>を選択し、各画面を開きます。グローバルクラスタオプション、およびリソースと操作のデフォルトが表示されます。
+      </para>
+     </step>
+     <step>
+      <para>
+       画面上部にある空のドロップダウンボックスから、<literal>placement-strategy</literal>を選択します。
+      </para>
+      <para>
+       デフォルトでは、その値は<guimenu>デフォルト</guimenu>に設定され、使用属性と値が考慮されていないことを意味します。
+      </para>
+     </step>
+     <step>
+      <para>
+       要件に応じて、<guimenu>配置ストラテジ</guimenu>を適切な値に設定します。
+      </para>
+     </step>
+     <step>
+      <para>
+       変更内容を確認します。
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-utilization">
+    <title>crmshを使用した負荷インパクトに基づくリソースの配置</title>
+    <para>
+     リソースの要件とノードが提供する容量を設定するには、使用属性を使用します。使用属性に任意の名前を付け、設定に必要なだけ名前/値のペアを定義します。いくつかのエージェントは、たとえば<systemitem class="resource">VirtualDomain</systemitem>などの使用を更新します。
+    </para>
+    <para>
+     次の例では、クラスタのノードとリソースの基本設定がすでに完了していることを想定しています。さらに、特定のノードが提供する容量と特定のリソースが必要とする容量を設定します。
+    </para>
+    <procedure>
+     <title><command>crm</command>で使用属性を追加または変更する</title>
+     <step>
+      <para>
+       <systemitem class="username">root</systemitem>としてログインし、<command>crm</command>対話型シェルを開始します。
+      </para>
+ <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+     </step>
+     <step>
+      <para>
+       ノードが<emphasis>提供する</emphasis>容量を指定するには、次のコマンドを使用し、プレースホルダ<replaceable>NODE_1</replaceable>をノードの名前に置き換えます。
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>node <replaceable>NODE_1</replaceable> utilization hv_memory=16384 cpu=8</command></screen>
+      <para>
+       これらの値によって、<replaceable>NODE_1</replaceable>は16 GBのメモリと8つのCPUコアをリソースに提供すると想定されます。
+      </para>
+     </step>
+     <step>
+      <para>
+       リソースが<emphasis>要求する</emphasis>容量を指定するには、次のコマンドを使用します。
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive xen1 Xen ... \
+      utilization hv_memory=4096 cpu=4</command></screen>
+      <para>
+       これによって、リソースは<replaceable>NODE_1</replaceable>からの4,096のメモリ単位と4つのCPU単位を使用します。
+      </para>
+     </step>
+     <step>
+      <para>
+       <command>property</command>コマンドを使用して、配置ストラテジを設定します。
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>property</command> ...</screen>
+      <para>
+       次の値を使用できます。
+      </para>
+       <variablelist>
+    <varlistentry>
+     <term><literal>default</literal> (デフォルト値)</term>
+     <listitem>
+      <para>
+       使用値は考慮しません。リソースは、場所のスコアに従って割り当てられます。スコアが同じであれば、リソースはノード間で均等に分散されます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>utilization</literal>
+     </term>
+     <listitem>
+      <para>
+       リソースの要件を満たすだけの空き容量がノードにあるかどうか決定する際に、利用率を確認します。ただし、負荷分散は、まだ、ノードに割り当てられたリソースの数に基づいて行われます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>minimal</literal>
+     </term>
+     <listitem>
+      <para>
+       リソースの要件を満たすだけの空き容量がノードにあるかどうか決定する際に、利用率を確認します。できるだけ少ない数のノードにリソースを集中しようとします(残りのノードの電力節約のため)。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><literal>balanced</literal>
+     </term>
+     <listitem>
+      <para>
+       リソースの要件を満たすだけの空き容量がノードにあるかどうか決定する際に、利用率を確認します。リソースを均等に分散して、リソースのパフォーマンスを最適化しようとします。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <note>
+    <title>リソース優先度の設定</title>
+    <para>
+     使用できる配置ストラテジは、最善策であり、まだ、複雑なヒューリスティックソルバで、常に最適な割り当て結果を得るには至っていません。リソースの優先度を正しく設定して、最重要なリソースが最初にスケジュールされるようにしてください。
+    </para>
+   </note>
+     </step>
+     <step>
+      <para>
+       変更をコミットしてから、crmshを終了します。
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+     </step>
+    </procedure>
+    <para>
+     次の例は、同等のノードから成る3ノードクラスタと4つの仮想マシンを示しています。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>node alice utilization hv_memory="4000"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>node bob utilization hv_memory="4000"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>node charlie utilization hv_memory="4000"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive xenA Xen \
+    utilization hv_memory="3500" meta priority="10" \
+    params xmfile="/etc/xen/shared-vm/vm1"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive xenB Xen \
+    utilization hv_memory="2000" meta priority="1" \
+    params xmfile="/etc/xen/shared-vm/vm2"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive xenC Xen \
+    utilization hv_memory="2000" meta priority="1" \
+    params xmfile="/etc/xen/shared-vm/vm3"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive xenD Xen \
+    utilization hv_memory="1000" meta priority="5" \
+    params xmfile="/etc/xen/shared-vm/vm4"</command>
+<prompt role="custom">crm(live)configure# </prompt><command>property placement-strategy="minimal"</command></screen>
+    <para>
+     3ノードはすべてアクティブであり、まずxenAがノードに配置され、次にxenDが配置されます。xenBとxenCは、一緒に割り当てられるか、またはどちらか1つがxenDとともに割り当てられます。
+    </para>
+    <para>
+     1つのノードに障害が発生した場合、残りのノード上で利用できるメモリ合計が少なすぎて、これらのリソースすべてはホストできません。xenAは確実に割り当てられ、xenDも同様です。ただし、xenBまたはxenCのいずれかしか配置できず、その優先度は同じであるため、結果はまだ定義されていません。これを解決するためにも、どちらかに高い優先度を設定する必要があります。
+    </para>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-constraints-more">
+  <title>詳細の参照先</title>
+  <para>
+   制約の設定の詳細や、順序付けおよびコロケーションの基本的な概念についての詳しいバックグラウンド情報は<link xlink:href="http://www.clusterlabs.org/pacemaker/doc/"/>にある次のドキュメントを参照してください:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+      『<citetitle>Pacemaker Explained</citetitle>』、「<citetitle>Resource Constraints</citetitle>」の章
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <citetitle>Colocation Explained</citetitle>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <citetitle>Ordering Explained</citetitle>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>
