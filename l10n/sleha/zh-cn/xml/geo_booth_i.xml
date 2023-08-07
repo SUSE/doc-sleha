@@ -1,1 +1,696 @@
-../../../../xml/geo_booth_i.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="geo_booth_i.xml" version="5.0" xml:id="cha-ha-geo-booth">
+ <title>设置投票间服务</title>
+ <info>
+  <abstract>
+   <para>
+    本章介绍投票间的设置和配置选项、如何将投票间配置同步到所有站点和仲裁方、如何启用和启动投票间服务，以及如何在投票间的服务运行时重新配置投票间。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec-ha-geo-booth-basic">
+  <title>投票间配置和设置选项</title>
+
+  <para>
+   默认的投票间配置是 <filename>/etc/booth/booth.conf</filename>。此文件必须在 Geo 群集的所有站点（包括仲裁方）上相同。要使投票间配置在所有站点和仲裁方上同步，请根据<xref linkend="sec-ha-geo-booth-sync"/>中所述使用 Csync2。
+  </para>
+
+  <note xml:id="note-ha-geo-booth-ownership">
+   <title><filename class="directory">/etc/booth</filename> 和文件的所有权</title>
+   <para>
+    目录 <filename class="directory">/etc/booth</filename> 及其包含的所有文件需属于用户 <systemitem class="username">hacluster</systemitem> 和组 <systemitem class="groupname">haclient</systemitem>。每当从此目录复制新文件时，请使用 <command>cp</command> 命令的 <option>-p</option> 选项来保留所有权。或者，在创建新文件时，请随后使用 <command>chown hacluster:haclient <replaceable>FILE</replaceable></command> 设置用户和组。
+   </para>
+  </note>
+
+  <para>
+    对于包含多个 Geo 群集的设置，可以<quote>共享</quote>同一个仲裁方（从 SUSE Linux Enterprise High Availability Extension 12 开始）。通过提供多个投票间配置文件，可以在同一个仲裁方上启动多个投票间实例，其中每个投票间实例在不同的端口上运行。这样，便可以使用<emphasis>一台</emphasis>计算机充当<emphasis>不同</emphasis> Geo 群集的仲裁方。有关如何为多个 Geo 群集配置投票间的细节，请参见<xref linkend="sec-ha-geo-booth-multi"/>。
+  </para>
+
+
+
+  <para>
+   为了防止恶意方中断投票间服务，可以基于共享密钥配置身份验证来与投票间通讯。有关细节，请参见<xref linkend="ex-ha-booth-conf-default"/>中的<xref linkend="co-ha-geo-booth-config-auth"/>。与投票间服务器通讯的所有主机都需要此密钥。因此，请确保在 Csync2 配置中包含密钥文件，或者在所有参与方中手动同步此文件。
+  </para>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-geo-booth-ticket-types">
+  <title>自动票据与手动票据</title>
+  <para>
+   票据授予在特定群集站点上运行某些资源的权限。系统支持以下两种类型的票据：</para>
+  <itemizedlist>
+   <listitem>
+    <para>自动票据由 <systemitem class="daemon">boothd</systemitem> 守护程序控制。</para>
+   </listitem>
+   <listitem>
+    <para>手动票据仅可由群集管理员管理。</para>
+   </listitem>
+  </itemizedlist>
+
+  <para>自动票据和手动票据具有以下属性：</para>
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>自动票据和手动票据可以定义在一起</title>
+     <para>您可以在同一个 Geo 群集中定义并使用自动票据和手动票据。</para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>手动票据管理仍然是手动进行的</title>
+     <para>对于手动控制的票据，无法进行自动票据管理。手动票据不需要进行仲裁选择，无法自动故障转移，也没有失效时间。</para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>手动票据不会自动转移。</title>
+     <para>手动授予某个站点的票据会一直保留在该站点上，直到它们被手动撤消。即使该站点变为脱机状态，该票据也不会转移到其他站点。此行为可确保依赖于某个票据的服务始终保留在特定的站点上，不会转移到其他站点。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>用于管理这两种类型的票据的命令是相同的</title>
+     <para>手动票据与自动票据使用相同的命令来管理（例如 <command>grant</command> 或 <command>revoke</command>）。</para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>如果只使用手动票据，则不需要仲裁方</title>
+     <para>
+      如果在 Geo 群集中只配置手动票据，则不需要仲裁方，因为手动票据管理不需要仲裁决策。</para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   要配置票据，请使用 <filename>/etc/booth/booth.conf</filename> 文件（请参见<xref linkend="sec-ha-geo-booth-default"/>了解更多信息）。</para>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-geo-booth-default">
+  <title>使用默认投票间设置</title>
+
+  <para>
+   如果您已按《<citetitle>Geo Clustering Quick Start</citetitle>》（Geo 群集快速入门）中所述使用引导脚本设置基本 Geo 群集，那么这些脚本已使用最小参数集在所有站点上创建默认的投票间配置。要扩展或微调最小投票间配置，请参考<xref linkend="ex-ha-booth-conf-default" xrefstyle="select:label"/>或<xref linkend="sec-ha-geo-booth-multi"/>中的示例。
+  </para>
+
+  <para>
+   要添加或更改投票间所需的参数，请手动编辑投票间配置文件，或使用 YaST 的 <guimenu>Geo 群集</guimenu>模块。要访问 YaST 模块，请从命令行使用 <command>yast2 geo-cluster</command> 将它启动（或者启动 YaST，然后选择<menuchoice> <guimenu>高可用性</guimenu> <guimenu>Geo 群集</guimenu> </menuchoice>）。
+  </para>
+
+  <example xml:id="ex-ha-booth-conf-default">
+   <title>投票间配置文件</title>
+
+<screen><?dbsuse-fo font-size="0.75em"?>
+transport = UDP <co xml:id="co-ha-geo-booth-config-transport"/>
+port = 9929 <co xml:id="co-ha-geo-booth-config-port"/>
+arbitrator = 192.168.203.100 <co xml:id="co-ha-geo-booth-config-arbitrator"/>
+site =  192.168.201.100 <co xml:id="co-ha-geo-booth-config-site"/>
+site =  192.168.202.100 <xref linkend="co-ha-geo-booth-config-site" xrefstyle="select:label nopage"/>
+authfile = /etc/booth/authkey <co xml:id="co-ha-geo-booth-config-auth"/>
+ticket = "ticket-nfs" <co xml:id="co-ha-geo-booth-config-ticket"/>
+     mode = MANUAL <co xml:id="co-ha-geo-booth-mode"/>
+ticket = "ticketA" <xref linkend="co-ha-geo-booth-config-ticket" xrefstyle="select:label nopage"/>
+     expire = 600 <co xml:id="co-ha-geo-booth-config-expiry"/>
+     timeout = 10 <co xml:id="co-ha-geo-booth-config-timeout"/>
+     retries = 5 <co xml:id="co-ha-geo-booth-config-retries"/>
+     renewal-freq = 30 <co xml:id="co-ha-geo-booth-config-renewal"/>
+     before-acquire-handler<co xml:id="co-ha-geo-booth-config-handler"/> = /etc/booth/ticket-A<co xml:id="co-ha-geo-booth-config-script"/> db-1 <co xml:id="co-ha-geo-booth-config-rsc"/>
+     acquire-after = 60 <co xml:id="co-ha-geo-booth-config-acquire-after"/>
+ticket = "ticketB" <xref linkend="co-ha-geo-booth-config-ticket" xrefstyle="select:label nopage"/>
+     expire = 600 <xref linkend="co-ha-geo-booth-config-expiry" xrefstyle="select:label nopage"/>
+     timeout = 10 <xref linkend="co-ha-geo-booth-config-timeout" xrefstyle="select:label nopage"/>
+     retries = 5 <xref linkend="co-ha-geo-booth-config-retries" xrefstyle="select:label nopage"/>
+     renewal-freq = 30 <xref linkend="co-ha-geo-booth-config-renewal" xrefstyle="select:label nopage"/>
+     before-acquire-handler<xref linkend="co-ha-geo-booth-config-handler" xrefstyle="select:label nopage"/> = /etc/booth/ticket-B<xref linkend="co-ha-geo-booth-config-script" xrefstyle="select:label nopage"/> db-8 <xref linkend="co-ha-geo-booth-config-rsc" xrefstyle="select:label nopage"/>
+     acquire-after = 60 <xref linkend="co-ha-geo-booth-config-acquire-after" xrefstyle="select:label nopage"/>
+    </screen>
+   <calloutlist>
+    <callout arearefs="co-ha-geo-booth-config-transport">
+     <para>
+      用于站点间通讯的传输协议。仅支持 UDP，但将来可支持其他传输层。因此，目前可以省略此参数。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-port">
+     <para>
+      用于在每个站点上投票间实例之间通讯的端口。如果不使用默认端口 (<literal>9929</literal>)，请选择尚未用于其他服务的端口。确保在节点和仲裁方的防火墙规则中打开该端口。投票间客户端使用 TCP 来与 <systemitem class="daemon">boothd</systemitem> 通讯。投票间始终会同时绑定到 UDP 和 TCP 端口并予以侦听。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-arbitrator">
+     <para>
+       用作仲裁方的计算机的 IP 地址。请为 Geo 群集设置中要使用的每个仲裁方添加一个项。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-site">
+     <para>
+      用于站点上 <systemitem class="daemon">boothd</systemitem> 的 IP 地址。请为 Geo 群集设置中要使用的每个站点添加一个项。确保为每个站点插入正确的虚拟 IP 地址 (<systemitem>IPaddr2</systemitem>)，否则投票间机制将不能正确运行。投票间可以使用 IPv4 和 IPv6 地址。
+     </para>
+     <para>
+      如果您已使用引导脚本设置投票间，那么您在设置期间指定的虚拟 IP 已写入到投票间配置中（并且也已添加到群集配置中）。要手动设置群集资源，请参见<xref linkend="sec-ha-geo-rsc-boothd"/>。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-auth">
+     <para>
+      可选的参数。基于共享密钥为客户端和服务器启用投票间身份验证。此参数指定密钥文件的路径。
+     </para>
+     <itemizedlist>
+      <title>密钥要求</title>
+      <listitem>
+       <para>密钥可以是二进制数或文本。</para>
+       <para>如果是文本，将忽略以下字符：前置和尾随空格、换行符。</para>
+      </listitem>
+      <listitem>
+       <para>密钥长度必须为 8 到 64 个字符。</para>
+      </listitem>
+      <listitem>
+        <para>密钥必须属于用户 <systemitem class="username">hacluster</systemitem> 和组 <systemitem class="groupname">haclient</systemitem>。
+        </para>
+      </listitem>
+      <listitem>
+       <para>密钥必须只能由文件所有者读取。</para>
+      </listitem>
+     </itemizedlist>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-ticket">
+     <para>
+      将由投票间或群集管理员管理的票据。为每个票据添加一个 <literal>ticket</literal> 条目。例如，此处指定的票据 <literal>ticket-nfs</literal> 可用于 NFS 和 DRBD 的故障转移，如 <link xlink:href="https://documentation.suse.com/sbp/all/html/SBP-DRBD/index.html"/> 中所述。
+     </para>
+    </callout>
+   <callout arearefs="co-ha-geo-booth-mode">
+     <para>可选的参数。定义票据模式。默认情况下，所有票据均由投票间管理。要定义由管理员管理的票据（<emphasis>手动票据</emphasis>），请将<parameter>mode</parameter> 参数设置为 <literal>MANUAL</literal> 或 <literal>manual</literal>。
+     </para>
+     <para>手动票据没有 <parameter>expire</parameter>、<parameter>renewal-freq</parameter> 和 <parameter>retries</parameter> 参数。</para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-expiry">
+     <para>
+      可选的参数。定义票据的失效时间，以秒为单位。已获得票据的站点将会定期续订票据。如果投票间在截至所定义的失效时间内没有收到票据续订信息，票据将被撤消并授予其他站点。如果未指定失效时间，票据默认将在 <literal>600</literal> 秒后失效。不应将该参数设置为小于 120 秒的值。引导脚本设置的默认值为 <literal>600</literal>。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-timeout">
+     <para>
+      可选的参数。定义超时期限，以秒为单位。如果投票间未在此期限内收到回复，则在该段时间过后，投票间将重发送包。定义的超时应足够长，以便包能够进入其他投票间成员（所有仲裁方和站点）。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-retries">
+     <para>
+      可选的参数。定义投票间在放弃等待其他站点的确认之前需要重试发送包多少次。小于 <literal>3</literal> 的值无效，会阻止投票间启动。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-renewal">
+     <para>
+      可选的参数。设置票据续订频率周期。默认情况下，票据续订每隔失效时间的一半发生一次。如果在持续较长的一段时间内网络可靠性往往降低，则建议以更高的频率续订票据。在每次续订之前，<literal>before-acquire-handler</literal> 都会运行。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-handler">
+     <para>
+      可选的参数。支持一个或多个脚本。如果使用多个脚本，则每个脚本可以负责不同的检查，例如群集状态、数据中心连接、环境运行状况传感器和其他检查。将所有脚本存储在目录 <filename>/etc/booth.d/<replaceable>TICKET_NAME</replaceable></filename> 票据名称中，并确保它们具有正确的所有权（用户 <systemitem class="username">hacluster</systemitem> 和组 <systemitem class="groupname">haclient</systemitem>）。将目录名称指派为参数 <parameter>before-acquire-handler</parameter> 的值。
+     </para>
+     <para>
+      此目录中的脚本按字母顺序执行。在 <systemitem class="daemon">boothd</systemitem> 尝试获取或续订票据之前，将调用所有脚本。要授予或续订票据，<emphasis>所有</emphasis>脚本必须成功。语义与单个脚本的语义相同：如果退出代码不为 <literal>0</literal>，<systemitem class="daemon">boothd</systemitem> 将放弃票据。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-script">
+     <para>
+      <filename>/usr/share/booth/service-runnable</filename> 脚本在产品中用作示例。要使用该脚本，请将它链接到相应的<quote>票据</quote>目录：
+     </para>
+<screen><prompt role="root"># </prompt><command>ln -s /usr/share/booth/service-runnable /etc/booth.d/<replaceable>TICKET_NAME</replaceable></command></screen>
+     <para>
+      假设 <filename>/etc/booth.d<replaceable>TICKET_NAME</replaceable></filename> 目录包含 <command>service-runnable</command> 脚本。此简单脚本基于 <command>crm_simulate</command>。它可用于测试是否<emphasis>可以</emphasis>在当前群集站点上运行特定的群集资源。这意味着，它将检查群集运行状况是否足够良好，可以运行该资源（满足所有资源依赖关系、群集分区具有仲裁、没有脏节点，等等）。例如，如果依赖链中的某个服务在所有可用节点上的失败计数为 <literal>INFINITY</literal>，则无法在该站点上运行该服务。在这种情况下，声明票据就没有意义。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-rsc">
+     <para>
+      <literal>before-acquire-handler</literal>（在本例中为 <filename>service-runnable</filename> 脚本）要测试的资源。需要参照相应票据保护的资源。在此示例中，资源 <literal>db-1</literal> 由 <literal>ticketA</literal> 保护，而 <literal>db-8</literal> 由 <literal>ticketB</literal> 保护。DRBD 的资源 (<literal>ms_drbd_nfs</literal>) 由票据 <literal>ticket-nfs</literal> 保护。
+     </para>
+    </callout>
+    <callout arearefs="co-ha-geo-booth-config-acquire-after">
+     <para>
+      可选的参数。票据丢失后，投票间将额外等待这段时间，然后再获取票据。这样，丢失票据的站点便可以通过停止资源或者屏蔽资源来放弃资源。典型的延迟为 <literal>60</literal> 秒，但最终延迟取决于受保护的资源和屏蔽配置。默认值为 <literal>0</literal>。
+     </para>
+     <para>
+      如果您不确定停止资源、降级资源或屏蔽节点的时间有多长（该时间取决于 <literal>loss-policy</literal>），请使用此参数来防止资源同时在两个站点上运行。
+     </para>
+    </callout>
+   </calloutlist>
+  </example>
+
+  <sect2 xml:id="pro-ha-geo-setup-booth-config-edit">
+   <title>手动编辑投票间配置文件</title>
+   <procedure>
+    <step>
+     <para>
+      以 <systemitem class="username">root</systemitem> 或同等身份登录到群集节点。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果 <filename>/etc/booth/booth.conf</filename> 尚不存在，请将示例投票间配置文件 <filename>/etc/booth/booth.conf.example</filename> 复制到 <filename>/etc/booth/booth.conf</filename>：
+     </para>
+
+<screen><prompt role="root"># </prompt><command>cp -p /etc/booth/booth.conf.example /etc/booth/booth.conf</command></screen>
+    </step>
+    <step>
+     <para>
+      根据 <xref linkend="ex-ha-booth-conf-default"/> 编辑 <filename>/etc/booth/booth.conf</filename>。
+     </para>
+    </step>
+    <step>
+     <para>
+      确认更改并保存文件。
+     </para>
+    </step>
+    <step>
+     <para>
+      在所有群集节点和仲裁方上，打开在防火墙中为投票间配置的端口。参见<xref linkend="ex-ha-booth-conf-default"/>中的位置 <xref linkend="co-ha-geo-booth-config-port"/>。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="pro-ha-geo-setup-booth-yast">
+   <title>使用 YaST 设置投票间</title>
+   <procedure>
+    <step>
+     <para>
+      以 <systemitem class="username">root</systemitem> 或同等身份登录到群集节点。
+     </para>
+    </step>
+    <step>
+     <para>
+      启动 YaST <guimenu>Geo 群集</guimenu>模块。
+     </para>
+    </step>
+    <step>
+     <para>
+      选择<guimenu>编辑</guimenu>现有投票间配置文件，或者单击<guimenu>添加</guimenu>创建新的投票间配置文件。
+     </para>
+     <substeps performance="required">
+      <step xml:id="step-ha-booth-conf-params">
+       <para>
+        在出现的屏幕中配置以下参数：
+       </para>
+       <itemizedlist>
+        <listitem>
+         <formalpara>
+          <title>配置文件</title>
+          <para>
+           投票间配置文件的名称。YaST 建议按默认使用 <literal>booth</literal>。这会导致投票间配置写入到 <filename>/etc/booth/booth.conf</filename>。仅当您需要根据<xref linkend="sec-ha-geo-booth-multi"/>中所述为不同的 Geo 群集设置多个投票间实例时，才更改此值。
+          </para>
+         </formalpara>
+        </listitem>
+        <listitem>
+         <formalpara>
+          <title>传输</title>
+          <para>
+           用于站点间通讯的传输协议。仅支持 UDP，但将来可支持其他传输层。另请参见<xref linkend="ex-ha-booth-conf-default"/>中的位置 <xref linkend="co-ha-geo-booth-config-transport"/>。
+          </para>
+         </formalpara>
+        </listitem>
+        <listitem>
+         <formalpara>
+          <title>端口</title>
+          <para>
+           用于在每个站点上投票间实例之间通讯的端口。另请参见<xref linkend="ex-ha-booth-conf-default"/>中的位置 <xref linkend="co-ha-geo-booth-config-port"/>。
+          </para>
+         </formalpara>
+        </listitem>
+        <listitem>
+         <formalpara>
+          <title>仲裁方</title>
+          <para>
+            用作仲裁方的计算机的 IP 地址。另请参见<xref linkend="ex-ha-booth-conf-default"/>中的位置 <xref linkend="co-ha-geo-booth-config-arbitrator"/>。
+          </para>
+         </formalpara>
+         <para>
+          要指定<guimenu>仲裁方</guimenu>，请单击<guimenu>添加</guimenu>。在打开的对话框中，输入仲裁方的 IP 地址，然后单击<guimenu>确定</guimenu>。
+         </para>
+        </listitem>
+        <listitem>
+         <formalpara>
+          <title>站点</title>
+          <para>
+           用于站点上 <systemitem class="daemon">boothd</systemitem> 的 IP 地址。另请参见<xref linkend="ex-ha-booth-conf-default"/>中的位置 <xref linkend="co-ha-geo-booth-config-site"/>。
+          </para>
+         </formalpara>
+         <para>
+          要指定 Geo 群集的<guimenu>站点</guimenu>，请单击<guimenu>添加</guimenu>。在打开的对话框中，输入一个站点的 IP 地址，然后单击<guimenu>确定</guimenu>。
+         </para>
+        </listitem>
+        <listitem>
+         <formalpara>
+          <title>票据</title>
+          <para>
+           将由投票间或群集管理员管理的票据。另请参见<xref linkend="ex-ha-booth-conf-default"/>中的位置 <xref linkend="co-ha-geo-booth-config-ticket"/>。
+          </para>
+         </formalpara>
+         <para>
+          要指定<guimenu>票据</guimenu>，请单击<guimenu>添加</guimenu>。在打开的对话框中，输入唯一的<guimenu>票据</guimenu>名称。若要使用相同的参数和值定义多个票据，请创建一个<quote>票据模板</quote>来为所有票据指定默认参数和值，从而减少配置工作量。为此，请使用 <literal>__default__</literal> 作为<guimenu>票据</guimenu>名称。
+         </para>
+        </listitem>
+        <listitem>
+
+         <formalpara>
+          <title>身份验证</title>
+          <para>
+           要为投票间启用身份验证，请单击<guimenu>身份验证</guimenu>，然后在打开的对话框中，激活<guimenu>启用安全身份验证</guimenu>。如果已有一个密钥，请在<guimenu>身份验证文件</guimenu>中指定路径和文件名。要为新的 Geo 群集生成密钥文件，请单击<guimenu>生成身份验证密钥文件</guimenu>。随后将创建密钥并将其写入<guimenu>身份验证文件</guimenu>中指定的位置。
+          </para>
+         </formalpara>
+         <para>
+          此外，可以指定票据的可选参数。有关概述，请参见<xref linkend="ex-ha-booth-conf-default"/>中的位置 <xref linkend="co-ha-geo-booth-mode"/> 到 <xref linkend="co-ha-geo-booth-config-acquire-after"/>。
+         </para>
+         <para>
+          单击<guimenu>确定</guimenu>确认更改。
+         </para>
+        </listitem>
+       </itemizedlist>
+       <figure xml:id="fig-yast-ha-geo-booth">
+        <title>示例票据依赖项</title>
+        <mediaobject>
+         <imageobject role="fo">
+          <imagedata fileref="yast_geo_cluster_booth.png" width="80%"/>
+         </imageobject>
+         <imageobject role="html">
+          <imagedata fileref="yast_geo_cluster_booth.png" width="50%"/>
+         </imageobject>
+        </mediaobject>
+       </figure>
+      </step>
+      <step>
+       <para>
+        单击<guimenu>确定</guimenu>关闭当前投票间配置屏幕。YaST 将显示定义的投票间配置文件的名称。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      在关闭 YaST 模块之前，请切换到<guimenu>防火墙配置</guimenu>类别。
+     </para>
+    </step>
+    <step>
+     <para>
+      要打开您为投票间配置的端口，请启用<guimenu>打开防火墙中的端口</guimenu>。
+     </para>
+     <important>
+      <title>防火墙设置仅适用于本地计算机</title>
+      <para>
+       防火墙设置仅适用于当前计算机。将为 <filename>/etc/booth/booth.conf</filename> 中指定的所有端口或者其他任何投票间配置文件打开 UDP/TCP 端口（请参见<xref linkend="sec-ha-geo-booth-multi"/>）。
+      </para>
+      <para>
+       请确保同时在 Geo 群集的其他所有节点和仲裁方上打开相应的端口。可以手动或者通过将以下文件与 Csync2 同步来执行此操作：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         <filename>/usr/lib/firewalld</filename>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <filename>/usr/lib/firewalld/services/booth.xml</filename>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </important>
+    </step>
+    <step>
+     <para>
+      单击<guimenu>完成</guimenu>确认所有设置并关闭 YaST 模块。根据<xref linkend="step-ha-booth-conf-params"/> 中指定的<guimenu>配置文件</guimenu>的 <replaceable>NAME</replaceable>，配置将写入到 <filename>/etc/booth/<replaceable>NAME</replaceable>.conf</filename>。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-booth-multi">
+  <title>使用多租户投票间设置</title>
+
+
+
+  <para>
+    对于包含多个 Geo 群集的设置，可以<quote>共享</quote>同一个仲裁方（从 SUSE Linux Enterprise High Availability Extension 12 开始）。通过提供多个投票间配置文件，可以在同一个仲裁方上启动多个投票间实例，其中每个投票间实例在不同的端口上运行。这样，便可以使用<emphasis>一台</emphasis>计算机充当<emphasis>不同</emphasis> Geo 群集的仲裁方。
+  </para>
+
+  <para>
+   假设您有两个 Geo 群集，一个位于 EMEA（欧洲、中东和非洲），另一个位于 APAC（亚太区）。
+  </para>
+
+  <para>
+   要对两个 Geo 群集使用同一个仲裁方，请在 <filename>/etc/booth</filename> 目录中创建两个配置文件：<filename>/etc/booth/emea.conf</filename> 和 <filename>/etc/booth/apac.conf</filename>。最起码，这两个配置文件的以下参数必须不同：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     用于投票间实例通讯的端口。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     属于使用仲裁方的不同 Geo 群集的站点。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <example xml:id="ex-ha-conf-booth-multi-1">
+   <title><filename>/etc/booth/apac.conf</filename></title>
+<screen><?dbsuse-fo font-size="0.75em"?>
+transport = UDP <xref linkend="co-ha-geo-booth-config-transport" xrefstyle="select:label nopage"/>
+port = 9133 <xref linkend="co-ha-geo-booth-config-port" xrefstyle="select:label nopage"/>
+arbitrator = 192.168.203.100 <xref linkend="co-ha-geo-booth-config-arbitrator" xrefstyle="select:label nopage"/>
+site = 192.168.2.254 <xref linkend="co-ha-geo-booth-config-site" xrefstyle="select:label nopage"/>
+site = 192.168.1.112 <xref linkend="co-ha-geo-booth-config-site" xrefstyle="select:label nopage"/>
+authfile = /etc/booth/authkey-apac <xref linkend="co-ha-geo-booth-config-auth" xrefstyle="select:label nopage"/>
+ticket ="tkt-db-apac-intern" <xref linkend="co-ha-geo-booth-config-ticket"/>
+     timeout = 10
+     retries = 5
+     renewal-freq = 60
+     before-acquire-handler<xref linkend="co-ha-geo-booth-config-handler" xrefstyle="select:label nopage"/> = /usr/share/booth/service-runnable<xref linkend="co-ha-geo-booth-config-script" xrefstyle="select:label nopage"/> db-apac-intern <xref linkend="co-ha-geo-booth-config-rsc" xrefstyle="select:label nopage"/>
+ticket = "tkt-db-apac-cust" <xref linkend="co-ha-geo-booth-config-ticket" xrefstyle="select:label nopage"/>
+     timeout = 10
+     retries = 5
+     renewal-freq = 60
+     before-acquire-handler = /usr/share/booth/service-runnable db-apac-cust</screen>
+  </example>
+
+  <example xml:id="ex-ha-conf-booth-multi-2">
+   <title><filename>/etc/booth/emea.conf</filename></title>
+<screen><?dbsuse-fo font-size="0.75em"?>
+transport = UDP <xref linkend="co-ha-geo-booth-config-transport" xrefstyle="select:label nopage"/>
+port = 9150 <xref linkend="co-ha-geo-booth-config-port" xrefstyle="select:label nopage"/>
+arbitrator = 192.168.203.100 <xref linkend="co-ha-geo-booth-config-arbitrator" xrefstyle="select:label nopage"/>
+site = 192.168.201.100 <xref linkend="co-ha-geo-booth-config-site" xrefstyle="select:label nopage"/>
+site = 192.168.202.100 <xref linkend="co-ha-geo-booth-config-site" xrefstyle="select:label nopage"/>
+authfile = /etc/booth/authkey-emea <xref linkend="co-ha-geo-booth-config-auth" xrefstyle="select:label nopage"/>
+ticket = "tkt-sap-crm" <xref linkend="co-ha-geo-booth-config-ticket"/>
+     expire = 900
+     renewal-freq = 60
+     before-acquire-handler<xref linkend="co-ha-geo-booth-config-handler" xrefstyle="select:label nopage"/> = /usr/share/booth/service-runnable<xref linkend="co-ha-geo-booth-config-script" xrefstyle="select:label nopage"/> sap-crm <xref linkend="co-ha-geo-booth-config-rsc" xrefstyle="select:label nopage"/>
+ticket = "tkt-sap-prod" <xref linkend="co-ha-geo-booth-config-ticket" xrefstyle="select:label nopage"/>
+     expire = 600
+     renewal-freq = 60
+     before-acquire-handler = /usr/share/booth/service-runnable sap-prod</screen>
+  </example>
+
+  <calloutlist>
+   <callout arearefs="co-ha-geo-booth-config-transport">
+    <para>
+     用于站点间通讯的传输协议。仅支持 UDP，但将来可支持其他传输层。因此，目前可以省略此参数。
+    </para>
+   </callout>
+   <callout arearefs="co-ha-geo-booth-config-port">
+    <para>
+     用于在每个站点上投票间实例之间通讯的端口。配置文件使用不同的端口来允许在同一仲裁方上启动多个投票间实例。
+    </para>
+   </callout>
+   <callout arearefs="co-ha-geo-booth-config-arbitrator">
+    <para>
+      用作仲裁方的计算机的 IP 地址。在上述示例中，我们为不同的 Geo 群集使用了同一个仲裁方。
+    </para>
+   </callout>
+   <callout arearefs="co-ha-geo-booth-config-site">
+    <para>
+     用于站点上 <systemitem class="daemon">boothd</systemitem> 的 IP 地址。两个投票间配置文件中定义的站点不同，因为这些站点属于两个不同的 Geo 群集。
+    </para>
+   </callout>
+   <callout arearefs="co-ha-geo-booth-config-auth">
+    <para>
+     可选的参数。基于共享密钥为客户端和服务器启用投票间身份验证。此参数指定密钥文件的路径。为不同的租户使用不同的密钥文件。
+    </para>
+    <itemizedlist>
+      <title>密钥要求</title>
+      <listitem>
+       <para>密钥可以是二进制数或文本。</para>
+       <para>如果是文本，将忽略以下字符：前置和尾随空格、换行符。</para>
+      </listitem>
+      <listitem>
+       <para>密钥长度必须为 8 到 64 个字符。</para>
+      </listitem>
+      <listitem>
+        <para>密钥必须属于用户 <systemitem class="username">hacluster</systemitem> 和组 <systemitem class="groupname">haclient</systemitem>。
+        </para>
+      </listitem>
+      <listitem>
+       <para>密钥必须只能由文件所有者读取。</para>
+      </listitem>
+     </itemizedlist>
+   </callout>
+   <callout arearefs="co-ha-geo-booth-config-ticket">
+    <para>
+     将由投票间或群集管理员管理的票据。理论上讲，可以在不同的投票间配置文件中定义相同的票据名称 — 票据不会造成干扰，因为它们属于不同投票间实例管理的不同 Geo 群集。但是，（为了便于讲述），我们建议按上述示例中所示，为每个 Geo 群集使用不同的票据名称。
+    </para>
+   </callout>
+   <callout arearefs="co-ha-geo-booth-config-handler">
+    <para>
+     可选的参数。如果设置该参数，则在 <systemitem class="daemon">boothd</systemitem> 尝试获取或续订票据之前，将调用指定的命令。如果退出代码不为 <literal>0</literal>，<systemitem class="daemon">boothd</systemitem> 将放弃票据。
+    </para>
+   </callout>
+   <callout arearefs="co-ha-geo-booth-config-script">
+    <para>
+     此处提到的 <filename>service-runnable</filename> 脚本在产品中用作示例。它是一个基于 <command>crm_simulate</command> 的简单脚本。它可用于测试是否<emphasis>可以</emphasis>在当前群集站点上运行特定的群集资源。这意味着，它将检查群集运行状况是否足够良好，可以运行该资源（满足所有资源依赖关系、群集分区具有仲裁、没有脏节点，等等）。例如，如果依赖链中的某个服务在所有可用节点上的失败计数为 <literal>INFINITY</literal>，则无法在该站点上运行该服务。在这种情况下，声明票据就没有意义。
+    </para>
+   </callout>
+   <callout arearefs="co-ha-geo-booth-config-rsc">
+    <para>
+     <literal>before-acquire-handler</literal>（在本例中为 <filename>service-runnable</filename> 脚本）要测试的资源。需要参照相应票据保护的资源。
+    </para>
+   </callout>
+  </calloutlist>
+
+  <procedure>
+   <title>为不同的 Geo 群集使用相同的仲裁方</title>
+   <step>
+    <para>
+     如<xref linkend="ex-ha-conf-booth-multi-1"/>和<xref linkend="ex-ha-conf-booth-multi-2"/>中所述，在 <filename>/etc/booth</filename> 中创建不同的投票间配置文件。可以手动执行此操作，或者按<xref linkend="pro-ha-geo-setup-booth-yast"/>中所述使用 YaST 来创建。
+    </para>
+   </step>
+   <step>
+    <para>
+     在仲裁方上，打开 <filename>/etc/booth</filename> 中任一投票间配置文件内定义的端口。
+    </para>
+   </step>
+   <step>
+    <para>
+     在属于使用仲裁方的单个 Geo 群集的节点上，打开相应投票间实例所用的端口。
+    </para>
+   </step>
+   <step>
+    <para>
+     在使用相同投票间配置的所有群集节点和仲裁方上，同步相应的投票间配置文件。有关详细信息，请参见<xref linkend="sec-ha-geo-booth-sync"/>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在仲裁方上，按<xref linkend="vle-ha-geo-setup-booth-service-arbitrator"/>中所述为多租户设置启动各个投票间实例。
+    </para>
+   </step>
+   <step>
+    <para>
+     在各个 Geo 群集上，按<xref linkend="vle-ha-geo-setup-booth-service-sites"/>中所述启动投票间服务。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-booth-sync">
+  <title>将投票间配置同步到所有站点和仲裁方</title>
+
+  <note>
+   <title>在所有站点和仲裁方上使用相同的投票间配置</title>
+   <para>
+    要使投票间正常工作，一个 Geo 群集中的所有群集节点和仲裁方必须使用相同的投票间配置。
+   </para>
+   <para>
+    可以使用 Csync2 来同步投票间配置。有关细节，请参见<xref linkend="sec-ha-geo-booth-sync-csync2-setup"/>和<xref linkend="sec-ha-geo-booth-sync-csync2-start"/>。
+   </para>
+   <para>
+    如果任何投票间配置发生更改，请务必在所有参与方上相应地更新配置文件，并按<xref linkend="sec-ha-geo-setup-booth-reconfig"/>中所述重启动投票间服务。
+   </para>
+  </note>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-setup-booth-service">
+  <title>启用和启动投票间服务</title>
+
+  <variablelist>
+   <varlistentry xml:id="vle-ha-geo-setup-booth-service-sites">
+    <term>在群集站点上启动投票间服务</term>
+    <listitem>
+     <para>
+      每个群集站点的投票间服务都通过投票间资源组（如果您是使用引导脚本设置 Geo 群集的，则其已自动配置，否则请按<xref linkend="sec-ha-geo-rsc-boothd"/>中所述手动配置）来管理。要为每个站点启动一个投票间服务实例，请在每个群集站点上启动相应的投票间资源组。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry xml:id="vle-ha-geo-setup-booth-service-arbitrator">
+    <term>在仲裁方上启动投票间服务</term>
+
+    <listitem>
+     <para>
+      从 SUSE Linux Enterprise 12 开始，投票间仲裁方由 systemd 管理。单元文件名为 <filename>booth@.service</filename>。<literal>@</literal> 表示可以使用一个参数（在本例中为配置文件的名称）运行该服务。
+     </para>
+     <para>
+      要在仲裁方上<emphasis>启用</emphasis>投票间服务，请使用以下命令：
+     </para>
+<screen><prompt role="root"># </prompt><command>systemctl enable booth@booth</command></screen>
+     <para>
+      从命令行启用服务后，只要该服务未被禁用，就可以使用 YaST 服务管理器对它进行管理。如果该服务已禁用，则下一次重启动 systemd 时，它将从 YaST 的服务列表中消失。
+     </para>
+     <para>
+      用于<emphasis>启动</emphasis>投票间服务的命令取决于投票间设置：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        如果按<xref linkend="sec-ha-geo-booth-default" xrefstyle="select:label"/>中所述使用默认设置，则只会配置 <filename>/etc/booth/booth.conf</filename>。在这种情况下，请登录到每个仲裁方并使用以下命令：
+       </para>
+<screen><prompt role="root"># </prompt><command>systemctl start booth@booth</command></screen>
+      </listitem>
+      <listitem>
+       <para>
+        如果按<xref linkend="sec-ha-geo-booth-multi" xrefstyle="select:label"/>中所述以多租户模式运行投票间，则已在 <filename>/etc/booth</filename> 中配置了多个投票间配置文件。要为各个投票间实例启动服务，请使用 <command>systemctl start booth@<replaceable>NAME</replaceable></command>，其中 <replaceable>NAME</replaceable> 表示相应配置文件 <filename>/etc/booth/<replaceable>NAME</replaceable>.conf</filename> 的名称。
+       </para>
+       <para>
+        例如，如果您创建了投票间配置文件 <filename>/etc/booth/emea.conf</filename> 和 <filename>/etc/booth/apac.conf</filename>，请登录到仲裁方并执行以下命令：
+       </para>
+<screen><prompt role="root"># </prompt><command>systemctl start booth@emea</command>
+<prompt role="root"># </prompt><command>systemctl start booth@apac</command></screen>
+       <para>
+
+       </para>
+      </listitem>
+     </itemizedlist>
+     <para>
+      这将以仲裁方模式启动投票间服务。它可以与所有其他投票间守护程序通讯，但和群集站点上运行的投票间守护程序不同，它不能被授予票据。投票间仲裁方只参与选择。否则，它们处于休眠状态。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-geo-setup-booth-reconfig">
+  <title>运行时重配置投票间</title>
+
+
+
+  <para>
+   如果在已运行投票间服务的情况下需要更改投票间配置，请执行以下操作：
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     根据需要调整投票间配置文件。
+    </para>
+   </step>
+   <step>
+    <para>
+     将更新的投票间配置文件同步到属于 Geo 群集的所有群集节点和仲裁方。有关详细信息，请参见<xref linkend="cha-ha-geo-sync"/>。
+    </para>
+   </step>
+   <step>
+
+    <para>
+     按<xref linkend="sec-ha-geo-setup-booth-service"/>中所述，在仲裁方和站点上重启动投票间服务。这不会给已授予站点的票据造成任何影响。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>
