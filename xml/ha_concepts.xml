@@ -334,6 +334,180 @@
    </variablelist>
   </sect2>
  </sect1>
+ <sect1 xml:id="sec-ha-architecture">
+  <title>Architecture</title>
+  <para>
+   This section provides a brief overview of &productname; architecture. It
+   identifies and provides information on the architectural components, and
+   describes how those components interoperate.
+  </para>
+
+  <sect2 xml:id="sec-ha-architecture-layers">
+   <title>Architecture layers</title>
+   <para>
+    &productname; has a layered architecture.
+    <xref linkend="fig-ha-architecture" xrefstyle="FigureXRef"/> illustrates
+    the different layers and their associated components.
+   </para>
+   <figure xml:id="fig-ha-architecture">
+    <title>Architecture</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="cluster_stack_arch.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="cluster_stack_arch.png" width="100%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+ <!--ygao 2019-04-12: Pacemaker-attrd is probably a less important daemon,
+-    since it's also missing in the graph :-) Probably some day we should eventually
+-    add it also.-->
+   <sect3 xml:id="sec-ha-architecture-layers-coro">
+    <title>Membership and messaging layer (Corosync)</title>
+    <para>
+     This component provides reliable messaging, membership, and quorum information
+     about the cluster. This is handled by the Corosync cluster engine, a group
+     communication system.
+    </para>
+   </sect3>
+   <sect3 xml:id="sec-ha-architecture-layers-crm">
+    <title>Cluster resource manager (Pacemaker)</title>
+     <para>
+      Pacemaker as cluster resource manager is the <quote>brain</quote>
+      which reacts to events occurring in the cluster. It is implemented as
+      <systemitem class="daemon">pacemaker-controld</systemitem>, the cluster
+      controller, which coordinates all actions. Events can be nodes that join
+      or leave the cluster, failure of resources, or scheduled activities such
+      as maintenance, for example.
+     </para>
+    <variablelist>
+     <varlistentry xml:id="vle-lrm">
+      <term>Local resource manager</term>
+      <!--for future versions: Local Executor (pacemaker-execd)-->
+      <listitem>
+      <para>
+        The local resource manager is located between the Pacemaker layer and the
+        resources layer on each node. It is implemented as <systemitem
+        class="daemon">pacemaker-execd</systemitem> daemon. Through this daemon,
+        Pacemaker can start, stop, and monitor resources.
+      </para>
+      </listitem>
+     </varlistentry>
+      <varlistentry  xml:id="vle-cib">
+       <term>Cluster Information Database (CIB)</term>
+       <listitem>
+        <para>
+         On every node, Pacemaker maintains the cluster information database
+         (CIB). It is an XML representation of the cluster configuration
+         (including cluster options, nodes, resources, constraints and the
+         relationship to each other). The CIB also reflects the current cluster
+         status. Each cluster node contains a CIB replica, which is synchronized
+         across the whole cluster. The <systemitem class="daemon">pacemaker-based</systemitem>
+         daemon takes care of reading and writing cluster configuration and
+         status.</para>
+       </listitem>
+      </varlistentry>
+     <varlistentry xml:id="vle-dc">
+      <term>Designated Coordinator (DC)</term>
+      <listitem>
+       <para>
+        The DC is elected from all nodes in the cluster. This happens if there
+        is no DC yet or if the current DC leaves the cluster for any reason.
+        The DC is the only entity in the cluster that can decide that a
+        cluster-wide change needs to be performed, such as fencing a node or
+        moving resources around. All other nodes get their configuration and
+        resource allocation information from the current DC.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry xml:id="vle-pe">
+      <term>Policy Engine</term>
+      <!--for future versions: Scheduler (pacemaker-schedulerd)-->
+      <listitem>
+       <para>
+        The policy engine runs on every node, but the one on the DC is the active
+        one. The engine is implemented as
+        <systemitem class="daemon">pacemaker-schedulerd</systemitem> daemon.
+        When a cluster transition is needed, based on the current state and
+        configuration, <systemitem class="daemon">pacemaker-schedulerd</systemitem>
+        calculates the expected next state of the cluster. It determines what
+        actions need to be scheduled to achieve the next state.
+       </para>
+      </listitem>
+     </varlistentry>
+   </variablelist>
+   </sect3>
+   <sect3 xml:id="sec-ha-architecture-layers-rsc">
+    <title>Resources and resource agents</title>
+    <para>
+     In a &ha; cluster, the services that need to be highly available are
+     called resources. Resource agents (RAs) are scripts that start, stop, and
+     monitor cluster resources.
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-architecture-processflow">
+   <title>Process flow</title>
+   <para>
+    The <systemitem class="daemon">pacemakerd</systemitem> daemon launches and
+    monitors all other related daemons. The daemon that coordinates all actions,
+    <systemitem class="daemon">pacemaker-controld</systemitem>, has an instance on
+    each cluster node. Pacemaker centralizes all cluster decision-making by
+    electing one of those instances as a primary. Should the elected <systemitem
+    class="daemon">pacemaker-controld</systemitem> daemon fail, a new primary is
+    established.
+   </para>
+   <para>
+    Many actions performed in the cluster will cause a cluster-wide change.
+    These actions can include things like adding or removing a cluster
+    resource or changing resource constraints. It is important to understand
+    what happens in the cluster when you perform such an action.
+   </para>
+   <para>
+    For example, suppose you want to add a cluster IP address resource. To
+    do this, you can use the &crmshell; or the Web interface to modify the CIB.
+    It is not required to perform the actions on the DC.
+    You can use either tool on any node in the cluster and they will be
+    relayed to the DC. The DC will then replicate the CIB change to all
+    cluster nodes.
+   </para>
+   <para>
+    Based on the information in the CIB, the <systemitem
+    class="daemon">pacemaker-schedulerd</systemitem> then computes the ideal
+    state of the cluster and how it should be achieved. It feeds a list of
+    instructions to the DC. The DC sends commands via the messaging/infrastructure
+    layer which are received by the <systemitem
+    class="daemon">pacemaker-controld</systemitem> peers on
+    other nodes. Each of them uses its local resource agent executor (implemented
+    as <systemitem class="daemon">pacemaker-execd</systemitem>) to perform
+    resource modifications. The <systemitem
+     class="daemon">pacemaker-execd</systemitem> is not cluster-aware and interacts
+    directly with resource agents.
+   </para>
+   <para>
+    All peer nodes report the results of their operations back to the DC.
+    After the DC concludes that all necessary operations are successfully
+    performed in the cluster, the cluster will go back to the idle state and
+    wait for further events. If any operation was not carried out as
+    planned, the <systemitem class="daemon">pacemaker-schedulerd</systemitem>
+    is invoked again with the new information recorded in
+    the CIB.
+   </para>
+   <para>
+    In some cases, it might be necessary to power off nodes to protect shared
+    data or complete resource recovery. In a Pacemaker cluster, the implementation
+    of node level fencing is &stonith;. For this, Pacemaker comes with a
+    fencing subsystem, <systemitem class="daemon">pacemaker-fenced</systemitem>.
+    &stonith; devices must be configured as cluster resources (that use
+    specific fencing agents), because this allows monitoring of the fencing devices.
+    When clients detect a failure, they send a request to <systemitem
+     class="daemon">pacemaker-fenced</systemitem>,
+    which then executes the fencing agent to bring down the node.
+   </para>
+  </sect2>
+ </sect1>
  <sect1 xml:id="sec-ha-benefits">
   <title>Benefits</title>
 
@@ -624,179 +798,5 @@
    </mediaobject>
   </figure>
  </sect1>
- <sect1 xml:id="sec-ha-architecture">
-  <title>Architecture</title>
 
-  <para>
-   This section provides a brief overview of &productname; architecture. It
-   identifies and provides information on the architectural components, and
-   describes how those components interoperate.
-  </para>
-
-  <sect2 xml:id="sec-ha-architecture-layers">
-   <title>Architecture layers</title>
-   <para>
-    &productname; has a layered architecture.
-    <xref linkend="fig-ha-architecture" xrefstyle="FigureXRef"/> illustrates
-    the different layers and their associated components.
-   </para>
-   <figure xml:id="fig-ha-architecture">
-    <title>Architecture</title>
-    <mediaobject>
-     <imageobject role="fo">
-      <imagedata fileref="cluster_stack_arch.png" width="100%"/>
-     </imageobject>
-     <imageobject role="html">
-      <imagedata fileref="cluster_stack_arch.png" width="100%"/>
-     </imageobject>
-    </mediaobject>
-   </figure>
- <!--ygao 2019-04-12: Pacemaker-attrd is probably a less important daemon,
--    since it's also missing in the graph :-) Probably some day we should eventually
--    add it also.-->
-   <sect3 xml:id="sec-ha-architecture-layers-coro">
-    <title>Membership and messaging layer (Corosync)</title>
-    <para>
-     This component provides reliable messaging, membership, and quorum information
-     about the cluster. This is handled by the Corosync cluster engine, a group
-     communication system.
-    </para>
-   </sect3>
-   <sect3 xml:id="sec-ha-architecture-layers-crm">
-    <title>Cluster resource manager (Pacemaker)</title>
-     <para>
-      Pacemaker as cluster resource manager is the <quote>brain</quote>
-      which reacts to events occurring in the cluster. It is implemented as
-      <systemitem class="daemon">pacemaker-controld</systemitem>, the cluster
-      controller, which coordinates all actions. Events can be nodes that join
-      or leave the cluster, failure of resources, or scheduled activities such
-      as maintenance, for example.
-     </para>
-    <variablelist>
-     <varlistentry xml:id="vle-lrm">
-      <term>Local resource manager</term>
-      <!--for future versions: Local Executor (pacemaker-execd)-->
-      <listitem>
-      <para>
-        The local resource manager is located between the Pacemaker layer and the
-        resources layer on each node. It is implemented as <systemitem
-        class="daemon">pacemaker-execd</systemitem> daemon. Through this daemon,
-        Pacemaker can start, stop, and monitor resources.
-      </para>
-      </listitem>
-     </varlistentry>
-      <varlistentry  xml:id="vle-cib">
-       <term>Cluster Information Database (CIB)</term>
-       <listitem>
-        <para>
-         On every node, Pacemaker maintains the cluster information database
-         (CIB). It is an XML representation of the cluster configuration
-         (including cluster options, nodes, resources, constraints and the
-         relationship to each other). The CIB also reflects the current cluster
-         status. Each cluster node contains a CIB replica, which is synchronized
-         across the whole cluster. The <systemitem class="daemon">pacemaker-based</systemitem>
-         daemon takes care of reading and writing cluster configuration and
-         status.</para>
-       </listitem>
-      </varlistentry>
-     <varlistentry xml:id="vle-dc">
-      <term>Designated Coordinator (DC)</term>
-      <listitem>
-       <para>
-        The DC is elected from all nodes in the cluster. This happens if there
-        is no DC yet or if the current DC leaves the cluster for any reason.
-        The DC is the only entity in the cluster that can decide that a
-        cluster-wide change needs to be performed, such as fencing a node or
-        moving resources around. All other nodes get their configuration and
-        resource allocation information from the current DC.
-       </para>
-      </listitem>
-     </varlistentry>
-     <varlistentry xml:id="vle-pe">
-      <term>Policy Engine</term>
-      <!--for future versions: Scheduler (pacemaker-schedulerd)-->
-      <listitem>
-       <para>
-        The policy engine runs on every node, but the one on the DC is the active
-        one. The engine is implemented as
-        <systemitem class="daemon">pacemaker-schedulerd</systemitem> daemon.
-        When a cluster transition is needed, based on the current state and
-        configuration, <systemitem class="daemon">pacemaker-schedulerd</systemitem>
-        calculates the expected next state of the cluster. It determines what
-        actions need to be scheduled to achieve the next state.
-       </para>
-      </listitem>
-     </varlistentry>
-   </variablelist>
-   </sect3>
-   <sect3 xml:id="sec-ha-architecture-layers-rsc">
-    <title>Resources and resource agents</title>
-    <para>
-     In a &ha; cluster, the services that need to be highly available are
-     called resources. Resource agents (RAs) are scripts that start, stop, and
-     monitor cluster resources.
-    </para>
-   </sect3>
-  </sect2>
-
-  <sect2 xml:id="sec-ha-architecture-processflow">
-   <title>Process flow</title>
-   <para>
-    The <systemitem class="daemon">pacemakerd</systemitem> daemon launches and
-    monitors all other related daemons. The daemon that coordinates all actions,
-    <systemitem class="daemon">pacemaker-controld</systemitem>, has an instance on
-    each cluster node. Pacemaker centralizes all cluster decision-making by
-    electing one of those instances as a primary. Should the elected <systemitem
-    class="daemon">pacemaker-controld</systemitem> daemon fail, a new primary is
-    established.
-   </para>
-   <para>
-    Many actions performed in the cluster will cause a cluster-wide change.
-    These actions can include things like adding or removing a cluster
-    resource or changing resource constraints. It is important to understand
-    what happens in the cluster when you perform such an action.
-   </para>
-   <para>
-    For example, suppose you want to add a cluster IP address resource. To
-    do this, you can use the &crmshell; or the Web interface to modify the CIB.
-    It is not required to perform the actions on the DC.
-    You can use either tool on any node in the cluster and they will be
-    relayed to the DC. The DC will then replicate the CIB change to all
-    cluster nodes.
-   </para>
-   <para>
-    Based on the information in the CIB, the <systemitem
-    class="daemon">pacemaker-schedulerd</systemitem> then computes the ideal
-    state of the cluster and how it should be achieved. It feeds a list of
-    instructions to the DC. The DC sends commands via the messaging/infrastructure
-    layer which are received by the <systemitem
-    class="daemon">pacemaker-controld</systemitem> peers on
-    other nodes. Each of them uses its local resource agent executor (implemented
-    as <systemitem class="daemon">pacemaker-execd</systemitem>) to perform
-    resource modifications. The <systemitem
-     class="daemon">pacemaker-execd</systemitem> is not cluster-aware and interacts
-    directly with resource agents.
-   </para>
-   <para>
-    All peer nodes report the results of their operations back to the DC.
-    After the DC concludes that all necessary operations are successfully
-    performed in the cluster, the cluster will go back to the idle state and
-    wait for further events. If any operation was not carried out as
-    planned, the <systemitem class="daemon">pacemaker-schedulerd</systemitem>
-    is invoked again with the new information recorded in
-    the CIB.
-   </para>
-   <para>
-    In some cases, it might be necessary to power off nodes to protect shared
-    data or complete resource recovery. In a Pacemaker cluster, the implementation
-    of node level fencing is &stonith;. For this, Pacemaker comes with a
-    fencing subsystem, <systemitem class="daemon">pacemaker-fenced</systemitem>.
-    &stonith; devices must be configured as cluster resources (that use
-    specific fencing agents), because this allows monitoring of the fencing devices.
-    When clients detect a failure, they send a request to <systemitem
-     class="daemon">pacemaker-fenced</systemitem>,
-    which then executes the fencing agent to bring down the node.
-   </para>
-  </sect2>
- </sect1>
 </chapter>
