@@ -16,8 +16,44 @@
   <info>
     <abstract>
       <para>
-        TO DO: Add an intro please
-      </para>
+      Virtual machines can take different roles in a &ha; cluster:
+      <itemizedlist>
+      <listitem>
+        <para>
+          A virtual machine can be managed by the cluster as a resource, without the cluster
+          managing the services that run on the virtual machine. In this case, the VM is opaque
+          to the cluster. This is the scenario described in this document.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          A virtual machine can be a cluster resource and run &pmremote;,
+          which allows the cluster to manage services running on the virtual machine.
+          In this case, the VM is a guest node and is transparent to the cluster.
+          For this scenario, see <xref linkend="sec-ha-pmremote-install-virt-guest-nodes"/>.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          A virtual machine can run a full cluster stack. In this case, the VM is a regular
+          cluster node and is not managed by the cluster as a resource. For this scenario,
+          see <xref linkend="article-installation"/>.
+        </para>
+      </listitem>
+    </itemizedlist>
+    </para>
+    <para>
+      The following procedures describe how to set up highly available virtual machines on
+      block storage, with another block device used as an &ocfs; volume to store the VM lock files
+      and XML configuration files. The virtual machines and the &ocfs; volume are configured as
+      resources managed by the cluster, and are placed in an ordering constraint so that the
+      lock files are always available before a virtual machine starts on any node.
+    </para>
+    <para>
+      Although the services running on the VM are not managed by the cluster, the cluster can
+      monitor the services via monitoring plug-ins. For more information, see
+      <xref linkend="sec-ha-config-basics-remote-nagios"/>.
+    </para>
     </abstract>
     <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
       <dm:bugtracker></dm:bugtracker>
@@ -25,76 +61,59 @@
     </dm:docmanager>
   </info>
 
-
-  <sect1 xml:id="sec-ha-virtualization-overview">
-    <title>Overview</title>
-    <para>
-      Virtual machines can take different roles in a &ha; cluster:
-    </para>
-    <itemizedlist>
-      <listitem>
-        <para>
-          A virtual machine can run a full cluster stack. In this case, the
-          virtual machine is a regular cluster node and is not managed
-          by the cluster as a resource. For this scenario, see
-          <xref linkend="article-installation"/>.
-        </para>
-      </listitem>
-      <listitem>
-        <para>
-          A virtual machine can be a cluster resource and run &pmremote;,
-          which allows the cluster to manage services inside the virtual machine.
-          In this case, the virtual machine is a guest node and is transparent
-          to the cluster.
-          For this scenario, see <xref linkend="sec-ha-pmremote-install-virt-guest-nodes"/>.
-        </para>
-      </listitem>
-      <listitem>
-        <para>
-          A virtual machine can be managed by the cluster as a resource, without
-          the cluster managing the services that run inside the virtual
-          machine. In this case, the virtual machine is opaque to the cluster.
-          This is the scenario documented in this chapter.
-        </para>
-        <para>
-          Although the services running inside the virtual machine are not
-          <emphasis>managed</emphasis> by the cluster, the cluster can <emphasis>monitor</emphasis>
-          the services via monitoring plug-ins. For more information,
-          see <xref linkend="sec-ha-config-basics-remote-nagios"/>.
-        </para>
-      </listitem>
-    </itemizedlist>
-  </sect1>
-
   <sect1 xml:id="sec-ha-virtualization-requirements">
     <title>Requirements</title>
-    <para>
-      TO DO: Finalise and clean this up
-    </para>
     <itemizedlist>
       <listitem>
         <para>
-          Attach iscsi disk to two cluster node, divide the iscsi disk into 3 partitions (e.g. 50MB for sbd, 20GB for ocfs2, the remain for VM image). In the actual production environment, cluster sbd device should use a separate shared disk to avoid IO starvation.
+          A running &ha; cluster with at least two nodes and an SBD device.
         </para>
       </listitem>
       <listitem>
         <para>
-          Add network bridge br0 on each cluster node (will be used when install/run virtual machine). In the actual production environment, cluster communication/management should use a separate network.
+          Passwordless &rootuser; SSH login between the cluster nodes.
         </para>
       </listitem>
       <listitem>
         <para>
-          Set up password-free ssh login for the root user between cluster nodes.
+          A network bridge on each cluster node, to be used for installing and running the VMs.
+          This must be separate from the network used for cluster communication and management.
         </para>
       </listitem>
       <listitem>
         <para>
-          Setup the HA cluster and add an SBD device.
+          Two or more shared storage devices (or partitions on a single shared device),
+          so that all cluster nodes can access the files and storage required by the VMs:
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>
+              A device to use as an &ocfs; volume, which will store the VM lock files and XML configuration files.
+              Creating and mounting the &ocfs; volume is explained in the following procedure.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              A device containing the VM installation source (such as an ISO file or disk image).
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              Depending on the installation source, you might also need another device for the
+              VM storage disks.
+            </para>
+          </listitem>
+        </itemizedlist>
+        <para>
+          To avoid I/O starvation, these devices must be separate from the shared device used for SBD.
         </para>
       </listitem>
       <listitem>
         <para>
-          Do not start VM instance manually until ocfs2 file system is mounted, since the file lockspace directory is under ocfs2 file system. In other words, you should let cluster(pacemaker) manage the start and stop of all virtual machines.
+          Stable device names for all storage paths, for example,
+          <filename>/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></filename>.
+          A shared storage device might have mismatched <filename>/dev/sdX</filename> names on
+          different nodes, which will cause VM migration to fail.
         </para>
       </listitem>
     </itemizedlist>
@@ -103,27 +122,33 @@
   <sect1 xml:id="sec-ha-virtualization-configuring-cluster-resources">
     <title>Configuring cluster resources to manage the lock files</title>
     <para>
-      Perform this procedure on one fo the cluster nodes.
+      Perform this procedure on one of the cluster nodes.
     </para>
     <procedure xml:id="pro-ha-virtualization-configuring-cluster-resources">
       <title>Configuring cluster resources to manage the lock files</title>
       <step>
         <para>
-          Run <command>crm configure</command>.
+          Create an &ocfs; volume on one of the shared storage devices:
+        </para>
+<screen>&prompt.root;<command>mkfs.ocfs2 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+      </step>
+      <step>
+        <para>
+          Run <command>crm configure</command> to start the <command>crm</command> interactive shell.
         </para>
       </step>
       <step>
         <para>
-          Create a DLM resource:
+          Create a primitive resource for DLM:
         </para>
 <screen>&prompt.crm.conf;<command>primitive dlm ocf:pacemaker:controld \
   op monitor interval=60 timeout=60</command></screen>
       </step>
       <step>
         <para>
-          Mount an &ocfs; volume:
+          Create a primitive resource for the &ocfs; volume:
         </para>
-<screen>&prompt.crm.conf;<command>primitive ocfs2-2 Filesystem \
+<screen>&prompt.crm.conf;<command>primitive ocfs2 Filesystem \
   params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype=ocfs2 \
   op monitor interval=20 timeout=40</command></screen>
       </step>
@@ -131,13 +156,13 @@
         <para>
           Create a group for the DLM and &ocfs; resources:
         </para>
-<screen>&prompt.crm.conf;<command>group base-group dlm ocfs2-2</command></screen>
+<screen>&prompt.crm.conf;<command>group virt-group dlm ocfs2</command></screen>
       </step>
       <step>
         <para>
           Clone the group so that it runs on all nodes:
         </para>
-<screen>&prompt.crm.conf;<command>clone base-clone base-group \
+<screen>&prompt.crm.conf;<command>clone virt-clone virt-group \
   meta interleave=true</command></screen>
       </step>
       <step>
@@ -151,13 +176,27 @@
           and leave the crm live configuration with <command>quit</command>.
         </para>
       </step>
+      <step>
+        <para>
+          Check the status of the group clone. It should be running on all nodes:
+        </para>
+<screen>&prompt.root;<command>crm status</command>
+[...]
+Full List of Resources:
+[...]
+  * Clone Set: virt-clone [virt-group]:
+    * Started: [ &node1; &node2; ]</screen>
+      </step>
     </procedure>
+    <para>
+
+    </para>
   </sect1>
 
   <sect1 xml:id="sec-ha-virtualization-preparing-the-cluster-nodes">
     <title>Preparing the cluster nodes to host virtual machines</title>
     <para>
-      Repeat the following procedure on each cluster node.
+      Repeat this procedure on all cluster nodes.
     </para>
     <procedure xml:id="pro-ha-virtualization-preparing-the-cluster-nodes">
       <title>Preparing the cluster nodes to host virtual machines</title>
@@ -165,21 +204,20 @@
         <para>
           Install the virtualization packages:
         </para>
-<screen>&prompt.root;<command>zypper in -t pattern kvm_server kvm_tools</command></screen>
+<screen>&prompt.root;<command>zypper install -t pattern kvm_server kvm_tools</command></screen>
       </step>
       <step>
         <para>
           In the file <filename>/etc/libvirt/qemu.conf</filename>, find and enable the
-          following line:
+          <literal>lock_manager</literal> setting:
         </para>
 <screen>lock_manager = "lockd"</screen>
       </step>
       <step>
         <para>
-           In the file <filename>/etc/libvirt/qemu-lockd.conf</filename>, find the setting
-           <literal>file_lockspace_dir</literal> and change the value to point to a file
-           in the &ocfs; directory you configured in
-           <xref linkend="sec-ha-virtualization-configuring-cluster-resources"/>:
+           In the file <filename>/etc/libvirt/qemu-lockd.conf</filename>, find and enable the
+           <literal>file_lockspace_dir</literal> setting and change the value to point to a
+           directory on the &ocfs; volume:
         </para>
 <screen>file_lockspace_dir = "/mnt/shared/lockd"</screen>
       </step>
@@ -196,15 +234,29 @@
   </sect1>
 
   <sect1 xml:id="sec-ha-virtualization-adding-virtual-machines">
-    <title>Adding virtual machines to the cluster</title>
+    <title>Adding virtual machines as cluster resources</title>
     <para>
       Repeat this procedure for each virtual machine you want to create.
     </para>
     <procedure xml:id="pro-ha-virtualization-adding-virtual-machines">
-      <title>Adding virtual machines to the cluster</title>
+      <title>Adding virtual machines as cluster resources</title>
       <step>
         <para>
-          Install a virtual machine on one of the cluster nodes (**on the shared storage**).
+          Install a virtual machine on one of the cluster nodes, with the following restrictions:
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>
+              The installation source and storage must be on shared devices.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              Do not configure the VM to start on host boot.
+            </para>
+          </listitem>
+        </itemizedlist>
+        <para>
           For more information, see
           <link xlink:href="https://documentation.suse.com/sles/html/SLES-all/book-virtualization.html">
           <citetitle>&virtual;</citetitle> for &sles;</link>.
@@ -212,9 +264,15 @@
       </step>
       <step>
         <para>
-          Dump the XML configuration to a file on the &ocfs; file system:
+          If the virtual machine is running, shut it down. The cluster will start the VM
+          after you add it as a cluster resource.
         </para>
-<screen>&prompt.root;<command>virsh dumpxml sle15_nd &gt; /mnt/shared/sle15_nd.xml</command></screen>
+      </step>
+      <step>
+        <para>
+          Dump the virtual machine's XML configuration to a file on the &ocfs; volume:
+        </para>
+<screen>&prompt.root;<command>virsh dumpxml vm1 &gt; /mnt/shared/vm1.xml</command></screen>
         <important role="compact">
           <para>
             Make sure the XML file does not contain any references to unshared local paths.
@@ -223,25 +281,30 @@
       </step>
       <step>
         <para>
-          Run <command>crm configure</command>.
+          Run <command>crm configure</command> to start the <command>crm</command> interactive shell.
         </para>
       </step>
       <step>
         <para>
-          Create a cluster resource to manage the virtual machine:
+          Create a primitive resource to manage the virtual machine:
         </para>
-<screen>&prompt.crm.conf;<command>primitive vm_nd1 VirtualDomain \
-  params config="/mnt/shared/sle15-nd.xml" remoteuri="qemu+ssh://%n/system" \
+<screen>&prompt.crm.conf;<command>primitive vm1 VirtualDomain \
+  params config="/mnt/shared/vm1.xml" remoteuri="qemu+ssh://%n/system" \
   meta allow-migrate=true \
   op monitor timeout=30s interval=10s \
   utilization cpu=2 hv_memory=1024</command></screen>
+        <para>
+          The option <literal>allow-migrate=true</literal> enables live migration. If the value is
+          set to <literal>false</literal>, the cluster migrates the VM by shutting it down on
+          one node and restarting it on another node.
+        </para>
       </step>
       <step>
         <para>
-          Add an ordering constraint so that the resources managing the lock files always
+          Create an ordering constraint so that the resources managing the lock files always
           start before the virtual machine:
         </para>
-<screen>&prompt.crm.conf;<command>order ord_fs_virt Mandatory: base-clone vm_nd1</command></screen>
+<screen>&prompt.crm.conf;<command>order ord_fs_virt Mandatory: virt-clone vm1</command></screen>
       </step>
       <step>
         <para>
@@ -254,48 +317,161 @@
           and leave the crm live configuration with <command>quit</command>.
         </para>
       </step>
+      <step>
+        <para>
+          Check the status of the virtual machine:
+        </para>
+<screen>&prompt.root;<command>crm status</command>
+[...]
+Full List of Resources:
+[...]
+  * Clone Set: virt-clone [virt-group]:
+    * Started: [ &node1; &node2; ]
+  * vm1 (ocf::heartbeat:VirtualDomain): Started &node1;</screen>
+      </step>
     </procedure>
+    <para>
+      The virtual machine is now managed by the &ha; cluster, and can migrate between the cluster nodes.
+    </para>
+    <important>
+      <title>Do not manually start or stop cluster-managed VMs</title>
+      <para>
+        After adding a virtual machine as a cluster resource, do not manage it manually.
+        Only use the cluster tools as described in <xref linkend="cha-ha-manage-resources"/>.
+      </para>
+      <para>
+        To perform maintenance tasks on cluster-managed VMs, see <xref linkend="sec-ha-maint-overview"/>.
+      </para>
+    </important>
   </sect1>
 
   <sect1 xml:id="sec-ha-virtualization-testing">
     <title>Testing the setup</title>
     <para>
-      TO DO: Test this and flesh it out
+      Use the following tests to confirm that the virtual machine &ha; setup works as expected.
     </para>
-    <variablelist>
-      <varlistentry>
-        <term>Verify VM resource is protected across cluster nodes</term>
-        <listitem>
-          <para>
-            Test result: cannot start the VM manually via virsh command when this VM is running on another cluster node.
-          </para>
-        </listitem>
-      </varlistentry>
-      <varlistentry>
-        <term>Verify VM resource can be taken by another cluster node when the current cluster node crashes</term>
-        <listitem>
-          <para>
-            Test result: after a few seconds (cluster fence time), the VM is started on another cluster node.
-          </para>
-        </listitem>
-      </varlistentry>
-      <varlistentry>
-        <term>Verify VM resource can be taken by another cluster node when the current cluster node reboots</term>
-        <listitem>
-          <para>
-            Test result: the VM is migrated to another cluster node.
-          </para>
-        </listitem>
-      </varlistentry>
-      <varlistentry>
-        <term>Check if we can migrate VM resource between cluster nodes</term>
-        <listitem>
-          <para>
-            Test result: Yes, the remote SSH connection to the VM is not broken during the whole migration.
-          </para>
-        </listitem>
-      </varlistentry>
-    </variablelist>
+    <important role="compact">
+      <para>
+        Perform these tests in a test environment, not a production environment.
+      </para>
+    </important>
+    <procedure>
+      <title>Verifying that the VM resource is protected across cluster nodes</title>
+      <step>
+        <para>
+          The virtual machine <literal>vm1</literal> is running on node <literal>&node1;</literal>.
+        </para>
+      </step>
+      <step>
+        <para>
+          On node <literal>&node2;</literal>, try to start the VM manually with
+          <command>virsh start vm1</command>.
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">Expected result:</emphasis> The <command>virsh</command> command
+          fails. <literal>vm1</literal> cannot be started manually on <literal>&node2;</literal>
+          when it is running on <literal>&node1;</literal>.
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>Verifying that the VM resource can live migrate between cluster nodes</title>
+      <step>
+        <para>
+          The virtual machine <literal>vm1</literal> is running on node <literal>&node1;</literal>.
+        </para>
+      </step>
+      <step>
+        <para>
+          Open two terminals.
+        </para>
+      </step>
+      <step>
+        <para>
+          In the first terminal, connect to <literal>vm1</literal> via SSH.
+        </para>
+      </step>
+      <step>
+        <para>
+          In the second terminal, try to migrate <literal>vm1</literal> to node
+          <literal>&node2;</literal> with <command>crm resource move vm1 bob</command>.
+        </para>
+      </step>
+      <step>
+        <para>
+          Check the cluster status with <command>crm status</command>. Repeat this command
+          multiple times, until the cluster status stabilizes.
+        </para>
+      </step>
+      <step>
+        <para>
+          In the first terminal, check whether the SSH connection to <literal>vm1</literal>
+          is still active.
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">Expected result:</emphasis> The cluster status shows that
+          <literal>vm1</literal> has started on <literal>&node2;</literal>. The SSH connection
+          to <literal>vm1</literal> remains active during the whole migration.
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>Verifying that the VM resource can move to another cluster node when the current node reboots</title>
+      <step>
+        <para>
+          The virtual machine <literal>vm1</literal> is running on node <literal>&node2;</literal>.
+       </para>
+      </step>
+      <step>
+        <para>
+          Reboot <literal>&node2;</literal>.
+        </para>
+      </step>
+      <step>
+        <para>
+          On node <literal>&node1;</literal>, check the cluster status with <command>crm status</command>.
+          Repeat this command multiple times, until the cluster status stabilizes.
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">Expected result:</emphasis> The cluster status shows that
+          <literal>vm1</literal> has started on <literal>&node1;</literal>.
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>Verifying that the VM resource can move to another cluster node when the current node crashes</title>
+      <step>
+        <para>
+          The virtual machine <literal>vm1</literal> is running on node <literal>&node1;</literal>.
+        </para>
+      </step>
+      <step>
+        <para>
+          Simulate a crash on <literal>&node1;</literal> by forcing the machine off or
+          unplugging the power cable.
+        </para>
+      </step>
+      <step>
+        <para>
+          On node <literal>&node2;</literal>, check the cluster status with
+          <command>crm status</command>. Repeat this command multiple times, until the
+          cluster status stabilizes. Migrating the VM usually takes longer after a
+          node crashes than it does after a node reboots.
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">Expected result:</emphasis> After a short time, the cluster status
+          shows that <literal>vm1</literal> has started on <literal>&node2;</literal>.
+        </para>
+      </step>
+    </procedure>
   </sect1>
 
 </chapter>
