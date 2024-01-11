@@ -58,13 +58,9 @@
       The following procedures describe how to set up highly available virtual machines on
       block storage, with another block device used as an &ocfs; volume to store the VM lock files
       and XML configuration files. The virtual machines and the &ocfs; volume are configured as
-      resources managed by the cluster, and are placed in an ordering constraint so that the
-      lock files are always available before a virtual machine starts on any node.
-    </para>
-    <para>
-      Although the services running on the VM are not managed by the cluster, the cluster can
-      monitor the services via monitoring plug-ins. For more information, see
-      <xref linkend="sec-ha-config-basics-remote-nagios"/>.
+      resources managed by the cluster, with resource constraints to ensure that the
+      lock file directory is always available before a virtual machine starts on any node.
+      This prevents the virtual machines from starting on multiple nodes.
     </para>
   </sect1>
 
@@ -73,7 +69,7 @@
     <itemizedlist>
       <listitem>
         <para>
-          A running &ha; cluster with at least two nodes and an SBD device.
+          A running &ha; cluster with at least two nodes and a fencing device such as SBD.
         </para>
       </listitem>
       <listitem>
@@ -129,7 +125,12 @@
   <sect1 xml:id="sec-ha-virtualization-configuring-cluster-resources">
     <title>Configuring cluster resources to manage the lock files</title>
     <para>
-      Perform this procedure on one of the cluster nodes.
+      Use this procedure to configure the cluster to manage the virtual machine lock files.
+      The lock file directory must be available on all nodes so that the cluster is aware of the
+      lock files no matter which node the VMs are running on.
+    </para>
+    <para>
+      You only need to run the following commands on one of the cluster nodes.
     </para>
     <procedure xml:id="pro-ha-virtualization-configuring-cluster-resources">
       <title>Configuring cluster resources to manage the lock files</title>
@@ -203,36 +204,49 @@ Full List of Resources:
   <sect1 xml:id="sec-ha-virtualization-preparing-the-cluster-nodes">
     <title>Preparing the cluster nodes to host virtual machines</title>
     <para>
-      Repeat this procedure on all cluster nodes.
+      Use this procedure to install and start the required virtualization services, and to
+      configure the nodes to store the VM lock files on the shared &ocfs; volume.
+    </para>
+    <para>
+      This procedure uses <command>crm cluster run</command> to run commands on all
+      nodes at once. If you prefer to manage each node individually, you can omit the
+      <command>crm cluster run</command> portion of the commands.
     </para>
     <procedure xml:id="pro-ha-virtualization-preparing-the-cluster-nodes">
       <title>Preparing the cluster nodes to host virtual machines</title>
       <step>
         <para>
-          Install the virtualization packages:
+          Install the virtualization packages on all nodes in the cluster:
         </para>
-<screen>&prompt.root;<command>zypper install -t pattern kvm_server kvm_tools</command></screen>
+<screen>&prompt.root;<command>crm cluster run "zypper install -y -t pattern kvm_server kvm_tools"</command></screen>
       </step>
       <step>
         <para>
-          In the file <filename>/etc/libvirt/qemu.conf</filename>, find and enable the
-          <literal>lock_manager</literal> setting:
+          On one node, find and enable the <literal>lock_manager</literal> setting in the file
+          <filename>/etc/libvirt/qemu.conf</filename>:
         </para>
 <screen>lock_manager = "lockd"</screen>
       </step>
       <step>
         <para>
-           In the file <filename>/etc/libvirt/qemu-lockd.conf</filename>, find and enable the
-           <literal>file_lockspace_dir</literal> setting and change the value to point to a
-           directory on the &ocfs; volume:
+          On the same node, find and enable the <literal>file_lockspace_dir</literal> setting in the
+          file <filename>/etc/libvirt/qemu-lockd.conf</filename>, and change the value to point to
+          a directory on the &ocfs; volume:
         </para>
 <screen>file_lockspace_dir = "/mnt/shared/lockd"</screen>
       </step>
       <step>
         <para>
-          Enable and start the <literal>libvirtd</literal> service:
+          Copy these files to the other nodes in the cluster:
         </para>
-<screen>&prompt.root;<command>systemctl enable --now libvirtd</command></screen>
+<screen>&prompt.root;<command>crm cluster copy /etc/libvirt/qemu.conf</command>
+&prompt.root;<command>crm cluster copy /etc/libvirt/qemu-lockd.conf</command></screen>
+      </step>
+      <step>
+        <para>
+          Enable and start the <literal>libvirtd</literal> service on all nodes in the cluster:
+        </para>
+<screen>&prompt.root;<command>crm cluster run "systemctl enable --now libvirtd"</command></screen>
         <para>
           This also starts the <literal>virtlockd</literal> service.
         </para>
@@ -301,25 +315,28 @@ Full List of Resources:
 <screen>&prompt.crm.conf;<command>primitive <replaceable>VM1</replaceable> VirtualDomain \
   params config="/mnt/shared/<replaceable>VM1</replaceable>.xml" remoteuri="qemu+ssh://%n/system" \
   meta allow-migrate=true \
-  op monitor timeout=30s interval=10s \
-  utilization cpu=2 hv_memory=1024</command></screen>
+  op monitor timeout=30s interval=10s</command></screen>
         <para>
           The option <literal>allow-migrate=true</literal> enables live migration. If the value is
           set to <literal>false</literal>, the cluster migrates the VM by shutting it down on
           one node and restarting it on another node.
         </para>
+        <para>
+          If you need to set utilization attributes to help place VMs based on their load impact,
+          see <xref linkend="sec-ha-config-basics-utilization"/>.
+        </para>
       </step>
       <step>
         <para>
           Create a colocation constraint so that the virtual machines can only start on nodes where
-          the cloned group <literal>virt-clone</literal> is running:
+          <literal>virt-clone</literal> is running:
         </para>
 <screen>&prompt.crm.conf;<command>colocation col-fs-virt inf: ( <replaceable>VM1 VM2 VMX</replaceable> ) virt-clone</command></screen>
       </step>
       <step>
         <para>
-          Create an ordering constraint so that the cloned group <literal>virt-clone</literal>
-          always starts before the virtual machines:
+          Create an ordering constraint so that <literal>virt-clone</literal> always starts before
+          the virtual machines:
         </para>
 <screen>&prompt.crm.conf;<command>order ord_fs_virt Mandatory: virt-clone ( <replaceable>VM1 VM2 VMX</replaceable> )</command></screen>
       </step>
@@ -420,8 +437,8 @@ Full List of Resources:
       </step>
       <step>
         <para>
-          Check the cluster status with <command>crm status</command>. Repeat this command
-          multiple times, until the cluster status stabilizes.
+          Run <command>crm_mon -r</command> to monitor the cluster status until it
+          stabilizes. This might take a short time.
         </para>
       </step>
       <step>
@@ -439,7 +456,7 @@ Full List of Resources:
       </step>
     </procedure>
     <procedure>
-      <title>Verifying that the VM resource can move to another cluster node when the current node reboots</title>
+      <title>Verifying that the VM resource can migrate to another node when the current node reboots</title>
       <step>
         <para>
           The virtual machine <literal>VM1</literal> is running on node <literal>&node2;</literal>.
@@ -452,8 +469,8 @@ Full List of Resources:
       </step>
       <step>
         <para>
-          On node <literal>&node1;</literal>, check the cluster status with <command>crm status</command>.
-          Repeat this command multiple times, until the cluster status stabilizes.
+          On node <literal>&node1;</literal>, run <command>crm_mon -r</command> to
+          monitor the cluster status until it stabilizes. This might take a short time.
         </para>
       </step>
       <step>
@@ -464,7 +481,7 @@ Full List of Resources:
       </step>
     </procedure>
     <procedure>
-      <title>Verifying that the VM resource can move to another cluster node when the current node crashes</title>
+      <title>Verifying that the VM resource can fail over to another node when the current node crashes</title>
       <step>
         <para>
           The virtual machine <literal>VM1</literal> is running on node <literal>&node1;</literal>.
@@ -478,10 +495,9 @@ Full List of Resources:
       </step>
       <step>
         <para>
-          On node <literal>&node2;</literal>, check the cluster status with
-          <command>crm status</command>. Repeat this command multiple times, until the
-          cluster status stabilizes. Migrating the VM usually takes longer after a
-          node crashes than it does after a node reboots.
+          On node <literal>&node2;</literal>, run <command>crm_mon -r</command> to
+          monitor the cluster status until it stabilizes. VM failover after a node crashes
+          usually takes longer than VM migration after a node reboots.
         </para>
       </step>
       <step>
