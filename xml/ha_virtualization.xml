@@ -243,13 +243,16 @@ Full List of Resources:
   <sect1 xml:id="sec-ha-virtualization-adding-virtual-machines">
     <title>Adding virtual machines as cluster resources</title>
     <para>
-      Repeat this procedure for each virtual machine you want to create.
+      Use this procedure to add virtual machines to the cluster as cluster resources, with
+      resource constraints to ensure the VMs can always access the lock files. The lock files are
+      managed by the resources in the group <literal>virt-group</literal>, which is available on
+      all nodes via the clone <literal>virt-clone</literal>.
     </para>
     <procedure xml:id="pro-ha-virtualization-adding-virtual-machines">
       <title>Adding virtual machines as cluster resources</title>
       <step>
         <para>
-          Install a virtual machine on one of the cluster nodes, with the following restrictions:
+          Install your virtual machines on one of the cluster nodes, with the following restrictions:
         </para>
         <itemizedlist>
           <listitem>
@@ -259,7 +262,7 @@ Full List of Resources:
           </listitem>
           <listitem>
             <para>
-              Do not configure the VM to start on host boot.
+              Do not configure the VMs to start on host boot.
             </para>
           </listitem>
         </itemizedlist>
@@ -271,18 +274,18 @@ Full List of Resources:
       </step>
       <step>
         <para>
-          If the virtual machine is running, shut it down. The cluster will start the VM
-          after you add it as a cluster resource.
+          If the virtual machines are running, shut them down. The cluster will start the VMs
+          after you add them as resources.
         </para>
       </step>
       <step>
         <para>
-          Dump the virtual machine's XML configuration to a file on the &ocfs; volume:
+          Dump the XML configuration to the &ocfs; volume. Repeat this step for each VM:
         </para>
-<screen>&prompt.root;<command>virsh dumpxml vm1 &gt; /mnt/shared/vm1.xml</command></screen>
+<screen>&prompt.root;<command>virsh dumpxml <replaceable>VM1</replaceable> &gt; /mnt/shared/<replaceable>VM1</replaceable>.xml</command></screen>
         <important role="compact">
           <para>
-            Make sure the XML file does not contain any references to unshared local paths.
+            Make sure the XML files do not contain any references to unshared local paths.
           </para>
         </important>
       </step>
@@ -293,10 +296,10 @@ Full List of Resources:
       </step>
       <step>
         <para>
-          Create a primitive resource to manage the virtual machine:
+          Create primitive resources to manage the virtual machines. Repeat this step for each VM:
         </para>
-<screen>&prompt.crm.conf;<command>primitive vm1 VirtualDomain \
-  params config="/mnt/shared/vm1.xml" remoteuri="qemu+ssh://%n/system" \
+<screen>&prompt.crm.conf;<command>primitive <replaceable>VM1</replaceable> VirtualDomain \
+  params config="/mnt/shared/<replaceable>VM1</replaceable>.xml" remoteuri="qemu+ssh://%n/system" \
   meta allow-migrate=true \
   op monitor timeout=30s interval=10s \
   utilization cpu=2 hv_memory=1024</command></screen>
@@ -308,10 +311,17 @@ Full List of Resources:
       </step>
       <step>
         <para>
-          Create an ordering constraint so that the resources managing the lock files always
-          start before the virtual machine:
+          Create a colocation constraint so that the virtual machines can only start on nodes where
+          the cloned group <literal>virt-clone</literal> is running:
         </para>
-<screen>&prompt.crm.conf;<command>order ord_fs_virt Mandatory: virt-clone vm1</command></screen>
+<screen>&prompt.crm.conf;<command>colocation col-fs-virt inf: ( <replaceable>VM1 VM2 VMX</replaceable> ) virt-clone</command></screen>
+      </step>
+      <step>
+        <para>
+          Create an ordering constraint so that the cloned group <literal>virt-clone</literal>
+          always starts before the virtual machines:
+        </para>
+<screen>&prompt.crm.conf;<command>order ord_fs_virt Mandatory: virt-clone ( <replaceable>VM1 VM2 VMX</replaceable> )</command></screen>
       </step>
       <step>
         <para>
@@ -326,7 +336,7 @@ Full List of Resources:
       </step>
       <step>
         <para>
-          Check the status of the virtual machine:
+          Check the status of the virtual machines:
         </para>
 <screen>&prompt.root;<command>crm status</command>
 [...]
@@ -334,16 +344,18 @@ Full List of Resources:
 [...]
   * Clone Set: virt-clone [virt-group]:
     * Started: [ &node1; &node2; ]
-  * vm1 (ocf::heartbeat:VirtualDomain): Started &node1;</screen>
+  * VM1 (ocf::heartbeat:VirtualDomain): Started &node1;
+  * VM2 (ocf::heartbeat:VirtualDomain): Started &node1;
+  * VMX (ocf::heartbeat:VirtualDomain): Started &node1;</screen>
       </step>
     </procedure>
     <para>
-      The virtual machine is now managed by the &ha; cluster, and can migrate between the cluster nodes.
+      The virtual machines are now managed by the &ha; cluster, and can migrate between the cluster nodes.
     </para>
     <important>
       <title>Do not manually start or stop cluster-managed VMs</title>
       <para>
-        After adding a virtual machine as a cluster resource, do not manage it manually.
+        After adding virtual machines as cluster resources, do not manage them manually.
         Only use the cluster tools as described in <xref linkend="cha-ha-manage-resources"/>.
       </para>
       <para>
@@ -366,19 +378,19 @@ Full List of Resources:
       <title>Verifying that the VM resource is protected across cluster nodes</title>
       <step>
         <para>
-          The virtual machine <literal>vm1</literal> is running on node <literal>&node1;</literal>.
+          The virtual machine <literal>VM1</literal> is running on node <literal>&node1;</literal>.
         </para>
       </step>
       <step>
         <para>
           On node <literal>&node2;</literal>, try to start the VM manually with
-          <command>virsh start vm1</command>.
+          <command>virsh start VM1</command>.
         </para>
       </step>
       <step>
         <para>
           <emphasis role="bold">Expected result:</emphasis> The <command>virsh</command> command
-          fails. <literal>vm1</literal> cannot be started manually on <literal>&node2;</literal>
+          fails. <literal>VM1</literal> cannot be started manually on <literal>&node2;</literal>
           when it is running on <literal>&node1;</literal>.
         </para>
       </step>
@@ -387,7 +399,7 @@ Full List of Resources:
       <title>Verifying that the VM resource can live migrate between cluster nodes</title>
       <step>
         <para>
-          The virtual machine <literal>vm1</literal> is running on node <literal>&node1;</literal>.
+          The virtual machine <literal>VM1</literal> is running on node <literal>&node1;</literal>.
         </para>
       </step>
       <step>
@@ -397,13 +409,13 @@ Full List of Resources:
       </step>
       <step>
         <para>
-          In the first terminal, connect to <literal>vm1</literal> via SSH.
+          In the first terminal, connect to <literal>VM1</literal> via SSH.
         </para>
       </step>
       <step>
         <para>
-          In the second terminal, try to migrate <literal>vm1</literal> to node
-          <literal>&node2;</literal> with <command>crm resource move vm1 bob</command>.
+          In the second terminal, try to migrate <literal>VM1</literal> to node
+          <literal>&node2;</literal> with <command>crm resource move VM1 bob</command>.
         </para>
       </step>
       <step>
@@ -414,15 +426,15 @@ Full List of Resources:
       </step>
       <step>
         <para>
-          In the first terminal, check whether the SSH connection to <literal>vm1</literal>
+          In the first terminal, check whether the SSH connection to <literal>VM1</literal>
           is still active.
         </para>
       </step>
       <step>
         <para>
           <emphasis role="bold">Expected result:</emphasis> The cluster status shows that
-          <literal>vm1</literal> has started on <literal>&node2;</literal>. The SSH connection
-          to <literal>vm1</literal> remains active during the whole migration.
+          <literal>VM1</literal> has started on <literal>&node2;</literal>. The SSH connection
+          to <literal>VM1</literal> remains active during the whole migration.
         </para>
       </step>
     </procedure>
@@ -430,7 +442,7 @@ Full List of Resources:
       <title>Verifying that the VM resource can move to another cluster node when the current node reboots</title>
       <step>
         <para>
-          The virtual machine <literal>vm1</literal> is running on node <literal>&node2;</literal>.
+          The virtual machine <literal>VM1</literal> is running on node <literal>&node2;</literal>.
        </para>
       </step>
       <step>
@@ -447,7 +459,7 @@ Full List of Resources:
       <step>
         <para>
           <emphasis role="bold">Expected result:</emphasis> The cluster status shows that
-          <literal>vm1</literal> has started on <literal>&node1;</literal>.
+          <literal>VM1</literal> has started on <literal>&node1;</literal>.
         </para>
       </step>
     </procedure>
@@ -455,7 +467,7 @@ Full List of Resources:
       <title>Verifying that the VM resource can move to another cluster node when the current node crashes</title>
       <step>
         <para>
-          The virtual machine <literal>vm1</literal> is running on node <literal>&node1;</literal>.
+          The virtual machine <literal>VM1</literal> is running on node <literal>&node1;</literal>.
         </para>
       </step>
       <step>
@@ -475,7 +487,7 @@ Full List of Resources:
       <step>
         <para>
           <emphasis role="bold">Expected result:</emphasis> After a short time, the cluster status
-          shows that <literal>vm1</literal> has started on <literal>&node2;</literal>.
+          shows that <literal>VM1</literal> has started on <literal>&node2;</literal>.
         </para>
       </step>
     </procedure>
