@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE chapter
+[
+  <!ENTITY % entities SYSTEM "generic-entities.ent">
+    %entities;
+]>
+
+<chapter xml:id="cha-ha-sbd-watchdog" xml:lang="en"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+  <title>Setting up a watchdog for SBD</title>
+  <info>
+    <abstract>
+      <para>
+        If you are using SBD as your &stonith; device, you must enable a watchdog on each
+        cluster node. If you are using a different &stonith; device, you can skip this chapter.
+      </para>
+    </abstract>
+    <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+      <dm:bugtracker></dm:bugtracker>
+      <dm:translation>yes</dm:translation>
+    </dm:docmanager>
+  </info>
+
+<!-- Duplicated from xml/ha_storage_protection.xml -->
+
+  <para>
+    &productname; ships with several kernel modules that provide hardware-specific watchdog drivers.
+    For clusters in production environments, we recommend using a hardware watchdog.
+    However, if no watchdog matches your hardware, the software watchdog
+    (<systemitem class="resource">softdog</systemitem>) can be used instead.
+  </para>
+  <para>
+    &productname; uses the SBD daemon as the software component that <quote>feeds</quote> the watchdog.
+  </para>
+
+  <sect1 xml:id="sec-ha-sbd-hw-watchdog">
+    <title>Using a hardware watchdog</title>
+    <para>
+      Finding the right watchdog kernel module for a given system is not
+      trivial. Automatic probing fails often. As a result, many modules
+      are already loaded before the right one gets a chance.</para>
+    <para>
+      The following table lists some commonly used watchdog drivers. However, this is
+      not a complete list of supported drivers. If your hardware is not listed here,
+      you can also find a list of choices in the following directories:
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          <filename>/lib/modules/<replaceable>KERNEL_VERSION</replaceable>/kernel/drivers/watchdog</filename>
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          <filename>/lib/modules/<replaceable>KERNEL_VERSION</replaceable>/kernel/drivers/ipmi</filename>
+        </para>
+      </listitem>
+    </itemizedlist>
+    <para>
+      Alternatively, ask your hardware or
+      system vendor for details on system-specific watchdog configuration.
+    </para>
+    <table xml:id="tab-ha-sbd-watchdog-drivers">
+      <title>Commonly used watchdog drivers</title>
+      <tgroup cols="2">
+      <thead>
+        <row>
+        <entry>Hardware</entry>
+        <entry>Driver</entry>
+        </row>
+      </thead>
+      <tbody>
+        <row>
+        <entry>HP</entry>
+        <entry><systemitem class="resource">hpwdt</systemitem></entry>
+        </row>
+        <row>
+        <entry>Dell, Lenovo (Intel TCO)</entry>
+        <entry><systemitem class="resource">iTCO_wdt</systemitem></entry>
+        </row>
+        <row>
+        <entry>Fujitsu</entry>
+        <entry><systemitem class="resource">ipmi_watchdog</systemitem></entry>
+        </row>
+        <row>
+        <entry>LPAR on IBM Power</entry>
+        <entry><systemitem class="resource">pseries-wdt</systemitem></entry>
+        </row>
+        <row>
+        <entry>VM on IBM z/VM</entry>
+        <entry><systemitem class="resource">vmwatchdog</systemitem></entry>
+        </row>
+        <row>
+        <entry>Xen VM (DomU)</entry>
+        <entry><systemitem class="resource">xen_xdt</systemitem></entry>
+        </row>
+        <row>
+        <entry>VM on VMware vSphere</entry>
+        <entry><systemitem class="resource">wdat_wdt</systemitem></entry>
+        </row>
+        <row>
+        <entry>Generic</entry>
+        <entry><systemitem class="resource">softdog</systemitem></entry>
+        </row>
+      </tbody>
+      </tgroup>
+    </table>
+    <important>
+      <title>Accessing the watchdog timer</title>
+      <para>
+        Some hardware vendors ship systems management software that uses the
+        watchdog for system resets (for example, HP ASR daemon). If the watchdog is
+        used by SBD, disable such software. No other software must access the
+        watchdog timer.
+      </para>
+    </important>
+    <procedure xml:id="pro-ha-sbd-watchdog">
+      <title>Loading the correct kernel module</title>
+      <step>
+        <para>
+          List the drivers that are installed with your kernel version:
+        </para>
+<screen>&prompt.root;<command>rpm -ql kernel-<replaceable>VERSION</replaceable> | grep watchdog</command></screen>
+        </step>
+        <step>
+          <para>
+            List any watchdog modules that are currently loaded in the kernel:
+          </para>
+<screen>&prompt.root;<command>lsmod | egrep "(wd|dog)"</command></screen>
+        </step>
+        <step>
+          <para>
+            If you get a result, unload the wrong module:
+          </para>
+<screen>&prompt.root;<command>rmmod <replaceable>WRONG_MODULE</replaceable></command></screen>
+        </step>
+        <step>
+          <para>
+            Enable the watchdog module that matches your hardware:
+          </para>
+<screen>&prompt.root;<command>echo <replaceable>WATCHDOG_MODULE</replaceable> &gt; /etc/modules-load.d/watchdog.conf</command>
+&prompt.root;<command>systemctl restart systemd-modules-load</command></screen>
+      </step>
+      <step>
+        <para>
+          Test whether the watchdog module is loaded correctly:
+        </para>
+<screen>&prompt.root;<command>lsmod | grep dog</command></screen>
+      </step>
+      <step>
+        <para>
+          Verify if the watchdog device is available:
+        </para>
+<screen>&prompt.root;<command>ls -l /dev/watchdog*</command>
+&prompt.root;<command>sbd query-watchdog</command></screen>
+        <para>
+          If the watchdog device is not available, check the module name and options.
+          Maybe use another driver.
+        </para>
+      </step>
+      <step>
+        <para>
+          Verify if the watchdog device works:
+        </para>
+<screen>&prompt.root;<command>sbd -w <replaceable>WATCHDOG_DEVICE</replaceable> test-watchdog</command></screen>
+      </step>
+      <step>
+        <para>
+          Reboot your machine to make sure there are no conflicting kernel modules. For example,
+          if you find the message <literal>cannot register ...</literal> in your log, this would indicate
+          such conflicting modules. To ignore such modules, refer to
+          <link xlink:href="https://documentation.suse.com/sles/html/SLES-all/cha-mod.html#sec-mod-modprobe-blacklist"/>.
+        </para>
+      </step>
+    </procedure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-sbd-sw-watchdog">
+    <title>Using the software watchdog (softdog)</title>
+    <para>
+      For clusters in production environments, we recommend using a hardware-specific watchdog
+      driver. However, if no watchdog matches your hardware,
+      <systemitem class="resource">softdog</systemitem> can be used instead.
+    </para>
+    <important>
+      <title>Softdog limitations</title>
+      <para>
+        The softdog driver assumes that at least one CPU is still running. If all CPUs are stuck,
+        the code in the softdog driver that should reboot the system is never executed.
+        In contrast, hardware watchdogs keep working even if all CPUs are stuck.
+      </para>
+    </important>
+    <procedure xml:id="pro-ha-sbd-sw-watchdog">
+      <title>Loading the softdog kernel module</title>
+      <step>
+        <para>
+          Enable the softdog watchdog:
+        </para>
+<screen>&prompt.root;<command>echo softdog &gt; /etc/modules-load.d/watchdog.conf</command>
+&prompt.root;<command>systemctl restart systemd-modules-load</command></screen>
+      </step>
+      <step>
+        <para>
+          Check whether the softdog watchdog module is loaded correctly:
+        </para>
+<screen>&prompt.root;<command>lsmod | grep softdog</command></screen>
+      </step>
+    </procedure>
+  </sect1>
+
+</chapter>
