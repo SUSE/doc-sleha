@@ -40,45 +40,6 @@
      <para>
    Events are logged to <filename>/var/log/crmsh/crmsh.log</filename>.
   </para>
-    <note>
-  <title>User privileges</title>
-  <para>
-   Sufficient privileges are necessary to manage a cluster. The
-   <command>crm</command> command and its subcommands need to be run
-   as one of the following users:
-  </para>
-  <itemizedlist>
-   <listitem>
-    <para>
-     The &rootuser; user or a user with <command>sudo</command> privileges.
-     These users have full privileges for <command>crm cluster init</command>,
-     <command>crm cluster join</command>, <command>crm report</command>,
-     the cluster CIB, and other operations.
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-     The CRM owner user (typically the user <systemitem class="username">hacluster</systemitem>).
-     This user can make changes to the cluster CIB, but has limited privileges for
-     <command>crm report</command>.
-    </para>
-   </listitem>
-  </itemizedlist>
-  <para>
-   However, the <option>user</option> option allows you to run
-   <command>crm</command> and its subcommands as a regular (unprivileged)
-   user and to change its ID using <command>sudo</command> when
-   necessary. For example, with the following command <command>crm</command>
-   uses <systemitem class="username">hacluster</systemitem> as the
-   privileged user ID:
-  </para>
-<screen>&prompt.root;<command>crm options user hacluster</command></screen>
-  <para>
-   You must set up <filename>/etc/sudoers</filename> so that
-   <command>sudo</command> does not ask for a password.
-  </para>
- </note>
-
 
 <!-- toms 2014-02-27:
       Should we add that to the section "Typographical Conventions"?
@@ -98,6 +59,127 @@
    </para>
    <screen><prompt>&crm.live.alice;</prompt></screen>
   </tip>
+
+  <sect2 xml:id="sec-ha-manual-config-crm-user-privileges">
+    <title>Logging in</title>
+    <para>
+      Managing a cluster requires sufficient privileges. The following users can run the
+      <command>crm</command> command and its subcommands:
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          The &rootuser; user or a user with <command>sudo</command> privileges. These users have
+          full privileges on all cluster nodes by using SSH for &crmsh; operations such as
+          <command>crm cluster init</command>, <command>crm cluster join</command>, and
+          <command>crm report</command>. They can also make changes to the CIB,
+          such as adding resources and constraints.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          The CRM owner user (typically the user <systemitem class="username">hacluster</systemitem>,
+          created by default during the cluster installation). This user can make changes to the CIB,
+          but has limited privileges for operations that use SSH, such as <command>crm report</command>.
+        </para>
+        <tip>
+          <title>Unprivileged users</title>
+          <para>
+            The <option>user</option> option allows you to run <command>crm</command> and its
+            subcommands as a regular (unprivileged) user, and to change its ID using
+            <command>sudo</command> when necessary. For example, the following command sets
+            <systemitem class="username">hacluster</systemitem> as the privileged user ID:
+          </para>
+          <screen>&prompt.root;<command>crm options user hacluster</command></screen>
+          <para>
+            You must set up <filename>/etc/sudoers</filename> so that <command>sudo</command>
+            does not ask for a password.
+          </para>
+        </tip>
+      </listitem>
+    </itemizedlist>
+    <para>
+      For operations that use SSH, the cluster uses passwordless SSH access for communication
+      between the nodes. If you set up the cluster with <command>crm cluster init</command>, the
+      script checks for SSH keys and generates them if they do not already exist. If you set up
+      the cluster with the &yast; cluster module, you must configure the SSH keys yourself.
+    </para>
+    <para>
+      In most cases, the &rootuser; or <command>sudo</command> user's SSH keys must exist (or be
+      generated) on the node. Alternatively, a <command>sudo</command> user's SSH keys can exist
+      on a local machine and be passed to the node via SSH agent forwarding. This can be useful
+      if you need to avoid storing SSH keys on the nodes, but requires additional configuration.
+    </para>
+    <procedure xml:id="pro-ha-manual-config-crm-user-privileges-ssh-agent">
+      <title>Using the bootstrap scripts to set up a cluster with SSH agent forwarding</title>
+      <step>
+        <para>
+          On your local machine, start the SSH agent and add your keys to it. For more information,
+          see <link xlink:href="&dsc-sles;/html/SLES-all/cha-ssh.html#sec-ssh-authentic-agent">
+          <citetitle>Automated public key logins with ssh-agent</citetitle></link> in
+          <citetitle>&secguide;</citetitle> for &sles;.
+        </para>
+      </step>
+      <step>
+        <para>
+          Log in to the first cluster node as a user with <command>sudo</command> privileges,
+          using the <option>-A</option> option to enable SSH agent forwarding:
+        </para>
+<screen><prompt>user@local &gt; </prompt><command>ssh -A <replaceable>USER@NODE1</replaceable></command></screen>
+      </step>
+      <step>
+        <para>
+          Initialize the cluster with the <command>crm cluster init</command> script:
+        </para>
+<screen><prompt>user@node1 &gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \</command><co xml:id="co-ssh-auth-sock"/>
+<command>crm cluster init --use-ssh-agent</command><co xml:id="co-use-ssh-agent"/></screen>
+       <calloutlist>
+         <callout arearefs="co-ssh-auth-sock">
+           <para>
+             Preserves the environment variable <literal>SSH_AUTH_SOCK</literal>, which is
+             required for SSH agent communication.
+           </para>
+        </callout>
+        <callout arearefs="co-use-ssh-agent">
+           <para>
+             Tells the script to use your local SSH keys instead of generating keys on the node.
+           </para>
+         </callout>
+       </calloutlist>
+      </step>
+      <step>
+        <para>
+          When the initial configuration is complete, exit the first node and log in to the
+          second node using the <option>-A</option> option.
+        </para>
+      </step>
+      <step>
+        <para>
+          Add the second node to the cluster with the <command>crm cluster join</command> script.
+          Use the <literal>-c</literal> option to specify the user and node that initialized
+          the cluster:
+        </para>
+<screen><prompt>user@node2 &gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster join --use-ssh-agent -c <replaceable>USER@NODE1</replaceable></command></screen>
+      </step>
+    </procedure>
+    <para>
+      If you set up the cluster with &yast; instead of using the bootstrap scripts, the SSH keys
+      are not automatically generated. To configure SSH keys with SSH agent forwarding enabled,
+      you can use the <literal>ssh</literal> stage of the bootstrap scripts on its own. Run these
+      commands after configuring the cluster in &yast;, but before bringing the cluster online.
+    </para>
+    <para>
+      Run the following command on the first node:
+    </para>
+<screen><prompt>user@node1 &gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster init ssh --use-ssh-agent</command></screen>
+    <para>
+      Run the following command on all other nodes:
+    </para>
+<screen><prompt>user@node2 &gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster join ssh --use-ssh-agent -c <replaceable>USER@NODE1</replaceable></command></screen>
+  </sect2>
 
   <sect2 xml:id="sec-ha-manual-config-crm-help">
    <title>Getting help</title>
