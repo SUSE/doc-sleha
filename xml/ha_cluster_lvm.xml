@@ -258,17 +258,60 @@
       </listitem>
       <listitem>
        <para>
-        Use shared activation mode for &ocfs; and add it to the cloned
-        <literal>g-storage</literal> group:
+        Use shared activation mode for &ocfs;:
        </para>
 <screen>&prompt.root;<command>crm configure primitive vg1 LVM-activate \
    params vgname=vg1 vg_access_mode=lvmlockd activation_mode=shared \
    op start timeout=90s interval=0 \
    op stop timeout=90s interval=0 \
-   op monitor interval=30s timeout=90s</command>
-&prompt.root;<command>crm configure modgroup g-storage add vg1</command></screen>
+   op monitor interval=30s timeout=90s</command></screen>
       </listitem>
      </itemizedlist>
+    </step>
+    <step>
+      <para>
+        Make sure the VG can only be activated on nodes where the DLM and
+        <systemitem>lvmlockd</systemitem> resources are already running:
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+           <emphasis role="bold">Exclusive activation mode:</emphasis>
+          </para>
+          <para>
+            Because this VG is only active on a single node, do <emphasis>not</emphasis>
+            add it to the cloned <literal>g-storage</literal> group. Instead, add
+            constraints directly to the resource:
+          </para>
+<screen>&prompt.root;<command>crm configure colocation col-vg-with-dlm inf: vg1 cl-storage</command>
+&prompt.root;<command>crm configure order o-dlm-before-vg Mandatory: cl-storage vg1</command></screen>
+          <para>
+            For multiple VGs, you can add constraints to multiple resources at once:
+          </para>
+<screen>&prompt.root;<command>crm configure colocation col-vg-with-dlm inf: ( vg1 vg2 ) cl-storage</command>
+&prompt.root;<command>crm configure order o-dlm-before-vg Mandatory: cl-storage ( vg1 vg2 )</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            <emphasis role="bold">Shared activation mode:</emphasis>
+          </para>
+          <para>
+            Because this VG is active on multiple nodes, you can add it to the cloned
+            <literal>g-storage</literal> group, which already has internal colocation
+            and order constraints:
+          </para>
+<screen>&prompt.root;<command>crm configure modgroup g-storage add vg1</command></screen>
+          <para>
+            Do <emphasis>not</emphasis> add multiple VGs to the group, because this
+            creates a dependency between the VGs. For multiple VGs, clone the resources and add
+            constraints to the clones:
+          </para>
+<screen>&prompt.root;<command>crm configure clone cl-vg1 vg1 meta interleave=true</command>
+&prompt.root;<command>crm configure clone cl-vg2 vg2 meta interleave=true</command>
+&prompt.root;<command>crm configure colocation col-vg-with-dlm inf: ( cl-vg1 cl-vg2 ) cl-storage</command>
+&prompt.root;<command>crm configure order o-dlm-before-vg Mandatory: cl-storage ( cl-vg1 cl-vg2 )</command></screen>
+        </listitem>
+      </itemizedlist>
     </step>
     <step>
      <para>
