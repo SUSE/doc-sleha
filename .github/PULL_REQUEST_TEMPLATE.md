@@ -19,10 +19,8 @@ When opening a PR, check all versions of the documentation that your PR applies 
   - [ ] 15 SP4
   - [ ] 15 SP3
   - [ ] 15 SP2
-  - [ ] 15 SP1
 - SLE-HA 12
   - [ ] 12 SP5
-  - [ ] 12 SP4
 
 ### PR reviewer only: Have all backports been applied?
 
