@@ -14,7 +14,7 @@
  <info>
   <abstract>
    <para>The &yast; cluster module allows you to set up a cluster manually
-    (from scratch) or to modify options for an existing cluster.
+    or to modify options for an existing cluster.
    </para>
   </abstract>
       <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
@@ -110,6 +110,23 @@
     </listitem>
    </varlistentry>
    <varlistentry>
+     <term>Heuristics</term>
+     <listitem>
+       <para>
+        &qdevice; supports a set of commands (<quote>heuristics</quote>).
+        The commands are executed locally on start-up of cluster services,
+        cluster membership change, successful connection to the &qnet; server,
+        or, optionally, at regular times.
+     </para>
+     <para>
+        Only if all commands are executed successfully are the heuristics
+        considered to have passed; otherwise, they failed. The heuristics' result is
+        sent to the &qnet; server, where it is used in calculations to determine
+        which partition should be quorate.
+       </para>
+     </listitem>
+   </varlistentry>
+   <varlistentry>
     <term>Multicast</term>
     <listitem>
      <para>
@@ -143,6 +160,32 @@
       <literal>mcastport -1</literal> for sending multicast.
      </para>
     </listitem>
+   </varlistentry>
+   <varlistentry>
+     <term>&qdevice;</term>
+     <listitem>
+       <para>
+        A systemd service (a daemon) on each cluster node running together with &corosync;.
+        This is the client of the &qnet; server. Its primary use is to allow a cluster
+        to sustain more node failures than standard quorum rules allow.
+     </para>
+     <para>
+        &qdevice; is designed to work with different arbitrators. However, currently,
+        only &qnet; is supported.
+       </para>
+     </listitem>
+   </varlistentry>
+   <varlistentry>
+     <term>&qnet;</term>
+     <listitem>
+       <para>
+        A systemd service (a daemon, the <quote>&qnet; server</quote>), which is not part
+        of the cluster. The systemd service provides a vote to the &qdevice; daemon.
+     </para>
+     <para>
+        To improve security, &qnet; can work with TLS for client certificate checking.
+       </para>
+     </listitem>
    </varlistentry>
    <varlistentry xml:id="vle-ha-rrp">
     <term>Redundant Ring Protocol (RRP)</term>
@@ -199,18 +242,19 @@
     <guimenu>Cluster</guimenu> </menuchoice>. Alternatively, start the
     module from the command line:
    </para>
-  <screen>&prompt.user;<command>sudo yast2 cluster</command></screen>
+  <screen>&prompt.root;<command>yast2 cluster</command></screen>
   <para>
     If you start the cluster module for the first time, it appears as a
     wizard, guiding you through all the steps necessary for basic setup.
-    Otherwise, click the categories on the left panel to access the
+    Otherwise, select the categories on the left panel to access the
     configuration options for each step.
   </para>
   <para>
    The following list shows an overview of the available screens in the
    &yast; cluster module. It also mentions whether the screen contains parameters that
    are <emphasis>required</emphasis> for successful cluster setup or whether its
-   parameters are <emphasis>optional</emphasis>.
+   parameters are <emphasis>optional</emphasis>. If you are following a guided
+   first-time setup, the screens appear in the order shown in this list.
   </para>
   <variablelist>
    <varlistentry>
@@ -230,6 +274,17 @@
     </listitem>
    </varlistentry>
    <varlistentry>
+     <term>&corosync; &qdevice; (optional but recommended for clusters with an even number of nodes)</term>
+     <listitem>
+       <para>
+        Allows you to configure &qdevice; as a client of a &qnet; server to
+        participate in quorum decisions. This is recommended for clusters with
+        an even number of nodes, and especially for two-node clusters.
+        For details, see <xref linkend="sec-ha-installation-setup-qdevice"/>.
+       </para>
+     </listitem>
+   </varlistentry>
+   <varlistentry>
       <term>Security (optional but recommended)</term>
       <listitem>
        <para>Allows you to define the authentication settings for the cluster.
@@ -244,8 +299,11 @@
        <listitem>
      <para>
       &csync; helps you to keep track of configuration changes and to
-      keep files synchronized across the cluster nodes. For details, see
-      <xref linkend="sec-ha-installation-setup-csync2"/>.
+      keep files synchronized across the cluster nodes. If you are using
+      &yast; to set up the cluster for the first time, we strongly recommend
+      configuring &csync;. If you do not use &csync;, you must manually copy
+      all configuration files from the first node to the rest of the nodes in
+      the cluster. For details, see <xref linkend="sec-ha-installation-setup-csync2"/>.
      </para>
        </listitem>
       </varlistentry>
@@ -286,16 +344,39 @@
    <title>Defining the communication channels</title>
    <para>
     For successful communication between the cluster nodes, define at least
-    one communication channel. As transport protocol, either use multicast (UDP)
-    or unicast (UDPU) as described in <xref
-    linkend="pro-ha-installation-setup-channel1-udp" xrefstyle="select:label"/>
-    or <xref linkend="pro-ha-installation-setup-channel1-udpu"
-     xrefstyle="select:label"/>, respectively.
-    To define a second, redundant channel
-    (<xref linkend="pro-ha-installation-setup-channel2"
-     xrefstyle="select:label"/>),
-    both communication channels must use the <emphasis>same</emphasis> protocol.
+    one communication channel. All settings defined in the &yast;
+    <guimenu>Communication Channels</guimenu>
+    screen are written to &corosync.conf;. Find example
+    files for a multicast and a unicast setup in
+    <filename>/usr/share/doc/packages/corosync/</filename>.
    </para>
+   <para>If you are using IPv4 addresses, node IDs are optional. If you are using
+    IPv6 addresses, node IDs are required. Instead of specifying IDs manually
+    for each node, the &yast; cluster module contains an option to automatically
+    generate a unique ID for every cluster node.</para>
+    <para>
+      As transport protocol, either use multicast (UDP) or unicast (UDPU) as described
+      in the following procedures:
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          To configure multicast, use <xref linkend="pro-ha-installation-setup-channel1-udp"/>.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          To configure unicast, use <xref linkend="pro-ha-installation-setup-channel1-udpu"/>.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          If you also need to define a second, redundant channel, configure the
+          first channel with one of the procedures above, then continue to
+         <xref linkend="pro-ha-installation-setup-channel2"/>.
+        </para>
+      </listitem>
+    </itemizedlist>
    <note>
     <title>Public clouds: use unicast</title>
     <para>
@@ -304,17 +385,6 @@
      platforms themselves.
     </para>
    </note>
-   <para>All settings defined in the &yast;
-    <guimenu>Communication Channels</guimenu>
-    screen are written to &corosync.conf;. Find example
-    files for a multicast and a unicast setup in
-    <filename>/usr/share/doc/packages/corosync/</filename>.
-   </para>
-
-   <para>If you are using IPv4 addresses, node IDs are optional. If you are using
-    IPv6 addresses, node IDs are required. Instead of specifying IDs manually
-    for each node, the &yast; cluster module contains an option to automatically
-    generate a unique ID for every cluster node.</para>
 
    <procedure xml:id="pro-ha-installation-setup-channel1-udp">
     <title>Defining the first communication channel (multicast)</title>
@@ -330,8 +400,12 @@
     </para>
     <step>
      <para>
-       Start the &yast; cluster module and switch to the <guimenu>Communication
-        Channels</guimenu> category.
+       If you are modifying an existing cluster, switch to the
+       <guimenu>Communication Channels</guimenu> category.
+      </para>
+      <para>
+        If you are following the initial setup wizard, you do not need to
+        switch categories manually.
       </para>
     </step>
     <step>
@@ -358,7 +432,7 @@
     </step>
     <step>
      <para>
-      To automatically generate a unique ID for every cluster node keep
+      To automatically generate a unique ID for every cluster node, keep
       <guimenu>Auto Generate Node ID</guimenu> enabled.
      </para>
     </step>
@@ -379,13 +453,12 @@
     </step>
     <step>
      <para>
-      Confirm your changes.
+      If you need to define a redundant communication channel in &corosync;,
+      continue to <xref linkend="pro-ha-installation-setup-channel2"/>.
      </para>
-    </step>
-    <step>
      <para>
-      If needed, define a redundant communication channel in &corosync; as
-      described in <xref linkend="pro-ha-installation-setup-channel2"/>.
+       Otherwise, confirm your changes with <guimenu>Next</guimenu> (setup wizard)
+       or <guimenu>Finish</guimenu> (existing cluster).
      </para>
     </step>
    </procedure>
@@ -407,14 +480,17 @@
     </textobject>
     </mediaobject>
    </figure>
-  <para>To use unicast instead of multicast for cluster
-   communication, proceed as follows.</para>
+
    <procedure xml:id="pro-ha-installation-setup-channel1-udpu">
     <title>Defining the first communication channel (unicast)</title>
     <step>
      <para>
-      Start the &yast; cluster module and switch to the <guimenu>Communication
-       Channels</guimenu> category.
+       If you are modifying an existing cluster, switch to the
+       <guimenu>Communication Channels</guimenu> category.
+     </para>
+     <para>
+      If you are following the initial setup wizard, you do not need
+      to switch categories manually.
      </para>
     </step>
       <step>
@@ -432,7 +508,7 @@
        <para>
         For unicast communication, &corosync; needs to know the IP
         addresses of all nodes in the cluster. For each node,
-        click <guimenu>Add</guimenu> and enter the
+        select <guimenu>Add</guimenu> and enter the
         following details:
        </para>
        <itemizedlist>
@@ -482,13 +558,12 @@
     </step>
     <step>
      <para>
-      Confirm your changes.
+      If you need to define a redundant communication channel in &corosync;,
+      continue to <xref linkend="pro-ha-installation-setup-channel2"/>.
      </para>
-    </step>
-    <step>
      <para>
-      If needed, define a redundant communication channel in &corosync; as
-      described in <xref linkend="pro-ha-installation-setup-channel2"/>.
+       Otherwise, confirm your changes with <guimenu>Next</guimenu> (setup wizard)
+       or <guimenu>Finish</guimenu> (existing cluster).
      </para>
     </step>
    </procedure>
@@ -502,16 +577,18 @@
       <imagedata fileref="yast_cluster_comm_ucast.png" width="75%"/>
      </imageobject>
      <textobject role="description">
-       <phrase>
-        The Communication Channels screen shows the settings for configuring the
-        &corosync; communication channel or channels. In this example, Unicast is selected.
-        A bind network address and a multicast address are not required, but member
-        addresses for each node in the cluster must be added.
-       </phrase>
-     </textobject>
+      <phrase>
+       The Communication Channels screen shows the settings for configuring the
+       &corosync; communication channel or channels. In this example, Unicast is selected.
+       A bind network address and a multicast address are not required, but member
+       addresses for each node in the cluster must be added.
+      </phrase>
+    </textobject>
     </mediaobject>
    </figure>
 
+  <procedure xml:id="pro-ha-installation-setup-channel2">
+   <title>Defining a redundant communication channel</title>
    <para>
     If network device bonding cannot be used for any reason, the second
     best choice is to define a redundant communication channel (a second
@@ -520,41 +597,11 @@
     can still communicate via the other network.
    </para>
    <para>The additional communication channel in
-    &corosync; forms a second token-passing ring. In
-    <filename>/etc/corosync/corosync.conf</filename>, the first channel you
+    &corosync; forms a second token-passing ring. The first channel you
     configured is the primary ring and gets the ring number
    <literal>0</literal>. The second ring (redundant channel) gets the ring number
     <literal>1</literal>.
    </para>
-   <para>When having defined redundant communication channels in &corosync;,
-    use RRP to tell the cluster how to use these interfaces. With RRP, two
-    physically separate networks are used for communication. If one
-    network fails, the cluster nodes can still communicate via the other
-    network.</para>
-   <para>RRP can have three modes:
-   </para>
-   <itemizedlist>
-    <listitem>
-     <para>
-      If set to <literal>active</literal>, &corosync; uses both
-      interfaces actively. However, this mode is deprecated.
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      If set to <literal>passive</literal>, &corosync; sends messages
-      alternatively over the available networks.
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      If set to <literal>none</literal>, RRP is disabled.
-     </para>
-    </listitem>
-   </itemizedlist>
-
-  <procedure xml:id="pro-ha-installation-setup-channel2">
-   <title>Defining a redundant communication channel</title>
    <important>
     <title>Redundant rings and <filename>/etc/hosts</filename></title>
     <para> If multiple rings are configured in &corosync;, each node can
@@ -562,8 +609,10 @@
       <filename>/etc/hosts</filename> file of all nodes. </para>
    </important>
    <step>
-    <para> Start the &yast; cluster module and switch to the
-      <guimenu>Communication Channels</guimenu> category. </para>
+    <para>
+    Configure the first channel as described in <xref linkend="pro-ha-installation-setup-channel1-udp"/>
+    or <xref linkend="pro-ha-installation-setup-channel1-udpu"/>.
+     </para>
    </step>
    <step>
     <para> Activate <guimenu>Redundant Channel</guimenu>. The redundant channel
@@ -577,8 +626,8 @@
      redundant channel. </para>
     <para> If you use unicast, define the following parameters: the
       <guimenu>Bind Network Address</guimenu> to use, and the <guimenu>Port</guimenu>.
-     Enter the IP addresses of all nodes that will be part of
-     the cluster. </para>
+     Under <guimenu>Member Address</guimenu>, <guimenu>Edit</guimenu> each entry to add
+     a <guimenu>Redundant IP</guimenu> for each node that will be part of the cluster.</para>
    </step>
    <step>
     <para>To tell &corosync; how and when to use the different channels,
@@ -605,9 +654,167 @@
       <option>-h</option>. </para>
    </step>
    <step>
-    <para> Confirm your changes. </para>
+    <para> Confirm your changes with <guimenu>Next</guimenu> (setup wizard)
+       or <guimenu>Finish</guimenu> (existing cluster). </para>
    </step>
   </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-installation-setup-qdevice">
+   <title>Configuring an arbitrator for quorum decisions</title>
+   <para>
+     &qdevice; and &qnet; participate in quorum decisions. With assistance from
+     the arbitrator <systemitem class="daemon">corosync-qnetd</systemitem>,
+     <systemitem class="daemon">corosync-qdevice</systemitem> provides a
+     configurable number of votes, allowing a cluster to sustain more node
+     failures than the standard quorum rules allow. We recommend deploying
+     <systemitem class="daemon">corosync-qnetd</systemitem> and
+     <systemitem class="daemon">corosync-qdevice</systemitem> for clusters
+     with an even number of nodes, and especially for two-node clusters.
+     For more information, see <xref linkend="cha-ha-qdevice"/>.
+   </para>
+   <itemizedlist>
+     <title>Requirements</title>
+     <listitem>
+       <para>
+         Before you configure &qdevice;, you must set up a &qnet; server.
+         See <xref linkend="sec-ha-qdevice-setup-qnetd"/>.
+       </para>
+     </listitem>
+   </itemizedlist>
+   <procedure xml:id="pro-ha-installation-setup-qdevice">
+     <title>Configuring &qdevice; and &qnet;</title>
+     <step>
+       <para>
+        If you are modifying an existing cluster, switch to the
+        <guimenu>&corosync; &qdevice;</guimenu> category.
+      </para>
+      <para>
+        If you are following the initial setup wizard, you do not need
+        to switch categories manually.
+      </para>
+     </step>
+     <step>
+       <para>
+         Activate <guimenu>Enable &corosync; &qdevice;</guimenu>.
+       </para>
+     </step>
+     <step>
+       <para>
+         In the <guimenu>&qnet; server host</guimenu> field, enter the IP address
+         or host name of the &qnet; server.
+       </para>
+     </step>
+     <step>
+       <para>
+         Select the mode for <guimenu>TLS</guimenu>:
+       </para>
+       <itemizedlist>
+         <listitem>
+           <para>
+             Use <guimenu>off</guimenu> if TLS is not required and should not be tried.
+           </para>
+         </listitem>
+         <listitem>
+           <para>
+             Use <guimenu>on</guimenu> to attempt to connect with TLS, but connect without TLS
+             if it is not available.
+           </para>
+         </listitem>
+         <listitem>
+           <para>
+             Use <guimenu>required</guimenu> to make TLS mandatory. &qdevice; will exit with
+             an error if TLS is not available.
+           </para>
+         </listitem>
+       </itemizedlist>
+     </step>
+     <step>
+       <para>
+         Accept the default values for <guimenu>Algorithm</guimenu> and
+         <guimenu>Tie breaker</guimenu>. If you need to change these values,
+         you can do so with the command <command>crm cluster init qdevice</command>
+         after you finish setting up the cluster.
+       </para>
+     </step>
+     <step>
+       <para>
+         Select the <guimenu>Heuristics Mode</guimenu>:
+       </para>
+       <itemizedlist>
+         <listitem>
+           <para>
+             Use <guimenu>off</guimenu> to disable heuristics.
+           </para>
+         </listitem>
+         <listitem>
+           <para>
+             Use <guimenu>on</guimenu> to run heuristics on a regular basis, as set by the
+             <guimenu>Heuristics Interval</guimenu>.
+           </para>
+         </listitem>
+         <listitem>
+           <para>
+             Use <guimenu>sync</guimenu> to only run heuristics during startup, when cluster
+             membership changes, and on connection to &qnet;.
+           </para>
+         </listitem>
+       </itemizedlist>
+     </step>
+     <step>
+       <para>
+         If you set the <guimenu>Heuristics Mode</guimenu> to <guimenu>on</guimenu>
+         or <guimenu>sync</guimenu>, add your heuristics commands to the
+         <guimenu>Heuristics Executables</guimenu> list:
+       </para>
+       <substeps>
+         <step>
+           <para>
+             Select <guimenu>Add</guimenu>. A new window opens.
+           </para>
+         </step>
+         <step>
+           <para>
+             Enter an <guimenu>Execute Name</guimenu> for the command.
+           </para>
+         </step>
+         <step>
+           <para>
+             Enter the command in the <guimenu>Execute Script</guimenu> field. This can be a
+             single command or the path to a script, and can be written in any language
+             such as Shell, Python, or Ruby.
+           </para>
+         </step>
+         <step>
+           <para>
+             Select <guimenu>OK</guimenu> to close the window.
+           </para>
+         </step>
+       </substeps>
+     </step>
+     <step>
+       <para>
+         Confirm your changes with <guimenu>Next</guimenu> (setup wizard)
+         or <guimenu>Finish</guimenu> (existing cluster).
+       </para>
+     </step>
+   </procedure>
+   <figure xml:id="fig-ha-installation-setup-qdevice">
+     <title>&yast; <guimenu>Cluster</guimenu>&mdash;&corosync; &qdevice;</title>
+     <mediaobject>
+       <imageobject role="fo">
+         <imagedata fileref="yast_cluster_qdevice.png" width="100%"/>
+       </imageobject>
+       <imageobject role="html">
+         <imagedata fileref="yast_cluster_qdevice.png" width="75%"/>
+       </imageobject>
+       <textobject role="description">
+         <phrase>The &corosync; &qdevice; screen shows the settings for configuring &qdevice;.
+         The <guimenu>Enable &corosync; &qdevice;</guimenu> check box is activated,
+         and the cursor is in the <guimenu>&qnet; server host</guimenu> field.</phrase>
+       </textobject>
+     </mediaobject>
+   </figure>
  </sect1>
 
   <sect1 xml:id="sec-ha-installation-setup-security">
@@ -621,14 +828,20 @@
   <procedure xml:id="pro-ha-installation-setup-security">
    <title>Enabling secure authentication</title>
    <step>
-    <para> Start the &yast; cluster module and switch to the
-      <guimenu>Security</guimenu> category. </para>
+     <para>
+      If you are modifying an existing cluster, switch to the
+      <guimenu>Security</guimenu> category.
+     </para>
+     <para>
+      If you are following the initial setup wizard, you do not need
+      to switch categories manually.
+     </para>
    </step>
    <step>
     <para> Activate <guimenu>Enable Security Auth</guimenu>. </para>
    </step>
    <step>
-    <para> For a newly created cluster, click <guimenu>Generate Auth Key
+    <para> For a newly created cluster, select <guimenu>Generate Auth Key
       File</guimenu>. An authentication key is created and written to
       <filename>/etc/corosync/authkey</filename>. </para>
     <para> If you want the current machine to join an existing cluster, do not
@@ -637,7 +850,8 @@
      current machine (either manually or with &csync;). </para>
    </step>
    <step>
-    <para> Confirm your changes. &yast; writes the configuration to
+    <para> Confirm your changes with <guimenu>Next</guimenu> (setup wizard)
+       or <guimenu>Finish</guimenu> (existing cluster). &yast; writes the configuration to
       <filename>/etc/corosync/corosync.conf</filename>. </para>
    </step>
   </procedure>
@@ -652,196 +866,23 @@
       <imagedata fileref="yast_cluster_security.png" width="75%"/>
      </imageobject>
      <textobject role="description">
-       <phrase>
-         The Security screen shows the settings for configuring &corosync;'s authentication.
-         The Enable Security Auth checkbox is activated, and you can select the type of
-         Crypto Hash and Crypto Cipher. There is also an option to click Generate Auth Key File.
-       </phrase>
-     </textobject>
-    </mediaobject>
-   </figure>
-  </sect1>
-
-  <sect1 xml:id="sec-ha-installation-setup-conntrackd">
-   <title>Synchronizing connection status between cluster nodes</title>
-   <para>
-    To enable <emphasis>stateful</emphasis> packet inspection for iptables,
-    configure and use the conntrack tools. This requires the following basic
-    steps:
-   </para>
-
-<!--from fate#311872: It supports the only FTFW syncing mode now.-->
-   <procedure xml:id="pro-ha-installation-setup-conntrackd">
-    <title>Configuring the <systemitem class="resource">conntrackd</systemitem> with &yast;</title>
-    <para>
-     Use the &yast; cluster module to configure the user space
-     <systemitem class="daemon">conntrackd</systemitem> (see <xref
-      linkend="fig-ha-installation-setup-conntrackd"/>).  It needs a
-     dedicated network interface that is not used for other communication
-     channels. The daemon can be started via a resource agent afterward.
-    </para>
-    <step>
-     <para>
-      Start the &yast; cluster module and switch to the <guimenu>Configure
-      conntrackd</guimenu> category.
-     </para>
-    </step>
-    <step>
-     <para>
-      Define the <guimenu>Multicast Address</guimenu> to be used for
-      synchronizing the connection status.
-     </para>
-    </step>
-    <step>
-     <para>
-      In <guimenu>Group Number</guimenu>, define a numeric ID for the group
-      to synchronize the connection status to.
-     </para>
-    </step>
-    <step>
-     <para>
-      Click <guimenu>Generate /etc/conntrackd/conntrackd.conf</guimenu> to
-      create the configuration file for
-      <systemitem class="daemon">conntrackd</systemitem>.
-     </para>
-    </step>
-    <step>
-     <para>
-      If you modified any options for an existing cluster, confirm your
-      changes and close the cluster module.
-     </para>
-    </step>
-    <step>
-     <para>
-      For further cluster configuration, click <guimenu>Next</guimenu> and
-      proceed with <xref linkend="sec-ha-installation-setup-services"/>.
-     </para>
-    </step>
-    <step>
-     <para>
-      Select a <guimenu>Dedicated Interface</guimenu> for synchronizing the
-      connection status. The IPv4 address of the selected interface is
-      automatically detected and shown in &yast;. It must already be
-      configured and it must support multicast.
-      <!--taroth 2011-11-09: for the records, this has nothing to do with the
-       corosync conf-->
-     </para>
-    </step>
-   </procedure>
-   <figure xml:id="fig-ha-installation-setup-conntrackd">
-    <title>&yast; <guimenu>Cluster</guimenu>&mdash;<systemitem class="resource">conntrackd</systemitem></title>
-    <mediaobject>
-     <imageobject role="fo">
-      <imagedata fileref="yast_cluster_conntrackd.png" width="100%"/>
-     </imageobject>
-     <imageobject role="html">
-      <imagedata fileref="yast_cluster_conntrackd.png" width="75%"/>
-     </imageobject>
-     <textobject role="description">
-       <phrase>
-         The Configure conntrackd screen shows the settings for configuring the conntrack tools.
-         You can select a Dedicated Interface, enter a multicast address and group number, and
-         generate the <filename>/etc/conntrackd/conntrackd.conf</filename> file.
-       </phrase>
-     </textobject>
-    </mediaobject>
-   </figure>
-   <para>
-    After having configured the conntrack tools, you can use them for &lvs;
-    (see <xref linkend="cha-ha-lb" xrefstyle="select:title"/>).
-   </para>
-  </sect1>
-
-  <sect1 xml:id="sec-ha-installation-setup-services">
-   <title>Configuring services</title>
-   <para>
-    In the &yast; cluster module define whether to start certain services
-    on a node at boot time. You can also use the module to start and stop
-    the services manually. To bring the cluster nodes online and start the
-    cluster resource manager, &pace; must be running as a service.
-   </para>
-   <procedure xml:id="pro-ha-installation-setup-services">
-    <title>Enabling the cluster services</title>
-    <step>
-     <para>
-      In the &yast; cluster module, switch to the
-      <guimenu>Service</guimenu> category.
-     </para>
-    </step>
-    <step>
-     <para>
-      To start the cluster services each time this cluster node is booted, select the
-      respective option in the <guimenu>Booting</guimenu> group. If you
-      select <guimenu>Off</guimenu> in the <guimenu>Booting</guimenu> group,
-      you must start the cluster services manually each time this node is booted. To
-      start the cluster services manually, use the command:
-     </para>
-<screen>&prompt.root;<command>crm cluster start</command></screen>
-    </step>
-    <step>
-     <para>
-      To start or stop the cluster services immediately, click the respective button.
-     </para>
-    </step>
-    <step>
-     <para>
-      To open the ports in the firewall that are needed for cluster
-      communication on the current machine, activate <guimenu>Open Port in
-      Firewall</guimenu>.
-     </para>
-    </step>
-    <step>
-     <para>
-      Confirm your changes. Note that the configuration only
-      applies to the current machine, not to all cluster nodes.
-     </para>
-    </step>
-   </procedure>
-   <figure>
-    <title>&yast; <guimenu>Cluster</guimenu>&mdash;services</title>
-    <mediaobject>
-     <imageobject role="fo">
-      <imagedata fileref="yast_cluster_services.png" width="100%"/>
-     </imageobject>
-     <imageobject role="html">
-      <imagedata fileref="yast_cluster_services.png" width="75%"/>
-     </imageobject>
-     <textobject role="description">
-       <phrase>
-         The Service screen lets you start or stop services. You can enable or disable the
-         cluster starting at boot time, start or stop &pace; and &corosync;, and start or stop
-         &qdevice;. You can also open the required firewall port.
-       </phrase>
-     </textobject>
+      <phrase>
+        The Security screen shows the settings for configuring &corosync;'s authentication.
+        The Enable Security Auth checkbox is activated, and you can select the type of
+        Crypto Hash and Crypto Cipher. There is also an option to click Generate Auth Key File.
+      </phrase>
+    </textobject>
     </mediaobject>
    </figure>
   </sect1>
 
   <sect1 xml:id="sec-ha-installation-setup-csync2">
-   <title>Transferring the configuration to all nodes</title>
+   <title>Configuring &csync; to synchronize files</title>
    <para>
-    Instead of copying the resulting configuration files to all nodes
+    Instead of copying the configuration files to all nodes
     manually, use the <command>csync2</command> tool for replication across
-    all nodes in the cluster.
-   </para>
-   <para>
-    This requires the following basic steps:
-   </para>
-   <procedure>
-    <step>
-     <para>
-      <xref linkend="pro-ha-installation-setup-csync2-yast" xrefstyle="select:title"/>.
-     </para>
-    </step>
-    <step>
-     <para>
-      <xref linkend="pro-ha-installation-setup-csync2-start" xrefstyle="select:title"/>.
-     </para>
-    </step>
-   </procedure>
-   <para>
-    &csync; helps you to keep track of configuration changes and to keep
-    files synchronized across the cluster nodes:
+    all nodes in the cluster. &csync; helps you to keep track of configuration changes
+    and to keep files synchronized across the cluster nodes:
    </para>
    <itemizedlist>
     <listitem>
@@ -872,21 +913,33 @@
     <link xlink:href="https://oss.linbit.com/csync2/"/> and
     <link xlink:href="https://oss.linbit.com/csync2/paper.pdf"/>.
    </para>
-
-  <sect2 xml:id="pro-ha-installation-setup-csync2-yast">
-   <title>Configuring &csync; with &yast;</title>
-   <procedure>
+   <important>
+    <title>Pushing synchronization after any changes</title>
+    <para>
+      &csync; only pushes changes. It does <emphasis>not</emphasis> continuously
+      synchronize files between the machines. Each time you update files that need
+      to be synchronized, you need to push the changes to the other machines.
+      Using <command>csync2</command> to push changes is described later, after
+      the cluster configuration with &yast; is complete.
+    </para>
+   </important>
+   <procedure xml:id="pro-ha-installation-setup-csync2-yast">
     <title>Configuring &csync; with &yast;</title>
     <step>
-     <para> Start the &yast; cluster module and switch to the
-       <guimenu>&csync;</guimenu> category. </para>
+     <para>
+      If you are modifying an existing cluster, switch to the
+      <guimenu>Configure &csync;</guimenu> category.
+     </para>
+     <para>
+      If you are following the initial setup wizard, you do not need
+      to switch categories manually.
+     </para>
     </step>
     <step>
-     <para> To specify the synchronization group, click <guimenu>Add</guimenu>
+     <para> To specify the synchronization group, select <guimenu>Add</guimenu>
       in the <guimenu>Sync Host</guimenu> group and enter the local host names
       of all nodes in your cluster. For each node, you must use exactly the
       strings that are returned by the <command>hostname</command> command. </para>
-     <!--https://fate.suse.com/314956: csync2-->
      <tip>
       <title>Host name resolution</title>
       <para> If host name resolution does not work properly in your
@@ -905,7 +958,7 @@
     </step>
     <step>
      <para> To populate the <guimenu>Sync File</guimenu> list with the files
-      that usually need to be synchronized among all nodes, click <guimenu>Add
+      that usually need to be synchronized among all nodes, select <guimenu>Add
        Suggested Files</guimenu>. </para>
     </step>
     <step>
@@ -915,13 +968,13 @@
       file. </para>
     </step>
     <step>
-     <para> Activate &csync; by clicking <guimenu>Turn &csync;
-       ON</guimenu>. This executes the following command to start
-      &csync; automatically at boot time: </para>
-     <screen>&prompt.root;<command>systemctl enable csync2.socket</command></screen>
+     <para> Activate &csync; by selecting <guimenu>Turn &csync;
+       ON</guimenu>. This enables &csync; to start
+      automatically at boot time. </para>
     </step>
     <step>
-     <para>Click <guimenu>Finish</guimenu>. &yast; writes the &csync;
+     <para>Confirm your changes with <guimenu>Next</guimenu> (setup wizard)
+       or <guimenu>Finish</guimenu> (existing cluster). &yast; writes the &csync;
       configuration to <filename>/etc/csync2/csync2.cfg</filename>.</para>
     </step>
    </procedure>
@@ -935,58 +988,237 @@
       <imagedata fileref="yast_cluster_sync.png" width="75%"/>
      </imageobject>
      <textobject role="description">
-       <phrase>
-         The Configure &csync; screen shows the settings to configure the transfer of files
-         between nodes. On the left is the Sync Host list, where you need to add all
-         the cluster nodes. On the right is the Sync File list, which is automatically
-         populated with configuration files. There are also options to select
-         <literal>Generate Pre-Shared-Keys</literal> and <literal>Turn &csync; ON</literal>.
-       </phrase>
-     </textobject>
+      <phrase>
+        The Configure &csync; screen shows the settings to configure the transfer of files
+        between nodes. On the left is the Sync Host list, where you need to add all
+        the cluster nodes. On the right is the Sync File list, which is automatically
+        populated with configuration files. There are also options to select
+        <literal>Generate Pre-Shared-Keys</literal> and <literal>Turn &csync; ON</literal>.
+      </phrase>
+    </textobject>
     </mediaobject>
    </figure>
-  </sect2>
+  </sect1>
 
-   <sect2 xml:id="sec-ha-setup-yast-csync2-sync">
-   <title>Synchronizing changes with &csync;</title>
+  <sect1 xml:id="sec-ha-installation-setup-conntrackd">
+   <title>Synchronizing connection status between cluster nodes</title>
+   <para>
+    To enable <emphasis>stateful</emphasis> packet inspection for iptables,
+    configure and use the conntrack tools. This requires the following basic
+    steps:
+   </para>
+
+   <procedure xml:id="pro-ha-installation-setup-conntrackd">
+    <title>Configuring the <systemitem class="resource">conntrackd</systemitem> with &yast;</title>
+    <para>
+     Use the &yast; cluster module to configure the user space
+     <systemitem class="daemon">conntrackd</systemitem> (see <xref
+      linkend="fig-ha-installation-setup-conntrackd"/>).  It needs a
+     dedicated network interface that is not used for other communication
+     channels. The daemon can be started via a resource agent afterward.
+    </para>
+    <step>
+     <para>
+      If you are modifying an existing cluster, switch to the
+      <guimenu>Configure conntrackd</guimenu> category.
+     </para>
+     <para>
+      If you are following the initial setup wizard, you do not need
+      to switch categories manually.
+     </para>
+    </step>
+    <step>
+     <para>
+      Select a <guimenu>Dedicated Interface</guimenu> for synchronizing the
+      connection status. The IPv4 address of the selected interface is
+      automatically detected and shown in &yast;. It must already be
+      configured and it must support multicast.
+      <!--taroth 2011-11-09: for the records, this has nothing to do with the
+       corosync conf-->
+     </para>
+    </step>
+    <step>
+     <para>
+      Define the <guimenu>Multicast Address</guimenu> to be used for
+      synchronizing the connection status.
+     </para>
+    </step>
+    <step>
+     <para>
+      In <guimenu>Group Number</guimenu>, define a numeric ID for the group
+      to synchronize the connection status to.
+     </para>
+    </step>
+    <step>
+     <para>
+      Click <guimenu>Generate /etc/conntrackd/conntrackd.conf</guimenu> to
+      create the configuration file for
+      <systemitem class="daemon">conntrackd</systemitem>.
+     </para>
+    </step>
+    <step>
+     <para>
+      If you modified any options for an existing cluster, confirm your
+      changes and close the cluster module.
+     </para>
+    </step>
+    <step>
+     <para>
+      Confirm your changes with <guimenu>Next</guimenu> (setup wizard)
+       or <guimenu>Finish</guimenu> (existing cluster).
+     </para>
+    </step>
+   </procedure>
+      <para>
+    After having configured the conntrack tools, you can use them for &lvs;
+    (see <xref linkend="cha-ha-lb" xrefstyle="select:title"/>).
+   </para>
+   <figure xml:id="fig-ha-installation-setup-conntrackd">
+    <title>&yast; <guimenu>Cluster</guimenu>&mdash;<systemitem class="resource">conntrackd</systemitem></title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_conntrackd.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_conntrackd.png" width="75%"/>
+     </imageobject>
+     <textobject role="description">
+      <phrase>
+        The Configure conntrackd screen shows the settings for configuring the conntrack tools.
+        You can select a Dedicated Interface, enter a multicast address and group number, and
+        generate the <filename>/etc/conntrackd/conntrackd.conf</filename> file.
+      </phrase>
+    </textobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-installation-setup-services">
+   <title>Configuring services</title>
+   <para>
+    In the &yast; cluster module, define whether to start certain services
+    on a node at boot time. You can also use the module to start and stop
+    the services manually. To bring the cluster nodes online and start the
+    cluster resource manager, &pace; must be running as a service.
+   </para>
+   <para>
+    The configuration in this section only applies to the current machine,
+    not to all cluster nodes.
+   </para>
+   <procedure xml:id="pro-ha-installation-setup-services">
+    <title>Enabling the cluster services</title>
+    <step>
+     <para>
+      If you are modifying an existing cluster, switch to the
+      <guimenu>Service</guimenu> category. You can use the options in this
+      section to start and stop cluster services on this node.
+     </para>
+     <para>
+      If you are following the initial setup wizard, you do not need to switch
+      categories manually. You will start the cluster services later, so you can
+      skip straight to <xref linkend="yast-cluster-service-firewall"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      To start the cluster services each time this cluster node is booted, select
+      <guimenu>Enable cluster</guimenu>. If you select <guimenu>Disable cluster</guimenu>,
+      you must start the cluster services manually each time this node is booted.
+     </para>
+    </step>
+    <step>
+     <para>
+      To start or stop the cluster services immediately, select <guimenu>Start Now</guimenu>
+      or <guimenu>Stop Now</guimenu>.
+     </para>
+    </step>
+    <step>
+      <para>
+        To start or stop &qdevice; immediately, select <guimenu>Start Now</guimenu> or
+        <guimenu>Stop Now</guimenu>.
+      </para>
+    </step>
+    <step xml:id="yast-cluster-service-firewall">
+     <para>
+      To open the ports in the firewall that are needed for cluster
+      communication, activate <guimenu>Open Port in Firewall</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Confirm your changes with <guimenu>Next</guimenu> (setup wizard)
+      or <guimenu>Finish</guimenu> (existing cluster).
+     </para>
+     <para>
+      If you are following the initial setup wizard, this completes the initial
+      configuration and exits &yast;. Continue to <xref linkend="sec-ha-setup-yast-csync2-sync"/>.
+   </para>
+    </step>
+   </procedure>
+   <figure>
+    <title>&yast; <guimenu>Cluster</guimenu>&mdash;services</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="yast_cluster_services.png" width="100%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="yast_cluster_services.png" width="75%"/>
+     </imageobject>
+     <textobject role="description">
+      <phrase>
+        The Service screen lets you start or stop services. You can enable or disable the
+        cluster starting at boot time, start or stop &pace; and &corosync;, and start or stop
+        &qdevice;. You can also open the required firewall port.
+      </phrase>
+    </textobject>
+    </mediaobject>
+   </figure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-setup-yast-csync2-sync">
+   <title>Transferring the configuration to all nodes</title>
+   <para>
+    After the cluster configuration with &yast; is complete, use <command>csync2</command>
+    to copy the configuration files to the rest of the cluster nodes. To receive the files,
+    nodes must be included in the <guimenu>Sync Host</guimenu> group you configured in
+    <xref linkend="pro-ha-installation-setup-csync2-yast"/>.
+   </para>
    <para> Before running &csync; for the first time, you need to make the
     following preparations: </para>
-
    <procedure>
     <title>Preparing for initial synchronization with &csync;</title>
     <step>
-     <para>Copy the file <filename>/etc/csync2/csync2.cfg</filename>
-      manually to all nodes after you have configured it as described in <xref
-       linkend="pro-ha-installation-setup-csync2-yast"/>. </para>
+      <para>
+        Make sure passwordless SSH is configured between the nodes. This is required for
+        cluster communication.
+      </para>
     </step>
     <step>
-     <para> Copy the file <filename>/etc/csync2/key_hagroup</filename> that you
-      have generated on one node in <xref linkend="step-csync2-generate-key"/>
-      of <xref linkend="pro-ha-installation-setup-csync2-yast"
-       xrefstyle="select:label"/>
+     <para>
+      Copy the file <filename>/etc/csync2/csync2.cfg</filename> manually
+      to <emphasis>all</emphasis> nodes in the cluster.
+     </para>
+    </step>
+    <step>
+     <para> Copy the file <filename>/etc/csync2/key_hagroup</filename> manually
       to <emphasis>all</emphasis> nodes in the cluster. It is needed for
       authentication by &csync;. However, do <emphasis>not</emphasis>
       regenerate the file on the other nodes&mdash;it needs to be the same
       file on all nodes. </para>
     </step>
-    <!--taroth 2016-10-13. in contrast to csync2 section in GEO Quick, not needed
-    here because this is done in the yast csync2 conf step already:
     <step>
-     <para>Execute the following command on all nodes to make the csync2
-      service start automatically at boot time:</para>
-     <screen>&prompt.root;<command>systemctl enable csync2.socket</command></screen>
-    </step>-->
-    <step>
-     <para>Execute the following command on all nodes to start the service now: </para>
-     <screen>&prompt.root;<command>systemctl start csync2.socket</command></screen>
+     <para>Run the following command on all nodes to enable and start the service now: </para>
+     <screen>&prompt.root;<command>systemctl enable --now csync2.socket</command></screen>
     </step>
    </procedure>
 
+   <para>
+    Use the following procedure to transfer the configuration files to all cluster nodes:
+   </para>
    <procedure xml:id="pro-ha-installation-setup-csync2-start">
-    <title>Synchronizing the configuration files with &csync;</title>
-
+    <title>Synchronizing changes with &csync;</title>
     <step>
-     <para>To initially synchronize all files once, execute the following
+     <para>To synchronize all files once, run the following
       command on the machine that you want to copy the configuration
        <emphasis>from</emphasis>: </para>
      <screen>&prompt.root;<command>csync2 -xv</command></screen>
@@ -1005,48 +1237,30 @@ Finished with 1 errors.</screen>
        <quote>best</quote> one, you can resolve the conflict by forcing this
       file and resynchronizing: </para>
      <screen>&prompt.root;<command>csync2 -f /etc/corosync/corosync.conf</command>
-&prompt.root;<command>csync2 -x</command></screen>
+&prompt.root;<command>csync2 -xv</command></screen>
     </step>
    </procedure>
    <para> For more information on the &csync; options, run</para>
-   <screen>&prompt.root;<command>csync2&nbsp;-help</command></screen>
-   <note>
+   <screen>&prompt.root;<command>csync2 --help</command></screen>
+   <important>
     <title>Pushing synchronization after any changes</title>
     <para> &csync; only pushes changes. It does <emphasis>not</emphasis>
      continuously synchronize files between the machines. </para>
     <para> Each time you update files that need to be synchronized, you need to
-     push the changes to the other machines by running <command>csync2&nbsp;</command>
-     <option>-xv</option> on the machine where you did the changes. If you run
+     push the changes to the other machines by running <command>csync2&nbsp;-xv</command>
+    on the machine where you did the changes. If you run
      the command on any of the other machines with unchanged files, nothing
      happens. </para>
-   </note>
-  </sect2>
+   </important>
   </sect1>
 
   <sect1 xml:id="sec-ha-installation-start">
    <title>Bringing the cluster online</title>
    <para>
-    Before starting the cluster, make sure passwordless SSH is configured between the nodes.
-    If you did not already configure passwordless SSH before setting up the cluster, you can
-    do so now by using the <literal>ssh</literal> stage of the bootstrap scripts:
-   </para>
-   <orderedlist>
-     <listitem>
-       <para>
-         On the first node, run <command>crm cluster init ssh</command>.
-       </para>
-     </listitem>
-     <listitem>
-       <para>
-         On the rest of the nodes, run <command>crm cluster join ssh -c <replaceable>NODE1</replaceable></command>.
-       </para>
-     </listitem>
-   </orderedlist>
-   <para>
     After the initial cluster configuration is done, start the cluster
     services on all cluster nodes to bring the stack online:
    </para>
-   <procedure>
+   <procedure xml:id="pro-ha-installation-start-cluster">
     <title>Starting cluster services and checking the status</title>
     <step>
      <para>
@@ -1058,6 +1272,10 @@ Finished with 1 errors.</screen>
       Start the cluster services on all cluster nodes:
      </para>
 <screen>&prompt.root;<command>crm cluster start --all</command></screen>
+     <para>
+       This command requires passwordless SSH access between the nodes. You can also
+       start individual nodes with <command>crm cluster start</command>.
+     </para>
     </step>
     <step>
      <para>
@@ -1084,11 +1302,11 @@ Node List:
     </step>
    </procedure>
    <para>
-    After the basic configuration is done and the nodes are online, you can
-    start to configure cluster resources. Use one of the cluster management
-    tools like the &crmshell; (&crmsh;) or &hawk2;. For more
-    information, see <xref linkend="cha-ha-manual-config"/> or
-    <xref linkend="cha-conf-hawk2"/>.
+     To be supported, a &sleha; cluster <emphasis>must</emphasis> have &stonith; (node fencing)
+     enabled. A node fencing mechanism can be either a physical device (a power switch)
+     or a mechanism like SBD in combination with a watchdog. Before you continue using
+     the cluster, configure one or more &stonith; devices as described in
+     <xref linkend="cha-ha-fencing"/> or <xref linkend="cha-ha-storage-protect"/>.
    </para>
   </sect1>
 </chapter>
