@@ -1373,6 +1373,220 @@ Illegal request, Invalid opcode</screen>
   </sect2>
  </sect1>
 
+ <sect1 xml:id="sec-ha-storage-protect-sbd-redeploy">
+  <title>Changing SBD configuration</title>
+  <para>
+    You might need to change the cluster's SBD configuration for various reasons. For example:
+  </para>
+  <itemizedlist>
+   <listitem>
+     <para>
+       Changing disk-based SBD to diskless SBD
+     </para>
+   </listitem>
+   <listitem>
+     <para>
+       Changing diskless SBD to disk-based SBD
+     </para>
+   </listitem>
+   <listitem>
+     <para>
+       Replacing an SBD device with a new device
+     </para>
+   </listitem>
+   <listitem>
+     <para>
+       Changing timeout values and other settings
+     </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+    You can use &crmsh; to change the SBD configuration. However, this method uses &crmsh;'s
+    default settings, including timeout values. If you need to change any settings, or if you use
+    custom settings and need to retain them when replacing a device, you must manually edit the
+    SBD configuration. Both methods are described in the following procedures.
+  </para>
+  <procedure xml:id="pro-ha-storage-protect-sbd-redeploy-disk-based">
+    <title>Redeploying disk-based SBD</title>
+    <para>
+      Use this procedure to change diskless SBD to disk-based SBD, to replace an existing
+      SBD device with a new device, or to change the timeout settings for disk-based SBD.
+    </para>
+    <step>
+      <para>
+        Put the cluster into maintenance mode:
+      </para>
+<screen>&prompt.root;<command>crm configure property maintenance-mode=true</command></screen>
+      <para>
+        In this state, the cluster stops monitoring all resources, so the services managed
+        by the resources can continue to run even when you stop the cluster services.
+      </para>
+    </step>
+    <step>
+      <para>
+        Stop the cluster services, including SBD, on all nodes:
+      </para>
+<screen>&prompt.root;<command>crm cluster stop --all</command></screen>
+    </step>
+    <step>
+      <para>
+        Change the SBD configuration with one of the following methods:
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            If you do not need to change any settings, use &crmsh; to configure the new device:
+          </para>
+<screen>&prompt.root;<command>crm cluster init sbd -s /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            If you need to change any settings, edit the configuration manually:
+          </para>
+          <orderedlist>
+            <listitem>
+              <para>
+                Reinitialize the device metadata, specifying the new device ID and timeout values
+                as required:
+              </para>
+<screen>&prompt.root;<command>sbd -d /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable> -4 <replaceable>VALUE</replaceable> -1 <replaceable>VALUE</replaceable> create</command></screen>
+              <para>
+                For more information, see <xref linkend="pro-ha-storage-protect-sbd-create"/>.
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                Open the file <filename>/etc/sysconfig/sbd</filename>.
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                If you are changing diskless SBD to disk-based SBD, add the following line and
+                specify the device ID. If you are replacing an SBD device, change the value of
+                this line to the new device ID:
+              </para>
+<screen>SBD_DEVICE="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>"</screen>
+            </listitem>
+            <listitem>
+              <para>
+                Adjust the other settings as required. For more information,
+                see <xref linkend="pro-ha-storage-protect-sbd-config"/>.
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                Copy the configuration file to all nodes:
+              </para>
+<screen>&prompt.root;<command>csync2 -xv</command></screen>
+            </listitem>
+          </orderedlist>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+      <para>
+        Start the cluster services on all nodes:
+      </para>
+<screen>&prompt.root;<command>crm cluster start --all</command></screen>
+    </step>
+    <step>
+      <para>
+        Check the SBD configuration. First, check the partition information:
+      </para>
+<screen>&prompt.root;<command>sbd -d /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable> dump</command>
+</screen>
+      <para>
+        Then check that all nodes in the cluster are assigned to a slot in the device:
+      </para>
+<screen>&prompt.root;<command>sbd -d /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable> list</command></screen>
+    </step>
+    <step>
+      <para>
+        Move the cluster out of maintenance mode and back into normal operation:
+      </para>
+<screen>&prompt.root;<command>crm configure property maintenance-mode=false</command></screen>
+    </step>
+  </procedure>
+  <procedure xml:id="pro-ha-storage-protect-sbd-redeploy-diskless">
+    <title>Redeploying diskless SBD</title>
+    <para>
+      Use this procedure to change disk-based SBD to diskless SBD, or to change
+      the timeout values for diskless SBD.
+    </para>
+    <step>
+      <para>
+        Put the cluster into maintenance mode:
+      </para>
+<screen>&prompt.root;<command>crm configure property maintenance-mode=true</command></screen>
+      <para>
+        In this state, the cluster stops monitoring all resources, so the services managed
+        by the resources can continue to run even when you stop the cluster services.
+      </para>
+    </step>
+    <step>
+      <para>
+        Stop the cluster services, including SBD, on all nodes:
+      </para>
+<screen>&prompt.root;<command>crm cluster stop --all</command></screen>
+    </step>
+    <step>
+      <para>
+        Change the SBD configuration with one of the following methods:
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            If you do not need to change any settings, use &crmsh; to configure diskless SBD:
+          </para>
+<screen>&prompt.root;<command>crm cluster init sbd -S</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            If you need to change any settings, edit the configuration file manually:
+          </para>
+          <orderedlist>
+            <listitem>
+              <para>
+                Open the file <filename>/etc/sysconfig/sbd</filename>.
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                If you are changing disk-based SBD to diskless SBD, remove the
+                <literal>SBD_DEVICE</literal> entry.
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                Adjust the other settings as required. For more information,
+                see <xref linkend="sec-ha-storage-protect-diskless-sbd"/>.
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                Copy the configuration file to all nodes:
+              </para>
+<screen>&prompt.root;<command>csync2 -xv</command></screen>
+            </listitem>
+          </orderedlist>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+      <para>
+        Start the cluster services on all nodes:
+      </para>
+<screen>&prompt.root;<command>crm cluster start --all</command></screen>
+    </step>
+    <step>
+      <para>
+        Move the cluster out of maintenance mode and back into normal operation:
+      </para>
+<screen>&prompt.root;<command>crm configure property maintenance-mode=false</command></screen>
+    </step>
+  </procedure>
+ </sect1>
+
  <sect1 xml:id="sec-ha-storage-protect-moreinfo">
   <title>For more information</title>
    <para>
