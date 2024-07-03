@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_crmreport_passl.xml" xml:id="app-crmreport-nonroot" version="5.0">
+ <title><systemitem class="username">root</systemitem>アクセスなしでのクラスタレポートの実行</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  すべてのクラスタノードはSSHによって互いにアクセスできる必要があります。<command>crm report</command> (トラブルシューティング用)などのツールおよびHawk2の<guimenu>履歴エクスプローラー</guimenu>は、ノード間でパスワード不要のSSHアクセスを必要とします。それがない場合、現在のノードからしかデータを収集できません。
+ </para>
+ <para>
+  セキュリティポリシーでパスワード不要の<systemitem class="username">root</systemitem> SSHログインが許可されていない場合、<command>crm report</command>を<systemitem class="username">root</systemitem>として実行すると、すべてのリモートノードで失敗します。この場合、次のオプションのいずれかを使用すればクラスタレポートを実行できます。
+ </para>
+ <itemizedlist>
+   <listitem>
+     <para>
+       クラスタが<command>sudo</command>特権を持つ非rootユーザによって初期化された場合、このユーザはクラスタレポートを実行できます。
+     </para>
+   </listitem>
+   <listitem>
+     <para>
+       クラスタが<systemitem class="username">root</systemitem>ユーザによって初期化された場合、専用の非rootユーザを作成してクラスタレポートを実行できます。
+     </para>
+   </listitem>
+ </itemizedlist>
+ <para>
+  次の手順では、非rootユーザに限定的な特権を付与し、<command>sudo</command>を使用して<command>crm report</command>を実行できるが、その他の<command>sudo</command>アクセスを許可しないようにする方法について説明しています。
+ </para>
+
+ <sect1 xml:id="sec-crmreport-nonroot-sudo">
+  <title>非rootユーザに限定的な<command>sudo</command>特権を設定する</title>
+
+  <para>
+   <command>sudo</command>コマンドは、通常のユーザを素早く<systemitem class="username">root</systemitem>にしてコマンドを発行できるようにします。パスワードの入力は、必要な場合と不要な場合があります。すべてのルートレベルのコマンドにsudoアクセスを付与することも、特定のコマンドにのみ付与することもできます。この手順は、クラスタレポートを実行するために必要な特定のコマンドに対してのみ<command>sudo</command>特権を設定する方法を説明しています。一般的には、sudoはエイリアスを使用してコマンド文字列全体を定義します。
+  </para>
+
+  <para>
+   sudoを設定するには、<command>visudo</command> (viでは「ありません」<emphasis></emphasis>)またはYaSTを使用します。
+  </para>
+
+  <warning>
+   <title>viは使用しない</title>
+   <para>
+    コマンドラインからsudoを設定するには、<systemitem class="username">root</systemitem>を使用して、<command>visudo</command>としてsudoersファイルを編集する必要があります。他のエディタを使用すると、構文エラーやファイルパーミッションエラーが発生し、sudoを実行できないことがあります。
+   </para>
+  </warning>
+
+  <itemizedlist>
+    <title>要件</title>
+    <listitem>
+      <para>
+        <command>sudo</command>特権を持っていない非rootユーザ。次の手順では、<systemitem class="username">hareport</systemitem>というサンプルユーザを使用します。
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        ユーザ<systemitem class="username">hareport</systemitem>は、クラスタ内にあるすべてのノードに存在しています。
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        ユーザ<systemitem class="username">hareport</systemitem>は、パスワード不要のSSHを使用してクラスタ内のその他すべてのノードにアクセスできます。
+      </para>
+    </listitem>
+  </itemizedlist>
+
+  <procedure>
+   <title>非rootユーザに限定的な<command>sudo</command>特権を設定する</title>
+   <step>
+    <para>
+     <systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     <filename>/etc/sudoers</filename>ファイルを開くには、<command>visudo</command>を入力します。
+    </para>
+   </step>
+   <step>
+    <para> 次のカテゴリを探します: <literal>Host alias
+      specification</literal>、<literal>User alias specification</literal>、<literal>Cmnd alias specification</literal>、および<literal>Runas alias
+      specification</literal>。 </para>
+   </step>
+   <step>
+    <para>
+     次のエントリを<filename>/etc/sudoers</filename>内のそれぞれのカテゴリに追加します。
+    </para>
+<screen>Host_Alias	CLUSTER = alice,bob,charlie <co xml:id="ha-sudoers-host-alias"/>
+User_Alias HA = hareport <co xml:id="ha-sudoers-user-alias"/>
+Cmnd_Alias HA_ALLOWED = /bin/su, /usr/sbin/crm report*<co xml:id="ha-sudoers-cmd-alias"/>
+Runas_Alias R = root <co xml:id="ha-sudoers-runas-alias"/></screen>
+    <calloutlist>
+     <callout arearefs="ha-sudoers-host-alias">
+      <para>
+       ホストエイリアスは、sudoユーザがコマンド発行権利を持つサーバ(またはサーバの範囲)を定義します。ホストエイリアスでは、DNS名またはIPアドレスを使用するか、ネットワーク範囲全体を指定できます(例: <literal>172.17.12.0/24</literal>)。アクセスの範囲を制限するには、クラスタノードのホスト名のみを指定する必要があります。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-user-alias">
+      <para>
+       ユーザエイリアスでは、複数のローカルユーザアカウントを1つのエイリアスに追加できます。ただし、ここでは使用されているアカウントは1つのみです。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-cmd-alias">
+      <para>
+       コマンドエイリアスは、ユーザが実行できるコマンドを定義します。これは、非rootユーザが<command>sudo</command>を使用する際にアクセスできるコマンドを制限する場合に便利です。ここでは、<systemitem class="username">hareport</systemitem>ユーザアカウントは、コマンド<command>crm report</command>および<command>su</command>にアクセスする必要があります。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-runas-alias">
+      <para>
+       <literal>runas</literal>エイリアスは、コマンドの実行に使用するアカウントを指定します。ここでは<systemitem class="username">root</systemitem>です。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>次の2行を検索します。</para>
+    <screen>Defaults targetpw
+ALL     ALL=(ALL) ALL
+    </screen>
+    <para>これらは、作成したい設定と衝突するため、無効にします。</para>
+    <screen>#Defaults targetpw
+#ALL     ALL=(ALL) ALL</screen>
+   </step>
+   <step>
+    <para><literal>User privilege specification</literal> categoryを探します。上のエイリアスを定義したら、そこに次のルールを追加できます。</para>
+    <screen>HA	CLUSTER = (R) NOPASSWD:HA_ALLOWED</screen>
+    <para><literal>NOPASSWORD</literal>オプションは、ユーザ<systemitem class="username">hareport</systemitem>がパスワードを入力せずにクラスタレポートを実行できるようにします。</para>
+   </step>
+   <step performance="optional">
+    <para>
+     ユーザ<systemitem class="username">hareport</systemitem>がローカルSSHキーを使用してクラスタレポートを実行できるようにするには、<literal>Defaults specification</literal>カテゴリに次の行を追加します。これにより、SSHエージェントの転送に必要な<literal>SSH_AUTH_SOCK</literal>環境変数が維持されます。
+    </para>
+<screen>Defaults!HA_ALLOWED env_keep+=SSH_AUTH_SOCK</screen>
+    <para>
+     <command>ssh -A</command>コマンドを使用してユーザ<systemitem class="username">hareport</systemitem>としてノードにログインし、<command>sudo</command>を使用して<command>crm report</command>を実行すると、認証のためにローカルSSHキーがノードに渡されます。
+    </para>
+   </step>
+  </procedure>
+
+  <important>
+   <title>各クラスタノードで同じsudo設定が必要</title>
+   <para>
+    クラスタ内のすべてのノードでこのsudo設定を行う必要があります。sudoに他の変更は必要なく、再起動が必要なサービスもありません。
+   </para>
+  </important>
+ </sect1>
+
+</appendix>

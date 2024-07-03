@@ -1,0 +1,1572 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_configuring_resources.xml" xml:id="sec-ha-config-basics-resources" xml:lang="zh-cn" version="5.1">
+ <title>配置群集资源</title>
+ <info>
+  <abstract>
+   <para>
+    作为群集管理员，您需要在群集中为服务器上运行的每个资源或应用程序创建群集资源。群集资源可能包括网站、电子邮件服务器、数据库、文件系统、虚拟机，以及您希望用户随时都可以访问的任何其他基于服务器的应用程序或服务。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-types">
+   <title>资源类型</title>
+   <para>
+    可创建以下类型的资源：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>原始资源</term>
+     <listitem>
+      <para>
+       基元资源是最基本的资源类型。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>组</term>
+     <listitem>
+      <para>
+       组包含一组需要放在一起、按顺序启动和按相反顺序停止的资源。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>克隆资源</term>
+     <listitem>
+      <para>
+       克隆是可以在多个主机上处于活动状态的资源。如果各个资源代理支持，则任何资源均可克隆。
+      </para>
+      <para>
+       可升级克隆（也称为多状态资源）是一种可以升级的特殊类型的克隆资源。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-raclasses">
+   <title>支持的资源代理类别</title>
+   <para>
+    对于添加的每个群集资源，需要定义资源代理需遵守的标准。资源代理提取它们提供的服务并显示群集的确切状态，以使群集对其管理的资源不作确答。群集依赖于资源代理在收到启动、停止或监视命令时作出相应反应。
+   </para>
+   <para>
+    通常，资源代理的形式为外壳脚本。SUSE Linux Enterprise High Availability 支持以下几类资源代理：
+   </para>
+   <variablelist>
+    <varlistentry xml:id="vle-ha-resources-ocf-ra">
+     <term>Open Cluster Framework (OCF) 资源代理</term>
+     <listitem>
+      <para>
+       OCF RA 代理最适合与高可用性搭配使用，特别是当您需要可升级克隆资源或特殊监视功能时。这些代理通常位于 <filename>/usr/lib/ocf/resource.d/<replaceable>provider</replaceable>/</filename> 中。其功能与 LSB 脚本的功能相似。但其配置始终通过环境变量进行，这样方便接受和处理参数。OCF 规范对于操作必须返回的退出码有严格的定义。请参见<xref linkend="sec-ha-errorcodes"/>。群集严格遵循这些规范。
+      </para>
+      <para>
+       所有 OCF 资源代理都必须至少含有 <literal>status</literal>、<literal>start</literal>、<literal>monitor</literal>、<literal>stop</literal> 和 <literal>meta-data</literal> 操作。<literal>meta-data</literal> 操作可检索有关如何配置代理的信息。例如，要了解提供程序 <literal>IPaddr</literal> 的 <literal>heartbeat</literal> 代理的更多信息，请使用以下命令：
+      </para>
+<screen>OCF_ROOT=/usr/lib/ocf /usr/lib/ocf/resource.d/heartbeat/IPaddr meta-data</screen>
+      <para>
+       输出是 XML 格式的信息，包括多个部分（代理的常规描述、可用参数和可用操作）。
+      </para>
+      <para>
+       或者，也可以使用 crmsh 来查看有关 OCF 资源代理的信息。有关详细信息，请参见<xref linkend="sec-ha-manual-config-ocf"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Linux Standards Base (LSB) 脚本</term>
+     <listitem>
+      <para>
+       LSB 资源代理一般由操作系统/发行套件提供，位于 <filename>/etc/init.d</filename> 中。要用于群集，它们必须遵守 LSB init 脚本规范。举例而言，这些代理中必须至少实现以下几个操作：<literal>reload</literal>、<literal>start</literal>、<literal>force-reload</literal>、<literal>stop</literal>、<literal>restart</literal> 和 <literal>status</literal>。有关详细信息，请参见<link xlink:href="https://refspecs.linuxbase.org/LSB_4.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html"/>。
+      </para>
+      <para>
+       这些服务的配置没有标准化。如果要将 LSB 脚本用于 High Availability，请确保您了解如何配置相关脚本。通常可在 <filename>/usr/share/doc/packages/<replaceable>PACKAGENAME</replaceable></filename> 中的相关软件包文档中找到这方面的信息。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>systemd</term>
+     <listitem>
+      <para>
+       Pacemaker 可以管理 systemd 服务（如果有）。systemd 不使用 init 脚本，而是使用单元文件。通常，服务（或单元文件）由操作系统提供。如果您要转换现有的 init 脚本，可访问 <link xlink:href="https://0pointer.de/blog/projects/systemd-for-admins-3.html"/> 找到更多信息。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>服务</term>
+     <listitem>
+      <para>
+       目前有许多类型的系统服务同时存在：<literal>LSB</literal>（属于 System V init）、<literal>systemd</literal> 和（在某些发行套件中提供的）<literal>upstart</literal>。因此，Pacemaker 支持使用特殊别名，以确定哪个服务适用于指定的群集节点。当群集中混合使用了 systemd、upstart 和 LSB 服务时，此功能尤其有用。Pacemaker 会尝试按以下顺序查找指定服务：LSB (SYS-V) init 脚本、Systemd 单元文件或 Upstart 作业。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Nagios</term>
+     <listitem>
+      <para>
+       使用监视插件（以前称为 Nagios 插件）可以监视远程主机上的服务。Pacemaker 可以使用监视插件（如果有）来执行远程监视。有关详细信息，请参见<xref linkend="sec-ha-config-basics-remote-nagios"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>STONITH（屏蔽）资源代理</term>
+     <listitem>
+      <para>
+       此类仅用于与屏蔽相关的资源。有关详细信息，请参见<xref linkend="cha-ha-fencing"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    SUSE Linux Enterprise High Availability 随附的代理是按照 OCF 规范编写的。
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-timeouts">
+   <title>超时值</title>
+   <para>
+    资源的超时值会受以下参数的影响：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <varname>op_defaults</varname>（操作的全局超时），
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      在资源模板中定义的特定超时值，
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      为资源定义的特定超时值。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <note>
+    <title>值的优先级</title>
+    <para>
+     如果为资源定义了<emphasis>特定</emphasis>值，则该值优先于全局默认值。资源的特定值也优先于在资源模板中定义的值。
+    </para>
+   </note>
+   <para>
+    获取超时值权限非常重要。将超时值设置得太小，会因以下原因产生大量（不必要的）屏蔽操作：
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      如果资源超时，便会失败，并且群集会尝试将其停止。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果停止该资源的操作也失败（例如，由于停止超时设置得太短），群集将屏蔽该节点。它会将发生此情况的节点视为失控。
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    您可以使用 crmsh 和 Hawk2 调整操作的全局默认值并设置任何特定的超时值。确定和设置超时值的最佳实践如下所示：
+   </para>
+   <procedure>
+    <title>确定超时值</title>
+    <step>
+     <para>
+      检查资源启动和停止（在负载状况下）所需的时间。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果需要，请添加 <varname>op_defaults</varname> 参数并相应地设置（默认）超时值：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        例如，将 <literal>op_defaults</literal> 设置为 <literal>60</literal> 秒：
+       </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>op_defaults timeout=60</command></screen>
+      </step>
+      <step>
+       <para>
+        对于需要更长时间期限的资源，则定义单独的超时值。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      为资源配置操作时，添加单独的 <literal>start</literal> 和 <literal>stop</literal> 操作。使用 Hawk2 配置操作时，该工具会针对这些操作提供有用的超时建议。
+     </para>
+    </step>
+   </procedure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-management">
+   <title>创建原始资源</title>
+   <para>
+    必须先设置群集中的资源，然后才能使用它。例如，要使用 Apache 服务器作为群集资源，请先设置 Apache 服务器并完成 Apache 配置，然后才能在群集中启动相应的资源。
+   </para>
+   <para>
+    如果资源有特定环境要求，请确保这些要求已得到满足并且在所有群集节点上均相同。此类配置无法通过 SUSE Linux Enterprise High Availability 管理。您必须自行管理。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 来创建原始资源。
+   </para>
+   <note>
+    <title>不要操作由群集管理的服务</title>
+    <para>
+     当您使用 SUSE Linux Enterprise High Availability 管理某个资源时，就不能以其他方式启动或停止该资源（例如，在群集外手动启动或停止，或在系统引导或重引导时启动或停止）。该 High Availability 软件会负责所有服务的启动或停止操作。
+    </para>
+    <para>
+     如果当服务已在群集控制下运行后您需要执行测试或维护任务，请确保先将资源、节点或整个群集置于维护模式，然后再进行手动处理。有关详细信息，请参见<xref linkend="sec-ha-maint-overview"/>。
+    </para>
+   </note>
+   <important>
+    <title>资源 ID 和节点名称</title>
+    <para>群集资源和群集节点的名称应该不同。否则，Hawk2 将会失败。</para>
+   </important>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-primitive">
+    <title>使用 Hawk2 创建原始资源</title>
+    <para>
+     要创建最基本类型的资源，请执行以下操作：
+    </para>
+    <procedure xml:id="pro-conf-hawk2-primitive-add">
+     <title>使用 Hawk2 添加原始资源</title>
+     <step>
+      <para>
+       登录 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       从左侧导航栏中，选择<menuchoice>
+       <guimenu>配置</guimenu> <guimenu>添加资源</guimenu> <guimenu>原始资源</guimenu> </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       输入唯一的<guimenu>资源 ID</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       如果存在可以根据其进行资源配置的资源模板，请选择相应的<guimenu>模板</guimenu>。
+      </para>
+     </step>
+     <step xml:id="step-ha-config-hawk2-primitive-start">
+      <para>
+       选择要使用的资源代理<guimenu>类</guimenu>：<literal>service</literal>、<literal>lsb</literal>、<literal>stonith</literal>、<literal>ocf</literal> 或 <literal>systemd</literal>。有关详细信息，请参见<xref linkend="sec-ha-config-basics-raclasses"/>。
+      </para>
+     </step>
+     <step>
+      <para>
+       如果选择了 <literal>ocf</literal> 作为类，则指定 OCF 资源代理的<guimenu>提供程序</guimenu>。OCF 规范允许多个供应商供应相同的资源代理。
+      </para>
+     </step>
+     <step>
+      <para>
+       从<guimenu>类型</guimenu>列表中，选择要使用的资源代理（例如 <guimenu>IPaddr</guimenu> 或 <guimenu>Filesystem</guimenu>）。将显示该资源代理的简短描述。
+      </para>
+      <note>
+       <para>
+        <guimenu>类型</guimenu>列表中提供的选项取决于您选择的<guimenu>类</guimenu>（对于 OCF 资源还取决于<guimenu>提供程序</guimenu>中选择的内容）。
+       </para>
+      </note>
+      <figure>
+       <title>Hawk2 - 原始资源</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-primitive-basic.png" width="100%"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-primitive-basic.png" width="100%"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+     <step>
+      <para>
+       指定资源基本信息后，Hawk2 会显示以下类别。按照 Hawk2 的建议保留这些类别，或根据需要对其进行编辑。
+      </para>
+      <variablelist>
+       <varlistentry>
+        <term>参数（实例属性）</term>
+        <listitem>
+         <para>
+          确定资源控制的服务实例。创建资源时，Hawk2 会自动显示所有必要的参数。对这些参数进行编辑，以便拥有有效的资源配置。
+         </para>
+         <para>
+          有关详细信息，请参见<xref linkend="sec-ha-config-basics-inst-attr"/>。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>操作</term>
+        <listitem>
+         <para>
+          为监视资源所需。创建资源时，Hawk2 会显示最重要的资源操作（<literal>start</literal>、<literal>monitor</literal> 和 <literal>stop</literal>）。
+         </para>
+         <para>
+          有关详细信息，请参见<xref linkend="sec-ha-config-basics-operations"/>。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>元属性</term>
+        <listitem>
+         <para>
+          告知 CRM 如何处理特定资源。创建资源时，Hawk2 会自动列出该资源的重要元属性，例如，定义资源初始状态的 <literal>target-role</literal> 属性。默认情况下，该属性设置为 <literal>Stopped</literal>，这样资源便不会立即启动。
+         </para>
+         <para>
+          有关详细信息，请参见<xref linkend="sec-ha-config-basics-meta-attr"/>。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>利用率</term>
+        <listitem>
+         <para>
+          告知 CRM 某个资源需从节点获取的容量。
+         </para>
+         <para>
+          有关详细信息，请参见<xref linkend="sec-config-hawk2-utilization"/>。
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+     </step>
+     <step>
+      <para>
+       单击<guimenu>创建</guimenu>以完成配置。如果操作成功，屏幕顶部会显示一条消息。
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-create">
+    <title>使用 crmsh 创建原始资源</title>
+    <procedure xml:id="pro-ha-manual-config-create">
+     <title>使用 crmsh 添加原始资源</title>
+     <step>
+      <para>
+       以 <systemitem class="username">root</systemitem> 用户身份登录并启动 <command>crm</command> 工具：
+      </para>
+  <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+     </step>
+     <step>
+      <para>
+       配置原始 IP 地址：
+      </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive myIP IPaddr \
+      params ip=127.0.0.99 op monitor interval=60s</command></screen>
+      <para>
+       上一命令配置了名称为 <quote> 的</quote>原始资源<literal>myIP</literal>。需要选择一个类别（此处为 <literal>ocf</literal>）、提供方 (<literal>heartbeat</literal>) 和类型 (<literal>IPaddr</literal>)。此外，此原始资源还需要其他参数，如 IP 地址。根据设置更改地址。
+      </para>
+     </step>
+     <step>
+      <para>
+       显示您所做的更改并进行复查：
+      </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>show</command></screen>
+     </step>
+     <step>
+      <para>
+       提交更改使其生效：
+      </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+     </step>
+    </procedure>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-advanced-groups">
+   <title>创建资源组</title>
+   <para>
+    某些群集资源依赖于其他组件或资源，它们要求每个组件或资源都按特定顺序启动，并与其依赖的资源一起在同一服务器上运行。要简化此配置，可以使用群集资源组。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 来创建资源组。
+   </para>
+   <example xml:id="ex-ha-config-resource-group">
+    <title>Web 服务器的资源组</title>
+    <para>
+     资源组示例可以是需要 IP 地址和文件系统的 Web 服务器。在本例中，每个组件都是组成群集资源组的一个单独资源。资源组将在一台或多台服务器上运行。在发生软件或硬件故障时，资源组会将故障转移到群集中的另一台服务器，这一点与单个群集资源类似。
+    </para>
+   </example>
+   <figure pgwide="0">
+    <title>组资源</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="webserver_groupresource_a.svg" width="70%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="webserver_groupresource_a.svg" width="63%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <para>
+    组具有以下属性：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>启动和停止</term>
+     <listitem>
+      <para>
+       资源按其显示顺序启动，并按相反顺序停止。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>相关性</term>
+     <listitem>
+      <para>
+       如果组中某个资源在某处无法运行，则该组中位于其之后的任何资源都不允许运行。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>内容</term>
+     <listitem>
+      <para>
+       组可能仅包含一些原始群集资源。组必须包含至少一个资源，否则配置无效。要引用组资源的子项，请使用子项 ID 而不是组 ID。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>限制</term>
+     <listitem>
+      <para>
+       尽管可以在约束中引用组的子项，但一般最好使用组的名称。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>粘性</term>
+     <listitem>
+      <para>
+       粘性在组中可以累加。组中每个<emphasis>活动</emphasis>成员的粘性值都会影响组的总值。因此，如果 <literal>resource-stickiness</literal> 的默认值是 <literal>100</literal>，且组中有 7 个成员（其中 5 个成员处于活动状态），那么整个组将首选其当前位置（分数为 <literal>500</literal>）。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>资源监视</term>
+     <listitem>
+      <para>
+       要为组启用资源监视，必须为组中每个要监视的资源分别配置监视。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-group">
+    <title>使用 Hawk2 创建资源组</title>
+    <note>
+     <title>空组</title>
+     <para>
+      组必须包含至少一个资源，否则配置无效。创建组时，Hawk2 允许您创建多个原始资源并将它们添加到组中。
+     </para>
+    </note>
+    <procedure xml:id="pro-conf-hawk2-group">
+     <title>使用 Hawk2 添加资源组</title>
+     <step>
+      <para>
+       登录 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       从左侧导航栏中，选择<menuchoice>
+       <guimenu>配置</guimenu> <guimenu>添加资源</guimenu>
+       <guimenu>组</guimenu> </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       输入唯一的<guimenu>组 ID</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       要定义组成员，请选择<guimenu>子项</guimenu>列表中的一项或多项。通过使用右侧的<quote>手柄</quote>图标将组成员拖放为需要的顺序对其进行重新排序。
+      </para>
+     </step>
+     <step>
+      <para>
+       根据需要修改或添加<guimenu>元属性</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       单击<guimenu>创建</guimenu>以完成配置。如果操作成功，屏幕顶部会显示一条消息。
+      </para>
+     </step>
+    </procedure>
+    <figure>
+     <title>Hawk2 - 资源组</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-rsc-group.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-rsc-group.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-group">
+    <title>使用 crmsh 创建资源组</title>
+    <para>
+     以下示例创建了两个原始资源（一个 IP 地址和一个电子邮件资源）。
+    </para>
+    <procedure>
+     <title>使用 crmsh 添加资源组</title>
+     <step>
+      <para>
+       以系统管理员的身份运行 <command>crm</command> 命令。提示符会切换为 <literal>crm(live)</literal>。
+      </para>
+     </step>
+     <step>
+      <para>
+       配置这两个原始资源：
+      </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>configure</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive Public-IP ocf:heartbeat:IPaddr2 \
+    params ip=1.2.3.4 \
+    op monitor interval=10s</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive Email systemd:postfix \
+    op monitor interval=10s</command></screen>
+     </step>
+     <step>
+      <para>
+       以正确顺序按其相关标识符对原始资源进行分组：
+      </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>group g-mailsvc Public-IP Email</command></screen>
+     </step>
+    </procedure>
+   </sect2>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-advanced-clones">
+   <title>创建克隆资源</title>
+   <para>
+    您可能希望某些资源在群集的多个节点上同时运行。为此，必须将资源配置为克隆资源。可以配置为克隆的资源示例包括群集文件系统（如 OCFS2）。可以克隆提供的任何资源。资源的代理支持此操作。克隆资源的配置甚至也有不同，具体取决于资源驻留的节点。
+   </para>
+   <para>
+    资源克隆有三种类型：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>匿名克隆</term>
+     <listitem>
+      <para>
+       这是最简单的克隆类型。这种克隆类型在所有位置上的运行方式都相同。因此，每台计算机上只能有一个匿名克隆实例是活动的。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>全局唯一克隆</term>
+     <listitem>
+      <para>
+       这些资源各不相同。一个节点上运行的克隆实例与另一个节点上运行的实例不同，同一个节点上运行的任何两个实例也不同。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>可升级克隆（多状态资源）</term>
+     <listitem>
+      <para>
+       这些资源的活动实例分为两种状态：主动和被动。这些状态有时也称为主要和次要。可升级克隆可以是匿名的，也可以是全局唯一。有关详细信息，请参见<xref linkend="sec-ha-config-basics-resources-promotable-clones"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    克隆资源必须正好包含一组或一个常规资源。
+   </para>
+   <para>
+    配置资源监视或约束时，克隆资源与简单资源具有不同的要求。有关细节，请参见 <link xlink:href="https://www.clusterlabs.org/pacemaker/doc/"/> 上的 <citetitle>Pacemaker Explained</citetitle>。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 来创建克隆资源。
+   </para>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-clone">
+    <title>使用 Hawk2 创建克隆资源</title>
+    <note>
+     <title>克隆资源的子资源</title>
+     <para>
+      克隆资源可以包含原始资源或组作为子资源。在 Hawk2 中，创建克隆资源时不能创建或修改子资源。添加克隆资源之前，先创建子资源并根据需要配置它们。
+     </para>
+    </note>
+    <procedure xml:id="pro-conf-hawk2-clone">
+     <title>使用 Hawk2 添加克隆资源</title>
+     <step>
+      <para>
+       登录 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       从左侧导航栏中，选择<menuchoice> <guimenu>配置</guimenu>
+      <guimenu>添加资源</guimenu> <guimenu>克隆</guimenu> </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       输入唯一的<guimenu>克隆 ID</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       从<guimenu>子资源</guimenu>列表中，选择要作为克隆子资源的原始资源或组。
+      </para>
+     </step>
+     <step>
+      <para>
+       根据需要修改或添加<guimenu>元属性</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       单击<guimenu>创建</guimenu>以完成配置。如果操作成功，屏幕顶部会显示一条消息。
+      </para>
+     </step>
+    </procedure>
+    <figure>
+     <title>Hawk2 - 克隆资源</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-clone.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-clone.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-clone">
+    <title>使用 crmsh 创建克隆资源</title>
+     <para>
+      要创建匿名克隆资源，首先需创建一个原始资源，然后使用 <command>clone</command> 命令来引用它。
+     </para>
+     <procedure>
+      <title>使用 crmsh 添加克隆资源</title>
+      <step>
+       <para>
+        以 <systemitem class="username">root</systemitem> 用户身份登录，然后启动 <command>crm</command> 交互式外壳：
+       </para>
+  <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+      </step>
+      <step>
+       <para>
+        配置原始资源，例如：
+       </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive Apache apache</command></screen>
+      </step>
+      <step>
+       <para>
+        克隆原始资源：
+       </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>clone cl-apache Apache</command></screen>
+      </step>
+     </procedure>
+    </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-promotable-clones">
+   <title>创建可升级克隆资源（多状态资源）</title>
+   <para>
+    可升级克隆（以前称为多状态资源）是一种特殊的克隆。它们可让实例处于两种运行模式之一（主要或次要）。可升级克隆只能包含一个组或一个常规资源。
+   </para>
+   <para>
+    配置资源监视或约束时，可升级克隆的要求与简单资源不同。有关细节，请参见 <link xlink:href="https://www.clusterlabs.org/pacemaker/doc/"/> 上的 <citetitle>Pacemaker Explained</citetitle>。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 来创建可升级克隆资源。
+   </para>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-ms">
+    <title>使用 Hawk2 创建可升级克隆资源</title>
+
+    <note>
+     <title>可升级克隆资源的子资源</title>
+     <para>
+      可升级克隆资源可以包含原始资源或组作为子资源。在 Hawk2 中，创建可升级克隆资源时不能创建或修改子资源。添加可升级克隆资源之前，请先创建子资源并根据需要配置它们。请参阅<xref linkend="sec-conf-hawk2-rsc-primitive"/>或<xref linkend="sec-conf-hawk2-rsc-group"/>。
+     </para>
+    </note>
+    <procedure xml:id="pro-conf-hawk2-ms">
+     <title>使用 Hawk2 添加可升级克隆资源</title>
+     <step>
+      <para>
+       登录 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       从左侧导航栏中，选择<menuchoice>
+       <guimenu>配置</guimenu>  <guimenu>添加资源</guimenu>
+       <guimenu>多状态</guimenu> </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       输入唯一的<guimenu>多状态 ID</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       从<guimenu>子资源</guimenu>列表中，选择要作为多状态资源的子资源的原始资源或组。
+      </para>
+     </step>
+     <step>
+      <para>
+       根据需要修改或添加<guimenu>元属性</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       单击<guimenu>创建</guimenu>以完成配置。如果操作成功，屏幕顶部会显示一条消息。
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-clone-stateful">
+    <title>使用 crmsh 创建可升级克隆资源</title>
+    <para>
+     要创建可升级克隆资源，首先要创建一个原始资源，然后再创建可升级克隆资源。可升级克隆资源必须至少支持升级和降级操作。
+    </para>
+    <procedure>
+     <title>使用 crmsh 添加可升级克隆资源</title>
+     <step>
+      <para>
+       以 <systemitem class="username">root</systemitem> 用户身份登录，然后启动 <command>crm</command> 交互式外壳：
+      </para>
+ <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+     </step>
+     <step>
+      <para>
+       配置原始资源。必要时更改时间间隔：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive my-rsc ocf:myCorp:myAppl \
+    op monitor interval=60 \
+    op monitor interval=61 role=Promoted</command></screen>
+     </step>
+     <step>
+      <para>
+       创建可升级克隆资源：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>clone clone-rsc my-rsc meta promotable=true</command></screen>
+     </step>
+    </procedure>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-resources-templates">
+   <title>创建资源模板</title>
+   <para>
+    如果希望创建具有类似配置的多个资源，则定义资源模板是最简单的方式。定义好模板后，就可以在原始资源或特定类型的约束中引用它，如<xref linkend="sec-ha-config-basics-constraints-templates"/>中所述。
+   </para>
+   <para>
+    如果在原始资源中引用了模板，该原始资源会继承模板中定义的所有操作、实例属性（参数）、元属性和利用率属性。此外，还可以为原始资源定义特定的操作或属性。如果在模板和原始资源中都定义了以上内容，原始资源中定义的值将优先于模板中定义的值。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 来创建资源模板。
+   </para>
+
+  <sect2 xml:id="sec-conf-hawk2-rsc-template">
+   <title>使用 Hawk2 创建资源模板</title>
+    <para>
+     配置资源模板就如同配置原始资源一样。
+    </para>
+   <procedure xml:id="pro-conf-hawk2-template-add">
+    <title>添加资源模板</title>
+    <step>
+     <para>
+      登录 Hawk2：
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      从左侧导航栏中，选择<menuchoice> <guimenu>配置</guimenu>
+      <guimenu>添加资源</guimenu> <guimenu>模板</guimenu> </menuchoice>。
+     </para>
+    </step>
+    <step>
+     <para>
+      输入唯一的<guimenu>资源 ID</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      按照<xref linkend="pro-conf-hawk2-primitive-add"/>中的指导从<xref linkend="step-ha-config-hawk2-primitive-start" xrefstyle="select:label"/> 开始。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-rsc-template">
+   <title>使用 crmsh 创建资源模板</title>
+   <para>
+    使用 <command>rsc_template</command> 命令可以熟悉其语法：
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm configure rsc_template</command>
+ usage: rsc_template &lt;name&gt; [&lt;class&gt;:[&lt;provider&gt;:]]&lt;type&gt;
+        [params &lt;param&gt;=&lt;value&gt; [&lt;param&gt;=&lt;value&gt;...]]
+        [meta &lt;attribute&gt;=&lt;value&gt; [&lt;attribute&gt;=&lt;value&gt;...]]
+        [utilization &lt;attribute&gt;=&lt;value&gt; [&lt;attribute&gt;=&lt;value&gt;...]]
+        [operations id_spec
+            [op op_type [&lt;attribute&gt;=&lt;value&gt;...] ...]]</screen>
+   <para>
+    例如，以下命令将会根据 <literal>ocf:heartbeat:Xen</literal> 资源和一些默认值及操作新建一个名为 <literal>BigVM</literal> 的资源模板：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_template BigVM ocf:heartbeat:Xen \
+   params allow_mem_management="true" \
+   op monitor timeout=60s interval=15s \
+   op stop timeout=10m \
+   op start timeout=10m</command></screen>
+   <para>
+    定义新资源模板后，可以在原始资源中使用它，或在顺序、共置或 rsc_ticket 约束中引用该模板。要引用资源模板，请使用 <literal>@</literal> 符号：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive MyVM1 @BigVM \
+   params xmfile="/etc/xen/shared-vm/MyVM1" name="MyVM1"</command></screen>
+   <para>
+    新的原始资源 MyVM1 将继承 BigVM 资源模板中的所有配置。例如，上述两者的等效配置有：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive MyVM1 Xen \
+   params xmfile="/etc/xen/shared-vm/MyVM1" name="MyVM1" \
+   params allow_mem_management="true" \
+   op monitor timeout=60s interval=15s \
+   op stop timeout=10m \
+   op start timeout=10m</command></screen>
+   <para>
+    如果希望重写一些选项或操作，只需将它们添加到您的（原始）定义中。例如，下面这个新的原始资源 MyVM2 会让监视操作的超时增加一倍，而其他值保持不变：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive MyVM2 @BigVM \
+   params xmfile="/etc/xen/shared-vm/MyVM2" name="MyVM2" \
+   op monitor timeout=120s interval=30s</command></screen>
+   <para>
+    资源模板可以在约束中引用，以表示所有原始资源都派生自该模板。这有助于生成更加清晰明了的群集配置。除了位置约束外，允许在所有约束中进行资源模板引用。共置约束不能包含多次模板引用。
+   </para>
+  </sect2>
+ </sect1>
+
+<sect1 xml:id="sec-ha-conf-stonith-rsc">
+ <title>创建 STONITH 资源</title>
+    <important>
+      <title>不支持无 STONITH 的配置</title>
+      <itemizedlist>
+       <listitem>
+        <para>您必须为群集配置节点屏蔽机制。</para>
+       </listitem>
+       <listitem>
+        <para>全局群集选项 <systemitem>stonith-enabled</systemitem> 和 <systemitem>startup-fencing</systemitem> 必须设置为 <literal>true</literal>。如果您更改这些选项，将会失去支持。</para>
+       </listitem>
+      </itemizedlist>
+      </important>
+  <para>
+   默认情况下，全局群集选项 <literal>stonith-enabled</literal> 设置为 <literal>true</literal>。如果未定义 STONITH 资源，群集会拒绝启动任何资源。配置一个或多个 STONITH 资源以完成 STONITH 设置。虽然 STONITH 资源的配置过程与其他资源类似，但它们的行为在某些方面有所不同。有关细节，请参见<xref linkend="sec-ha-fencing-config"/>。
+  </para>
+  <para>
+   可以使用 Hawk2 或 crmsh 来创建 STONITH 资源。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-rsc-stonith">
+  <title>使用 Hawk2 创建 STONITH 资源</title>
+  <para>
+   要为 SBD、libvirt (KVM/Xen) 或 vCenter/ESX 服务器添加 STONITH 资源，最简单的方式就是使用 Hawk2 向导。
+  </para>
+  <procedure xml:id="pro-conf-hawk2-stonith">
+   <title>使用 Hawk2 添加 STONITH 资源</title>
+   <step>
+    <para>
+     登录 Hawk2：
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     从左侧导航栏中，选择<menuchoice>
+     <guimenu>配置</guimenu> <guimenu>添加资源</guimenu> <guimenu>原始资源</guimenu> </menuchoice>。
+    </para>
+   </step>
+   <step>
+    <para>
+     输入唯一的<guimenu>资源 ID</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     从<guimenu>类</guimenu>列表，选择资源代理类 <guimenu>stonith</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     从<guimenu>类型</guimenu>列表中，选择用于控制 STONITH 设备的 STONITH 插件。该插件的简短描述即会显示。
+    </para>
+   </step>
+   <step>
+    <para>
+     Hawk2 会自动显示该资源必需的<guimenu>参数</guimenu>。为每个参数输入值。
+    </para>
+   </step>
+   <step>
+    <para>
+     Hawk2 会显示最重要的资源<guimenu>操作</guimenu>并建议默认值。如果不修改任何设置，Hawk2 会在您确认后添加建议的操作及默认值。
+    </para>
+   </step>
+   <step>
+    <para>
+     如无更改必要，请保留默认的<guimenu>元属性</guimenu>设置。
+    </para>
+    <figure>
+     <title>Hawk2 - STONITH 资源</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-primitive-stonith.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-primitive-stonith.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     确认更改以创建 STONITH 资源。
+    </para>
+    <para>
+     如果操作成功，屏幕顶部会显示一条消息。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   要完成屏蔽配置，请添加约束。有关详细信息，请参考 <xref linkend="cha-ha-fencing"/>。
+  </para>
+ </sect2>
+
+ <sect2 xml:id="sec-ha-manual-create-stonith">
+  <title>使用 crmsh 创建 STONITH 资源</title>
+  <procedure>
+   <title>使用 crmsh 添加 STONITH 资源</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 用户身份登录，然后启动 <command>crm</command> 交互式外壳：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm</command></screen>
+   </step>
+   <step>
+    <para>
+     使用以下命令获取所有 STONITH 类型的列表：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>ra list stonith</command>
+apcmaster                  apcmastersnmp              apcsmart
+baytech                    bladehpi                   cyclades
+drac3                      external/drac5             external/dracmc-telnet
+external/hetzner           external/hmchttp           external/ibmrsa
+external/ibmrsa-telnet     external/ipmi              external/ippower9258
+external/kdumpcheck        external/libvirt           external/nut
+external/rackpdu           external/riloe             external/sbd
+external/vcenter           external/vmware            external/xen0
+external/xen0-ha           fence_legacy               ibmhmc
+ipmilan                    meatware                   nw_rpc100s
+rcd_serial                 rps10                      suicide
+wti_mpc                    wti_nps</screen>
+   </step>
+   <step xml:id="st-ha-manual-create-stonith-type">
+    <para>
+     从以上列表中选择 STONITH 类型并查看可用的选项列表。使用以下命令：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>ra info stonith:external/ipmi</command>
+IPMI STONITH external device (stonith:external/ipmi)
+
+ipmitool based power management. Apparently, the power off
+method of ipmitool is intercepted by ACPI which then makes
+a regular shutdown. In case of a split brain on a two-node,
+it may happen that no node survives. For two-node clusters,
+use only the reset method.
+
+Parameters (* denotes required, [] the default):
+
+hostname (string): Hostname
+   The name of the host to be managed by this STONITH device.
+...</screen>
+   </step>
+   <step>
+    <para>
+     使用 <literal>stonith</literal> 类别（您在<xref linkend="st-ha-manual-create-stonith-type" xrefstyle="select:label nopage"/> 中选择的类型）和所需的相应参数创建 STONITH 资源，例如：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>configure</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive my-stonith stonith:external/ipmi \
+   params hostname="alice" \
+   ipaddr="192.168.1.221" \
+   userid="admin" passwd="secret" \
+   op monitor interval=60m timeout=120s</command></screen>
+   </step>
+  </procedure>
+ </sect2>
+</sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-monitoring">
+  <title>配置资源监视</title>
+  <para>
+   如果要确保资源正在运行，必须为其配置资源监视。可以使用 Hawk2 或 crmsh 来配置资源监视功能。
+  </para>
+  <para>
+   如果资源监视程序检测到故障，将发生以下情况：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     根据 <filename>/etc/corosync/corosync.conf</filename> 中 <literal>logging</literal> 部分指定的配置生成日志文件消息。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     故障会在群集管理工具（Hawk2、<command>crm status</command>）中和 CIB 状态部分反映出来。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     群集会启动重要的恢复操作，可能包括停止资源以修复故障状态，以及在本地或其他节点上重启动资源。资源也可能不会重启动，具体取决于配置和群集状态。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   如果不配置资源监控，系统不会告知您资源成功启动后发生的故障，并且群集始终将资源显示为健康状况良好。
+  </para>
+   <para>
+    通常，资源仅会在运行时受到群集的监视。但是，为了检测并发违例，还需为停止的资源配置监视。要进行资源监视，请指定超时和/或启动延迟值及间隔。间隔告诉 CRM 检查资源状态的频率。您还可以设置特定参数，例如为 <literal>start</literal> 或 <literal>stop</literal> 操作设置 <literal>timeout</literal>。
+   </para>
+   <para>
+    有关监视操作参数的详细信息，请参见<xref linkend="sec-ha-config-basics-operations"/>。
+   </para>
+
+  <sect2 xml:id="sec-conf-hawk2-rsc-monitor">
+   <title>使用 Hawk2 配置资源监视功能</title>
+   <procedure xml:id="pro-hawk2-operations">
+    <title>添加和修改操作</title>
+    <step>
+     <para>
+      登录 Hawk2：
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      按<xref linkend="pro-conf-hawk2-primitive-add"/>中所述添加资源，或选择要编辑的现有原始资源。
+     </para>
+     <para>
+      Hawk2 会自动显示最重要的<guimenu>操作</guimenu>（<literal>monitor</literal>、<literal>start</literal>、<literal>stop</literal>）并建议默认值。
+     </para>
+     <para>
+      要查看属于每个建议值的属性，请将鼠标悬停在相应的值上。
+     </para>
+     <figure>
+      <title>操作值</title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="hawk2-monitor-op.png" width="70%"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="hawk2-monitor-op.png" width="60%"/>
+       </imageobject>
+       <textobject role="description">
+         <phrase>在 <literal>Operations</literal> 列表中的 <literal>monitor</literal> 操作旁，将鼠标指针悬停在数字 <literal>20</literal> 上会显示这是 <literal>timeout</literal> 属性的值。</phrase>
+       </textobject>
+      </mediaobject>
+     </figure>
+    </step>
+    <step>
+     <para>
+      要更改针对 <literal>start</literal> 或 <literal>stop</literal> 操作建议的 <literal>timeout</literal> 值，请执行以下操作：
+     </para>
+     <substeps>
+      <step>
+       <para>
+        单击操作旁边的钢笔图标。
+       </para>
+      </step>
+      <step>
+       <para>
+        在打开的对话框中，为 <literal>timeout</literal> 参数输入其他值（例如 <literal>10</literal>），然后确认更改。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      要更改针对 <guimenu> 操作建议的</guimenu>间隔<literal>monitor</literal>值，请执行以下操作：
+     </para>
+     <substeps>
+      <step>
+       <para>
+        单击操作旁边的钢笔图标。
+       </para>
+      </step>
+      <step>
+       <para>
+        在打开的对话框中，为监控 <literal>interval</literal> 输入不同的值。
+       </para>
+      </step>
+      <step>
+       <para>
+        要配置资源停止时针对资源的监视，请执行以下操作：
+       </para>
+       <substeps>
+        <step>
+         <para>
+          从下面的空下拉框中选择 <literal>role</literal> 这一项。
+         </para>
+        </step>
+        <step>
+         <para>
+          从 <literal>role</literal> 下拉框中选择 <literal>Stopped</literal>。
+         </para>
+        </step>
+        <step>
+         <para>
+          单击<guimenu>应用</guimenu>确认更改并关闭操作对话框。
+         </para>
+        </step>
+       </substeps>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      在资源配置屏幕中确认更改。如果操作成功，屏幕顶部会显示一条消息。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    要查看资源故障，请切换到 Hawk2 中的<guimenu>状态</guimenu>屏幕，然后选择您感兴趣的资源。在<guimenu>操作</guimenu>列中，单击向下箭头图标并选择<guimenu>最近的事件</guimenu>。随后打开的对话框会列出对资源执行的最近操作。失败事件显示为红色。要查看资源细节，请单击<guimenu>操作</guimenu>列中的放大镜图标。
+   </para>
+   <figure>
+    <title>Hawk2 - 资源细节</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-rsc-details.png" width="70%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-rsc-details.png" width="60%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-monitor">
+   <title>使用 crmsh 配置资源监视功能</title>
+   <para>
+    要监视资源，有两种可能性：使用 <command>op</command> 关键字或 <command>monitor</command> 命令定义监视操作。以下示例配置了一个 Apache 资源，并使用 <literal>op</literal> 关键字指定每隔 60 秒监控一次该资源：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive apache apache \
+  params ... \
+  <emphasis>op monitor interval=60s timeout=30s</emphasis></command></screen>
+   <para>
+    使用以下命令也可以实现相同的目的：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive apache apache \
+   params ...</command>
+ <prompt role="custom">crm(live)configure# </prompt><command>monitor apache 60s:30s</command></screen>
+   <variablelist>
+    <varlistentry>
+     <term>监视已停止的资源</term>
+     <listitem>
+      <para>
+       通常，资源仅会在运行时受到群集的监视。但是，为了检测并发违例，还需为停止的资源配置监视。例如：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive dummy1 Dummy \
+     op monitor interval="300s" role="Stopped" timeout="10s" \
+     op monitor interval="30s" timeout="10s"</command></screen>
+      <para>
+       当资源 <literal>dummy1</literal> 处于 <literal>role="Stopped"</literal> 状态时，此配置每 <literal>300</literal> 秒就会触发一次对该资源的监视操作。当该资源运行时，将每隔 <literal>30</literal> 秒对其监控一次。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>检测</term>
+     <listitem>
+      <para>
+       CRM 会对每个节点上的各个资源执行初始监视，也称为 <literal>probe</literal>。清理资源之后也会执行探测。如果为资源定义了多项监控操作，CRM 会选择间隔时间最短的一项操作，并会使用其超时值作为默认的探测超时值。如果未配置任何监视操作，则将应用整个群集的默认值。默认值为 <literal>20</literal> 秒（如果未通过配置 <varname>op_defaults</varname> 参数指定其他值）。如果您不想依赖自动计算或 <systemitem>op_defaults</systemitem> 值，请为此资源的<emphasis>探测</emphasis>定义具体的监视操作。为此，可以添加一个监视操作并将 <literal>interval</literal> 设置为 <literal>0</literal>，例如：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive rsc1 ocf:pacemaker:Dummy \
+     op monitor interval="0" timeout="60"</command></screen>
+      <para>
+       无论 <varname>op_defaults</varname> 中定义的全局超时或已配置的任何其他操作超时为何值，<systemitem>rsc1</systemitem> 的探测都会在 <literal>60s</literal> 后超时。如果指定相应资源的探测时未设置 <literal>interval="0"</literal>，CRM 会自动检查是否为该资源定义了任何其他监控操作，并如上文所述计算探测的超时值。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-manual-config-load">
+  <title>从文件装载资源</title>
+  <para>
+   可从本地文件或网络 URL 装载部分或全部配置。可定义三种不同方法：
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><option>replace</option></term>
+    <listitem>
+     <para>
+      此选项会将当前配置替换为新的源配置。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><option>update</option></term>
+    <listitem>
+     <para>
+      此选项会尝试导入源配置。它会向当前配置添加新项目或更新现有项目。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><option>push</option></term>
+    <listitem>
+     <para>
+      此选项会将内容从来源导入到当前配置中（与 <option>update</option> 相同）。不过，它会去除在新配置中不可用的对象。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   要从文件 <filename>mycluster-config.txt</filename> 装载新配置，请使用以下语法：
+  </para>
+  <screen><prompt role="root"># </prompt><command>crm configure load push mycluster-config.txt</command></screen>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-meta-attr">
+  <title>资源选项（元属性）</title>
+  <para>
+   您可以为添加的每个资源定义选项。群集使用这些选项来决定资源的行为，它们会告知 CRM 如何处理特定的资源。可以使用 <command>crm_resource --meta</command> 命令或 Hawk2 来设置资源选项。
+  </para>
+  <para>
+   下面列出了一些常见选项：
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><literal>priority</literal></term>
+    <listitem>
+     <para>
+      如果无法让所有资源都处于活动状态，群集会停止优先级较低的资源，以便让优先级较高的资源保持活动状态。
+     </para>
+     <para>
+      默认值为 <literal>0</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>target-role</literal></term>
+    <listitem>
+     <para>
+      群集应在哪种状态下尝试保留此资源？允许的值：<literal>Stopped</literal>、<literal>Started</literal>、<literal>Unpromoted</literal>、<literal>Promoted</literal>。
+     </para>
+     <para>
+      默认值为 <literal>Started</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>is-managed</literal></term>
+    <listitem>
+     <para>
+      是否允许群集启动和停止资源？允许的值：<literal>true</literal>、<literal>false</literal>。如果该值设置为 <literal>false</literal>，则仍会监控资源的状态，并会报告任何故障。这与将资源设置为 <literal>maintenance="true"</literal> 的情况不同。
+     </para>
+     <para>
+      默认值为 <literal>true</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>maintenance</literal></term>
+    <listitem>
+     <para>
+      是否可以手动处理资源？允许的值：<literal>true</literal>、<literal>false</literal>。如果设置为 <literal>true</literal>，则所有资源将变为不受管状态：群集将停止监控这些资源，因此不知道它们的状态。您可以停止或重启动群集资源，不必等待群集尝试重启动它们。
+     </para>
+     <para>
+      默认值为 <literal>false</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>resource-stickiness</literal></term>
+    <listitem>
+     <para>
+      资源留在所处位置的自愿程度如何？
+     </para>
+     <para>
+      各克隆实例的默认值为 <literal>1</literal>，所有其他资源的默认值为 <literal>0</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>migration-threshold</literal></term>
+    <listitem>
+     <para>
+      节点上的此资源应发生多少故障后才能确定该节点没有资格主管此资源？
+     </para>
+     <para>
+      默认值为 <literal>INFINITY</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>multiple-active</literal></term>
+    <listitem>
+     <para>
+      如果群集发现资源在多个节点上处于活动状态，应执行什么操作？允许的值：<literal>block</literal>（将资源标记为不受管）、<literal>stop_start</literal>、<literal>stop_only</literal>。
+     </para>
+     <para>
+      默认值为 <literal>stop_start</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>failure-timeout</literal></term>
+    <listitem>
+     <para>
+      等待多少秒后才能像未发生故障一样运行（并在可能的情况下允许资源回到之前发生故障的节点上）？
+     </para>
+     <para>
+      默认值为 <literal>0</literal>（禁用）。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>allow-migrate</literal></term>
+    <listitem>
+     <para>
+      是否允许实时迁移支持 <literal>migrate_to</literal> 和 <literal>migrate_from</literal> 操作的资源。如果值设置为 <literal>true</literal>，则可在不丢失状态的情况下迁移资源。如果值设置为 <literal>false</literal>，将会在第一个节点上关闭资源，并在第二个节点上重启动该资源。
+     </para>
+     <para>
+      <literal>ocf:pacemaker:remote</literal> 资源的默认值为 <literal>true</literal>，所有其他资源的默认值为 <literal>false</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+     <term><literal>allow-unhealthy-nodes</literal></term>
+     <listitem>
+       <para>
+        允许资源在节点上运行，即使节点的健康状况分数会阻止它运行也不例外。
+       </para>
+       <para>
+         默认值为 <literal>false</literal>。
+       </para>
+     </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>remote-node</literal></term>
+    <listitem>
+     <para>
+      此资源定义的远程节点的名称。这会将资源作为远程节点启用，同时定义唯一的名称用于标识该远程节点。如果未设置其他参数，此值还将作为要通过 <varname>remote-port</varname> 端口连接的主机名。
+     </para>
+     <para>
+      默认情况下，此选项为禁用状态。
+     </para>
+     <warning>
+      <title>使用唯一 ID</title>
+      <para>
+       此值不得与任何现有资源 ID 或节点 ID 重复。
+      </para>
+     </warning>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>remote-port</literal></term>
+    <listitem>
+     <para>
+      guest 与 pacemaker_remote 建立连接时使用的自定义端口。
+     </para>
+     <para>
+      默认值为 <literal>3121</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>remote-addr</literal></term>
+    <listitem>
+     <para>
+      当远程节点的名称不是 guest 的主机名时，要连接的 IP 地址或主机名。
+     </para>
+     <para>
+      默认值为 <literal>remote-node</literal> 设置的值。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>remote-connect-timeout</literal></term>
+    <listitem>
+     <para>
+      等待中的 guest 连接经过多长时间后超时？
+     </para>
+     <para>
+      默认值为 <literal>60s</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-inst-attr">
+  <title>实例属性（参数）</title>
+
+  <para>
+   可为所有资源类的脚本指定参数，这些参数可确定脚本的行为方式和所控制的服务实例。如果资源代理支持参数，则可使用 <command>crm_resource</command> 命令或 Hawk2 添加这些参数。在 <command>crm</command> 命令行实用程序和 Hawk2 中，实例属性分别称为 <literal>params</literal> 和 <literal>Parameter</literal>。通过以 <systemitem class="username">root</systemitem> 身份执行以下命令，可找到 OCF 脚本支持的实例属性列表：
+  </para>
+<screen><prompt role="root"># </prompt><command>crm ra info <replaceable>[class:[provider:]]resource_agent</replaceable></command></screen>
+  <para>
+   或（无可选部分）：
+  </para>
+<screen><prompt role="root"># </prompt><command>crm ra info <replaceable>resource_agent</replaceable></command></screen>
+  <para>
+   输出列出了所有支持的属性及其用途和默认值。
+  </para>
+  <note>
+   <title>组、克隆或可升级克隆的实例属性</title>
+   <para>
+    请注意，组、克隆和可升级克隆资源没有实例属性。但是，组、克隆或可升级克隆的子级会继承任何实例属性集。
+   </para>
+  </note>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-operations">
+  <title>资源操作</title>
+  <para>
+   默认情况下，群集不会确保资源的健康状况一直良好。要指示群集确保资源能正常工作，需要将监视操作添加到资源定义中。可为所有类或资源代理添加监视操作。
+  </para>
+  <para>
+   监视操作可能具有以下属性：
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><literal>id</literal></term>
+    <listitem>
+     <para>
+      您的操作名称，必须唯一。（ID 不会显示。）
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>name</literal></term>
+    <listitem>
+     <para>
+      要执行的操作。常用的值：<literal>monitor</literal>、<literal>start</literal>、<literal>stop</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>interval</literal></term>
+    <listitem>
+     <para>
+      执行操作的频率，以秒为单位。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>timeout</literal></term>
+    <listitem>
+     <para>
+      需要等待多久才能声明操作失败。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>requires</literal></term>
+    <listitem>
+     <para>
+      需要满足哪些条件才会发生此操作。允许的值：<literal>nothing</literal>、<literal>quorum</literal>、<literal>fencing</literal>。默认值取决于是否启用屏蔽以及资源的类别是否为 <literal>stonith</literal>。对于 STONITH 资源，默认值为 <literal>nothing</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>on-fail</literal></term>
+    <listitem>
+     <para>
+      此操作失败时执行的操作。允许的值：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <literal>ignore</literal>：假装资源没有失败。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>block</literal>：不对资源执行任何进一步操作。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>stop</literal>：停止资源并且不在其他位置启动该资源。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>restart</literal>：停止资源并再次启动资源（可能在不同的节点上）。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>fence</literal>：关闭资源故障的节点 (STONITH)。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>standby</literal>：将<emphasis>所有</emphasis>资源从资源失败的节点上移走。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>enabled</literal></term>
+    <listitem>
+     <para>
+      如果值为 <literal>false</literal>，将操作视为不存在。允许的值：<literal>true</literal>、<literal>false</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>role</literal></term>
+    <listitem>
+     <para>
+      仅当资源具有此角色时才运行操作。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>record-pending</literal></term>
+    <listitem>
+     <para>
+      可全局设置或为单独资源设置。使 CIB 反映资源上<quote>正在进行中的</quote>操作的状态。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>description</literal></term>
+    <listitem>
+     <para>
+      操作描述。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+</chapter>

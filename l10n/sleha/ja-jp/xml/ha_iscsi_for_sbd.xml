@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_iscsi_for_sbd.xml" xml:id="ha-iscsi-for-sbd" xml:lang="ja" version="5.1">
+ <title>SBDの基本的なiSCSIストレージ</title>
+ <info>
+  <abstract>
+   <para>
+    以下の手順を使用して、SBDで使用する基本的なiSCSIストレージを設定します。これらの手順は、テスト目的でのみ推奨されます。運用環境でiSCSIを使用する前に、<link xlink:href="https://documentation.suse.com/sles/html/SLES-all/cha-iscsi.html">
+    Storage Administration Guide for SUSE Linux Enterprise Server</link>を参照してください。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+ <itemizedlist>
+  <title>要件</title>
+  <listitem>
+   <para>
+    iSCSIターゲットとして機能するSUSE Linux Enterprise Server仮想マシン。このVMはクラスタの一部ではありません。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Vmに2つの仮想ストレージデバイスがある(システム用に20 GBデバイス、SBD用に1 GBデバイス)。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    高可用性クラスタにまだ追加されていない2つのSUSE Linux Enterprise Serverノード。
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <para>
+  最初に、仮想マシンにiSCSIターゲットを設定します。
+ </para>
+
+ <procedure xml:id="pro-iscsi-for-sbd-target">
+  <title>iSCSIターゲットの設定</title>
+  <step>
+   <para>
+    パッケージ<package>yast2-iscsi-lio-server</package>をインストールします:。
+   </para>
+<screen><prompt role="root"># </prompt><command>zypper install yast2-iscsi-lio-server</command></screen>
+  </step>
+  <step>
+   <para>
+    YaSTで<literal>iscsi-lio-server</literal>モジュールを起動します:。
+   </para>
+<screen><prompt role="root"># </prompt><command>yast2 iscsi-lio-server</command></screen>
+  </step>
+  <step>
+   <para>
+    <guimenu>サービス</guimenu>タブの<guimenu>再起動後</guimenu>で、<guimenu>起動時に開始</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>ファイアウォールでポートを開く</guimenu>を有効にします。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>検出</guimenu>タブで、<guimenu>検出認証</guimenu>を有効にします。
+    </para>
+   </step>
+  <step>
+   <para>
+    <guimenu>ターゲットによる認証</guimenu>に、<guimenu>ユーザ名</guimenu>と<guimenu>パスワード</guimenu>を入力します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>イニシエータによる認証</guimenu>に、<guimenu>相互ユーザ名</guimenu>と<guimenu>相互パスワード</guimenu>を入力します。このパスワードは、<guimenu>ターゲットによる認証</guimenu>のパスワードとは異なる必要があります。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>ターゲット</guimenu>タブで、<guimenu>追加</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <literal>.com.example</literal>を置き換えて、<guimenu>ターゲット</guimenu>名を変更します。
+   </para>
+  </step>
+  <step>
+   <para>
+    サーバの<guimenu>IPアドレス</guimenu>を追加します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>追加</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>LUNの詳細</guimenu>ウィンドウで、1GBストレージデバイスへの<guimenu>LUNパス</guimenu>を入力します(例: <filename>/dev/vbd</filename>)。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>OK</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>次へ</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>完了</guimenu>を選択して、YaSTを閉じます。
+   </para>
+  </step>
+  <step>
+   <para>
+    ターゲットのセットアップを確認するには、ターゲットCLIに切り替えます。
+   </para>
+<screen><prompt role="root"># </prompt><command>targetcli</command></screen>
+   <para>
+    設定を表示します。
+   </para>
+<screen><prompt>/&gt; </prompt><command>ls</command></screen>
+  </step>
+ </procedure>
+
+ <para>
+  次に、ノードにiSCSIイニシエータを設定します。両方のノードでこの手順を繰り返します。
+ </para>
+
+ <procedure xml:id="pro-iscsi-for-sbd-clients">
+  <title>iSCSIイニシエータの環境設定</title>
+  <step>
+   <para>
+    パッケージ<package>yast2-iscsi-client</package>をインストールします:。
+   </para>
+<screen><prompt role="root"># </prompt><command>zypper install yast2-iscsi-client</command></screen>
+  </step>
+  <step>
+   <para>
+    <literal>iscsid</literal>サービスを開始します。
+   </para>
+<screen><prompt role="root"># </prompt><command>systemctl start iscsid</command></screen>
+  </step>
+  <step>
+   <para>
+    YaSTで<literal>iscsi-client</literal>モジュールを開きます。
+   </para>
+<screen><prompt role="root"># </prompt><command>yast2 iscsi-client</command></screen>
+  </step>
+  <step>
+   <para>
+    <guimenu>検出したターゲット</guimenu>タブで、<guimenu>検出</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    iSCSIターゲットのIPアドレスを入力します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>検出認証なし</guimenu>をクリアします。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>イニシエータによる認証</guimenu>に、イニシエータの<guimenu>ユーザ名</guimenu>と<guimenu>パスワード</guimenu>を入力します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>ターゲットによる認証</guimenu>に、ターゲットの<guimenu>ユーザ名</guimenu>と<guimenu>パスワード</guimenu>を入力します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>次へ</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    YaSTがiSCSIターゲットを検出したら、<guimenu>接続</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>スタートアップ</guimenu>で、<guimenu>起動時</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>次へ</guimenu>を選択します。
+   </para>
+  </step>
+  <step>
+   <para>
+    <guimenu>OK</guimenu>を選択して、YaSTを閉じます。
+   </para>
+  </step>
+  <step>
+   <para>
+    iSCSIイニシエータを確認します。
+   </para>
+<screen><prompt role="root"># </prompt><command>lsscsi</command>
+[0:0:1:0] cd/dvd QEMU QEMU DVD-ROM 2.5+ /dev/sr0
+[2:0:0:0] disk LIO-ORG IBLOCK 4.0 /dev/sda</screen>
+   <para>
+    <literal>IBLOCK</literal>を含む行を探します。この例では、iSCSIデバイスは<literal>/dev/sda</literal>です。
+   </para>
+  </step>
+  <step>
+   <para>
+    <literal>iscsid</literal>サービスの状態を確認します。
+   </para>
+<screen><prompt role="root"># </prompt><command>systemctl status iscsid</command></screen>
+  </step>
+ </procedure>
+
+ <para>
+  <filename>/dev/disk/by-id/</filename>で固定デバイス名を見つけることができます。通常、iSCSIデバイスは<literal>scsi-SLIO-ORG_IBLOCK</literal>で開始します。
+ </para>
+ <para>
+  複数のディスクがある場合、コマンド<command>lsblk -o name,serial</command>を実行して、どの固定デバイス名がどの短縮名(例: <filename>/dev/sda</filename>)に対応するかを確認します。
+ </para>
+ <para>
+  クラスタを設定する際には、次のいずれかの方法を使用して固定デバイス名を指定します。
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    <command>crm cluster init</command>を実行する場合は、プロンプトが表示されたら、固定デバイス名を入力します。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <command>crm cluster init</command>を実行する前に、<filename>/etc/sysconfig/sbd</filename>に固定デバイス名を追加します。
+   </para>
+<screen>SBD_DEVICE=/dev/disk/by-id/scsi-SLIO-ORG_IBLOCK_<replaceable>DEVICE_ID_STRING</replaceable></screen>
+   <para>
+    <command>crm cluster init</command>を実行する場合は、次の質問に<literal>n</literal>と答えます。
+   </para>
+<screen>SBD is already configured to use /dev/disk/by-id/scsi-SLIO-ORG_IBLOCK_... - overwrite (y/n)?</screen>
+  </listitem>
+ </itemizedlist>
+</appendix>

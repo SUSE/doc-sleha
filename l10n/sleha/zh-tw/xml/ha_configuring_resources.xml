@@ -1,0 +1,1572 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_configuring_resources.xml" xml:id="sec-ha-config-basics-resources" xml:lang="zh-tw" version="5.1">
+ <title>設定叢集資源</title>
+ <info>
+  <abstract>
+   <para>
+    做為叢集管理員，您需要為您叢集中的伺服器上執行的所有資源或應用程式建立叢集資源。叢集資源可能包括網站、電子郵件伺服器、資料庫、檔案系統、虛擬機器，以及您希望使用者隨時都可以存取的任何其他伺服器型應用程式或服務。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-types">
+   <title>資源類型</title>
+   <para>
+    以下是可建立的資源類型：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>基本資源</term>
+     <listitem>
+      <para>
+       基本資源，是最基本的資源類型。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>群組</term>
+     <listitem>
+      <para>
+       群組包含一組需放置在一起的資源，這些資源按順序啟動並以相反順序停止。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>複製品</term>
+     <listitem>
+      <para>
+       複製品是可在多個主機上處於使用中狀態的資源。任何資源都可複製，只要相應的資源代理程式支援複製功能。
+      </para>
+      <para>
+       可升級複製品 (也稱為多狀態資源) 是一種可以升級的特殊類型複製品資源。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-raclasses">
+   <title>支援的資源代理程式類別</title>
+   <para>
+    對於每個新增的叢集資源，都需要定義資源代理程式所遵循的標準。資源代辦會提取它們所提供的服務並向叢集提供準確的狀態，這樣叢集便可不理會其所管理的資源。當接收到啟動、停止或監控指令時，叢集會依賴資源代理程式來做出恰當的反應。
+   </para>
+   <para>
+    通常，資源代理程式採用的是外圍程序檔的形式。SUSE Linux Enterprise High Availability 支援以下幾類資源代理程式：
+   </para>
+   <variablelist>
+    <varlistentry xml:id="vle-ha-resources-ocf-ra">
+     <term>Open Cluster Framework (OCF) 資源代理程式</term>
+     <listitem>
+      <para>
+       OCF RA 代理程式最適合與高可用性搭配使用，特別是在您需要可升級複製品資源或特殊監控功能的情況下。這些代理程式通常位於 <filename>/usr/lib/ocf/resource.d/<replaceable>provider</replaceable>/</filename> 中。它們的功能類似於 LSB 程序檔。但其組態永遠都是透過環境變數進行，這樣方便接受和處理參數。OCF 規格對於動作必須傳回的離開碼有嚴格的定義。請參閱 <xref linkend="sec-ha-errorcodes"/>。叢集完全遵循這些規格。
+      </para>
+      <para>
+       所有 OCF 資源代理程式都必須至少含有 <literal>status</literal>、<literal>start</literal>、<literal>monitor</literal>、<literal>stop</literal> 和 <literal>meta-data</literal> 動作。<literal>meta-data</literal> 動作可取回有關如何設定代理程式的資訊。例如，如果您要詳細瞭解提供者 <literal>IPaddr</literal> 的 <literal>heartbeat</literal> 代理程式，可以使用以下指令：
+      </para>
+<screen>OCF_ROOT=/usr/lib/ocf /usr/lib/ocf/resource.d/heartbeat/IPaddr meta-data</screen>
+      <para>
+       輸出的是 XML 格式的資訊，分為多個區段，包括代理程式的一般描述、可用參數和可用動作。
+      </para>
+      <para>
+       您也可以使用 crmsh 來檢視關於 OCF 資源代理程式的資訊。如需詳細資料，請參閱<xref linkend="sec-ha-manual-config-ocf"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Linux Standards Base (LSB) 程序檔</term>
+     <listitem>
+      <para>
+       LSB 資源代理程式一般由作業系統/套裝作業系統提供，位於 <filename>/etc/init.d</filename> 中。若要與叢集一起使用，它們必須符合 LSB init 程序檔規格。舉例而言，這些代理程式中必須至少實作以下幾個動作：<literal>reload</literal>、<literal>start</literal>、<literal>force-reload</literal>、<literal>stop</literal>、<literal>restart</literal> 和 <literal>status</literal>。如需詳細資訊，請參閱 <link xlink:href="https://refspecs.linuxbase.org/LSB_4.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html"/>。
+      </para>
+      <para>
+       這些服務的組態尚未標準化。如果要將 LSB 程序檔與 High Availability 搭配使用，請確定您瞭解如何設定相關程序檔。通常可在 <filename>/usr/share/doc/packages/<replaceable>PACKAGENAME</replaceable></filename> 中的相關套件文件中找到這方面的資訊。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>systemd</term>
+     <listitem>
+      <para>
+       Pacemaker 可以管理 systemd 服務 (如果這些服務存在)。systemd 不使用 init 程序檔，而是使用單元檔案。通常，服務 (或單元檔案) 由作業系統提供。如果您要轉換現有的 init 程序檔，請造訪 <link xlink:href="https://0pointer.de/blog/projects/systemd-for-admins-3.html"/> 獲取詳細資訊。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>服務</term>
+     <listitem>
+      <para>
+       目前有許多類型的系統服務同時存在：<literal>LSB</literal> (屬於 System V init)、<literal>systemd</literal> 和 (在某些套裝作業系統中提供的) <literal>upstart</literal>。因此，Pacemaker 支援使用特殊別名，來確定哪個服務適用於指定的叢集節點。當叢集中混合使用了 systemd、upstart 和 LSB 服務時，此功能特別有用。Pacemaker 會嘗試依照以下順序尋找指定服務：LSB (SYS-V) init 程序檔、Systemd 單元檔案或 Upstart 工作。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Nagios</term>
+     <listitem>
+      <para>
+       使用監控外掛程式 (以前稱為 Nagios 外掛程式) 可以監控遠端主機上的服務。Pacemaker 可以使用監控外掛程式 (如果有) 來執行遠端監控。如需詳細資訊，請參閱<xref linkend="sec-ha-config-basics-remote-nagios"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>STONITH (圍籬區隔) 資源代理程式</term>
+     <listitem>
+      <para>
+       此類別專用於圍籬區隔相關資源。如需詳細資訊，請參閱 <xref linkend="cha-ha-fencing"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    SUSE Linux Enterprise High Availability 隨附的代理程式是依照 OCF 規格撰寫的。
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-timeouts">
+   <title>逾時值</title>
+   <para>
+    以下參數可能會影響資源的逾時值：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <varname>op_defaults</varname> (操作的全域逾時)，
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      資源範本中定義的特定逾時值
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      為資源定義的特定逾時值
+     </para>
+    </listitem>
+   </itemizedlist>
+   <note>
+    <title>值的優先程度</title>
+    <para>
+     如果為資源定義了<emphasis>特定</emphasis>值，則該值將優先於全域預設值。資源的特定值也優先於資源範本中定義的值。
+    </para>
+   </note>
+   <para>
+    設定合適的逾時值非常重要。將逾時值設定得太小，會因以下緣故產生大量 (不必要的) 圍籬區隔操作：
+   </para>
+   <orderedlist spacing="normal">
+    <listitem>
+     <para>
+      如果資源逾時，便會失敗，並且叢集會嘗試將其停止。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      如果停止該資源的操作也失敗 (例如，由於停止逾時設定得太短)，叢集將圍籬區隔該節點。它會將發生此情況的節點視為失控。
+     </para>
+    </listitem>
+   </orderedlist>
+   <para>
+    您可以使用 crmsh 和 Hawk2 調整操作的全域預設值並設定任何特定的逾時值。確定及設定逾時值的最佳實務如下：
+   </para>
+   <procedure>
+    <title>確定逾時值</title>
+    <step>
+     <para>
+      檢查啟動和停止資源所需的時間 (負載狀態下)。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果需要，請新增 <varname>op_defaults</varname> 參數並相應地設定 (預設) 逾時值：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        例如，將 <literal>op_defaults</literal> 設定為 <literal>60</literal> 秒：
+       </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>op_defaults timeout=60</command></screen>
+      </step>
+      <step>
+       <para>
+        對於需要較長時間的資源，請單獨定義每個逾時值。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      為資源設定操作時，新增單獨的 <literal>start</literal> 和 <literal>stop</literal> 操作。使用 Hawk2 設定操作時，該工具會針對這些操作提供有用的逾時建議。
+     </para>
+    </step>
+   </procedure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-management">
+   <title>建立基本資源</title>
+   <para>
+    若想在叢集中使用某項資源，必須先對其進行設定。例如，如果想要使用 Apache 伺服器做為叢集資源，請先設定 Apache 伺服器並完成 Apache 組態設定，然後才能在叢集中啟動各個資源。
+   </para>
+   <para>
+    如果資源具有特定的環境要求，請確保這些要求在所有叢集節點上均得到滿足並且一致。您無法透過 SUSE Linux Enterprise High Availability 管理此類組態。您必須自行管理。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 來建立基本資源。
+   </para>
+   <note>
+    <title>不要操作叢集所管理的服務</title>
+    <para>
+     當您使用 SUSE Linux Enterprise High Availability 管理某個資源時，就不能以其他方式啟動或停止該資源 (例如，在叢集外手動啟動或停止，或在開機或重新開機時啟動或停止)。該 High Availability 軟體會負責所有服務的啟動或停止動作。
+    </para>
+    <para>
+     如果服務已在叢集控制下執行，而您需要執行測試或維護任務，請務必先將資源、節點或整個叢集置於維護模式，然後再對其進行任何手動處理。如需詳細資料，請參閱<xref linkend="sec-ha-maint-overview"/>。
+    </para>
+   </note>
+   <important>
+    <title>資源 ID 和節點名稱</title>
+    <para>叢集資源和叢集節點的名稱應該不同。否則，Hawk2 將會失敗。</para>
+   </important>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-primitive">
+    <title>使用 Hawk2 建立基本資源</title>
+    <para>
+     若要建立最基本的資源類型，請執行下列步驟：
+    </para>
+    <procedure xml:id="pro-conf-hawk2-primitive-add">
+     <title>使用 Hawk2 新增基本資源</title>
+     <step>
+      <para>
+       登入 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       從左側導覽列中，選取<menuchoice>
+       <guimenu>組態</guimenu> <guimenu>新增資源</guimenu> <guimenu>基本資源</guimenu> </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       輸入唯一的<guimenu>資源 ID</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       如果存在可以依據其進行資源組態的資源範本，請選取相應的<guimenu>範本</guimenu>。
+      </para>
+     </step>
+     <step xml:id="step-ha-config-hawk2-primitive-start">
+      <para>
+       選取要使用的資源代理程式<guimenu>類別</guimenu>：<literal>service</literal>、<literal>lsb</literal>、<literal>stonith</literal>、<literal>ocf</literal> 或 <literal>systemd</literal>。如需詳細資訊，請參閱<xref linkend="sec-ha-config-basics-raclasses"/>。
+      </para>
+     </step>
+     <step>
+      <para>
+       如果選取了「<literal>ocf</literal>」類別，請指定 OCF 資源代理程式的<guimenu>提供者</guimenu>。OCF 規格允許多個廠商提供相同的資源代理程式。
+      </para>
+     </step>
+     <step>
+      <para>
+       在<guimenu>類型</guimenu>清單中，選取要使用的資源代理程式 (例如<guimenu>IPaddr</guimenu>或<guimenu>Filesystem</guimenu>)。此資源代理程式的簡要描述即會顯示。
+      </para>
+      <note>
+       <para>
+        <guimenu>類型</guimenu>清單中顯示的選項取決於您所選的<guimenu>類別</guimenu>(對於 OCF 資源，還取決於<guimenu>提供者</guimenu>)。
+       </para>
+      </note>
+      <figure>
+       <title>Hawk2 - 基本資源</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="hawk2-primitive-basic.png" width="100%"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="hawk2-primitive-basic.png" width="100%"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+     </step>
+     <step>
+      <para>
+       指定資源基本資訊後，Hawk2 會顯示以下類別。依照 Hawk2 的建議保留這些類別，或根據需要對其進行編輯。
+      </para>
+      <variablelist>
+       <varlistentry>
+        <term>參數 (例項屬性)</term>
+        <listitem>
+         <para>
+          確定資源控制服務的哪個例項。建立資源時，Hawk2 會自動顯示所有需要的參數。請編輯這些參數以獲得有效的資源組態。
+         </para>
+         <para>
+          如需詳細資訊，請參閱<xref linkend="sec-ha-config-basics-inst-attr"/>。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>操作</term>
+        <listitem>
+         <para>
+          用於監控資源。建立資源時，Hawk2 會顯示最重要的資源操作 (<literal>start</literal>、<literal>monitor</literal> 和 <literal>stop</literal>)。
+         </para>
+         <para>
+          如需詳細資訊，請參閱<xref linkend="sec-ha-config-basics-operations"/>。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>中繼屬性</term>
+        <listitem>
+         <para>
+          告訴 CRM 如何處理特定資源。建立資源時，Hawk2 會自動列出該資源的重要中繼屬性，例如，用於定義資源初始狀態的 <literal>target-role</literal> 屬性。該屬性預設設定為 <literal>Stopped</literal>，這樣資源便不會立即啟動。
+         </para>
+         <para>
+          如需詳細資訊，請參閱<xref linkend="sec-ha-config-basics-meta-attr"/>。
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>使用效益</term>
+        <listitem>
+         <para>
+          告知 CRM 某個資源需從節點獲取的容量。
+         </para>
+         <para>
+          如需詳細資訊，請參閱<xref linkend="sec-config-hawk2-utilization"/>。
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+     </step>
+     <step>
+      <para>
+       按一下<guimenu>建立</guimenu>完成組態。螢幕頂部的訊息會顯示動作是否成功。
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-create">
+    <title>使用 crmsh 建立基本資源</title>
+    <procedure xml:id="pro-ha-manual-config-create">
+     <title>使用 crmsh 新增基本資源</title>
+     <step>
+      <para>
+       以 <systemitem class="username">root</systemitem> 身分登入，然後啟動 <command>crm</command> 工具：
+      </para>
+  <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+     </step>
+     <step>
+      <para>
+       設定基本資源的 IP 位址：
+      </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive myIP IPaddr \
+      params ip=127.0.0.99 op monitor interval=60s</command></screen>
+      <para>
+       以上指令設定名為 <quote> 的</quote>基本資源<literal>myIP</literal>IP 位址。您需要選取一個類別 (此處為 <literal>ocf</literal>)、提供者 (<literal>heartbeat</literal>) 和類型 (<literal>IPaddr</literal>)。此外，此基本資源還需要其他參數，例如 IP 位址。將位址變更為您的設定。
+      </para>
+     </step>
+     <step>
+      <para>
+       顯示並檢閱已進行的變更：
+      </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>show</command></screen>
+     </step>
+     <step>
+      <para>
+       提交變更，使之生效：
+      </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+     </step>
+    </procedure>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-advanced-groups">
+   <title>建立資源群組</title>
+   <para>
+    有些叢集資源依存於其他元件或資源，它們要求每個元件或資源都以特定順序啟動，並與其相依的資源在同一伺服器上執行。若要簡化此組態，您可以使用叢集資源群組。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 來建立資源群組。
+   </para>
+   <example xml:id="ex-ha-config-resource-group">
+    <title>Web 伺服器的資源群組</title>
+    <para>
+     需要 IP 位址與檔案系統的 Web 伺服器就是資源群組的一個範例。在此範例中，每個元件都是組合成一個叢集資源群組中的獨立資源。資源群組將在一或多個伺服器上執行。若軟體或硬體出現異常，群組會容錯移轉至叢集中的另一個伺服器，這一點與個別叢集資源類似。
+    </para>
+   </example>
+   <figure pgwide="0">
+    <title>群組資源</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="webserver_groupresource_a.svg" width="70%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="webserver_groupresource_a.svg" width="63%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   <para>
+    群組具有以下內容：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>啟動和停止</term>
+     <listitem>
+      <para>
+       資源以顯示的順序啟動，並以相反順序停止。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>相依性</term>
+     <listitem>
+      <para>
+       若群組中的某個資源在任何地方都無法執行，則群組中位於該資源之後的所有資源均不允許執行。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>目錄</term>
+     <listitem>
+      <para>
+       群組僅會包含基本叢集資源的集合。群組至少須包含一個資源，否則組態視為無效。若要參照群組資源的子項，請使用子項 ID 而非群組 ID。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>條件約束</term>
+     <listitem>
+      <para>
+       儘管可以在條件約束中參照群組的子項，但一般最好使用群組的名稱。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>粘性</term>
+     <listitem>
+      <para>
+       粘性在群組中屬於加法類內容。群組中每個<emphasis>使用中</emphasis>成員的粘性值都會影響群組的總值。因此，如果 <literal>resource-stickiness</literal> 的預設值是 <literal>100</literal>，且群組有 7 個成員 (其中 5 個成員處於使用中狀態)，那麼整個群組都將偏向於其目前位置 (分數為 <literal>500</literal>)。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>資源監控</term>
+     <listitem>
+      <para>
+       若要對群組啟用資源監控，您必須為要監控的群組中的每個資源分別設定監控。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-group">
+    <title>使用 Hawk2 建立資源群組</title>
+    <note>
+     <title>空群組</title>
+     <para>
+      群組至少須包含一個資源，否則組態視為無效。建立群組時，Hawk2 允許您建立多個基本資源並將它們新增至群組。
+     </para>
+    </note>
+    <procedure xml:id="pro-conf-hawk2-group">
+     <title>使用 Hawk2 新增資源群組</title>
+     <step>
+      <para>
+       登入 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       從左側導覽列中，選取<menuchoice>
+       <guimenu>組態</guimenu> <guimenu>新增資源</guimenu>
+       <guimenu>群組</guimenu> </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       輸入唯一的<guimenu>群組 ID</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       若要定義群組成員，請選取<guimenu>子項</guimenu>清單中的一個或多個項目。使用右側的<quote>把手</quote>圖示將群組成員拖放為需要的順序，以對群組成員重新排序。
+      </para>
+     </step>
+     <step>
+      <para>
+       需要時可以修改或新增<guimenu>中繼屬性</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       按一下<guimenu>建立</guimenu>完成組態。螢幕頂部的訊息會顯示動作是否成功。
+      </para>
+     </step>
+    </procedure>
+    <figure>
+     <title>Hawk2 - 資源群組</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-rsc-group.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-rsc-group.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-group">
+    <title>使用 crmsh 建立資源群組</title>
+    <para>
+     以下範例建立了兩個基本資源 (一個 IP 位址和一個電子郵件資源)。
+    </para>
+    <procedure>
+     <title>使用 crmsh 新增資源群組</title>
+     <step>
+      <para>
+       以系統管理員身分執行 <command>crm</command> 指令。提示符會切換為 <literal>crm(live)</literal>。
+      </para>
+     </step>
+     <step>
+      <para>
+       設定基本資源：
+      </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>configure</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive Public-IP ocf:heartbeat:IPaddr2 \
+    params ip=1.2.3.4 \
+    op monitor interval=10s</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive Email systemd:postfix \
+    op monitor interval=10s</command></screen>
+     </step>
+     <step>
+      <para>
+       以正確的順序按照相應的識別碼對基本資源分組：
+      </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>group g-mailsvc Public-IP Email</command></screen>
+     </step>
+    </procedure>
+   </sect2>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-advanced-clones">
+   <title>建立複製品資源</title>
+   <para>
+    您可能要讓某些資源同時在叢集的多個節點上執行。為此，必須將資源設定為複製品資源。可以設定為複製品的資源範例包括叢集檔案系統，如 OCFS2。您可以複製所提供的任何資源。資源的代理程式支援此操作。您甚至可以對複製品資源進行不同的設定，具體視代管它們的節點而定。
+   </para>
+   <para>
+    資源複製品分為三種類型：
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>匿名複製品</term>
+     <listitem>
+      <para>
+       這是最簡單的一種複製品。無論在何處執行，它們的行為都相同。因此，每部機器上只能有一個匿名複製品例項處於使用中狀態。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>全域唯一的複製品</term>
+     <listitem>
+      <para>
+       這些資源是不同的實體。在一個節點上執行的複製品例項與在另一個節點上執行的另一個例項不同；在相同節點上的任何兩個例項也不相同。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>可升級複製品 (多狀態資源)</term>
+     <listitem>
+      <para>
+       這些資源的使用中例項分為兩種狀態：主動與被動。這些狀態有時也稱為主要與次要。可升級複製品可以是匿名的，也可以是全域唯一。如需詳細資訊，請參閱<xref linkend="sec-ha-config-basics-resources-promotable-clones"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    複製品只能包含一個群組或一個一般資源。
+   </para>
+   <para>
+    設定資源監控或條件約束時，複製品的要求與簡單資源不同。如需詳細資料，請參閱 <link xlink:href="https://www.clusterlabs.org/pacemaker/doc/"/> 上的 <citetitle>Pacemaker Explained</citetitle>。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 來建立複製品資源。
+   </para>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-clone">
+    <title>使用 Hawk2 建立複製品資源</title>
+    <note>
+     <title>複製品資源的子資源</title>
+     <para>
+      複製品可以將基本資源或群組做為子資源。在 Hawk2 中，建立複製品時不能建立或修改子資源。請在新增複製品之前建立子資源並視需要對其進行設定。
+     </para>
+    </note>
+    <procedure xml:id="pro-conf-hawk2-clone">
+     <title>使用 Hawk2 新增複製品資源</title>
+     <step>
+      <para>
+       登入 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       從左側導覽列中，選取<menuchoice> <guimenu>組態</guimenu>
+      <guimenu>新增資源</guimenu> <guimenu>複製品</guimenu> </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       輸入唯一的<guimenu>複製品 ID</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       從<guimenu>子資源</guimenu>清單中，選取要做為複製品子資源的基本資源或群組。
+      </para>
+     </step>
+     <step>
+      <para>
+       需要時可以修改或新增<guimenu>中繼屬性</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       按一下<guimenu>建立</guimenu>完成組態。螢幕頂部的訊息會顯示動作是否成功。
+      </para>
+     </step>
+    </procedure>
+    <figure>
+     <title>Hawk2 - 複製品資源</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-clone.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-clone.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-clone">
+    <title>使用 crmsh 建立複製品資源</title>
+     <para>
+      若要建立匿名複製品資源，首先需建立一個基本資源，然後使用 <command>clone</command> 指令參考該資源。
+     </para>
+     <procedure>
+      <title>使用 crmsh 新增複製品資源</title>
+      <step>
+       <para>
+        以 <systemitem class="username">root</systemitem> 身分登入，然後啟動 <command>crm</command> 互動式外圍程序：
+       </para>
+  <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+      </step>
+      <step>
+       <para>
+        設定基本資源，例如：
+       </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive Apache apache</command></screen>
+      </step>
+      <step>
+       <para>
+        複製基本資源：
+       </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>clone cl-apache Apache</command></screen>
+      </step>
+     </procedure>
+    </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-resources-promotable-clones">
+   <title>建立可升級複製品 (多狀態資源)</title>
+   <para>
+    可升級複製品 (以前稱為多狀態資源) 是一種特殊的複製品。它們可讓例項處於兩種操作模式之一 (主要或次要)。可升級複製品只能包含一個群組或一個一般資源。
+   </para>
+   <para>
+    設定資源監控或條件約束時，可升級複製品的要求與簡單資源不同。如需詳細資料，請參閱 <link xlink:href="https://www.clusterlabs.org/pacemaker/doc/"/> 上的 <citetitle>Pacemaker Explained</citetitle>。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 來建立可升級複製品。
+   </para>
+
+   <sect2 xml:id="sec-conf-hawk2-rsc-ms">
+    <title>使用 Hawk2 建立可升級複製品</title>
+
+    <note>
+     <title>可升級複製品的子資源</title>
+     <para>
+      可升級複製品可以包含基本資源或群組做為子資源。在 Hawk2 中，建立可升級複製品時不能建立或修改子資源。新增可升級複製品之前，請先建立子資源並根據需要對其進行設定。請參閱<xref linkend="sec-conf-hawk2-rsc-primitive"/>或<xref linkend="sec-conf-hawk2-rsc-group"/>。
+     </para>
+    </note>
+    <procedure xml:id="pro-conf-hawk2-ms">
+     <title>使用 Hawk2 新增可升級複製品</title>
+     <step>
+      <para>
+       登入 Hawk2：
+      </para>
+  <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+     </step>
+     <step>
+      <para>
+       從左側導覽列中，選取<menuchoice>
+       <guimenu>組態</guimenu>  <guimenu>新增資源</guimenu>
+       <guimenu>多狀態</guimenu> </menuchoice>。
+      </para>
+     </step>
+     <step>
+      <para>
+       輸入唯一的<guimenu>多狀態 ID</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       從<guimenu>子資源</guimenu>清單中，選取要做為多狀態資源的子資源的基本資源或群組。
+      </para>
+     </step>
+     <step>
+      <para>
+       需要時可以修改或新增<guimenu>中繼屬性</guimenu>。
+      </para>
+     </step>
+     <step>
+      <para>
+       按一下<guimenu>建立</guimenu>完成組態。螢幕頂部的訊息會顯示動作是否成功。
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-manual-config-clone-stateful">
+    <title>使用 crmsh 建立可升級複製品</title>
+    <para>
+     若要建立可升級複製品資源，首先要建立一個基本資源，然後再建立可升級複製品資源。可升級複製品資源必須至少支援升級和降級操作。
+    </para>
+    <procedure>
+     <title>使用 crmsh 新增可升級複製品</title>
+     <step>
+      <para>
+       以 <systemitem class="username">root</systemitem> 身分登入，然後啟動 <command>crm</command> 互動式外圍程序：
+      </para>
+ <screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+     </step>
+     <step>
+      <para>
+       設定基本資源。視需要變更間隔：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive my-rsc ocf:myCorp:myAppl \
+    op monitor interval=60 \
+    op monitor interval=61 role=Promoted</command></screen>
+     </step>
+     <step>
+      <para>
+       建立可升級複製品資源：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>clone clone-rsc my-rsc meta promotable=true</command></screen>
+     </step>
+    </procedure>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-resources-templates">
+   <title>建立資源範本</title>
+   <para>
+    如果您要建立大量具有相似組態的資源，定義資源範本是最輕鬆的方法。定義好範本後，就可以在基本資源或特定類型的條件約束中參考該範本，如<xref linkend="sec-ha-config-basics-constraints-templates"/>所述。
+   </para>
+   <para>
+    如果在基本資源中參考了範本，該基本資源會繼承範本中定義的所有操作、例項屬性 (參數)、中繼屬性和使用率屬性。此外，您也可以為基本資源定義特定的操作或屬性。如果在範本和基本資源中都定義了以上內容，基本資源中定義的值將優先於範本中定義的值。
+   </para>
+   <para>
+    可以使用 Hawk2 或 crmsh 來建立資源範本。
+   </para>
+
+  <sect2 xml:id="sec-conf-hawk2-rsc-template">
+   <title>使用 Hawk2 建立資源範本</title>
+    <para>
+     資源範本的設定方式與基本資源類似：
+    </para>
+   <procedure xml:id="pro-conf-hawk2-template-add">
+    <title>新增資源範本</title>
+    <step>
+     <para>
+      登入 Hawk2：
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      從左側導覽列中，選取<menuchoice> <guimenu>組態</guimenu>
+      <guimenu>新增資源</guimenu> <guimenu>範本</guimenu> </menuchoice>。
+     </para>
+    </step>
+    <step>
+     <para>
+      輸入唯一的<guimenu>資源 ID</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      請遵照<xref linkend="pro-conf-hawk2-primitive-add"/>中從<xref linkend="step-ha-config-hawk2-primitive-start" xrefstyle="select:label"/> 開始的指示。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-rsc-template">
+   <title>使用 crmsh 建立資源範本</title>
+   <para>
+    請使用 <command>rsc_template</command> 指令熟悉相應語法：
+   </para>
+ <screen><prompt role="root"># </prompt><command>crm configure rsc_template</command>
+ usage: rsc_template &lt;name&gt; [&lt;class&gt;:[&lt;provider&gt;:]]&lt;type&gt;
+        [params &lt;param&gt;=&lt;value&gt; [&lt;param&gt;=&lt;value&gt;...]]
+        [meta &lt;attribute&gt;=&lt;value&gt; [&lt;attribute&gt;=&lt;value&gt;...]]
+        [utilization &lt;attribute&gt;=&lt;value&gt; [&lt;attribute&gt;=&lt;value&gt;...]]
+        [operations id_spec
+            [op op_type [&lt;attribute&gt;=&lt;value&gt;...] ...]]</screen>
+   <para>
+    例如，以下指令將會依據 <literal>ocf:heartbeat:Xen</literal> 資源和一些預設值及操作，建立一個名為 <literal>BigVM</literal> 的新資源範本：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>rsc_template BigVM ocf:heartbeat:Xen \
+   params allow_mem_management="true" \
+   op monitor timeout=60s interval=15s \
+   op stop timeout=10m \
+   op start timeout=10m</command></screen>
+   <para>
+    定義新資源範本後，可以在基本資源中使用它，或在順序、並存或 rsc_ticket 條件約束中參考該範本。若要參考資源範本，請使用 <literal>@</literal> 符號：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive MyVM1 @BigVM \
+   params xmfile="/etc/xen/shared-vm/MyVM1" name="MyVM1"</command></screen>
+   <para>
+    新基本資源 MyVM1 將繼承 BigVM 資源範本的一切。例如，與上面兩個指令具有同等效果的指令為：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive MyVM1 Xen \
+   params xmfile="/etc/xen/shared-vm/MyVM1" name="MyVM1" \
+   params allow_mem_management="true" \
+   op monitor timeout=60s interval=15s \
+   op stop timeout=10m \
+   op start timeout=10m</command></screen>
+   <para>
+    如果您想覆寫某些選項或操作，只需將它們新增到您的 (基本資源) 定義即可。例如，下面的新基本資源 MyVM2 會使監控操作的逾時加倍，而其他內容則保留不變：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive MyVM2 @BigVM \
+   params xmfile="/etc/xen/shared-vm/MyVM2" name="MyVM2" \
+   op monitor timeout=120s interval=30s</command></screen>
+   <para>
+    在條件約束中可以參考資源範本，來代表所有由該範本衍生的基本資源。這有助於產生更加簡明、清晰的叢集組態。除了位置條件約束以外，其他所有條件約束中均允許參考資源範本。並存條件約束不可包含一個以上的範本參考。
+   </para>
+  </sect2>
+ </sect1>
+
+<sect1 xml:id="sec-ha-conf-stonith-rsc">
+ <title>建立 STONITH 資源</title>
+    <important>
+      <title>不支援沒有 STONITH 的組態</title>
+      <itemizedlist>
+       <listitem>
+        <para>您必須為叢集設定節點圍籬區隔機制。</para>
+       </listitem>
+       <listitem>
+        <para>全域叢集選項 <systemitem>stonith-enabled</systemitem> 和 <systemitem>startup-fencing</systemitem> 必須設定為 <literal>true</literal>。如果您變更這些選項，將會失去支援。</para>
+       </listitem>
+      </itemizedlist>
+      </important>
+  <para>
+   依預設，全域叢集選項 <literal>stonith-enabled</literal> 設定為 <literal>true</literal>。如果未定義 STONITH 資源，叢集會拒絕啟動任何資源。設定一或多個 STONITH 資源以完成 STONITH 設定。您也可以按照類似的方式為其他資源設定 STONITH 資源，但其行為在某些方面存在差異。如需詳細資料，請參閱<xref linkend="sec-ha-fencing-config"/>。
+  </para>
+  <para>
+   可以使用 Hawk2 或 crmsh 來建立 STONITH 資源。
+  </para>
+ <sect2 xml:id="sec-conf-hawk2-rsc-stonith">
+  <title>使用 Hawk2 建立 STONITH 資源</title>
+  <para>
+   若要為 SBD、libvirt (KVM/Xen) 或 vCenter/ESX 伺服器新增 STONITH 資源，最簡單的方式就是使用 Hawk2 精靈。
+  </para>
+  <procedure xml:id="pro-conf-hawk2-stonith">
+   <title>使用 Hawk2 新增 STONITH 資源</title>
+   <step>
+    <para>
+     登入 Hawk2：
+    </para>
+<screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+   </step>
+   <step>
+    <para>
+     從左側導覽列中，選取<menuchoice>
+     <guimenu>組態</guimenu> <guimenu>新增資源</guimenu> <guimenu>基本資源</guimenu> </menuchoice>。
+    </para>
+   </step>
+   <step>
+    <para>
+     輸入唯一的<guimenu>資源 ID</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     在<guimenu>類別</guimenu>清單中，選取資源代理程式類別<guimenu>stonith</guimenu>。
+    </para>
+   </step>
+   <step>
+    <para>
+     從<guimenu>類型</guimenu>清單中，選取用於控制 STONITH 裝置的 STONITH 外掛程式。此外掛程式的簡要描述即會顯示。
+    </para>
+   </step>
+   <step>
+    <para>
+     Hawk2 會自動顯示該資源必需的<guimenu>參數</guimenu>。請輸入每個參數的值。
+    </para>
+   </step>
+   <step>
+    <para>
+     Hawk2 會顯示最重要的資源<guimenu>操作</guimenu>並建議預設值。如果不修改任何設定，Hawk2 會在您確認後新增建議的操作及預設值。
+    </para>
+   </step>
+   <step>
+    <para>
+     如無變更必要，請保留預設的<guimenu>中繼屬性</guimenu>設定。
+    </para>
+    <figure>
+     <title>Hawk2 - STONITH 資源</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="hawk2-primitive-stonith.png" width="100%"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="hawk2-primitive-stonith.png" width="100%"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+   <step>
+    <para>
+     確認變更以建立 STONITH 資源。
+    </para>
+    <para>
+     螢幕頂部的訊息會顯示動作是否成功。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   要完成圍籬區隔組態，請新增條件約束。如需詳細資訊，請參閱 <xref linkend="cha-ha-fencing"/>。
+  </para>
+ </sect2>
+
+ <sect2 xml:id="sec-ha-manual-create-stonith">
+  <title>使用 crmsh 建立 STONITH 資源</title>
+  <procedure>
+   <title>使用 crmsh 新增 STONITH 資源</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 身分登入，然後啟動 <command>crm</command> 互動式外圍程序：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm</command></screen>
+   </step>
+   <step>
+    <para>
+     使用如下指令取得所有 STONITH 類型清單：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>ra list stonith</command>
+apcmaster                  apcmastersnmp              apcsmart
+baytech                    bladehpi                   cyclades
+drac3                      external/drac5             external/dracmc-telnet
+external/hetzner           external/hmchttp           external/ibmrsa
+external/ibmrsa-telnet     external/ipmi              external/ippower9258
+external/kdumpcheck        external/libvirt           external/nut
+external/rackpdu           external/riloe             external/sbd
+external/vcenter           external/vmware            external/xen0
+external/xen0-ha           fence_legacy               ibmhmc
+ipmilan                    meatware                   nw_rpc100s
+rcd_serial                 rps10                      suicide
+wti_mpc                    wti_nps</screen>
+   </step>
+   <step xml:id="st-ha-manual-create-stonith-type">
+    <para>
+     從上面的清單中選擇一種 STONITH 類型並檢視可能的選項清單。使用以下指令：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>ra info stonith:external/ipmi</command>
+IPMI STONITH external device (stonith:external/ipmi)
+
+ipmitool based power management. Apparently, the power off
+method of ipmitool is intercepted by ACPI which then makes
+a regular shutdown. In case of a split brain on a two-node,
+it may happen that no node survives. For two-node clusters,
+use only the reset method.
+
+Parameters (* denotes required, [] the default):
+
+hostname (string): Hostname
+   The name of the host to be managed by this STONITH device.
+...</screen>
+   </step>
+   <step>
+    <para>
+     使用 <literal>stonith</literal> 類別 (您在<xref linkend="st-ha-manual-create-stonith-type" xrefstyle="select:label nopage"/> 中選擇的類型) 以及所需的相應參數建立 STONITH 資源，例如：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>configure</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive my-stonith stonith:external/ipmi \
+   params hostname="alice" \
+   ipaddr="192.168.1.221" \
+   userid="admin" passwd="secret" \
+   op monitor interval=60m timeout=120s</command></screen>
+   </step>
+  </procedure>
+ </sect2>
+</sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-monitoring">
+  <title>設定資源監控</title>
+  <para>
+   若要確定資源是否正在執行，必須設定針對該資源的資源監控。可以使用 Hawk2 或 crmsh 來設定資源監控功能。
+  </para>
+  <para>
+   若資源監控偵測到失敗，系統將執行以下動作：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     根據 <filename>/etc/corosync/corosync.conf</filename> 的 <literal>logging</literal> 區段中指定的組態產生記錄檔案訊息。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     叢集管理工具 (Hawk2、<command>crm status</command>) 和 CIB 狀態區段中會反映失敗情況。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     叢集會啟動重要的復原動作，其中可能包括停止資源以修複失敗狀態，以及在本地或在其他節點上重新啟動資源。也可能不重新啟動資源，具體視組態及叢集狀態而定。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   若不設定資源監控，系統不會告知您資源成功啟動後發生的失敗，並且叢集會永遠將資源顯示為健康狀態良好。
+  </para>
+   <para>
+    通常，叢集只會在資源執行時對其進行監控。但是，若要偵測並行存取違規，還需針對停止的資源設定監控。設定資源監控需指定逾時和/或啟動延遲值以及間隔。該間隔會告知 CRM 應檢查資源狀態的頻率。您還可以設定特定參數，例如為 <literal>start</literal> 或 <literal>stop</literal> 操作設定 <literal>timeout</literal>。
+   </para>
+   <para>
+    如需監控操作參數的詳細資訊，請參閱<xref linkend="sec-ha-config-basics-operations"/>。
+   </para>
+
+  <sect2 xml:id="sec-conf-hawk2-rsc-monitor">
+   <title>使用 Hawk2 設定資源監控功能</title>
+   <procedure xml:id="pro-hawk2-operations">
+    <title>新增和修改操作</title>
+    <step>
+     <para>
+      登入 Hawk2：
+     </para>
+ <screen>https://<replaceable>HAWKSERVER</replaceable>:7630/</screen>
+    </step>
+    <step>
+     <para>
+      依<xref linkend="pro-conf-hawk2-primitive-add"/>所述新增資源，或選取現有的基本資源進行編輯。
+     </para>
+     <para>
+      Hawk2 會自動顯示最重要的<guimenu>操作</guimenu> (<literal>monitor</literal>、<literal>start</literal>、<literal>stop</literal>) 並建議預設值。
+     </para>
+     <para>
+      若要查看每個所建議的值名下的屬性，請將滑鼠指標懸停在相應的值上方。
+     </para>
+     <figure>
+      <title>操作值</title>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="hawk2-monitor-op.png" width="70%"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="hawk2-monitor-op.png" width="60%"/>
+       </imageobject>
+       <textobject role="description">
+         <phrase>在 <literal>Operations</literal> 清單中的 <literal>monitor</literal> 操作旁，將滑鼠指標懸停在數字 <literal>20</literal> 上會顯示這是 <literal>timeout</literal> 屬性的值。</phrase>
+       </textobject>
+      </mediaobject>
+     </figure>
+    </step>
+    <step>
+     <para>
+      若要變更針對 <literal>start</literal> 或 <literal>stop</literal> 操作建議的 <literal>timeout</literal> 值，請執行以下操作：
+     </para>
+     <substeps>
+      <step>
+       <para>
+        按一下該操作旁邊的筆型圖示。
+       </para>
+      </step>
+      <step>
+       <para>
+        在開啟的對話方塊中，為 <literal>timeout</literal> 參數輸入其他值 (例如 <literal>10</literal>)，然後確認變更。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      若要為 <guimenu> 操作變更建議的</guimenu>間隔<literal>monitor</literal>值：
+     </para>
+     <substeps>
+      <step>
+       <para>
+        按一下該操作旁邊的筆型圖示。
+       </para>
+      </step>
+      <step>
+       <para>
+        在開啟的對話方塊中，為監控 <literal>interval</literal> 輸入其他值。
+       </para>
+      </step>
+      <step>
+       <para>
+        在資源停止的情況下設定資源監控：
+       </para>
+       <substeps>
+        <step>
+         <para>
+          從下面的空下拉式方塊中選取 <literal>role</literal> 這一項。
+         </para>
+        </step>
+        <step>
+         <para>
+          從 <literal>role</literal> 下拉式清單中選取 <literal>Stopped</literal>。
+         </para>
+        </step>
+        <step>
+         <para>
+          按一下<guimenu>套用</guimenu>確認所做的變更，並關閉操作的對話方塊。
+         </para>
+        </step>
+       </substeps>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      確認您在資源組態螢幕中所做的變更。螢幕頂部的訊息會顯示動作是否成功。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    若要檢視發生的資源故障，請在 Hawk2 中切換至<guimenu>狀態</guimenu>螢幕，然後選取關注的資源。在<guimenu>操作</guimenu>欄中按一下向下箭頭圖示，然後選取<guimenu>最近的事件</guimenu>。隨後開啟的對話方塊會列出對資源執行的最近動作。其中故障顯示為紅色。若要檢視資源詳細資料，請按一下<guimenu>操作</guimenu>欄中的放大鏡圖示。
+   </para>
+   <figure>
+    <title>Hawk2 - 資源詳細資料</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="hawk2-rsc-details.png" width="70%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="hawk2-rsc-details.png" width="60%"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-monitor">
+   <title>使用 crmsh 設定資源監控功能</title>
+   <para>
+    若要監控資源，可以使用兩種方法：使用 <command>op</command> 關鍵字定義監控操作或使用 <command>monitor</command> 指令。以下範例設定了一個 Apache 資源，並使用 <literal>op</literal> 關鍵字指定每隔 60 秒監控一次該資源：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive apache apache \
+  params ... \
+  <emphasis>op monitor interval=60s timeout=30s</emphasis></command></screen>
+   <para>
+    使用以下指令也可以實現相同的目的：
+   </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive apache apache \
+   params ...</command>
+ <prompt role="custom">crm(live)configure# </prompt><command>monitor apache 60s:30s</command></screen>
+   <variablelist>
+    <varlistentry>
+     <term>監控已停止的資源</term>
+     <listitem>
+      <para>
+       通常，叢集只會在資源執行時對其進行監控。但是，若要偵測並行存取違規，還需針對停止的資源設定監控。例如：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive dummy1 Dummy \
+     op monitor interval="300s" role="Stopped" timeout="10s" \
+     op monitor interval="30s" timeout="10s"</command></screen>
+      <para>
+       當資源 <literal>dummy1</literal> 處於 <literal>role="Stopped"</literal> 狀態時，此組態每 <literal>300</literal> 秒就會觸發一次對該資源的監控操作。當該資源執行時，將每隔 <literal>30</literal> 秒對其監控一次。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>查探</term>
+     <listitem>
+      <para>
+       CRM 會對每個節點上的各個資源執行初始監控，也稱為 <literal>probe</literal>。在清理資源後也會執行查探。如果為資源定義了多項監控操作，CRM 會選取間隔時間最短的一項操作，並會使用其逾時值做為預設的查探逾時值。如果沒有設定任何監控操作，則會套用針對整個叢集的預設值。預設值為 <literal>20</literal> 秒 (如果未透過設定 <varname>op_defaults</varname> 參數指定其他值)。如果您不想依賴自動計算結果或 <systemitem>op_defaults</systemitem> 值，請為此資源的<emphasis>查探</emphasis>定義特定的監控操作。為此，可以新增一個監控操作並將 <literal>interval</literal> 設定為 <literal>0</literal>，例如：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>primitive rsc1 ocf:pacemaker:Dummy \
+     op monitor interval="0" timeout="60"</command></screen>
+      <para>
+       無論 <varname>op_defaults</varname> 中定義的全域逾時或已設定的任何其他操作逾時為何值，<systemitem>rsc1</systemitem> 的查探都會在 <literal>60s</literal> 後逾時。如果在指定相應資源的查探時未設定 <literal>interval="0"</literal>，CRM 會自動檢查是否為該資源定義了任何其他監控操作，並如上文所述計算查測的逾時值。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-manual-config-load">
+  <title>從檔案載入資源</title>
+  <para>
+   可從本地檔案或網路 URL 載入部分或全部組態。可定義三種不同方法：
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><option>replace</option></term>
+    <listitem>
+     <para>
+      此選項會以新的來源組態取代目前的組態。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><option>update</option></term>
+    <listitem>
+     <para>
+      此選項會嘗試輸入來源組態。它會將新項目新增至目前的組態或更新其現有項目。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><option>push</option></term>
+    <listitem>
+     <para>
+      此選項會將內容從來源輸入到目前組態中 (與 <option>update</option> 相同)。不過，它會移除在新組態中不可用的物件。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   若要從檔案 <filename>mycluster-config.txt</filename> 載入新組態，請使用以下語法：
+  </para>
+  <screen><prompt role="root"># </prompt><command>crm configure load push mycluster-config.txt</command></screen>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-meta-attr">
+  <title>資源選項 (中繼屬性)</title>
+  <para>
+   對於新增的每個資源，您都可以定義選項。叢集使用這些選項來決定資源的行為，它們會告知 CRM 如何處理特定的資源。可以使用 <command>crm_resource --meta</command> 指令或 Hawk2 來設定資源選項。
+  </para>
+  <para>
+   下面列出了一些常見選項：
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><literal>priority</literal></term>
+    <listitem>
+     <para>
+      如果無法讓所有資源都處於使用中狀態，叢集會停止優先程度較低的資源，以便讓優先程度較高的資源保持使用中狀態。
+     </para>
+     <para>
+      預設值為 <literal>0</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>target-role</literal></term>
+    <listitem>
+     <para>
+      叢集應嘗試讓此資源保持什麼狀態？允許的值：<literal>Stopped</literal>、<literal>Started</literal>、<literal>Unpromoted</literal>、<literal>Promoted</literal>。
+     </para>
+     <para>
+      預設值為 <literal>Started</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>is-managed</literal></term>
+    <listitem>
+     <para>
+      叢集是否允許啟動及停止資源？允許的值：<literal>true</literal>、<literal>false</literal>。如果該值設定為 <literal>false</literal>，則仍會監控資源的狀態，並報告任何失敗情況。這與將資源設定為 <literal>maintenance="true"</literal> 的情況不同。
+     </para>
+     <para>
+      預設值為 <literal>true</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>maintenance</literal></term>
+    <listitem>
+     <para>
+      是否可以手動處理資源？允許的值：<literal>true</literal>、<literal>false</literal>。如果設定為 <literal>true</literal>，則所有資源將變為不受管理狀態：叢集將停止監控這些資源，因此不知道它們的狀態。您可以停止或重新啟動叢集資源，不必等待叢集嘗試重新啟動它們。
+     </para>
+     <para>
+      預設值為 <literal>false</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>resource-stickiness</literal></term>
+    <listitem>
+     <para>
+      資源希望留在原處的程度如何？
+     </para>
+     <para>
+      各複製品例項的預設值為 <literal>1</literal>，所有其他資源的預設值為 <literal>0</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>migration-threshold</literal></term>
+    <listitem>
+     <para>
+      此資源在節點上的失敗次數達到多少次才會取消該節點代管此資源的資格？
+     </para>
+     <para>
+      預設值為 <literal>INFINITY</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>multiple-active</literal></term>
+    <listitem>
+     <para>
+      如果叢集發現資源在多個節點上處於使用中狀態，應如何處理？允許的值：<literal>block</literal> (將資源標示為不受管理)、<literal>stop_start</literal>、<literal>stop_only</literal>。
+     </para>
+     <para>
+      預設值為 <literal>stop_start</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>failure-timeout</literal></term>
+    <listitem>
+     <para>
+      等待多少秒後才能如同未失敗一般運作 (並在可能的情況下允許資源回到之前失敗的節點上)？
+     </para>
+     <para>
+      預設值為 <literal>0</literal> (停用)。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>allow-migrate</literal></term>
+    <listitem>
+     <para>
+      是否允許即時移轉支援 <literal>migrate_to</literal> 和 <literal>migrate_from</literal> 動作的資源。如果值設定為 <literal>true</literal>，則可在不遺失狀態的情況下移轉資源。如果值設定為 <literal>false</literal>，將會在第一個節點上關閉資源，並在第二個節點上重新啟動該資源。
+     </para>
+     <para>
+      <literal>ocf:pacemaker:remote</literal> 資源的預設值為 <literal>true</literal>，所有其他資源的預設值為 <literal>false</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+     <term><literal>allow-unhealthy-nodes</literal></term>
+     <listitem>
+       <para>
+        允許資源在節點上執行，即使節點的健康狀態分數會阻止它執行也不例外。
+       </para>
+       <para>
+         預設值為 <literal>false</literal>。
+       </para>
+     </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>remote-node</literal></term>
+    <listitem>
+     <para>
+      此資源定義之遠端節點的名稱。這會使資源變成一個遠端節點，並且定義唯一的名稱以用於識別該遠端節點。如果未設定其他參數，此值還將做為要透過 <varname>remote-port</varname> 連接埠連接的主機名稱。
+     </para>
+     <para>
+      此選項預設為停用狀態。
+     </para>
+     <warning>
+      <title>使用唯一的 ID</title>
+      <para>
+       此值不得與任何現有資源 ID 或節點 ID 重複。
+      </para>
+     </warning>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>remote-port</literal></term>
+    <listitem>
+     <para>
+      訪客與 pacemaker_remote 建立連接時使用的自訂連接埠。
+     </para>
+     <para>
+      預設值為 <literal>3121</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>remote-addr</literal></term>
+    <listitem>
+     <para>
+      當遠端節點的名稱不是客體的主機名稱時，要連接到的 IP 位址或主機名稱。
+     </para>
+     <para>
+      預設值為 <literal>remote-node</literal> 設定的值。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>remote-connect-timeout</literal></term>
+    <listitem>
+     <para>
+      等待中客體連接在多長時間後逾時？
+     </para>
+     <para>
+      預設值為 <literal>60s</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-inst-attr">
+  <title>例項屬性 (參數)</title>
+
+  <para>
+   所有資源類別的程序檔均可接收參數，參數決定了資源的行為及其控制的服務例項。如果資源代理程式支援參數，則可使用 <command>crm_resource</command> 指令或 Hawk2 新增這些參數。在 <command>crm</command> 指令列公用程式和 Hawk2 中，例項屬性分別稱為 <literal>params</literal> 和 <literal>Parameter</literal>。您可用 <systemitem class="username">root</systemitem> 身分執行如下指令來獲取受 OCF 程序檔支援的例項屬性清單：
+  </para>
+<screen><prompt role="root"># </prompt><command>crm ra info <replaceable>[class:[provider:]]resource_agent</replaceable></command></screen>
+  <para>
+   或 (不含選擇性的部分)：
+  </para>
+<screen><prompt role="root"># </prompt><command>crm ra info <replaceable>resource_agent</replaceable></command></screen>
+  <para>
+   輸出會列出所有受支援的屬性、其用途與預設值。
+  </para>
+  <note>
+   <title>群組、複製品或可升級複製品的例項屬性</title>
+   <para>
+    請注意，群組、複製品和可升級複製品資源沒有例項屬性。但是，群組、複製品或可升級複製品的子級會繼承任何例項屬性集。
+   </para>
+  </note>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-operations">
+  <title>資源操作</title>
+  <para>
+   依預設，叢集不會確保資源的健康狀態一直良好。若要指示叢集確保資源能正常運作，需要將監控操作新增至資源定義中。可為所有類別或資源代理程式新增監控作業。
+  </para>
+  <para>
+   監控操作可能具有以下內容：
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><literal>id</literal></term>
+    <listitem>
+     <para>
+      動作執行人名稱。必須唯一。(ID 不會顯示。)
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>name</literal></term>
+    <listitem>
+     <para>
+      執行的動作。常用的值：<literal>monitor</literal>、<literal>start</literal>、<literal>stop</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>interval</literal></term>
+    <listitem>
+     <para>
+      執行操作的頻率，以秒計。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>timeout</literal></term>
+    <listitem>
+     <para>
+      宣告動作失敗之前等待多長時間？
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>requires</literal></term>
+    <listitem>
+     <para>
+      需符合什麼條件才會執行此動作。允許的值：<literal>nothing</literal>、<literal>quorum</literal>、<literal>fencing</literal>。預設值取決於是否啟用圍籬區隔，以及資源的類別是否為 <literal>stonith</literal>。對於 STONITH 資源，預設值為 <literal>nothing</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>on-fail</literal></term>
+    <listitem>
+     <para>
+      此動作失敗時所採取的動作。允許的值：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <literal>ignore</literal>：當做資源未失敗。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>block</literal>：在資源上不執行任何進一步操作。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>stop</literal>：停止資源並且不在其他位置啟動該資源。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>restart</literal>：停止資源並再次啟動資源 (可能在不同的節點上)。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>fence</literal>：將發生資源故障的節點關閉 (STONITH)。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>standby</literal>：將發生資源失敗之節點上的<emphasis>所有</emphasis>資源移出。
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>enabled</literal></term>
+    <listitem>
+     <para>
+      如果為 <literal>false</literal>，則會將操作視做不存在。允許的值：<literal>true</literal>、<literal>false</literal>。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>role</literal></term>
+    <listitem>
+     <para>
+      只有在資源具有此角色時，才執行操作。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>record-pending</literal></term>
+    <listitem>
+     <para>
+      可以全域設定，也可以針對個別資源設定。讓 CIB 反映對資源執行之 <quote>in-flight</quote> 操作的狀態。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>description</literal></term>
+    <listitem>
+     <para>
+      操作的描述。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+</chapter>

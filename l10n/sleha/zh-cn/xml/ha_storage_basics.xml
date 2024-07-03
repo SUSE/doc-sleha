@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_storage_basics.xml" version="5.0" xml:id="cha-ha-storage-dlm">
+ <title>分布式锁管理器 (DLM)</title>
+ <info>
+  <abstract>
+   <para>
+    内核中的分布式锁管理器 (DLM) 是 OCFS2、GFS2、群集 MD 和群集 LVM (lvmlockd) 用于在每个相关层提供主动-主动储存的基础组件。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+ <sect1 xml:id="sec-ha-storage-dlm-protocol">
+  <title>用于 DLM 通讯的协议</title>
+
+  <para>
+   为了避免单一故障点，非常有必要对高可用性群集配置冗余通讯路径。对于 DLM 通讯也是如此。如果出于任何原因无法使用网络绑定（聚合控制协议，LACP），我们强烈建议在 Corosync 中定义冗余通讯通道（另一个环）。有关详细信息，请参见<xref linkend="pro-ha-installation-setup-channel2"/>。
+  </para>
+  <para>
+   DLM 可使用 TCP 或 SCTP 协议通过端口 21064 进行通讯，具体使用哪个协议取决于 <filename>/etc/corosync/corosync.conf</filename> 中的配置。
+  </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+     如果 <guimenu>rrp_mode</guimenu> 设置为 <literal>none</literal>（表示禁用冗余环配置），DLM 会自动使用 TCP。但是，如果未定义冗余通讯通道，当 TCP 链路断开时，DLM 通讯将会失败。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+     如果 <guimenu>rrp_mode</guimenu> 设置为 <literal>passive</literal>（通常会如此设置），并且在 <filename>/etc/corosync/corosync.conf</filename> 中正确配置了另一个通讯环，DLM 将自动使用 SCTP。在这种情况下，DLM 消息交换会获得 SCTP 提供的冗余功能。
+   </para>
+  </listitem>
+ </itemizedlist>
+ </sect1>
+ <sect1 xml:id="sec-ha-storage-generic-dlm-config">
+  <title>配置 DLM 群集资源</title>
+
+  <para>
+   DLM 使用 Pacemaker 提供的并在用户空间中运行的群集成员资格服务。因此，DLM 需要配置为群集中每个节点上都存在的克隆资源。
+  </para>
+
+  <note>
+   <title>多个解决方案的 DLM 资源</title>
+   <para>
+    由于 OCFS2、GFS2、群集 MD 和群集 LVM (lvmlockd) 全部使用 DLM，因此为 DLM 配置一个资源便已足够。由于 DLM 资源在群集中的所有节点上运行，因此它配置为克隆资源。
+   </para>
+   <para>
+    如果您的设置包含 OCFS2 和群集 LVM，则只需为 OCFS2 和群集 LVM 配置<emphasis>一个</emphasis> DLM 资源就够了。在此情况下，请使用 <xref linkend="pro-dlm-resources"/> 配置 DLM。
+   </para>
+   <para>
+    但是，如果您需要确保使用 DLM 的资源彼此独立（例如多个 OCFS2 挂载点），请使用不同的共置和顺序约束，而不要使用组。在此情况下，请使用 <xref linkend="pro-dlm-multiple-resources"/> 配置 DLM。
+   </para>
+  </note>
+
+  <procedure xml:id="pro-dlm-resources">
+   <title>配置 DLM 的基础组</title>
+   <para>
+    此配置由一个包含数个原始资源的基础组和一个基础克隆资源构成。之后，基础组和基础克隆便可用于多种不同的场景（例如，用于 OCFS2 和群集 LVM）。您只需视需要使用相应的基元资源扩展基本组。由于基本组具有内部共置和顺序约束，您无需单独指定多个组、克隆及其依赖项，方便了总体设置。
+   </para>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 或同等身份登录节点。
+    </para>
+   </step>
+   <step>
+    <para>
+     运行 <command>crm configure</command>。
+    </para>
+   </step>
+   <step>
+    <para>
+     为 DLM 创建原始资源：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive dlm ocf:pacemaker:controld \
+  op monitor interval="60" timeout="60"</command></screen>
+   </step>
+   <step>
+    <para>
+     为 <literal>dlm</literal> 资源和其他存储相关的资源创建一个基础组：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group g-storage dlm</command></screen>
+   </step>
+   <step>
+    <para>
+     克隆 <literal>g-storage</literal> 组，使它在所有节点上运行：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt> <command>clone cl-storage g-storage \
+  meta interleave=true target-role=Started</command></screen>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 查看所做的更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有设置均正确无误，请使用 <command>commit</command> 提交更改，然后使用 <command>quit</command> 退出 crm 实时配置。
+    </para>
+   </step>
+  </procedure>
+
+  <note>
+   <title>禁用 STONITH 时会发生故障</title>
+   <para>
+    未启用 STONITH 的群集不受支持。如果出于测试或查错目的将全局群集选项 <varname>stonith-enabled</varname> 设置为 <literal>false</literal>，则 DLM 资源以及依赖于它的所有服务（例如群集 LVM、GFS2 和 OCFS2）将无法启动。
+   </para>
+  </note>
+
+  <procedure xml:id="pro-dlm-multiple-resources">
+   <title>配置独立的 DLM 资源</title>
+   <para>
+    此配置由一个原始资源和一个克隆资源构成，但不包含组。通过添加共置和顺序约束，可以避免在多个使用 DLM 的资源（例如多个 OCFS2 挂载点）之间形成依赖关系。
+   </para>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 或同等身份登录节点。
+    </para>
+   </step>
+   <step>
+    <para>
+     运行 <command>crm configure</command>。
+    </para>
+   </step>
+   <step>
+    <para>
+     为 DLM 创建原始资源：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive dlm ocf:pacemaker:controld \
+  op start timeout=90 interval=0 \
+  op stop timeout=100 interval=0 \
+  op monitor interval=60 timeout=60</command></screen>
+   </step>
+   <step>
+    <para>
+     克隆 <literal>dlm</literal> 资源，使它在所有节点上运行：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt> <command>clone cl-dlm dlm meta interleave=true</command></screen>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 查看所做的更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有设置均正确无误，请使用 <command>commit</command> 提交更改，然后使用 <command>quit</command> 退出 crm 实时配置。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+</chapter>

@@ -1,0 +1,786 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_cli.xml" xml:id="cha-ha-manual-config" version="5.0">
+ <title>crmsh 簡介</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+
+   <para>
+    若要設定和管理叢集資源，可以使用 crm 外圍程序 (crmsh) 指令行公用程式或 Hawk2 (Web 使用者介面)。
+   </para>
+        <para>
+    本節介紹指令列工具 <command>crm</command>。<command>crm</command> 指令有多個子指令，用於管理資源、CIB、節點、資源代理程式及其他。該指令提供包含內嵌式範例的完整說明系統。所有範例都遵循<xref linkend="app-naming" xrefstyle="select:label"/> 中所述的命名慣例。
+   </para>
+     <para>
+   事件記錄至 <filename>/var/log/crmsh/crmsh.log</filename> 中。
+  </para>
+
+
+
+  <tip>
+   <title>互動式 crm 提示符</title>
+   <para>使用不含引數 (或只含一個 sublevel 引數) 的 crm，crm 外圍程序將進入互動式模式。此模式由以下提示符指示：
+   </para>
+   <screen><prompt>crm(live/HOSTNAME)</prompt></screen>
+   <para>
+    為了容易閱讀，我們的文件在互動式 crm 提示符中省略了主機名稱。只有當您需要在特定節點 (如 alice) 上執行互動式外圍程序時，我們才會包含主機名稱，例如：
+   </para>
+   <screen><prompt>crm(live/alice)</prompt></screen>
+  </tip>
+
+  <sect2 xml:id="sec-ha-manual-config-crm-user-privileges">
+    <title>登入</title>
+    <para>
+      管理叢集需要擁有充足的權限。以下使用者可以執行 <command>crm</command> 指令及其子指令：
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          <systemitem class="username">root</systemitem> 使用者或具有 <command>sudo</command> 權限的使用者。這些使用者透過使用 SSH 執行 crmsh 操作 (例如 <command>crm cluster init</command>、<command>crm cluster join</command> 和 <command>crm report</command>)，來擁有所有叢集節點的完整權限。他們還可以對 CIB 進行變更，例如新增資源和條件約束。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          CRM 擁有者使用者 (通常是在叢集安裝期間依預設建立的使用者 <systemitem class="username">hacluster</systemitem>)。此使用者可以對 CIB 進行變更，但執行使用 SSH 的操作 (例如 <command>crm report</command>) 的權限受到限制。
+        </para>
+        <tip>
+          <title>非特權使用者</title>
+          <para>
+            使用 <option>user</option> 選項，您能以一般 (非特權) 使用者身分執行 <command>crm</command> 及其子指令，並在必要時使用 <command>sudo</command> 變更其 ID。例如，下面的指令會將 <systemitem class="username">hacluster</systemitem> 設定為特權使用者 ID：
+          </para>
+          <screen><prompt role="root"># </prompt><command>crm options user hacluster</command></screen>
+          <para>
+            必須設定 <filename>/etc/sudoers</filename>，這樣 <command>sudo</command> 就不會要求提供密碼。
+          </para>
+        </tip>
+      </listitem>
+    </itemizedlist>
+    <para>
+      對於使用 SSH 的操作，叢集透過無密碼 SSH 存取在節點之間進行通訊。如果使用 <command>crm cluster init</command> 設定叢集，指令碼會檢查 SSH 金鑰是否存在，如果尚不存在，則會產生這些金鑰。如果使用 YaST 叢集模組設定叢集，您必須自行設定 SSH 金鑰。
+    </para>
+    <para>
+      在大多數情況下，<systemitem class="username">root</systemitem> 或 <command>sudo</command> 使用者的 SSH 金鑰必須存在於節點上 (或在其上產生)。或者，<command>sudo</command> 使用者的 SSH 金鑰可以存在於本地機器上，並透過 SSH 代理程式轉遞傳遞至節點。如果您需要避免在節點上儲存 SSH 金鑰，此方法可能很有用，不過這需要進行額外的組態。
+    </para>
+    <procedure xml:id="pro-ha-manual-config-crm-user-privileges-ssh-agent">
+      <title>使用開機指令碼設定啟用了 SSH 代理程式轉遞的叢集</title>
+      <step>
+        <para>
+          在本地機器上，啟動 SSH 代理程式並新增金鑰至其中。如需詳細資訊，請參閱 SUSE Linux Enterprise Server 的《<citetitle>Security and Hardening Guide</citetitle>》中的<link xlink:href="https://documentation.suse.com/sles/html/SLES-all/cha-ssh.html#sec-ssh-authentic-agent">
+          <citetitle>Automated public key logins with ssh-agent</citetitle></link>。
+        </para>
+      </step>
+      <step>
+        <para>
+          以具有 <command>sudo</command> 權限的使用者身分登入第一個叢集節點，並使用 <option>-A</option> 選項啟用 SSH 代理程式轉遞：
+        </para>
+<screen><prompt>user@local &gt; </prompt><command>ssh -A <replaceable>USER@NODE1</replaceable></command></screen>
+      </step>
+      <step>
+        <para>
+          使用 <command>crm cluster init</command> 指令碼啟始化叢集：
+        </para>
+<screen><prompt>user@node1 &gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \</command><co xml:id="co-ssh-auth-sock"/>
+<command>crm cluster init --use-ssh-agent</command><co xml:id="co-use-ssh-agent"/></screen>
+       <calloutlist>
+         <callout arearefs="co-ssh-auth-sock">
+           <para>
+             這會保留 <literal>SSH_AUTH_SOCK</literal> 環境變數，SSH 代理程式通訊時需要用到該變數。
+           </para>
+        </callout>
+        <callout arearefs="co-use-ssh-agent">
+           <para>
+             指示指令碼使用本地 SSH 金鑰，而不是在節點上產生金鑰。
+           </para>
+         </callout>
+       </calloutlist>
+      </step>
+      <step>
+        <para>
+          初始組態完成後，離開第一個節點，並使用 <option>-A</option> 選項登入第二個節點。
+        </para>
+      </step>
+      <step>
+        <para>
+          使用 <command>crm cluster join</command> 指令碼新增第二個節點至叢集。使用 <literal>-c</literal> 選項指定之前啟始化叢集的使用者和節點：
+        </para>
+<screen><prompt>user@node2 &gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster join --use-ssh-agent -c <replaceable>USER@NODE1</replaceable></command></screen>
+      </step>
+    </procedure>
+    <para>
+      如果您是使用 YaST 而非開機指令碼設定叢集，系統不會自動產生 SSH 金鑰。若要在啟用 SSH 代理程式轉遞的情況下設定 SSH 金鑰，可以單獨使用開機指令碼的 <literal>ssh</literal> 階段。應在使用 YaST 設定叢集後、在使叢集上線前執行這些指令。
+    </para>
+    <para>
+      在第一個節點上執行以下指令：
+    </para>
+<screen><prompt>user@node1 &gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster init ssh --use-ssh-agent</command></screen>
+    <para>
+      在所有其他節點上執行以下指令：
+    </para>
+<screen><prompt>user@node2 &gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster join ssh --use-ssh-agent -c <replaceable>USER@NODE1</replaceable></command></screen>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-crm-help">
+   <title>取得說明</title>
+   <para>
+    可以使用以下幾種方法來存取說明：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      若要輸出 <command>crm</command> 及其指令列選項的用法：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm --help</command></screen>
+    </listitem>
+    <listitem>
+     <para>
+      若要列出所有可用指令的清單：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm help</command></screen>
+    </listitem>
+    <listitem>
+     <para>
+      若要存取其他說明區段，而不僅僅是指令參考：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm help topics</command></screen>
+    </listitem>
+    <listitem>
+     <para>
+      若要檢視 <command>configure</command> 子指令的延伸說明文字：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure help</command></screen>
+    </listitem>
+    <listitem>
+     <para>
+      若要列印 <command>configure</command> 的子指令 <command>group</command> 的語法、用法及範例：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure help group</command></screen>
+     <para>
+      以下指令的作用相同：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm help configure group</command></screen>
+    </listitem>
+   </itemizedlist>
+   <para>
+    基本上 <command>help</command> 子指令 (不要與 <option>--help</option> 選項混淆) 的所有輸出都會開啟一個文字編輯器。這個文字檢視器可讓您向上或向下捲動，更方便地閱讀說明文字。若要離開該文字檢視器，請按 <keycap>Q</keycap> 鍵。
+   </para>
+   <tip xml:id="tip-crm-tabcompletion">
+    <title>在 Bash 和互動式外圍程序中使用 Tab 鍵補齊</title>
+    <para>
+     crmsh 不僅對互動式外圍程序支援 Tab 鍵補齊，在 Bash 中也能直接全面支援此功能。例如，輸入 <literal>crm help
+     config</literal><keycap function="tab"/> 會補齊文字，就像在互動式外圍程序中一樣。
+    </para>
+   </tip>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-crm-run">
+   <title>執行 crmsh 的子指令</title>
+   <para>
+    <command>crm</command> 指令本身的使用方式如下：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <formalpara>
+      <title>直接：</title>
+      <para>
+       將所有子指令與 <command>crm</command> 結合使用，按 <keycap function="enter"/> 鍵，便會立即看到輸出。例如，輸入 <command>crm help ra</command> 可獲取有關 <command>ra</command> 子指令 (資源代理程式) 的資訊。
+      </para>
+     </formalpara>
+      <para>可以縮寫子指令，前提是縮寫後的子指令是唯一的。例如，您可以將 <command>status</command> 縮寫為 <command>st</command>，crmsh 可以識別該縮寫。
+      </para>
+      <para>另一項功能是縮寫參數。通常，您會透過 <command>params</command> 關鍵字新增參數。如果 <literal>params</literal> 是第一個且是唯一存在的區段，則可以將其省略。例如，以下行：
+      </para>
+      <screen><prompt role="root"># </prompt><command>crm primitive ipaddr IPaddr2 params ip=192.168.0.55</command></screen>
+      <para>相當於以下行：</para>
+      <screen><prompt role="root"># </prompt><command>crm primitive ipaddr IPaddr2 ip=192.168.0.55</command></screen>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>做為 crm 外圍程序程序檔：</title>
+      <para>
+        外圍程序程序檔包含 <command>crm</command>crm 的子指令。如需詳細資訊，請參閱 <xref linkend="sec-ha-manual-config-crmshellscripts"/>。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+      <formalpara>
+        <title>做為 crmsh 叢集程序檔：</title>
+        <para>這是中繼資料、對 RPM 套件的參照、組態檔案及使用單一描述性名稱同捆之 crmsh 子指令的集合。可以透過 <command>crm script</command> 指令來管理這些內容。
+        </para>
+      </formalpara>
+      <para>請不要將它們與 crmsh 外圍程序程序檔相混淆：雖然兩者具有一些共同的目標，但 crm 外圍程序程序檔只包含子指令，而叢集程序檔所包含的遠遠不只是簡單的指令列舉。如需詳細資訊，請參閱 <xref linkend="sec-ha-manual-config-clusterscripts"/>。
+      </para>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>做為內部外圍程序互動：</title>
+      <para>
+       輸入 <command>crm</command> 可進入內部外圍程序。提示符會切換為 <literal>crm(live)</literal>。執行 <command>help</command> 可獲取可用子指令的綜覽。由於內部外圍程序有幾種不同層級的子指令，您可以輸入一個子指令並按 <keycap function="enter"/><quote>進入</quote>此層級。
+      </para>
+     </formalpara>
+     <para>
+      例如，如果輸入 <command>resource</command>，便會進入資源管理層級。提示符會切換為 <literal>crm(live)resource#</literal>。若要離開內部外圍程序，請使用 <command>quit</command> 指令。如果需要回到上一個層級，可使用 <command>back</command>、<command>up</command>、<command>end</command> 或 <command>cd</command>。
+     </para>
+     <para>
+      輸入 <command>crm</command> 和相應的子指令 (不帶任何選項) 並按 <keycap function="enter"/>，即可直接進入該層級。
+     </para>
+     <para>
+      內部外圍程序還支援 Tab 鍵對子指令和資源的補齊功能。輸入指令的開頭，然後按 <keycap function="tab"/> 鍵，<command>crm</command> 便會補齊相應指令。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    crmsh 還支援執行同步指令。使用 <option>-w</option> 選項可以啟用該功能。如果已啟動 <command>crm</command> 但未指定 <option>-w</option>，之後可以將使用者首選的 <command>wait</command> 設為 <literal>yes</literal> (<command>options
+    wait yes</command>) 來啟用它。如果啟用了此選項，<command>crm</command> 會一直等到轉換完成。每當啟動轉換後，就會顯示一些點來指出進度。同步的指令執行僅適用於 <command>resource
+    start</command> 這樣的指令。
+   </para>
+   <note>
+    <title>區分管理子指令與組態子指令</title>
+    <para>
+     <command>crm</command> 工具有管理功能 (子指令 <command>resource</command> 和 <command>node</command>)，可用於進行組態設定 (<command>configure</command> 和 <command>cib</command>)。
+    </para>
+   </note>
+   <para>
+    下面的小節概述了 <command>crm</command> 工具的重要方面。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-ocf">
+   <title>顯示有關 OCF 資源代理程式的資訊</title>
+   <para>
+    由於您始終都需要在叢集組態中處理資源代理程式，因此 <command>crm</command> 工具包含了 <command>ra</command> 指令。使用該指令可以顯示資源代辦的相關資訊並對其進行管理 (如需其他資訊，另請參閱<xref linkend="sec-ha-config-basics-raclasses"/>)：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm ra</command>
+<prompt role="custom">crm(live)ra# </prompt></screen>
+   <para>
+    <command>classes</command> 指令可列出所有類別和提供者：
+   </para>
+<screen><prompt role="custom">crm(live)ra# </prompt><command>classes</command>
+ lsb
+ ocf / heartbeat linbit lvm2 ocfs2 pacemaker
+ service
+ stonith
+ systemd</screen>
+   <para>
+    要大致瞭解某個類別 (和提供者) 的所有可用資源，請使用 <command>list</command> 指令：
+   </para>
+<screen><prompt role="custom">crm(live)ra# </prompt><command>list ocf</command>
+AoEtarget           AudibleAlarm        CTDB                ClusterMon
+Delay               Dummy               EvmsSCC             Evmsd
+Filesystem          HealthCPU           HealthSMART         ICP
+IPaddr              IPaddr2             IPsrcaddr           IPv6addr
+LVM                 LinuxSCSI           MailTo              ManageRAID
+ManageVE            Pure-FTPd           Raid1               Route
+SAPDatabase         SAPInstance         SendArp             ServeRAID
+...</screen>
+   <para>
+    若要檢視資源代理程式的綜覽，請使用 <command>info</command>：
+   </para>
+<screen><prompt role="custom">crm(live)ra# </prompt><command>info ocf:linbit:drbd</command>
+This resource agent manages a DRBD* resource
+as a master/slave resource. DRBD is a shared-nothing replicated storage
+device. (ocf:linbit:drbd)
+
+Master/Slave OCF Resource Agent for DRBD
+
+Parameters (* denotes required, [] the default):
+
+drbd_resource* (string): drbd resource name
+    The name of the drbd resource from the drbd.conf file.
+
+drbdconf (string, [/etc/drbd.conf]): Path to drbd.conf
+    Full path to the drbd.conf file.
+
+Operations' defaults (advisory minimum):
+
+    start         timeout=240
+    promote       timeout=90
+    demote        timeout=90
+    notify        timeout=90
+    stop          timeout=100
+    monitor_Slave_0 interval=20 timeout=20 start-delay=1m
+    monitor_Master_0 interval=10 timeout=20 start-delay=1m</screen>
+   <para>
+    按 <keycap>Q</keycap> 鍵可離開檢視器。
+   </para>
+   <tip>
+    <title>直接使用 <command>crm</command></title>
+    <para>
+     前面的範例中使用了 <command>crm</command> 指令的內部外圍程序。但是，您不一定要使用該外圍程序。如果將相應的子指令新增至 <command>crm</command>，也可獲得同樣的結果。例如，在外圍程序中輸入 <command>crm ra list ocf</command> 可以列出所有 OCF 資源代理程式。
+    </para>
+   </tip>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-crmshellscripts">
+   <title>使用 crmsh 的外圍程序程序檔</title>
+   <para>
+    Crmsh 外圍程序程序檔提供了將 crmsh 子指令列舉到檔案中的便捷方式。如此，您便可輕鬆註解特定行或稍後重新執行這些行。請注意，crmsh 外圍程序程序檔<emphasis>只能包含 crmsh 子指令</emphasis>,不允許包含任何其他指令。
+   </para>
+   <para>
+    您需要先建立包含特定指令的檔案，然後才能使用 crmsh 外圍程序程序檔。例如，下面的檔案會列印叢集的狀態並提供所有節點的清單：
+   </para>
+   <example xml:id="ex-ha-manual-config-crmshellscripts">
+    <title>簡單的 crmsh 外圍程序程序檔</title>
+    <screen># A small example file with some crm subcommands
+<command>status</command>
+<command>node list</command></screen>
+   </example>
+   <para>
+    以井字號 (<literal>#</literal>) 開頭的所有行都是備註，系統會將其忽略。如果某行過長，可在結尾插入反斜線 (<literal>\</literal>)，然後換到下一行。為方便閱讀，建議縮排屬於特定子指令的行。
+   </para>
+
+   <para>若要使用此程序檔，請使用以下其中一種方法：</para>
+   <screen><prompt role="root"># </prompt><command>crm -f example.cli</command>
+<prompt role="root"># </prompt><command>crm &lt; example.cli</command></screen>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-clusterscripts">
+    <title>使用 crmsh 的叢集程序檔</title>
+    <para>從所有叢集節點收集資訊和部署任何變更是一項關鍵的叢集管理任務。您無需在不同的節點上手動執行相同的程序 (這很容易出錯)，而可以使用 crmsh 叢集程序檔。
+   </para>
+   <para>
+    請不要將它們與 <emphasis>crmsh 外圍程序程序檔</emphasis>相混淆，<xref linkend="sec-ha-manual-config-crmshellscripts"/>中對後者進行了介紹。
+    </para>
+
+   <para>對比 crmsh 外圍程序程序檔，叢集程序檔另外會執行如下任務：</para>
+    <itemizedlist>
+      <listitem>
+        <para>安裝特定任務所需的軟體。</para>
+      </listitem>
+      <listitem>
+        <para>建立或修改任何組態檔案。</para>
+      </listitem>
+      <listitem>
+        <para>收集資訊並報告叢集的潛在問題。</para>
+      </listitem>
+      <listitem>
+        <para>將變更部署到所有節點。</para>
+      </listitem>
+    </itemizedlist>
+
+    <para>crmsh 叢集程序檔不會取代其他叢集管理工具，而是提供整合的方式用於在叢集中執行上述任務。如需詳細資訊，請參閱<link xlink:href="https://crmsh.github.io/scripts/" xlink:show="new"/>。
+    </para>
+
+    <sect3 xml:id="sec-ha-manual-config-clusterscripts-usage">
+      <title>用法</title>
+      <para>若要取得所有可用叢集程序檔的清單，請執行：</para>
+      <screen><prompt role="root"># </prompt><command>crm script list</command></screen>
+
+      <para>若要檢視指令碼的組成部分，請使用 <command>show</command> 指令和叢集指令碼的名稱，例如：</para>
+      <screen><prompt role="root"># </prompt><command>crm script show mailto</command>
+mailto (Basic)
+MailTo
+
+ This is a resource agent for MailTo. It sends email to a sysadmin
+whenever  a takeover occurs.
+
+1. Notifies recipients by email in the event of resource takeover
+
+  id (required)  (unique)
+      Identifier for the cluster resource
+  email (required)
+      Email address
+  subject
+      Subject</screen>
+
+      <para><command>show</command> 的輸出包含標題、簡要描述和程序。每個程序劃分為依指定順序執行的一系列步驟。 </para>
+      <para>每個步驟包含必要參數與選擇性參數的清單，以及這些參數的簡短描述和預設值。</para>
+
+      <para>每個叢集程序檔都可識別一組通用參數。可將這些參數傳遞給任何程序檔：</para>
+
+      <table>
+        <title>通用參數</title>
+        <tgroup cols="3">
+          <thead>
+            <row>
+              <entry>參數</entry>
+              <entry>引數</entry>
+              <entry>描述</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry><parameter>action</parameter></entry>
+              <entry><replaceable>INDEX</replaceable></entry>
+              <entry>如果設定此參數，則只會執行單一動作 (verify 傳回索引)</entry>
+            </row>
+            <row>
+              <entry><parameter>dry_run</parameter></entry>
+              <entry><replaceable>BOOL</replaceable></entry>
+              <entry>如果設定此參數，則只會模擬執行 (預設值：no) </entry>
+            </row>
+            <row>
+              <entry><parameter>nodes</parameter></entry>
+              <entry><replaceable>LIST</replaceable></entry>
+              <entry>列出要對其執行程序檔的節點</entry>
+            </row>
+            <row>
+              <entry><parameter>port</parameter></entry>
+              <entry><replaceable>NUMBER</replaceable></entry>
+              <entry>要連接到的埠</entry>
+            </row>
+            <row>
+              <entry><parameter>statefile</parameter></entry>
+              <entry><replaceable>FILE</replaceable></entry>
+              <entry>在以單一步進方式執行時，狀態將會儲存在指定的檔案中 </entry>
+            </row>
+            <row>
+              <entry><parameter>sudo</parameter></entry>
+              <entry><replaceable>BOOL</replaceable></entry>
+              <entry>如果設定此參數，crm 會在適當的情況下提示輸入 sudo 密碼並使用 sudo (預設值為 no) </entry>
+            </row>
+            <row>
+              <entry><parameter>timeout</parameter></entry>
+              <entry><replaceable>NUMBER</replaceable></entry>
+              <entry>以秒為單位的執行逾時 (預設值：600) </entry>
+            </row>
+            <row>
+              <entry><parameter>user</parameter></entry>
+              <entry><replaceable>USER</replaceable></entry>
+              <entry>以指定使用者的身分執行程序檔 </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </sect3>
+
+    <sect3 xml:id="sec-ha-manual-config-clusterscripts-verify-run">
+      <title>驗證和執行叢集指令碼</title>
+      <para>在執行某個叢集程序檔之前，請檢查該程序檔將要執行的動作並驗證其參數，以避免出現問題。叢集程序檔可能會執行一系列動作，並且可能會出於各種原因而失敗。因此，在執行程序檔之前驗證參數可幫助避免出現問題。</para>
+      <para>例如，<systemitem>mailto</systemitem> 資源代理程式需要唯一的識別碼和一個電子郵件地址。若要驗證這些參數，請執行：</para>
+      <screen><prompt role="root"># </prompt><command>crm script verify mailto id=sysadmin email=tux@example.org</command>
+1. Ensure mail package is installed
+
+        mailx
+
+2. Configure cluster resources
+
+        primitive sysadmin MailTo
+                email="tux@example.org"
+                op start timeout="10"
+                op stop timeout="10"
+                op monitor interval="10" timeout="10"
+
+        clone c-sysadmin sysadmin</screen>
+      <para><command>verify</command> 指令會列印步驟，並用給定的參數取代所有預留位置。<command>verify</command> 會報告發現的任何問題。如果一切正常，請用 <command>run</command> 取代 <command>verify</command> 指令：</para>
+      <screen><prompt role="root"># </prompt><command>crm script run mailto id=sysadmin email=tux@example.org</command>
+INFO: MailTo
+INFO: Nodes: alice, bob
+OK: Ensure mail package is installed
+OK: Configure cluster resources</screen>
+      <para>使用 <command>crm status</command> 檢查您的資源是否已整合到叢集：</para>
+      <screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+ Clone Set: c-sysadmin [sysadmin]
+     Started: [ alice bob ]</screen>
+    </sect3>
+
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-template">
+   <title>使用組態範本</title>
+    <note>
+      <title>取代注意事項</title>
+      <para>組態範本已棄用，日後會被移除。叢集指令碼將取代組態範本。請參閱 <xref linkend="sec-ha-manual-config-clusterscripts"/>。
+      </para>
+    </note>
+   <para>
+    組態範本是可供 crmsh 使用的現成叢集組態。不要將它們與<emphasis>資源範本</emphasis> (如<xref linkend="sec-ha-manual-config-rsc-template"/> 所述) 混淆。資源範本適用於<emphasis>叢集</emphasis>而非 crm 外圍程序。
+   </para>
+   <para>
+    組態範本只需略做調整就能符合特定使用者的需求。當某範本建立組態時，便會有警告訊息發出提示，您稍後可以在進一步自訂時編輯該提示。
+   </para>
+   <para>
+    以下程序說明如何建立一個簡單但功能齊備的 Apache 組態：
+   </para>
+   <procedure xml:id="pro-ha-manual-config-template">
+    <step>
+     <para>
+      以 <systemitem class="username">root</systemitem> 身分登入，然後啟動 <command>crm</command> 互動式外圍程序：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+    </step>
+    <step>
+     <para>
+      藉由組態範本建立新的組態：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        切換到 <command>template</command> 子指令：
+       </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>template</command></screen>
+      </step>
+      <step>
+       <para>
+        列出可用的組態範本：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>list templates</command>
+gfs2-base   filesystem  virtual-ip  apache   clvm     ocfs2    gfs2</screen>
+      </step>
+      <step>
+       <para>
+        指定所需的組態範本。由於我們需要 Apache 組態，因此選取了 <literal>apache</literal> 範本並將其命名為 <literal>g-intranet</literal>：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>new g-intranet apache</command>
+INFO: pulling in template apache
+INFO: pulling in template virtual-ip</screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      定義參數：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        列出您建立的組態：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>list</command>
+g-intranet</screen>
+      </step>
+      <step xml:id="st-config-cli-show">
+       <para>
+        顯示需要由您填寫的必要變更：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>show</command>
+ERROR: 23: required parameter ip not set
+ERROR: 61: required parameter id not set
+ERROR: 65: required parameter configfile not set</screen>
+      </step>
+      <step xml:id="st-config-cli-edit">
+       <para>
+        啟用偏好的文字編輯器，填寫<xref linkend="st-config-cli-show"/> 中顯示為錯誤的所有行：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>edit</command></screen>
+      </step>
+
+     </substeps>
+    </step>
+    <step>
+     <para>
+      顯示組態並檢查其是否有效 (視<xref linkend="st-config-cli-edit" xrefstyle="select:label"/> 中輸入的組態而定，可能會顯示粗體文字)：
+     </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>show</command>
+primitive virtual-ip ocf:heartbeat:IPaddr \
+    params ip=<emphasis role="strong">"192.168.1.101"</emphasis>
+primitive apache apache \
+    params configfile=<emphasis role="strong">"/etc/apache2/httpd.conf"</emphasis>
+    monitor apache 120s:60s
+group <emphasis role="strong">g-intranet</emphasis> \
+    apache virtual-ip</screen>
+    </step>
+    <step>
+     <para>
+      套用組態：
+     </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>apply</command>
+<prompt role="custom">crm(live)configure# </prompt><command>cd ..</command>
+<prompt role="custom">crm(live)configure# </prompt><command>show</command></screen>
+    </step>
+    <step>
+     <para>
+      將變更提交至 CIB：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+    </step>
+   </procedure>
+   <para>
+    如果您瞭解詳細資料，還可以使指令更簡單。您可以在外圍程序中使用以下指令來彙總上述程序：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm configure template \
+   new g-intranet apache params \
+   configfile="/etc/apache2/httpd.conf" ip="192.168.1.101"</command></screen>
+   <para>
+    如果您在內部 <command>crm</command> 外圍程序中，請使用以下指令：
+   </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>new intranet apache params \
+   configfile="/etc/apache2/httpd.conf" ip="192.168.1.101"</command></screen>
+   <para>
+    但是，之前的指令只是藉由組態範本建立其組態，而不會套用或提交至 CIB。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-shadowconfig">
+   <title>使用陰影組態進行測試</title>
+   <para>
+    陰影組態用於測試不同的組態案例。如果您已建立幾個非正式組態，則可以逐個進行測試以查看變更的效果。
+   </para>
+   <para>
+    一般程序如下：
+   </para>
+   <procedure>
+    <step>
+     <para>
+      以 <systemitem class="username">root</systemitem> 身分登入，然後啟動 <command>crm</command> 互動式外圍程序：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+    </step>
+    <step>
+     <para>
+      建立新的非正式組態：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>cib new myNewConfig</command>
+INFO: myNewConfig shadow CIB created</screen>
+     <para>
+      如果省略陰影 CIB 的名稱，將會建立臨時名稱 <literal>@tmp@</literal>。
+     </para>
+    </step>
+    <step>
+     <para>
+      若要將目前的即時組態複製至您的陰影組態，請使用以下指令，否則請跳過此步驟：
+     </para>
+<screen>crm(myNewConfig)# <command>cib reset myNewConfig</command></screen>
+     <para>
+      之前的指令可讓您以後修改任何現有資源時更為方便。
+     </para>
+    </step>
+    <step>
+     <para>
+      和平常一樣進行變更。建立非正式組態之後，所有變更即會套用至該組態。若要儲存所有變更，請使用以下指令：
+     </para>
+<screen>crm(myNewConfig)# <command>commit</command></screen>
+    </step>
+    <step>
+     <para>
+      如果重新需要使用即時叢集組態，請使用以下指令切換回來：
+     </para>
+<screen>crm(myNewConfig)configure# <command>cib use live</command>
+<prompt role="custom">crm(live)# </prompt></screen>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-debugging">
+   <title>組態變更除錯</title>
+   <para>
+    在將組態變更載入回叢集之前，建議您先使用 <command>ptest</command> 檢閱變更。<command>ptest</command> 指令可顯示提交變更後將發生之動作的圖表。您需要 <package>graphviz</package> 套件才能顯示圖表。以下範例是一份記錄，新增了監控操作：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command>
+<prompt role="custom">crm(live)configure# </prompt><command>show fence-bob</command>
+primitive fence-bob stonith:apcsmart \
+        params hostlist="bob"
+<prompt role="custom">crm(live)configure# </prompt><command>monitor fence-bob 120m:60s</command>
+<prompt role="custom">crm(live)configure# </prompt><command>show changed</command>
+primitive fence-bob stonith:apcsmart \
+        params hostlist="bob" \
+        op monitor interval="120m" timeout="60s"
+<prompt role="custom">crm(live)configure# </prompt><command>ptest</command>
+<prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-diagram">
+   <title>叢集圖表</title>
+   <para>
+    若要輸出叢集圖表，請使用 <command>crm configure graph</command> 指令。該指令會在目前所在的視窗中顯示目前的組態，因此需要 X11。
+   </para>
+   <para>
+    如果您偏好使用可擴充向量圖形 (SVG)，請使用如下指令：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm configure graph dot config.svg svg</command></screen>
+  </sect2>
+
+ <sect2 xml:id="sec-ha-manual-config-crm-corosync">
+  <title>管理 Corosync 組態</title>
+
+  <para>
+   Corosync 是大多數 HA 叢集的基礎訊息傳送層。<command>corosync</command> 子指令提供用於編輯和管理 Corosync 組態的指令。
+  </para>
+
+  <para>
+   例如，若要列出叢集的狀態，可以使用 <command>status</command>：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm corosync status</command>
+Printing ring status.
+Local node ID 175704363
+RING ID 0
+        id      = 10.121.9.43
+        status  = ring 0 active with no faults
+Quorum information
+------------------
+Date:             Thu May  8 16:41:56 2014
+Quorum provider:  corosync_votequorum
+Nodes:            2
+Node ID:          175704363
+Ring ID:          4032
+Quorate:          Yes
+
+Votequorum information
+----------------------
+Expected votes:   2
+Highest expected: 2
+Total votes:      2
+Quorum:           2
+Flags:            Quorate
+
+Membership information
+----------------------
+    Nodeid      Votes Name
+ 175704363          1 alice.example.com (local)
+ 175704619          1 bob.example.com</screen>
+
+  <para>
+   <command>diff</command> 指令會比較所有節點上的 Corosync 組態 (如果未另行指定)，並列印各節點之間的差異：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm corosync diff</command>
+--- bob
++++ alice
+@@ -46,2 +46,2 @@
+-       expected_votes: 2
+-       two_node: 1
++       expected_votes: 1
++       two_node: 0</screen>
+
+  <para>
+   如需詳細資訊，請參閱<link xlink:href="https://crmsh.nongnu.org/crm.8.html#cmdhelp_corosync"/>。
+  </para>
+ </sect2>
+
+ <sect2 xml:id="sec-ha-config-crm-setpwd">
+  <title>設定獨立於 <filename>cib.xml</filename> 的密碼</title>
+
+  <para>
+   如果叢集組態包含密碼之類的敏感性資訊，應將其儲存在本地檔案中。這樣，支援報告中就絕對不會記錄或洩漏這些參數。
+  </para>
+
+  <para>
+   使用 <command>secret</command> 前，請先執行 <command>show</command> 指令瞭解所有資源的概況：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm configure show</command>
+primitive mydb mysql \
+   params replication_user=admin ...</screen>
+
+  <para>
+   若要為上文的 <literal>mydb</literal> 資源設定密碼，請使用以下指令：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm resource secret mydb set passwd linux</command>
+INFO: syncing /var/lib/heartbeat/lrm/secrets/mydb/passwd to [your node list]</screen>
+
+  <para>
+   您可以使用以下指令取得儲存的密碼：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm resource secret mydb show passwd</command>
+linux</screen>
+
+  <para>
+   各節點間的參數需要同步；<command>crm resource secret</command> 指令可用於執行此操作。強烈建議僅使用此指令來管理機密參數。
+  </para>
+ </sect2>
+</sect1>

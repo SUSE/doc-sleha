@@ -1,0 +1,449 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_virtualization.xml" xml:id="cha-ha-virtualization" xml:lang="ja" version="5.1">
+  <title>仮想化のための高可用性</title>
+  <info>
+    <abstract>
+      <para>
+        この章では、仮想マシンを可用性の高いクラスタリソースとして設定する方法を説明します。
+      </para>
+    </abstract>
+    <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+      <dm:bugtracker/>
+      <dm:translation>yes</dm:translation>
+    </dm:docmanager>
+  </info>
+
+  <sect1 xml:id="sec-ha-virtualization-overview">
+    <title>概要</title>
+      <para>
+      仮想マシンは、高可用性クラスタでさまざまな役割を担うことができます。
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          仮想マシンは、クラスタによってリソースとして管理できますが、クラスタは仮想マシン上で実行されるサービスを管理できません。この場合、VMはクラスタに対して不透明です。これがこのドキュメントで説明するシナリオです。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          仮想マシンはクラスタリソースになることができ、<systemitem class="daemon">pacemaker_remote</systemitem>を実行できます。これにより、クラスタは仮想マシン上で実行されるサービスを管理できます。この場合、VMはゲストノードであり、クラスタに対して透過的です。このシナリオについては、<xref linkend="sec-ha-pmremote-install-virt-guest-nodes"/>を参照してください。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          仮想マシンは完全なクラスタスタックを実行できます。この場合、VMは通常のクラスタノードであり、クラスタによってリソースとして管理されません。このシナリオについては、<xref linkend="article-installation"/>を参照してください。
+        </para>
+      </listitem>
+    </itemizedlist>
+    <para>
+      以下の手順では、ブロックストレージ上に可用性の高い仮想マシンをセットアップする方法について説明します。ここでは、VMのロックファイルやXML設定ファイルを保存するために、別のブロックデバイスをOCFS2ボリュームとして使用します。この仮想マシンおよびOCFS2ボリュームは、クラスタによって管理されるリソースとして設定されます。ただし、仮想マシンが任意のノードで起動する前にロックファイルディレクトリが常に使用できるようにするためにリソース制約を設けます。これにより、仮想マシンが複数のノードで起動するのを防ぐことができます。
+    </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-requirements">
+    <title>要件</title>
+    <itemizedlist>
+      <listitem>
+        <para>
+          2つ以上のノードとSBDなどのフェンシングデバイスを備えた実行中の高可用性クラスタ。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          クラスタノード間でのパスワード不要な<systemitem class="username">root</systemitem> SSHログイン。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          VMのインストールおよび実行に使用される、各クラスタノード上のネットワークブリッジ。これは、クラスタ通信および管理に使用されるネットワークとは別のものでなければなりません。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          2つ以上の共有ストレージデバイス(または単一の共有デバイス上のパーティション)。これにより、すべてのクラスタノードがVMに必要なファイルとストレージにアクセスできます。
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>
+              OCFS2ボリュームとして使用するデバイス。これに、VMのロックファイルとXML設定ファイルを保存します。OCFS2ボリュームの作成およびマウントについては、次の手順で説明します。
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              VMのインストールソース(ISOファイルやディスクイメージなど)を含むデバイス。
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              インストールソースによっては、VMのストレージディスク用に別のデバイスが必要になる場合があります。
+            </para>
+          </listitem>
+        </itemizedlist>
+        <para>
+          I/Oの枯渇を避けるため、これらのデバイスはSBDに使用される共有デバイスとは別にする必要があります。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          すべてのストレージパスの固定デバイス名(例: <filename>/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></filename>)。共有ストレージデバイスの<filename>/dev/sdX</filename>名が、異なるノードで不一致になると、VMの移行が失敗する原因となることがあります。
+        </para>
+      </listitem>
+    </itemizedlist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-configuring-cluster-resources">
+    <title>ロックファイルを管理するようにクラスタリソースを設定する</title>
+    <para>
+      この手順に従ってクラスタを設定し、仮想マシンのロックファイルを管理します。VMが実行されているノードに関係なく、クラスタがロックファイルを認識できるように、ロックファイルのディレクトリはすべてのノードで使用可能である必要があります。
+    </para>
+    <para>
+      クラスタノードのいずれかで次のコマンドを実行するだけで済みます。
+    </para>
+    <procedure xml:id="pro-ha-virtualization-configuring-cluster-resources">
+      <title>ロックファイルを管理するようにクラスタリソースを設定する</title>
+      <step>
+        <para>
+          共有ストレージデバイスのいずれかにOCFS2ボリュームを作成します。
+        </para>
+<screen><prompt role="root"># </prompt><command>mkfs.ocfs2 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+      </step>
+      <step>
+        <para>
+          <command>crm configure</command>を実行して<command>crm</command>インタラクティブシェルを起動します。
+        </para>
+      </step>
+      <step>
+        <para>
+          DLMのプリミティブリソースを作成します。
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive dlm ocf:pacemaker:controld \
+  op monitor interval=60 timeout=60</command></screen>
+      </step>
+      <step>
+        <para>
+          OCFS2ボリュームのプリミティブリソースを作成します。
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive ocfs2 Filesystem \
+  params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype=ocfs2 \
+  op monitor interval=20 timeout=40</command></screen>
+      </step>
+      <step>
+        <para>
+          DLMおよびOCFS2リソースのグループを作成します。
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group g-virt-lock dlm ocfs2</command></screen>
+      </step>
+      <step>
+        <para>
+          グループのクローンを作成して、すべてのノードで実行できるようにします。
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>clone cl-virt-lock g-virt-lock \
+  meta interleave=true</command></screen>
+      </step>
+      <step>
+        <para>
+          <command>show</command>で変更内容をレビューします。
+        </para>
+      </step>
+      <step>
+        <para>
+          すべて正しければ、<command>commit</command>で変更を送信し、<command>quit</command>でcrmライブ設定を終了します。
+        </para>
+      </step>
+      <step>
+        <para>
+          グループクローンの状態を確認します。すべてのノードで実行されている必要があります。
+        </para>
+<screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Full List of Resources:
+[...]
+  * Clone Set: cl-virt-lock [g-virt-lock]:
+    * Started: [ alice bob ]</screen>
+      </step>
+    </procedure>
+    <para>
+
+    </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-preparing-the-cluster-nodes">
+    <title>仮想マシンをホストするようにクラスタノードを準備する</title>
+    <para>
+      この手順に従って、必要な仮想化サービスのインストールと起動を行い、VMのロックファイルを共有OCFS2ボリュームに保存するようにノードを設定します。
+    </para>
+    <para>
+      この手順では、<command>crm cluster run</command>を使用してすべてのノードで同時にコマンドを実行します。個々のノードを個別に管理したい場合、コマンドの<command>crm cluster run</command>の部分を省略できます。
+    </para>
+    <procedure xml:id="pro-ha-virtualization-preparing-the-cluster-nodes">
+      <title>仮想マシンをホストするようにクラスタノードを準備する</title>
+      <step>
+        <para>
+          クラスタのすべてのノードに仮想化パッケージをインストールします。
+        </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "zypper install -y -t pattern kvm_server kvm_tools"</command></screen>
+      </step>
+      <step>
+        <para>
+          1つのノードで、ファイル<filename>/etc/libvirt/qemu.conf</filename>内にある<literal>lock_manager</literal>設定を見つけて有効にします。
+        </para>
+<screen>lock_manager = "lockd"</screen>
+      </step>
+      <step>
+        <para>
+          同じノードで、ファイル<filename>/etc/libvirt/qemu-lockd.conf</filename>内にある<literal>file_lockspace_dir</literal>設定を見つけて有効にし、OCFS2ボリューム上のディレクトリを指すように値を変更します。
+        </para>
+<screen>file_lockspace_dir = "/mnt/shared/lockd"</screen>
+      </step>
+      <step>
+        <para>
+          これらのファイルをクラスタ内の他のノードにコピーします。
+        </para>
+<screen><prompt role="root"># </prompt><command>crm cluster copy /etc/libvirt/qemu.conf</command>
+<prompt role="root"># </prompt><command>crm cluster copy /etc/libvirt/qemu-lockd.conf</command></screen>
+      </step>
+      <step>
+        <para>
+          クラスタ内のすべてのノードで<literal>libvirtd</literal>サービスを有効にし、開始します。
+        </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "systemctl enable --now libvirtd"</command></screen>
+        <para>
+          これにより<literal>virtlockd</literal>サービスも開始されます。
+        </para>
+      </step>
+    </procedure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-adding-virtual-machines">
+    <title>クラスタリソースとして仮想マシンを追加する</title>
+    <para>
+      この手順に従って、仮想マシンをクラスタリソースとしてクラスタに追加します。ただし、VMがロックファイルにいつでもアクセスできるようにリソース制約を設けます。ロックファイルは<literal>g-virt-lock</literal>グループのリソースによって管理されます。このグループは<literal>cl-virt-lock</literal>クローンを介してすべてのノードで使用できます。
+    </para>
+    <procedure xml:id="pro-ha-virtualization-adding-virtual-machines">
+      <title>クラスタリソースとして仮想マシンを追加する</title>
+      <step>
+        <para>
+          クラスタノードのいずれかに仮想マシンをインストールします。ただし、次の制約があります。
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>
+              インストールソースとストレージを共有デバイス上に配置すること。
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              ホストブート時にVMを起動するように設定してはならない。
+            </para>
+          </listitem>
+        </itemizedlist>
+        <para>
+          詳細については、<link xlink:href="https://documentation.suse.com/sles/html/SLES-all/book-virtualization.html">
+          <citetitle>Virtualization Guide</citetitle> for SUSE Linux Enterprise Server</link>を参照してください。
+        </para>
+      </step>
+      <step>
+        <para>
+          仮想マシンが実行中の場合、シャットダウンします。VMをリソースとして追加すると、クラスタがVMを起動します。
+        </para>
+      </step>
+      <step>
+        <para>
+          XML設定をOCFS2ボリュームにダンプします。各VMについて、このステップを繰り返します。
+        </para>
+<screen><prompt role="root"># </prompt><command>virsh dumpxml <replaceable>VM1</replaceable> &gt; /mnt/shared/<replaceable>VM1</replaceable>.xml</command></screen>
+        <important role="compact">
+          <para>
+            XMLファイルに、共有されていないローカルパスへの参照が含まれていないことを確認してください。
+          </para>
+        </important>
+      </step>
+      <step>
+        <para>
+          <command>crm configure</command>を実行して<command>crm</command>インタラクティブシェルを起動します。
+        </para>
+      </step>
+      <step>
+        <para>
+          プリミティブリソースを作成し、仮想マシンを管理します。各VMについて、このステップを繰り返します。
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive <replaceable>VM1</replaceable> VirtualDomain \
+  params config="/mnt/shared/<replaceable>VM1</replaceable>.xml" remoteuri="qemu+ssh://%n/system" \
+  meta allow-migrate=true \
+  op monitor timeout=30s interval=10s</command></screen>
+        <para>
+          オプション<literal>allow-migrate=true</literal>を指定すると、ライブマイグレーションが有効になります。値を<literal>false</literal>に設定すると、クラスタは、あるノードでVMをシャットダウンし別のノードで再起動することによって、VMを移行します。
+        </para>
+        <para>
+          負荷の影響に基づいてVMを配置できるように使用属性を設定する必要がある場合は、<xref linkend="sec-ha-config-basics-utilization"/>を参照してください。
+        </para>
+      </step>
+      <step>
+        <para>
+          <literal>cl-virt-lock</literal>が実行中のノードでのみ仮想マシンを起動できるように、コロケーション制約を作成します。
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>colocation col-fs-virt inf: ( <replaceable>VM1 VM2 VMX</replaceable> ) cl-virt-lock</command></screen>
+      </step>
+      <step>
+        <para>
+          <literal>cl-virt-lock</literal>が常に仮想マシンの前に開始されるように、順序制約を作成します。
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order o-fs-virt Mandatory: cl-virt-lock ( <replaceable>VM1 VM2 VMX</replaceable> )</command></screen>
+      </step>
+      <step>
+        <para>
+          <command>show</command>で変更内容をレビューします。
+        </para>
+      </step>
+      <step>
+        <para>
+          すべて正しければ、<command>commit</command>で変更を送信し、<command>quit</command>でcrmライブ設定を終了します。
+        </para>
+      </step>
+      <step>
+        <para>
+          仮想マシンの状態を確認します。
+        </para>
+<screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Full List of Resources:
+[...]
+  * Clone Set: cl-virt-lock [g-virt-lock]:
+    * Started: [ alice bob ]
+  * VM1 (ocf::heartbeat:VirtualDomain): Started alice
+  * VM2 (ocf::heartbeat:VirtualDomain): Started alice
+  * VMX (ocf::heartbeat:VirtualDomain): Started alice</screen>
+      </step>
+    </procedure>
+    <para>
+      仮想マシンは、高可用性クラスタによって管理されるようになり、クラスタノード間で移行できるようになりました。
+    </para>
+    <important>
+      <title>クラスタが管理するVMを手動で起動または停止しないでください。</title>
+      <para>
+        仮想マシンをクラスタリソースとして追加した後、仮想マシンを手動で管理しないでください。<xref linkend="cha-ha-manage-resources"/>で説明されているクラスタツールのみを使用してください。
+      </para>
+      <para>
+        クラスタが管理するVMの保守タスクを実行するには、<xref linkend="sec-ha-maint-overview"/>を参照してください。
+      </para>
+    </important>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-testing">
+    <title>セットアップをテストする</title>
+    <para>
+      以下の各テストを実施して、仮想マシンの高可用性セットアップが予想どおりに動作することを確認します。
+    </para>
+    <important role="compact">
+      <para>
+        これらのテストは、運用環境ではなくテスト環境で実行してください。
+      </para>
+    </important>
+    <procedure>
+      <title>VMリソースがクラスタノード間で保護されることを確認する</title>
+      <step>
+        <para>
+          仮想マシン<literal>VM1</literal>がノード<literal>alice</literal>上で実行されています。
+        </para>
+      </step>
+      <step>
+        <para>
+          ノード<literal>bob</literal>で、<command>virsh start VM1</command>を使用してVMを手動で起動してみます。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold"></emphasis>予想される結果: <command>virsh</command>コマンドが失敗します。<literal>VM1</literal>が<literal>alice</literal>上で実行されている場合、これを<literal>bob</literal>上で手動で起動することはできません。
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>クラスタノード間でVMリソースをライブマイグレーションできることを確認する</title>
+      <step>
+        <para>
+          仮想マシン<literal>VM1</literal>がノード<literal>alice</literal>上で実行されています。
+        </para>
+      </step>
+      <step>
+        <para>
+          2つの端末を開きます。
+        </para>
+      </step>
+      <step>
+        <para>
+          1つ目の端末で、SSH経由で<literal>VM1</literal>に接続します。
+        </para>
+      </step>
+      <step>
+        <para>
+          2つ目の端末で、<command>crm resource move VM1 bob</command>を使用して<literal>VM1</literal>をノード<literal>bob</literal>に移行してみます。
+        </para>
+      </step>
+      <step>
+        <para>
+          <command>crm_mon -r</command>を実行し、安定するまでクラスタの状態を監視します。これには少し時間がかかる場合があります。
+        </para>
+      </step>
+      <step>
+        <para>
+          1つ目の端末で、<literal>VM1</literal>へのSSH接続がアクティブのままかどうか確認します。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold"></emphasis>予想される結果: クラスタの状態が、<literal>VM1</literal>が<literal>bob</literal>上で起動したことを示します。<literal>VM1</literal>へのSSH接続が、移行中ずっとアクティブなままです。
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>現在のノードが再起動するときにVMリソースが別のノードに移行できることを確認する</title>
+      <step>
+        <para>
+          仮想マシン<literal>VM1</literal>がノード<literal>bob</literal>上で実行されています。
+       </para>
+      </step>
+      <step>
+        <para>
+          <literal>bob</literal>を再起動します。
+        </para>
+      </step>
+      <step>
+        <para>
+          ノード<literal>alice</literal>で、<command>crm_mon -r</command>を実行し、安定するまでクラスタの状態を監視します。これには少し時間がかかる場合があります。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold"></emphasis>予想される結果: クラスタの状態が、<literal>VM1</literal>が<literal>alice</literal>上で起動したことを示します。
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>現在のノードがクラッシュしたときにVMリソースが別のノードにフェールオーバーできることを確認する</title>
+      <step>
+        <para>
+          仮想マシン<literal>VM1</literal>がノード<literal>alice</literal>上で実行されています。
+        </para>
+      </step>
+      <step>
+        <para>
+          マシンを強制的にオフにするかまたは電源ケーブルを抜くことで、<literal>alice</literal>のクラッシュをシミュレートします。
+        </para>
+      </step>
+      <step>
+        <para>
+          ノード<literal>bob</literal>で、<command>crm_mon -r</command>を実行し、安定するまでクラスタの状態を監視します。ノードがクラッシュした後のVMのフェールオーバーは通常、ノードを再起動した後のVMの移行よりも時間がかかります。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold"></emphasis>予想される結果: しばらくすると、クラスタの状態が、<literal>VM1</literal>が<literal>bob</literal>上で起動したことを示します。
+        </para>
+      </step>
+    </procedure>
+  </sect1>
+
+</chapter>

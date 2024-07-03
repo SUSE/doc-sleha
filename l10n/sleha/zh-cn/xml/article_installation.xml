@@ -1,0 +1,774 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:its="http://www.w3.org/2005/11/its" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="article_installation.xml" version="5.2" xml:lang="zh-cn" xml:id="article-installation">
+ <title>安装和设置快速入门</title>
+ <info>
+  <productnumber>15 SP6</productnumber>
+  <productname>SUSE Linux Enterprise High Availability</productname>
+  <date><?dbtimestamp format="Y"?> 年 <?dbtimestamp format="B" padding="0"?> 月 <?dbtimestamp format="d" padding="0"?> 日
+</date>
+  <xi:include href="common_copyright_gfdl.xml"/>
+  <abstract>
+   <para>
+     本文档会指导您使用 crm 外壳提供的引导脚本完成最基本的双节点群集的设置。其中包括将虚拟 IP 地址配置为群集资源，以及在共享储存上使用 SBD 作为节点屏蔽机制。
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+  <meta name="task" its:translate="no">
+    <phrase>安装</phrase>
+    <phrase>管理</phrase>
+    <phrase>群集</phrase>
+  </meta>
+  <meta name="series" its:translate="no">产品文档</meta>
+  <revhistory xml:id="rh-article-installation">
+    <revision>
+      <date>2024-06-26</date>
+      <revdescription>
+        <para>
+          针对 SUSE Linux Enterprise High Availability15 SP6 的初始版本进行了更新。
+        </para>
+      </revdescription>
+    </revision>
+   </revhistory>
+ </info>
+
+  <sect1 xml:id="sec-ha-inst-quick-usage-scenario">
+   <title>使用情形</title>
+   <para>
+    通过本文档中介绍的过程可完成具有以下属性的双节点群集的极简设置：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      两个节点：<systemitem class="server">alice</systemitem>（IP：<systemitem class="ipaddress">192.168.1.1</systemitem>）和 <systemitem class="server">bob</systemitem>（IP：<systemitem class="ipaddress">192.168.1.2</systemitem>），两者之间通过网络彼此相连。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      一个浮动虚拟 IP 地址 (<systemitem class="ipaddress">192.168.1.10</systemitem>)，无论服务在哪个节点上运行，客户端都可通过该地址连接到服务。此 IP 地址用于连接到图形管理工具 Hawk2。
+     </para>
+    </listitem>
+    <listitem>
+     <para>一台共享存储设备，用作 SBD 屏蔽机制。这样可避免出现节点分裂情况。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      当活动的主机发生故障（<emphasis>主动/被动</emphasis>设置）时，资源从一个节点故障转移至另一个节点。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    您可以使用该双节点群集进行测试，或以它为最小群集配置，稍后再行扩展。将该群集用于生产环境之前，请参见<xref linkend="book-administration"/>以根据自己的要求修改群集。
+   </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-req">
+   <title>系统要求</title>
+   <para>
+    本章介绍<xref linkend="sec-ha-inst-quick-usage-scenario" xrefstyle="select:label"/>中所述案例的重要系统要求。要将群集调整为可用于生产环境，请参考<xref linkend="cha-ha-requirements"/>中的完整列表。
+   </para>
+
+  <sect2 xml:id="vl-ha-inst-quick-req-hw">
+   <title>硬件要求</title>
+   <variablelist>
+    <varlistentry>
+     <term>服务器</term>
+     <listitem>
+      <para>
+       两台安装有<xref linkend="il-ha-inst-quick-req-sw"/>中指定的软件的服务器。
+      </para>
+      <para>
+      服务器可以是裸机，也可以是虚拟机。两台服务器不需要使用相同的硬件（内存、磁盘空间等），但它们的体系结构必须相同。不支持跨平台群集。
+     </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>通讯通道</term>
+     <listitem>  <para>
+       每个群集节点至少有两个 TCP/IP 通讯媒体。网络设备必须支持您要用于群集通讯的通讯方式：多播或单播。通讯媒体应支持 100 Mbit/s 或更高的数据传送速度。对于支持的群集设置，要求有两个或更多冗余通讯路径。这可通过以下方式实现：</para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          网络设备绑定（首选）
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          Corosync 中的另一个通讯通道
+         </para>
+        </listitem>
+       </itemizedlist> </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>节点屏蔽/STONITH</term>
+     <listitem>
+      <para>
+       用于防止出现节点分裂情况的节点屏蔽 (STONITH) 设备。可以是物理设备（电源开关），也可以是 SBD（按磁盘 STONITH）这样的机制与检查包的组合。SBD 可以与共享存储设备搭配使用，也可以在无磁盘模式下使用。本文档介绍如何将 SBD 与共享存储设备搭配使用。必须满足以下要求：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         一个共享存储设备。有关设置共享存储设备的信息，请参见 <link xlink:href="https://documentation.suse.com/sles/html/SLES-all/book-storage.html">
+         Storage Administration Guide for SUSE Linux Enterprise Server</link>。如果您只需要基本的共享存储设备来进行测试，请参见<xref linkend="ha-iscsi-for-sbd"/>。
+        </para>
+       </listitem>
+       <listitem>
+        <para>群集中的所有节点上，共享存储设备的路径都必须永久且一致。使用稳定的设备名称，如 <filename>/dev/disk/by-id/dm-uuid-part1-mpath-abcedf12345</filename>。
+        </para>
+       </listitem>
+       <listitem>
+        <para> SBD 设备<emphasis>不得</emphasis>使用基于主机的 RAID、LVM 或 DRBD*。
+        </para>
+       </listitem>
+      </itemizedlist>
+      <para>
+       有关 STONITH 的详细信息，请参见<xref linkend="cha-ha-fencing"/>。有关 SBD 的详细信息，请参见<xref linkend="cha-ha-storage-protect"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+ </sect2>
+  <sect2 xml:id="il-ha-inst-quick-req-sw">
+   <title>软件要求</title>
+   <para>
+   所有节点上至少需要安装以下模块和扩展：
+  </para>
+
+<itemizedlist>
+   <listitem>
+    <para>Basesystem Module 15 SP6</para>
+   </listitem>
+   <listitem>
+    <para>Server Applications Module 15 SP6</para>
+   </listitem>
+   <listitem>
+    <para>SUSE Linux Enterprise High Availability 15 SP6</para>
+   </listitem>
+  </itemizedlist>
+
+  </sect2>
+  <sect2 xml:id="vl-ha-inst-quick-req-other">
+   <title>其他要求和建议</title>
+   <variablelist>
+    <varlistentry>
+     <term>时间同步</term>  <listitem>
+   <para>
+     群集节点必须同步到群集外的 NTP 服务器。自 SUSE Linux Enterprise High Availability 15 起，采用 chrony 作为 NTP 的默认实现方式。有关详细信息，请参见<link xlink:href="https://documentation.suse.com/sles-15/html/SLES-all/cha-ntp.html">
+     Administration Guide for SUSE Linux Enterprise Server 15 SP6</link>。
+    </para>
+    <para>
+     如果节点未同步，或者即使节点已同步但配置了不同的时区，群集也可能无法正常工作。此外，日志文件和群集报告在不进行同步的情况下也很难进行分析。如果使用引导脚本，而 NTP 尚未配置，则系统会提出警告。
+    </para>
+  </listitem> </varlistentry>
+    <varlistentry>
+     <term>主机名和 IP 地址</term>
+     <listitem>
+      <itemizedlist>
+       <listitem>
+        <para> 使用静态 IP 地址。 </para>
+       </listitem>
+       <listitem>
+        <para>
+         只支持主 IP 地址。
+        </para>
+       </listitem>
+       <listitem>  <para>
+     在 <filename>/etc/hosts</filename> 文件中列出所有群集节点，包括各自的完全限定主机名和简短主机名。群集成员必须能够按名称找到彼此。如果名称不可用，则将无法进行群集内部通讯。
+   </para> </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>SSH</term>
+     <listitem>  <para>
+    所有群集节点都必须能通过 SSH 相互访问。<command>crm report</command>（用于查错）等工具和 Hawk2 的<guimenu>历史记录浏览器</guimenu>要求节点之间通过无口令 SSH 方式来访问，否则它们只能从当前节点收集数据。
+  </para> <para> 如果使用引导脚本设置群集，系统会自动创建并复制 SSH 密钥。 </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-bootstrap">
+  <title>引导脚本概述</title>
+  <para>
+   以下命令可执行只需要极少时间和手动操作的引导脚本。
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     使用 <command>crm cluster init</command> 可定义群集通讯所需的基本参数。这将为您提供一个运行中的单节点群集。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用 <command>crm cluster join</command> 向群集添加更多节点。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     使用 <command>crm cluster remove</command> 从群集中去除节点。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   引导脚本设置的选项可能与 Pacemaker 默认设置不同。您可以在 <filename>/var/log/crmsh/crmsh.log</filename> 中查看引导脚本更改了哪些设置。在引导过程中设置的任何选项都可稍后使用 YaST 群集模块进行修改。有关详细信息，请参见 <xref linkend="cha-ha-ycluster"/>。
+  </para>
+  <para>
+   引导脚本 <command>crm cluster init</command> 会检查并配置以下组件：
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>NTP</term>
+    <listitem>
+     <para>
+      检查 NTP 是否配置为在系统引导时启动。如果未配置成这样，系统会显示一条消息。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SSH</term>
+    <listitem>
+     <para>建立 SSH 密钥，以用于在群集节点之间进行无口令登录。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Csync2</term>
+    <listitem>
+     <para>
+      配置 Csync2，让其在群集中的所有节点上复制配置文件。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Corosync</term>
+    <listitem>
+     <para>配置群集通讯系统。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SBD/检查包</term>
+    <listitem>
+     <para>检查是否存在检查包，并询问您是否要将 SBD 配置为节点屏蔽机制。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>虚拟浮动 IP</term>
+    <listitem>
+     <para>询问您是否要配置虚拟 IP 地址，以便使用 Hawk2 进行群集管理。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>防火墙</term>
+    <listitem>
+     <para>在防火墙中打开群集通讯所需的端口。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>群集名称</term>
+    <listitem>
+     <para>为群集定义名称，默认为 <systemitem>hacluster</systemitem>。群集名称是可选的，对 Geo 群集最有用。群集名称通常会反映地理位置，这样您便可更轻松地识别 Geo 群集内的站点。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>QDevice/QNetd</term>
+    <listitem>
+     <para>
+      询问您是否要配置 QDevice/QNetd 以参与仲裁决定。我们建议对节点数为偶数的群集（特别是双节点群集）使用 QDevice 和 QNetd。
+     </para>
+     <para>
+      本文不会介绍此配置，但您可以稍后按<xref linkend="cha-ha-qdevice"/>中所述进行此设置。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <note>
+    <title>不同平台的群集配置</title>
+    <para>
+      <command>crm cluster init</command> 脚本会检测系统环境（例如 Microsoft Azure），并根据该环境的配置文件调整特定的群集设置。有关详细信息，请参见 <filename>/etc/crm/profiles.yml</filename> 文件。
+    </para>
+  </note>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-installation">
+    <title>安装 High Availability 软件包</title>
+    <para>
+      <literal>High Availability</literal> 安装软件集中包含用于配置和管理群集的软件包。只有在安装 SUSE Linux Enterprise High Availability 后，才能使用此软件集。
+    </para>
+    <para>
+      在安装 SUSE Linux Enterprise Server 期间或之后，您可以注册到 SUSE Customer Center 中并安装 SUSE Linux Enterprise High Availability。有关详细信息，请参见 SUSE Linux Enterprise Server 的 <link xlink:href="https://documentation.suse.com/sles/html/SLES-all/cha-register-sle.html">
+     Deployment Guide</link>。
+    </para>
+    <procedure xml:id="pro-ha-inst-quick-pattern">
+      <title>安装 High Availability 软件集</title>
+      <step>
+       <para>
+        从命令行安装 High Availability 软件集：</para>
+<screen><prompt role="root"># </prompt><command>zypper install -t pattern ha_sles</command></screen>
+      </step>
+      <step>
+       <para>
+          在将包含在群集中的<emphasis>所有</emphasis>计算机上安装 High Availability 软件集。
+       </para>
+       <note>
+        <title>在所有节点上安装软件包</title>
+        <para>
+          如果要自动安装 SUSE Linux Enterprise Server 15 SP6 和 SUSE Linux Enterprise High Availability 15 SP6，请使用 AutoYaST 克隆现有节点。有关详细信息，请参见<xref linkend="sec-ha-installation-autoyast"/>。
+        </para>
+       </note>
+      </step>
+    </procedure>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-sbd">
+  <title>使用 SBD 进行节点屏蔽</title>
+   <para>
+    必须在每个节点上都启用检查包，才能使用引导脚本配置 SBD。SUSE Linux Enterprise Server 随附了几个内核模块，用于提供针对特定硬件的检查包驱动程序。SUSE Linux Enterprise High Availability 使用 SBD 守护程序作为<quote>供给</quote>检查包的软件组件。
+   </para>
+   <para>
+    以下过程使用 <systemitem>softdog</systemitem> 检查包。
+   </para>
+
+   
+   <important>
+    <title>Softdog 限制</title>
+    <para>
+     Softdog 驱动程序假设至少有一个 CPU 仍然在运行。如果所有 CPU 均已阻塞，则 softdog 驱动程序中应该重引导系统的代码永远都不会执行。相反地，即使所有 CPU 均已阻塞，硬件检查包也仍然会继续工作。
+    </para>
+    <para>强烈建议您先以最适合您硬件的硬件模块替换 <systemitem>softdog</systemitem> 模块，再在生产环境中使用群集。
+    </para>
+    <para>不过，如果没有与您的硬件匹配的检查包，则可以将 <systemitem class="resource">softdog</systemitem> 用作内核检查包模块。</para>
+   </important>
+
+   <procedure xml:id="pro-ha-inst-quick-sbd-setup">
+    <title>对 SBD 启用 Softdog 检查包</title>
+    <step>
+     <para>
+      在每个节点上启用 softdog 检查包：
+     </para>
+     
+     <screen><prompt role="root"># </prompt><command>echo softdog &gt; /etc/modules-load.d/watchdog.conf</command>
+<prompt role="root"># </prompt><command>systemctl restart systemd-modules-load</command></screen>
+    </step>
+    <step>
+     <para>测试 softdog 模块是否已正确装载：
+     </para>
+     <screen><prompt role="root"># </prompt><command>lsmod | grep dog</command>
+softdog           16384  1</screen>
+    </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-setup-1st-node">
+  <title>设置第一个节点</title>
+   <para>
+   使用 <command>crm cluster init</command> 脚本设置第一个节点。此操作所需的时间和手动干预都极少。
+  </para>
+
+  <procedure xml:id="pro-ha-inst-quick-setup-crm-cluster-init">
+   <title>使用 <command>crm cluster init</command> 设置第一个节点 (<systemitem class="server">alice</systemitem>)</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 或具有 <command>sudo</command> 特权的用户身份登录到第一个群集节点。
+    </para>
+    <important>
+     <title>SSH 密钥访问</title>
+     <para>
+      群集使用无口令 SSH 访问权限在节点之间进行通讯。<command>crm cluster init</command> 脚本会检查 SSH 密钥是否存在，如果尚不存在，则会生成这些密钥。
+     </para>
+     <para>
+      在大多数情况下，<systemitem class="username">root</systemitem> 或 <command>sudo</command> 用户的 SSH 密钥必须存在于节点上（或在其上生成）。
+     </para>
+     <para>
+      或者，<command>sudo</command> 用户的 SSH 密钥可以存在于本地计算机上，并通过 SSH 代理转发传递到节点。这需要进行额外的配置，不属于此极简设置的范畴。有关详细信息，请参见<xref linkend="sec-ha-manual-config-crm-user-privileges"/>。
+     </para>
+    </important>
+   </step>
+   <step>
+    <para>
+     启动引导脚本：
+    </para>
+    <screen><prompt role="root"># </prompt><command>crm cluster init --name <replaceable>CLUSTERNAME</replaceable></command></screen>
+    <para>使用一个有意义的名称（例如群集的地理位置 <replaceable>CLUSTERNAME</replaceable>）替换 <literal>amsterdam</literal> 占位符。若要在稍后创建 Geo 群集，这样做特别有用，因为它使站点的识别变得简单。
+    </para>
+    <para>
+     如果您需要使用多播而不是单播（默认设置）来进行群集通讯，请使用选项 <option>--multicast</option>（或 <option>-U</option>）。
+    </para>
+    <para>
+     该脚本会检查是否存在 NTP 配置和硬件检查包服务。如果需要，它会生成用于 SSH 访问和 Csync2 同步的公共和私用 SSH 密钥，并启动相应的服务。
+    </para>
+   </step>
+   <step>
+    <para>
+     配置群集通讯层 (Corosync)：
+    </para>
+    <substeps>
+     <step>
+      <para>
+       输入要绑定的网络地址。默认情况下，脚本会建议使用网络地址 <systemitem>eth0</systemitem>。也可以输入其他网络地址，例如地址 <literal>bond0</literal>。
+      </para>
+     </step>
+     <step>
+      <para>
+       接受建议的端口 (<literal>5405</literal>) 或输入其他端口。
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+    将 SBD 设置为节点屏蔽机制：</para>
+    <substeps>
+     <step>
+      <para>输入 <literal>y</literal> 确认您要使用 SBD。</para>
+     </step>
+     <step>
+      <para>输入要为 SBD 使用的块设备分区的持久路径。该路径必须在群集中的所有节点中都一致。</para>
+       <para>脚本会在设备上创建用于 SBD 的小分区。</para>
+     </step>
+    </substeps>
+   </step>
+   <step xml:id="st-crm-cluster-init-ip">
+    <para>配置使用 Hawk2 进行群集管理所需的虚拟 IP 地址：</para>
+    <substeps>
+     <step>
+      <para>输入 <literal>y</literal> 确认您要配置虚拟 IP 地址。</para></step>
+     <step>
+      <para>为 Hawk2 的管理 IP 输入未使用的 IP 地址：<literal>192.168.1.10</literal>
+      </para>
+      <para>然后，您便可以连接到该虚拟 IP 地址，而无需使用 Hawk2 登录单个群集节点。</para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     选择是否配置 QDevice 和 QNetd。对于本文中所述的最小环境，暂时按 <literal>n</literal> 拒绝。您可以稍后再按<xref linkend="cha-ha-qdevice"/>中所述设置 QDevice 和 QNetd。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   最后，该脚本会启动群集服务以使群集联机，并启用 Hawk2。要用于 Hawk2 的 URL 将显示在屏幕上。
+  </para>
+
+  <para>
+   现在必须有一个运行中的单节点群集。要查看其状态，请执行以下操作：
+  </para>
+  <procedure xml:id="pro-ha-inst-quick-hawk2-login">
+   <title>登录 Hawk2 Web 界面</title>
+   <step>
+    <para> 在任何计算机上，启动 Web 浏览器并确保 JavaScript 和 cookie 已启用。 </para>
+   </step>
+   <step>
+    <para>对于 URL，请输入使用引导脚本配置的虚拟 IP 地址：</para>
+    <screen>https://192.168.1.10:7630/</screen>
+    <note>
+     <title>证书警告</title>
+     <para> 当您首次尝试访问 URL 时如果显示证书警告，则表示使用了自我签名证书。默认情况下，自我签名证书不被视为可信证书。 </para>
+     <para> 请向您的群集操作员询问证书细节，以校验该证书。 </para>
+     <para> 要继续，可在浏览器中添加例外，以绕过警告。 </para>
+    </note>
+   </step>
+   <step>
+    <para> 在 Hawk2 登录屏幕上，输入引导脚本创建的使用者的<guimenu>用户名</guimenu>和<guimenu>口令</guimenu>（用户 <systemitem class="username">hacluster</systemitem>，口令 <literal>linux</literal>）。</para>
+    <important>
+     <title>安全密码</title>
+     <para>尽快用安全密码替换默认密码：
+     </para>
+     <screen><prompt role="root"># </prompt><command>passwd hacluster</command></screen>
+    </important>
+   </step>
+   <step>
+    <para>
+     单击<guimenu>登录</guimenu>。Hawk2 Web 界面默认会显示“状态”屏幕：
+    </para>
+    <figure xml:id="fig-ha-inst-quick-one-node-status">
+     <title>Hawk2 中单节点群集的状态</title>
+     <mediaobject>
+      <imageobject>
+       <imagedata width="80%" fileref="installquick-one-nodecluster.png"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-inst-quick-setup-2nd-node">
+  <title>添加第二个节点</title>
+  <para>
+    使用 <command>crm cluster join</command> 引导脚本为群集添加第二个节点。脚本只需访问一个现有群集节点即可在当前计算机上自动完成基本设置。
+  </para>
+  <para>
+   有关详细信息，请参见 <command>crm cluster join --help</command> 命令。
+  </para>
+  <procedure xml:id="pro-ha-inst-quick-setup-crm-cluster-join">
+   <title>使用 <command>crm cluster join</command> 添加第二个节点 (<systemitem class="server">bob</systemitem>)</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 或具有 <command>sudo</command> 特权的用户身份登录到第二个节点。
+    </para>
+   </step>
+   <step>
+    <para>
+     启动引导脚本：
+    </para>
+    <para>
+     如果您以 <systemitem class="username">root</systemitem> 身份设置了第一个节点，则可以在不指定附加参数的情况下运行此命令：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join</command></screen>
+    <para>
+     如果您以 <command>sudo</command> 用户身份设置了第一个节点，则必须使用以下 <option>-c</option> 选项指定该用户：
+    </para>
+<screen><prompt>&gt; </prompt><command>sudo crm cluster join -c <replaceable>USER</replaceable>@alice</command></screen>
+    <para>
+     如果 NTP 未配置为在引导时启动，将显示一条消息。脚本还会检查是否存在硬件检查包设备。如果不存在此类设备，将会向您发出警告。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果您尚未使用 <option>-c</option> 指定 <systemitem class="server">alice</systemitem>，系统会提示您输入第一个节点的 IP 地址。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果您尚未在这两台计算机之间配置无口令 SSH 访问方式，系统会提示您输入第一个节点的口令。
+    </para>
+    <para>
+     登录到指定节点后，脚本会复制 Corosync 配置，配置 SSH 和 Csync2，使当前计算机作为新群集节点联机，并启动 Hawk2 所需的服务。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   在 Hawk2 中检查群集状态。在<menuchoice>
+    <guimenu>状态</guimenu>
+    <guimenu>节点</guimenu>
+   </menuchoice>下，您应该会看到状态为绿色的两个节点：
+  </para>
+
+  <figure xml:id="fig-ha-inst-quick-two-node-cluster">
+   <title>双节点群集的状态</title>
+   <mediaobject>
+    <imageobject>
+     <imagedata width="80%" fileref="installquick-two-nodecluster-status.png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-test">
+   <title>测试群集</title>
+   <para>
+    虽然以下测试有助于您识别群集设置存在的问题，但实际的测试涉及特别的使用场景和情境。将该群集用于生产环境之前，请根据自己的用例进行全面测试。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <command>sbd -d <replaceable>DEVICE_NAME</replaceable> list</command> 命令会列出对 SBD 可见的所有节点。对于按本文所述配置的群集，输出应显示 <systemitem class="server">alice</systemitem> 和 <systemitem class="server">bob</systemitem>。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="sec-ha-inst-quick-test-resource-failover"/>是一项简单的测试，会在群集中当前运行资源的节点设置为 <literal>standby</literal> 时，检查群集是否将虚拟 IP 地址移到另一个节点。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="sec-ha-inst-quick-test-with-cluster-script"/> 会模拟群集故障并报告结果。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <sect2 xml:id="sec-ha-inst-quick-test-resource-failover">
+    <title>测试资源故障转移</title>
+    <para>
+     请使用以下快速测试过程检查资源故障转移：
+    </para>
+   <procedure xml:id="pro-ha-inst-quick-test">
+    <title>测试资源故障转移</title>
+    <step>
+     <para>
+      打开终端并 ping <systemitem>192.168.1.10</systemitem>（即您的虚拟 IP 地址）：
+     </para>
+     <screen><prompt role="root"># </prompt><command>ping 192.168.1.10</command></screen>
+    </step>
+    <step>
+     <para>
+      登录 Hawk2：
+     </para>
+    </step>
+    <step>
+     <para>
+      在<menuchoice><guimenu>状态</guimenu><guimenu>资源</guimenu></menuchoice>下，查看运行该虚拟 IP 地址（资源 <systemitem>admin_addr</systemitem>）的节点。此过程假定该资源在 <systemitem class="server">alice</systemitem> 上运行。
+      </para>
+    </step>
+    <step>
+     <para>
+      将 <systemitem class="server">alice</systemitem> 置于<guimenu>待机</guimenu>模式：
+     </para>
+     <figure xml:id="fig-ha-inst-quick-standby">
+      <title>处于待机模式的节点 <systemitem class="server">alice</systemitem></title>
+      <mediaobject>
+       <imageobject>
+        <imagedata width="60%" fileref="installquick-standby-node.png"/>
+       </imageobject>
+      </mediaobject>
+     </figure>
+     
+    </step>
+    <step>
+     <para>
+      单击 <menuchoice>
+       <guimenu> 状态</guimenu>
+       <guimenu> 资源</guimenu>
+      </menuchoice> 。资源 <systemitem>admin_addr</systemitem> 已迁移到 <systemitem class="server">bob</systemitem>。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    在迁移期间，应该会看到针对虚拟 IP 地址的不间断的 ping 流。这表示该群集设置和浮动 IP 运作正常。按 <keycombo>
+       <keycap function="control"/><keycap>C</keycap>
+      </keycombo> 键取消 <command>ping</command> 命令。
+   </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-inst-quick-test-with-cluster-script">
+    <title>使用 <command>crm cluster crash_test</command> 命令进行测试</title>
+    <para>
+     <command>crm cluster crash_test</command> 命令会触发群集故障，以便找出问题。在生产环境中使用群集之前，建议先使用此命令来确保一切符合预期。
+    </para>
+    <para>
+     该命令支持以下检查：
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term><option>--split-brain-iptables</option></term>
+      <listitem>
+       <para>
+        通过阻止 Corosync 端口来模拟节点分裂场景。检查是否可按预期屏蔽一个节点。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><option>--kill-sbd</option>/<option>--kill-corosync</option>/ <option>--kill-pacemakerd</option></term>
+      <listitem>
+       <para>
+        终止 SBD、Corosync 和 Pacemaker 的守护程序。运行其中一项测试后，便可以在 <filename>/var/lib/crmsh/crash_test/</filename> 目录下找到一份报告。该报告中包含测试案例说明、操作日志记录以及对可能产生的结果的说明。
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><option>--fence-node <replaceable>NODE</replaceable></option></term>
+      <listitem>
+       <para>
+        屏蔽从命令行传递的特定节点。
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     有关详细信息，请参见<command>crm cluster crash_test --help</command>。
+    </para>
+    <example xml:id="ex-test-with-cluster-script">
+     <title>测试群集：节点屏蔽</title>
+<screen><prompt role="root"># </prompt><command>crm_mon -1</command>
+Stack: corosync
+Current DC: alice (version ...) - partition with quorum
+Last updated: Fri Mar 03 14:40:21 2020
+Last change: Fri Mar 03 14:35:07 2020 by root via cibadmin on alice
+
+2 nodes configured
+1 resource configured
+
+Online: [ alice bob ]
+Active resources:
+
+ stonith-sbd    (stonith:external/sbd): Started alice
+
+<prompt role="root"># </prompt><command>crm cluster crash_test</command><command> --fence-node bob</command>
+
+==============================================
+Testcase:          Fence node bob
+Fence action:      reboot
+Fence timeout:     60
+
+!!! WARNING WARNING WARNING !!!
+THIS CASE MAY LEAD TO NODE BE FENCED.
+TYPE Yes TO CONTINUE, OTHER INPUTS WILL CANCEL THIS CASE [Yes/No](No): <command>Yes</command>
+INFO: Trying to fence node "bob"
+INFO: Waiting 60s for node "bob" reboot...
+INFO: Node "bob" will be fenced by "alice"!
+INFO: Node "bob" was successfully fenced by "alice"</screen>
+    </example>
+    <para>
+      要在测试过程中监测 <systemitem class="server">bob</systemitem> 更改状态，请登录 Hawk2 并导航到<menuchoice><guimenu>状态</guimenu>
+      <guimenu>节点</guimenu></menuchoice>。
+     </para>
+   </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-next">
+   <title>后续步骤</title>
+   <para>
+    使用引导脚本可以快速地设置可用于测试用途的基本高可用性群集。不过，要将此群集扩展为正常运行且可用于生产环境的高可用性群集，建议您执行更多步骤。
+   </para>
+   <variablelist xml:id="vl-ha-inst-quick-next-rec">
+    <title>为完成高可用性群集设置建议执行的步骤</title>
+    <varlistentry>
+     <term>添加更多节点</term>
+     <listitem>
+      <para>
+       使用以下其中一种方法为群集添加更多节点：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         要一次添加一个节点，请按<xref linkend="sec-ha-inst-quick-setup-2nd-node"/>中所述使用 <command>crm cluster join</command> 脚本。
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         要批量安装多个节点，请按<xref linkend="sec-ha-installation-autoyast"/>中所述使用 AutoYaST。
+        </para>
+       </listitem>
+      </itemizedlist>
+      <para>
+       一个常规群集最多只能包含 32 个节点。借助 <systemitem class="daemon">pacemaker_remote</systemitem> 服务，可以将高可用性群集进行扩展，使其包含超出此限制的额外节点。有关详细信息，请参见<xref linkend="article-pacemaker-remote"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>配置 QDevice</term>
+     <listitem>
+      <para>
+       如果群集的节点数是偶数，请配置 QDevice 和 QNetd 以参与仲裁决定。QDevice 会提供一个可配置的投票数，以使群集可以承受大于标准仲裁规则所允许的节点故障数量。有关详细信息，请参见<xref linkend="cha-ha-qdevice"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>启用硬件检查包</term>
+     <listitem>
+      <para>
+       请先以最适合您硬件的硬件模块替换 <literal>softdog</literal> 模块，再在生产环境中使用群集。有关详细信息，请参见<xref linkend="sec-ha-storage-protect-watchdog"/>。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-inst-quick-moreinfo">
+   <title>更多信息</title>
+    <para>
+     <link xlink:href="https://documentation.suse.com/sle-ha/"/> 上提供了更多有关此产品的文档。有关其他配置和管理任务，请参见详尽的 <link xlink:href="https://documentation.suse.com/sle-ha/html/SLE-HA-all/book-sleha-guide.html">
+      Administration Guide</link>。
+    </para>
+   </sect1>
+ <xi:include href="ha_iscsi_for_sbd.xml"/>
+ <xi:include href="common_legal.xml"/>
+</article>
