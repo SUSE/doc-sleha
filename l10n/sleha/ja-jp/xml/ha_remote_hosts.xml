@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_remote_hosts.xml" xml:id="sec-ha-config-basics-remote" xml:lang="ja" version="5.1">
+ <title>リモートホストでのサービスの管理</title>
+ <info>
+  <abstract>
+   <para>
+    リモートホストでサービスを監視および管理できることが、ここ数年の間にますます重要になってきています。SUSE Linux Enterprise High Availability 11 SP3では、監視プラグインを介したリモートホストでのサービスの詳細な監視機能を提供してきました。SUSE Linux Enterprise High Availability 15 SP6では、最近追加された<literal>pacemaker_remote</literal>サービスを使用すると、リモートマシンにクラスタスタックをインストールしていなくても、実際のクラスタノードと同様にリモートホストでリソースを全面的に管理および監視できます。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+  <sect1 xml:id="sec-ha-config-basics-remote-nagios">
+   <title>監視プラグインを使用したリモートホストでのサービスの監視</title>
+   <para>
+    仮想マシンの監視はVMエージェント(ハイパーバイザにゲストが出現する場合のみチェックを行う)を使用して行うか、VirtualDomainまたはXenエージェントから呼び出される外部スクリプトによって行うことができます。これまでは、精度の高い監視を行うには、仮想マシン内にHigh Availabilityスタックを完全にセットアップするしか方法がありませんでした。
+   </para>
+   <para>
+    今回、SUSE Linux Enterprise High Availabilityでは、監視プラグイン(旧称はNagiosプラグイン)に対するサポートを提供することで、リモートホストでサービスを監視できるようになりました。ゲストイメージを変更することなく、ゲストの外部ステータスを収集できます。たとえば、VMゲストはWebサービスまたは単純なネットワークリソースを実行している可能性があり、これらはアクセス可能である必要があります。Nagiosリソースエージェントによって、ゲスト上のWebサービスまたはネットワークリソースを監視できるようになりました。これらのサービスにアクセスできなくなった場合は、SUSE Linux Enterprise High Availabilityがそれぞれのゲストの再起動またはマイグレーションをトリガします。
+   </para>
+   <para>
+    ゲストがサービス(そのゲストによって使用されるNFSサーバなど)に依存している場合、そのサービスは、クラスタによって管理される通常のリソースか、Nagiosリソースによって監視される外部サービスのどちらかにすることができます。
+   </para>
+   <para>
+    Nagiosリソースを設定するには、ホスト上に次のパッケージをインストールする必要があります:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <package>monitoring-plugins</package>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <package>monitoring-plugins-metadata</package>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    必要に応じて、YaSTまたはZypperが、これ以上のパッケージに対する依存性を解決します。
+   </para>
+   <para>
+    一般的な使用例としては、1つのリソースコンテナに属するリソースとして監視プラグインを設定します。このリソースコンテナは通常はVMです。リソースが失敗した場合、コンテナが再起動されます。設定例については、<xref linkend="ex-ha-nagios-config"/>を参照してください。または、Nagiosリソースエージェントを使用してネットワーク経由でホストまたはサービスを監視する場合、このエージェントを通常のリソースとして設定することもできます。
+   </para>
+   <example xml:id="ex-ha-nagios-config">
+    <title>監視プラグインのリソースの設定</title>
+<screen>primitive vm1 VirtualDomain \
+    params hypervisor="qemu:///system" config="/etc/libvirt/qemu/vm1.xml" \
+    op start interval="0" timeout="90" \
+    op stop interval="0" timeout="90" \
+    op monitor interval="10" timeout="30"
+primitive vm1-sshd nagios:check_tcp \
+    params hostname="vm1" port="22" \ <co xml:id="co-nagios-hostname"/>
+    op start interval="0" timeout="120" \ <co xml:id="co-nagios-startinterval"/>
+    op monitor interval="10"
+group g-vm1-and-services vm1 vm1-sshd \
+    meta container="vm1" <co xml:id="co-nagios-container"/></screen>
+    <calloutlist>
+     <callout arearefs="co-nagios-hostname">
+      <para>
+       サポートされるパラメータは、監視プラグインの長いオプションと同じです。プラグインは、パラメータ<literal>hostname</literal>によってサービスと接続します。したがって、この属性の値は解決可能なホスト名かIPアドレスである必要があります。
+      </para>
+     </callout>
+     <callout arearefs="co-nagios-startinterval">
+      <para>
+       ゲストオペレーティングシステムが起動してサービスが実行されるまでには少し時間がかかるので、監視リソースの起動タイムアウトは十分な長さに設定する必要があります。
+      </para>
+     </callout>
+     <callout arearefs="co-nagios-container">
+      <para>
+       <literal>ocf:heartbeat:Xen</literal>、<literal>ocf:heartbeat:VirtualDomain</literal>、または<literal>ocf:heartbeat:lxc</literal>タイプのクラスタリソースコンテナ。VMまたはLinuxコンテナのいずれかに設定できます。
+      </para>
+     </callout>
+    </calloutlist>
+    <para>
+     上の例には、<literal>check_tcp</literal>プラグイン用の1つのリソースしか含まれていませんが、さまざまなプラグインタイプ(たとえば、<literal>check_http</literal>や<literal>check_udp</literal>など)用に複数のリソースを設定することもできます。
+    </para>
+    <para>
+     複数のサービスのホスト名が同じである場合、<literal>hostname</literal>パラメータを個別のプリミティブに追加するのではなく、グループに対して指定することもできます。例:
+    </para>
+<screen>group g-vm1-and-services vm1 vm1-sshd vm1-httpd \
+     meta container="vm1" \
+     params hostname="vm1" </screen>
+    <para>
+     監視プラグインによって監視されているいずれかのサービスに、VM内で障害が発生した場合は、クラスタがこれを検出し、コンテナリソース(VM)を再起動します。この場合に実行される操作は、サービスの監視操作に関する<literal>on-fail</literal>属性を指定することで設定できます。デフォルトでは、<literal>restart-container</literal>に設定されています。
+    </para>
+    <para>
+     VMのマイグレーションしきい値を検討する場合は、サービスの障害発生回数が考慮されます。
+    </para>
+   </example>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-remote-pace-remote">
+   <title><literal>pacemaker_remote</literal>を使用したリモートノードでのサービスの管理</title>
+   <para>
+    <literal>pacemaker_remote</literal>サービスを使用すると、High Availabilityクラスタを仮想ノードまたはリモートベアメタルマシンに拡張することができます。クラスタスタックを実行して、クラスタのメンバーになる必要はありません。
+   </para>
+   <para>
+    SUSE Linux Enterprise High Availabilityでは現在、仮想環境(KVMおよびLXC)、およびこれらの仮想環境内に存在するリソースを起動できるようになりました(PacemakerまたはCorosyncの実行に仮想環境は必要としません)。
+   </para>
+   <para>
+    クラスタリソースとしての仮想マシンおよびVM内に存在するリソースの両方を管理する使用例では、次の設定を使用できるようになりました。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <quote>通常</quote>(ベアメタル)クラスタノードは、SUSE Linux Enterprise High Availabilityを実行します。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      仮想マシンは、<literal>pacemaker_remote</literal>サービスを実行します(VM側で必要な設定はほとんどありません)。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <quote>通常</quote>クラスタノード上のクラスタスタックはVMを起動し、VM上で実行されている<literal>pacemaker_remote</literal>サービスに接続して、それらをリモートノードとしてクラスタに統合します。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    リモートノードでクラスタスタックがインストールされていないときは、これには次の意味があります。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      リモートノードはクォーラムに参加しません。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      リモートノードはDCになることはできません。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      リモートノードは、スケーラビリティの制約に制限されません(Corosyncには32ノードのメンバー制限があります)。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    <literal>remote_pacemaker</literal>サービスに関する詳細については(詳細な設定手順から成る複数の使用例を含む)、<xref linkend="article-pacemaker-remote"/>を参照してください。
+   </para>
+  </sect1>
+</chapter>

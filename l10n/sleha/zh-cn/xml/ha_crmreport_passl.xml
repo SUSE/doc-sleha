@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_crmreport_passl.xml" xml:id="app-crmreport-nonroot" version="5.0">
+ <title>在没有 <systemitem class="username">root</systemitem> 访问权限的情况下运行群集报告</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  所有群集节点都必须能通过 SSH 相互访问。<command>crm report</command>（用于查错）等工具和 Hawk2 的<guimenu>历史记录浏览器</guimenu>要求节点之间通过无口令 SSH 方式来访问，否则它们只能从当前节点收集数据。
+ </para>
+ <para>
+  如果您的安全策略不允许进行无口令 <systemitem class="username">root</systemitem> SSH 登录，则在所有远程节点上以 <systemitem class="username">root</systemitem> 身份运行 <command>crm report</command> 时都会失败。在这种情况下，您仍可以采用以下其中一种方式运行群集报告：
+ </para>
+ <itemizedlist>
+   <listitem>
+     <para>
+       如果群集是由具有 <command>sudo</command> 特权的非 root 用户初始化的，则此用户可以运行群集报告。
+     </para>
+   </listitem>
+   <listitem>
+     <para>
+       如果群集是由 <systemitem class="username">root</systemitem> 用户初始化的，您可以创建专用的非 root 用户来运行群集报告。
+     </para>
+   </listitem>
+ </itemizedlist>
+ <para>
+  以下过程说明如何为非 root 用户授予受限权限，让该用户可以使用 <command>sudo</command> 来运行 <command>crm report</command>，但没有其他 <command>sudo</command> 访问权限。
+ </para>
+
+ <sect1 xml:id="sec-crmreport-nonroot-sudo">
+  <title>为非 root 用户配置受限的 <command>sudo</command> 权限</title>
+
+  <para>
+   <command>sudo</command> 命令可让普通用户快速变成 <systemitem class="username">root</systemitem> 并发出命令，而无论其是否提供了口令。可向所有 root 级命令或者特定的命令授予 sudo 访问权限。此过程说明如何仅为运行群集报告所需的特定命令配置 <command>sudo</command> 权限。Sudo 通常使用别名来定义整个命令字符串。
+  </para>
+
+  <para>
+   要配置 sudo，请使用 <command>visudo</command>（<emphasis>不是</emphasis> vi）或 YaST。
+  </para>
+
+  <warning>
+   <title>不要使用 vi</title>
+   <para>
+    要从命令行配置 sudo，必须以 <systemitem class="username">root</systemitem> 身份使用 <command>visudo</command> 编辑 sudoers 文件。使用任何其他编辑器可能会导致语法或文件权限错误，进而阻止 sudo 运行。
+   </para>
+  </warning>
+
+  <itemizedlist>
+    <title>要求</title>
+    <listitem>
+      <para>
+        没有 <command>sudo</command> 权限的非 root 用户。以下过程使用名为 <systemitem class="username">hareport</systemitem> 的示例用户。
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        群集中的所有节点上都存在用户 <systemitem class="username">hareport</systemitem>。
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        用户 <systemitem class="username">hareport</systemitem> 可以通过无口令 SSH 访问群集中的所有其他节点。
+      </para>
+    </listitem>
+  </itemizedlist>
+
+  <procedure>
+   <title>为非 root 用户配置受限的 <command>sudo</command> 权限</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     要打开 <filename>/etc/sudoers</filename> 文件，请输入 <command>visudo</command>。
+    </para>
+   </step>
+   <step>
+    <para> 查找以下类别：<literal>Host alias
+      specification</literal>、<literal>User alias specification</literal>、<literal>Cmnd alias specification</literal> 和 <literal>Runas alias
+      specification</literal>。 </para>
+   </step>
+   <step>
+    <para>
+     在 <filename>/etc/sudoers</filename> 中的相应类别中添加以下几项：
+    </para>
+<screen>Host_Alias	CLUSTER = alice,bob,charlie <co xml:id="ha-sudoers-host-alias"/>
+User_Alias HA = hareport <co xml:id="ha-sudoers-user-alias"/>
+Cmnd_Alias HA_ALLOWED = /bin/su, /usr/sbin/crm report*<co xml:id="ha-sudoers-cmd-alias"/>
+Runas_Alias R = root <co xml:id="ha-sudoers-runas-alias"/></screen>
+    <calloutlist>
+     <callout arearefs="ha-sudoers-host-alias">
+      <para>
+       主机别名定义 sudo 用户有权在哪个服务器（或特定范围内的服务器）上发出命令。在主机别名中，可以使用 DNS 名称或 IP 地址，或者指定整个网络范围（例如 <literal>172.17.12.0/24</literal>）。要限制访问范围，应该仅指定群集节点的主机名。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-user-alias">
+      <para>
+       使用用户别名可将多个本地用户帐户添加到单个别名。不过，在此情况下，系统只会使用一个帐户。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-cmd-alias">
+      <para>
+       命令别名定义该用户可执行的命令。如果您要限制非 root 用户在使用 <command>sudo</command> 时可以访问的数据，命令别名将十分有用。在此情况下，<systemitem class="username">hareport</systemitem> 用户帐户需要访问命令 <command>crm report</command> 和 <command>su</command>。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-runas-alias">
+      <para>
+       <literal>runas</literal> 别名指定用于运行命令的帐户（在本例中为 <systemitem class="username">root</systemitem>）。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>搜索以下两行：</para>
+    <screen>Defaults targetpw
+ALL     ALL=(ALL) ALL
+    </screen>
+    <para>由于这两行与我们要创建的设置相冲突，因此请将其禁用：</para>
+    <screen>#Defaults targetpw
+#ALL     ALL=(ALL) ALL</screen>
+   </step>
+   <step>
+    <para>查找 <literal>User privilege specification</literal> 类别。定义上述别名后，现在可以添加以下规则：</para>
+    <screen>HA	CLUSTER = (R) NOPASSWD:HA_ALLOWED</screen>
+    <para><literal>NOPASSWORD</literal> 选项确保用户 <systemitem class="username">hareport</systemitem> 无需提供口令就能执行群集报告。</para>
+   </step>
+   <step performance="optional">
+    <para>
+     如果要允许用户 <systemitem class="username">hareport</systemitem> 使用您的本地 SSH 密钥运行群集报告，请在 <literal>Defaults specification</literal> 类别中添加下行内容。这会保留 <literal>SSH_AUTH_SOCK</literal> 环境变量，SSH 代理转发时需要用到该变量。
+    </para>
+<screen>Defaults!HA_ALLOWED env_keep+=SSH_AUTH_SOCK</screen>
+    <para>
+     以 <systemitem class="username">hareport</systemitem> 用户身份通过 <command>ssh -A</command> 登录节点以及使用 <command>sudo</command> 运行 <command>crm report</command> 时，您的本地 SSH 密钥会传递到该节点以进行身份验证。
+    </para>
+   </step>
+  </procedure>
+
+  <important>
+   <title>需要在每个群集节点上使用相同的 sudo 配置</title>
+   <para>
+    必须在群集中的所有节点上指定这项 sudo 配置。无需为 sudo 做出其他更改，并且无需重启动任何服务。
+   </para>
+  </important>
+ </sect1>
+
+</appendix>

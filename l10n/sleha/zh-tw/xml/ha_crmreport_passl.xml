@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_crmreport_passl.xml" xml:id="app-crmreport-nonroot" version="5.0">
+ <title>在沒有 <systemitem class="username">root</systemitem> 存取權的情況下執行叢集報告</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <para>
+  所有叢集節點必須能透過 SSH 互相存取。<command>crm report</command> (用於疑難排解) 等工具和 Hawk2 的<guimenu>歷程總管</guimenu>要求節點之間透過無密碼 SSH 方式來存取，否則它們只能從目前節點收集資料。
+ </para>
+ <para>
+  如果您的安全性規則不允許進行無密碼 <systemitem class="username">root</systemitem> SSH 登入，則在所有遠端節點上以 <systemitem class="username">root</systemitem> 身分執行 <command>crm report</command> 時都會失敗。在這種情況下，您仍可以採用以下方式之一執行叢集報告：
+ </para>
+ <itemizedlist>
+   <listitem>
+     <para>
+       如果叢集是由具有 <command>sudo</command> 權限的非 root 使用者啟始化，則此使用者可以執行叢集報告。
+     </para>
+   </listitem>
+   <listitem>
+     <para>
+       如果叢集是由 <systemitem class="username">root</systemitem> 使用者啟始化，您可以建立專屬的非 root 使用者來執行叢集報告。
+     </para>
+   </listitem>
+ </itemizedlist>
+ <para>
+  以下程序說明如何為非 root 使用者授予受限權限，讓該使用者可以使用 <command>sudo</command> 來執行 <command>crm report</command>，但沒有其他 <command>sudo</command> 存取權。
+ </para>
+
+ <sect1 xml:id="sec-crmreport-nonroot-sudo">
+  <title>為非 root 使用者設定受限的 <command>sudo</command> 權限</title>
+
+  <para>
+   <command>sudo</command> 指令可讓一般使用者快速變成 <systemitem class="username">root</systemitem> 並發出指令，而無論其是否提供了密碼。可向所有 root 層級指令或者特定的指令授予 Sudo 存取權限。此程序說明如何僅為執行叢集報告所需的特定指令設定 <command>sudo</command> 權限。Sudo 通常使用別名來定義整個指令字串。
+  </para>
+
+  <para>
+   若要設定 sudo，請使用 <command>visudo</command> (<emphasis>不是</emphasis> vi) 或 YaST。
+  </para>
+
+  <warning>
+   <title>不要使用 vi</title>
+   <para>
+    若要從指令列設定 sudo，必須以 <systemitem class="username">root</systemitem> 身分使用 <command>visudo</command> 來編輯 sudoers 檔案。使用其他任何編輯器可能會導致語法或檔案許可權錯誤，從而阻止 sudo 執行。
+   </para>
+  </warning>
+
+  <itemizedlist>
+    <title>要求</title>
+    <listitem>
+      <para>
+        沒有 <command>sudo</command> 權限的非 root 使用者。以下程序使用名為 <systemitem class="username">hareport</systemitem> 的範例使用者。
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        叢集中的所有節點上都存在使用者 <systemitem class="username">hareport</systemitem>。
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        使用者 <systemitem class="username">hareport</systemitem> 可以透過無密碼 SSH 存取叢集中的所有其他節點。
+      </para>
+    </listitem>
+  </itemizedlist>
+
+  <procedure>
+   <title>為非 root 使用者設定受限的 <command>sudo</command> 權限</title>
+   <step>
+    <para>
+     以 <systemitem class="username">root</systemitem> 身分登入。
+    </para>
+   </step>
+   <step>
+    <para>
+     若要開啟 <filename>/etc/sudoers</filename> 檔案，請輸入 <command>visudo</command>。
+    </para>
+   </step>
+   <step>
+    <para> 尋找以下類別：<literal>Host alias
+      specification</literal>、<literal>User alias specification</literal>、<literal>Cmnd alias specification</literal> 和 <literal>Runas alias
+      specification</literal>。 </para>
+   </step>
+   <step>
+    <para>
+     將以下項目新增至 <filename>/etc/sudoers</filename> 中的相應類別：
+    </para>
+<screen>Host_Alias	CLUSTER = alice,bob,charlie <co xml:id="ha-sudoers-host-alias"/>
+User_Alias HA = hareport <co xml:id="ha-sudoers-user-alias"/>
+Cmnd_Alias HA_ALLOWED = /bin/su, /usr/sbin/crm report*<co xml:id="ha-sudoers-cmd-alias"/>
+Runas_Alias R = root <co xml:id="ha-sudoers-runas-alias"/></screen>
+    <calloutlist>
+     <callout arearefs="ha-sudoers-host-alias">
+      <para>
+       主機別名定義 sudo 使用者有權在哪部伺服器 (或特定範圍內的伺服器) 上發出指令。在主機別名中，可以使用 DNS 名稱或 IP 位址，或者指定整個網路範圍 (例如 <literal>172.17.12.0/24</literal>)。若要限制存取範圍，應該僅指定叢集節點的主機名稱。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-user-alias">
+      <para>
+       使用者別名可讓您將多個本地使用者帳戶新增至單一別名。不過，在此情況下，系統只會使用一個帳戶。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-cmd-alias">
+      <para>
+       指令別名定義該使用者可執行的指令。如果您要限制非 root 使用者在使用 <command>sudo</command> 時可以存取的資料，指令別名將十分有用。在此情況下，<systemitem class="username">hareport</systemitem> 使用者帳戶需要存取指令 <command>crm report</command> 和 <command>su</command>。
+      </para>
+     </callout>
+     <callout arearefs="ha-sudoers-runas-alias">
+      <para>
+       <literal>runas</literal> 別名指定用於執行指令的帳戶 (在本例中為 <systemitem class="username">root</systemitem>)。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>搜尋以下兩行：</para>
+    <screen>Defaults targetpw
+ALL     ALL=(ALL) ALL
+    </screen>
+    <para>由於這兩行與我們要建立的設定相衝突，因此請將其停用：</para>
+    <screen>#Defaults targetpw
+#ALL     ALL=(ALL) ALL</screen>
+   </step>
+   <step>
+    <para>尋找 <literal>User privilege specification</literal> 類別。定義上述別名後，接下來可以新增以下規則：</para>
+    <screen>HA	CLUSTER = (R) NOPASSWD:HA_ALLOWED</screen>
+    <para><literal>NOPASSWORD</literal> 選項確定使用者 <systemitem class="username">hareport</systemitem> 無需提供密碼就能執行叢集報告。</para>
+   </step>
+   <step performance="optional">
+    <para>
+     若要允許使用者 <systemitem class="username">hareport</systemitem> 使用您的本地 SSH 金鑰執行叢集報告，請將下行內容新增至 <literal>Defaults specification</literal> 類別。這會保留 <literal>SSH_AUTH_SOCK</literal> 環境變數，SSH 代理程式轉遞時需要用到該變數。
+    </para>
+<screen>Defaults!HA_ALLOWED env_keep+=SSH_AUTH_SOCK</screen>
+    <para>
+     當您以 <systemitem class="username">hareport</systemitem> 使用者身分透過 <command>ssh -A</command> 登入節點，以及使用 <command>sudo</command> 執行 <command>crm report</command> 時，您的本地 SSH 金鑰會傳遞到該節點以進行驗證。
+    </para>
+   </step>
+  </procedure>
+
+  <important>
+   <title>需要在每個叢集節點上使用相同的 sudo 組態</title>
+   <para>
+    必須在叢集中的所有節點上指定這項 sudo 組態。無需為 sudo 做出其他變更，並且無需重新啟動任何服務。
+   </para>
+  </important>
+ </sect1>
+
+</appendix>

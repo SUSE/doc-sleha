@@ -1,0 +1,449 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_virtualization.xml" xml:id="cha-ha-virtualization" xml:lang="zh-tw" version="5.1">
+  <title>虛擬化的高可用性</title>
+  <info>
+    <abstract>
+      <para>
+        本章介紹如何將虛擬機器設定為高度可用的叢集資源。
+      </para>
+    </abstract>
+    <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+      <dm:bugtracker/>
+      <dm:translation>yes</dm:translation>
+    </dm:docmanager>
+  </info>
+
+  <sect1 xml:id="sec-ha-virtualization-overview">
+    <title>綜覽</title>
+      <para>
+      虛擬機器在 High Availability 叢集中可以充當不同的角色：
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          虛擬機器可做為資源受叢集管理，叢集無需管理虛擬機器上執行的服務。在這種情況下，虛擬機器對於叢集是不透明的。本文所述的便是這種情況。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          虛擬機器可以是叢集資源並執行 <systemitem class="daemon">pacemaker_remote</systemitem>，這樣叢集便能管理虛擬機器上執行的服務。在這種情況下，虛擬機器是客體節點，對叢集是透明的。對於這種情況，請參閱<xref linkend="sec-ha-pmremote-install-virt-guest-nodes"/>。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          虛擬機器可以執行整個叢集堆疊。在這種情況下，虛擬機器是一般叢集節點，不是受叢集管理的資源。對於這種情況，請參閱<xref linkend="article-installation"/>。
+        </para>
+      </listitem>
+    </itemizedlist>
+    <para>
+      以下程序介紹了如何在區塊儲存上設定高度可用的虛擬機器，並將另一個區塊裝置用做 OCFS2 磁碟區，來儲存虛擬機器鎖定檔案和 XML 組態檔案。虛擬機器和 OCFS2 磁碟區設定為由叢集管理的資源，並具有資源條件約束，以確保虛擬機器在任何節點上啟動之前，鎖定檔案目錄永遠可用。這樣可以防止虛擬機器在多個節點上啟動。
+    </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-requirements">
+    <title>要求</title>
+    <itemizedlist>
+      <listitem>
+        <para>
+          一個執行中 High Availability 叢集，該叢集至少包含兩個節點和一部圍籬區隔裝置 (如 SBD)。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          叢集節點之間採用無密碼 <systemitem class="username">root</systemitem> SSH 登入方式。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          每個叢集節點上都設定了網路橋接器，用於安裝和執行虛擬機器。橋接器必須與用於叢集通訊和管理的網路分開。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          兩部或多部共用儲存裝置 (或單部共用裝置上的多個分割區)，以便所有叢集節點都可以存取虛擬機器所需的檔案和儲存空間：
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>
+              用做 OCFS2 磁碟區的裝置，將用於儲存虛擬機器鎖定檔案和 XML 組態檔案。下面的程序介紹了如何建立和掛接 OCFS2 磁碟區。
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              包含虛擬機器安裝來源 (例如 ISO 檔案或磁碟影像) 的裝置。
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              根據安裝來源的不同，可能還需要另一部裝置做為虛擬機器儲存磁碟。
+            </para>
+          </listitem>
+        </itemizedlist>
+        <para>
+          為避免 I/O 速度過慢，這些裝置必須與用於 SBD 的共用裝置分開。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          所有儲存路徑的穩定裝置名稱，例如 <filename>/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></filename>。同一部共用儲存裝置在不同的節點上使用的 <filename>/dev/sdX</filename> 名稱可能不相符，這會導致虛擬機器移轉失敗。
+        </para>
+      </listitem>
+    </itemizedlist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-configuring-cluster-resources">
+    <title>設定叢集資源以管理鎖定檔案</title>
+    <para>
+      依照下面的程序設定叢集，以管理虛擬機器鎖定檔案。在所有節點上都必須可以使用鎖定檔案目錄，這樣無論虛擬機器在哪個節點上執行，叢集都能識別鎖定檔案。
+    </para>
+    <para>
+      您只需在其中一個叢集節點上執行以下指令。
+    </para>
+    <procedure xml:id="pro-ha-virtualization-configuring-cluster-resources">
+      <title>設定叢集資源以管理鎖定檔案</title>
+      <step>
+        <para>
+          在其中一部共用儲存裝置上建立 OCFS2 磁碟區：
+        </para>
+<screen><prompt role="root"># </prompt><command>mkfs.ocfs2 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+      </step>
+      <step>
+        <para>
+          執行 <command>crm configure</command>，以啟動 <command>crm</command> 互動式外圍程序。
+        </para>
+      </step>
+      <step>
+        <para>
+          為 DLM 建立基本資源：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive dlm ocf:pacemaker:controld \
+  op monitor interval=60 timeout=60</command></screen>
+      </step>
+      <step>
+        <para>
+          為 OCFS2 磁碟區建立基本資源：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive ocfs2 Filesystem \
+  params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype=ocfs2 \
+  op monitor interval=20 timeout=40</command></screen>
+      </step>
+      <step>
+        <para>
+          為 DLM 和 OCFS2 資源建立群組：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group g-virt-lock dlm ocfs2</command></screen>
+      </step>
+      <step>
+        <para>
+          複製該群組以使其在所有節點上執行：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>clone cl-virt-lock g-virt-lock \
+  meta interleave=true</command></screen>
+      </step>
+      <step>
+        <para>
+          使用 <command>show</command> 檢閱所做的變更。
+        </para>
+      </step>
+      <step>
+        <para>
+          如果所有設定均正確無誤，請使用 <command>commit</command> 提交變更，然後使用 <command>quit</command> 離開 crm 即時組態。
+        </para>
+      </step>
+      <step>
+        <para>
+          檢查群組複製品的狀態。它在所有節點上都應處於執行中狀態：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Full List of Resources:
+[...]
+  * Clone Set: cl-virt-lock [g-virt-lock]:
+    * Started: [ alice bob ]</screen>
+      </step>
+    </procedure>
+    <para>
+
+    </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-preparing-the-cluster-nodes">
+    <title>準備叢集節點以代管虛擬機器</title>
+    <para>
+      依照下面的程序安裝和啟動所需的虛擬化服務，並將節點設定為將虛擬機器鎖定檔案儲存在共用 OCFS2 磁碟區上。
+    </para>
+    <para>
+      此程序使用 <command>crm cluster run</command> 同時在所有節點上執行指令。如果您更喜歡單獨管理每個節點，可以省略指令的 <command>crm cluster run</command> 部分。
+    </para>
+    <procedure xml:id="pro-ha-virtualization-preparing-the-cluster-nodes">
+      <title>準備叢集節點以代管虛擬機器</title>
+      <step>
+        <para>
+          在叢集中的所有節點上安裝虛擬化套件：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "zypper install -y -t pattern kvm_server kvm_tools"</command></screen>
+      </step>
+      <step>
+        <para>
+          在一個節點上的 <filename>/etc/libvirt/qemu.conf</filename> 檔案中，找到並啟用 <literal>lock_manager</literal> 設定：
+        </para>
+<screen>lock_manager = "lockd"</screen>
+      </step>
+      <step>
+        <para>
+          在同一節點上的 <filename>/etc/libvirt/qemu-lockd.conf</filename> 檔案中，找到並啟用 <literal>file_lockspace_dir</literal> 設定，然後將值變更為指向 OCFS2 磁碟區上的目錄：
+        </para>
+<screen>file_lockspace_dir = "/mnt/shared/lockd"</screen>
+      </step>
+      <step>
+        <para>
+          將這些檔案複製到叢集中的其他節點：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm cluster copy /etc/libvirt/qemu.conf</command>
+<prompt role="root"># </prompt><command>crm cluster copy /etc/libvirt/qemu-lockd.conf</command></screen>
+      </step>
+      <step>
+        <para>
+          在叢集中的所有節點上啟用並啟動 <literal>libvirtd</literal> 服務：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "systemctl enable --now libvirtd"</command></screen>
+        <para>
+          這也會啟動 <literal>virtlockd</literal> 服務。
+        </para>
+      </step>
+    </procedure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-adding-virtual-machines">
+    <title>將虛擬機器新增為叢集資源</title>
+    <para>
+      依照下面的程序將虛擬機器做為叢集資源新增至叢集，並設定資源限制，以確保虛擬機器永遠可以存取鎖定檔案。鎖定檔案由群組 <literal>g-virt-lock</literal> 中的資源管理，透過複製品 <literal>cl-virt-lock</literal> 可在所有節點上使用該群組。
+    </para>
+    <procedure xml:id="pro-ha-virtualization-adding-virtual-machines">
+      <title>將虛擬機器新增為叢集資源</title>
+      <step>
+        <para>
+          在其中一個叢集節點上安裝虛擬機器，但需符合以下限制：
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>
+              安裝來源和儲存區必須位於共用裝置上。
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              不要將虛擬機器設定為在主機開機時啟動。
+            </para>
+          </listitem>
+        </itemizedlist>
+        <para>
+          如需詳細資訊，請參閱<link xlink:href="https://documentation.suse.com/sles/html/SLES-all/book-virtualization.html">
+          <citetitle>Virtualization Guide</citetitle> for SUSE Linux Enterprise Server</link>。
+        </para>
+      </step>
+      <step>
+        <para>
+          如果虛擬機器在執行中，請將其關閉。將虛擬機器新增為資源後，叢集將啟動虛擬機器。
+        </para>
+      </step>
+      <step>
+        <para>
+          將 XML 組態傾印至 OCFS2 磁碟區。對每部虛擬機器重複此步驟：
+        </para>
+<screen><prompt role="root"># </prompt><command>virsh dumpxml <replaceable>VM1</replaceable> &gt; /mnt/shared/<replaceable>VM1</replaceable>.xml</command></screen>
+        <important role="compact">
+          <para>
+            確定 XML 檔案不包含對未共用本地路徑的任何參考。
+          </para>
+        </important>
+      </step>
+      <step>
+        <para>
+          執行 <command>crm configure</command>，以啟動 <command>crm</command> 互動式外圍程序。
+        </para>
+      </step>
+      <step>
+        <para>
+          建立基本資源來管理虛擬機器。對每部虛擬機器重複此步驟：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive <replaceable>VM1</replaceable> VirtualDomain \
+  params config="/mnt/shared/<replaceable>VM1</replaceable>.xml" remoteuri="qemu+ssh://%n/system" \
+  meta allow-migrate=true \
+  op monitor timeout=30s interval=10s</command></screen>
+        <para>
+          選項 <literal>allow-migrate=true</literal> 可啟用即時移轉。如果其值設定為 <literal>false</literal>，叢集會移轉虛擬機器，具體做法是在一個節點上關閉虛擬機器，然後在另一個節點上重新啟動該虛擬機器。
+        </para>
+        <para>
+          如果需要設定使用率屬性，以協助系統根據虛擬機器的負載影響放置虛擬機器，請參閱<xref linkend="sec-ha-config-basics-utilization"/>。
+        </para>
+      </step>
+      <step>
+        <para>
+          建立並存條件約束，使虛擬機器只能在正在執行 <literal>cl-virt-lock</literal> 的節點上啟動：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>colocation col-fs-virt inf: ( <replaceable>VM1 VM2 VMX</replaceable> ) cl-virt-lock</command></screen>
+      </step>
+      <step>
+        <para>
+          建立順序條件約束，使 <literal>cl-virt-lock</literal> 永遠先於虛擬機器啟動：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order o-fs-virt Mandatory: cl-virt-lock ( <replaceable>VM1 VM2 VMX</replaceable> )</command></screen>
+      </step>
+      <step>
+        <para>
+          使用 <command>show</command> 檢閱所做的變更。
+        </para>
+      </step>
+      <step>
+        <para>
+          如果所有設定均正確無誤，請使用 <command>commit</command> 提交變更，然後使用 <command>quit</command> 離開 crm 即時組態。
+        </para>
+      </step>
+      <step>
+        <para>
+          檢查虛擬機器的狀態：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Full List of Resources:
+[...]
+  * Clone Set: cl-virt-lock [g-virt-lock]:
+    * Started: [ alice bob ]
+  * VM1 (ocf::heartbeat:VirtualDomain): Started alice
+  * VM2 (ocf::heartbeat:VirtualDomain): Started alice
+  * VMX (ocf::heartbeat:VirtualDomain): Started alice</screen>
+      </step>
+    </procedure>
+    <para>
+      虛擬機器現在由 High Availability 叢集管理，並且可以在叢集節點之間移轉。
+    </para>
+    <important>
+      <title>請勿手動啟動或停止叢集管理的虛擬機器</title>
+      <para>
+        將虛擬機器新增為叢集資源後，請勿手動管理它們，應僅使用<xref linkend="cha-ha-manage-resources"/>所述的叢集工具來管理。
+      </para>
+      <para>
+        若要在叢集管理的虛擬機器上執行維護任務，請參閱<xref linkend="sec-ha-maint-overview"/>。
+      </para>
+    </important>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-testing">
+    <title>測試設定</title>
+    <para>
+      執行以下測試來確認虛擬機器 High Availability 設定是否依預期運作。
+    </para>
+    <important role="compact">
+      <para>
+        請在測試環境而非生產環境中執行這些測試。
+      </para>
+    </important>
+    <procedure>
+      <title>驗證虛擬機器資源是否會跨叢集節點受保護</title>
+      <step>
+        <para>
+          虛擬機器 <literal>VM1</literal> 正在節點 <literal>alice</literal> 上執行
+        </para>
+      </step>
+      <step>
+        <para>
+          在節點 <literal>bob</literal> 上，嘗試使用 <command>virsh start VM1</command> 手動啟動該虛擬機器。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">預期結果：</emphasis><command>virsh</command> 指令會失敗。當 <literal>VM1</literal> 正在 <literal>alice</literal> 上執行時，無法在 <literal>bob</literal> 上手動啟動該虛擬機器。
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>驗證虛擬機器資源是否可以在叢集節點之間即時移轉</title>
+      <step>
+        <para>
+          虛擬機器 <literal>VM1</literal> 正在節點 <literal>alice</literal> 上執行
+        </para>
+      </step>
+      <step>
+        <para>
+          開啟兩個終端機。
+        </para>
+      </step>
+      <step>
+        <para>
+          在第一個終端機中，透過 SSH 連接至 <literal>VM1</literal>。
+        </para>
+      </step>
+      <step>
+        <para>
+          在第二個終端機中，嘗試使用 <command>crm resource move VM1 bob</command> 將 <literal>VM1</literal> 移轉至節點 <literal>bob</literal>。
+        </para>
+      </step>
+      <step>
+        <para>
+          執行 <command>crm_mon -r</command> 以監控叢集狀態，直至其穩定為止。這可能需要一點時間。
+        </para>
+      </step>
+      <step>
+        <para>
+          在第一個終端機中，檢查與 <literal>VM1</literal> 的 SSH 連接是否仍處於使用中狀態。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">預期結果：</emphasis>叢集狀態會顯示 <literal>VM1</literal> 已在 <literal>bob</literal> 上啟動。與 <literal>VM1</literal> 的 SSH 連接在整個移轉過程中都會保持使用中狀態。
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>驗證虛擬機器資源是否可以在目前節點重新開機時移轉至另一個節點</title>
+      <step>
+        <para>
+          虛擬機器 <literal>VM1</literal> 正在節點 <literal>bob</literal> 上執行
+       </para>
+      </step>
+      <step>
+        <para>
+          將 <literal>bob</literal> 重新開機。
+        </para>
+      </step>
+      <step>
+        <para>
+          在節點 <literal>alice</literal> 上，執行 <command>crm_mon -r</command> 以監控叢集狀態，直至其穩定為止。這可能需要一點時間。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">預期結果：</emphasis>叢集狀態會顯示 <literal>VM1</literal> 已在 <literal>alice</literal> 上啟動。
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>驗證虛擬機器資源是否可以在目前節點當機時容錯移轉至另一個節點</title>
+      <step>
+        <para>
+          虛擬機器 <literal>VM1</literal> 正在節點 <literal>alice</literal> 上執行
+        </para>
+      </step>
+      <step>
+        <para>
+          在 <literal>alice</literal> 上，透過強制關機或拔除電源線來模擬當機。
+        </para>
+      </step>
+      <step>
+        <para>
+          在節點 <literal>bob</literal> 上，執行 <command>crm_mon -r</command> 以監控叢集狀態，直至其穩定為止。與節點重新開機後發生的虛擬機器移轉相比，節點當機後發生的虛擬機器容錯移轉通常需要更長的時間。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">預期結果：</emphasis>不久之後，叢集狀態會顯示 <literal>VM1</literal> 已在 <literal>bob</literal> 上啟動。
+        </para>
+      </step>
+    </procedure>
+  </sect1>
+
+</chapter>

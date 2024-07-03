@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_basics.xml" version="5.0" xml:id="cha-ha-config-basics">
+ <title>設定および管理の基本事項</title>
+ <info>
+      <abstract>
+        <para>
+    HAクラスタの主な目的はユーザサービスの管理です。ユーザサービスの典型的な例は、Apache Webサーバまたはデータベースです。サービスとは、ユーザの観点からすると、指示に基づいて特別な何かを行うことを意味していますが、クラスタにとっては開始や停止できるリソースにすぎません。サービスの性質はクラスタには無関係なのです。
+   </para>
+        <para>
+    この章では、クラスタを管理するときに知っておく必要があるいくつかの基本的な概念について説明します。後続の各章では、SUSE Linux Enterprise High Availabilityが提供する各管理ツールを使用して、主要な設定および管理タスクを行う方法を説明します。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+
+  <sect1 xml:id="sec-ha-config-basics-scenarios">
+   <title>ユースケースのシナリオ</title>
+   <para>通常、クラスタのカテゴリは次のいずれかです。</para>
+   <itemizedlist>
+    <listitem>
+     <para>2ノードクラスタ</para>
+    </listitem>
+    <listitem>
+     <para>2ノードより多いクラスタ。これは通常、奇数のノード数を意味します。</para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    異なるトポロジを追加して、異なるユースケースを生成することもできます。次のユースケースは最も一般的です。
+   </para>
+
+   <variablelist>
+    <title/>
+    <varlistentry>
+     <term>1つの場所の2ノードクラスタ</term>
+     <listitem>
+      <formalpara>
+       <title>設定:</title>
+       <para>FC SANまたは同様の共有ストレージ、レイヤ2ネットワーク。</para>
+      </formalpara>
+      <formalpara>
+       <title>使用シナリオ:</title>
+       <para>サービスの高可用性、およびデータレプリケーションのデータ冗長性なしに焦点を当てた埋め込みクラスタ。このようなセットアップは無線ステーションや組立てラインコントローラなどに使用されます。
+       </para>
+      </formalpara>
+     </listitem>
+    </varlistentry>
+    <varlistentry xml:id="vl-2x2node-2locs">
+     <term>2つの場所の2ノードクラスタ(最も広く使用されている)</term>
+     <listitem>
+      <formalpara>
+       <title>設定:</title>
+       <para>対称的なストレッチクラスタ、FC SAN、およびレイヤ2ネットワークのすべてが2つの場所に及ぶ。</para>
+      </formalpara>
+      <formalpara>
+       <title>使用シナリオ:</title>
+       <para>サービスの高可用性、およびローカルデータの冗長性に焦点を当てた従来のストレッチクラスタ。データベースおよびエンタープライズリソース計画に適しており、最も一般的な設定の1つです。
+       </para>
+      </formalpara>
+     </listitem>
+    </varlistentry>
+    <varlistentry xml:id="vl-n-nodes-3locs">
+     <term>3つの場所の奇数のノード数</term>
+     <listitem>
+      <formalpara>
+       <title>設定:</title>
+       <para>2×N+1ノード、FC SANが2つの主な場所に及ぶ。FC SANを使用しない補助的な3番目のサイト、過半数メーカーとして機能する。レイヤ2ネットワーク、少なくとも2つの主な場所に及ぶ。
+       </para>
+      </formalpara>
+      <formalpara>
+       <title>使用シナリオ:</title>
+       <para>サービスの高可用性、およびデータの冗長性に焦点を当てた従来のストレッチクラスタ。たとえば、データベース、エンタープライズリソースプランニング。
+       </para>
+      </formalpara>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-config-basics-global">
+  <title>クォーラムの判断</title>
+  <para>
+   1つ以上のノードとその他のクラスタ間で通信が失敗した場合は、常にクラスタパーティションが発生します。ノードは同じパーティション内の他のノードのみと通信可能で、切り離されたノードは認識しません。クラスタパーティションは、ノード(投票)の過半数を保有する場合、クォーラムを持つ(<quote>定足数に達している</quote>)と定義されます。これを実現する方法は<emphasis></emphasis>「クォーラム計算」によって実行されます。クォーラムはフェンシングの要件です。
+   </para>
+   <para>
+   クォーラムはPacemakerによって計算または決定されません。Corosyncは、Pacemaker設定を変更することなく、2ノードクラスタのクォーラムを直接処理できます。
+  </para>
+
+  <para>クォーラムの計算方法は、次のような要因によって影響されます。</para>
+   <variablelist>
+    <varlistentry xml:id="vl-ha-config-basics-global-number-of-cluster-nodes">
+     <term>クラスタノード数</term>
+     <listitem>
+         <para>実行中のサービスを継続させるため、2ノードを超えるクラスタはクラスタパーティションの解決においてクォーラム(過半数)に依存します。次の数式に基づき、クラスタが機能するために必要な動作ノードの最少数を計算できます。</para>
+       <screen>N ≥ C/2 + 1
+
+N = minimum number of operational nodes
+C = number of cluster nodes</screen>
+      <para>たとえば、5ノードクラスタでは、最低3つの動作ノード(または障害が発生する可能性のある2ノード)が必要です。 </para>
+      <para>
+       2ノードクラスタまたは奇数のクラスタノードのいずれかを使用することを強くお勧めします。2ノードクラスタは、2サイト間のストレッチセットアップで重要です。奇数のノード数を持つクラスタは、1つのシングルサイトで構築するか、または3つのサイト間で分散させることができます。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Corosyncの設定</term>
+     <listitem>
+      <para>Corosyncはメッセージングおよびメンバーシップ層です。<xref linkend="sec-ha-config-basics-corosync-2-node"/>および<xref linkend="sec-ha-config-basics-corosync-n-node"/>を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+  <sect2 xml:id="sec-ha-config-basics-corosync-2-node">
+   <title>2ノードクラスタのCorosync設定</title>
+   <para>
+    ブートストラップスクリプトを使用する場合、Corosync設定には次のオプションを持つ<literal>quorum</literal>セクションがあります。
+   </para>
+   <example xml:id="ex-ha-config-basics-corosync-quorum">
+    <title>2ノードクラスタのCorosync設定の例</title>
+    <screen>quorum {
+   # Enable and configure quorum subsystem (default: off)
+   # see also corosync.conf.5 and votequorum.5
+   provider: corosync_votequorum
+   expected_votes: 2
+   two_node: 1
+}</screen>
+   </example>
+   <para>
+    デフォルトで、<literal>two_node: 1</literal>が設定されている場合、<literal>wait_for_all</literal>オプションが自動的に有効になります。<literal>wait_for_all</literal>が有効でない場合、クラスタは両方のノードでパラレルに開始される必要があります。または、最初のノードが、見つからない2番目のノードで起動フェンシングを実行します。
+   </para>
+  </sect2>
+  <sect2 xml:id="sec-ha-config-basics-corosync-n-node">
+   <title>NノードクラスタのCorosync設定</title>
+   <para> 2ノードクラスタを使用しない場合、Nノードクラスタに奇数のノードを使用することを強くお勧めします。クォーラム設定の場合、次のオプションがあります。 </para>
+   <itemizedlist>
+    <listitem>
+     <para><command>crm cluster join</command>コマンドを使用したノードの追加、または</para>
+    </listitem>
+    <listitem>
+     <para>Corosync設定の手動調整。</para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    <filename>/etc/corosync/corosync.conf</filename>を手動で調整する場合、次の設定を使用します。
+   </para>
+   <example>
+    <title>NノードクラスタのCorosync設定の例</title>
+    <screen>quorum {
+   provider: corosync_votequorum <co xml:id="co-corosync-quorum-n-node-corosync-votequorum"/>
+   expected_votes: <replaceable>N</replaceable> <co xml:id="co-corosync-quorum-n-node-expected-votes"/>
+   wait_for_all: 1 <co xml:id="co-corosync-quorum-n-node-wait-for-all"/>
+}</screen>
+    <calloutlist>
+     <callout arearefs="co-corosync-quorum-n-node-corosync-votequorum">
+      <para>Corosyncからのクォーラムサービスの使用</para>
+     </callout>
+     <callout arearefs="co-corosync-quorum-n-node-expected-votes">
+      <para>予想される投票数。このパラメータは<literal>quorum</literal>セクション内で提供されるか、または<literal>nodelist</literal>セクションが利用できる場合に自動的に計算されます。</para>
+     </callout>
+     <callout arearefs="co-corosync-quorum-n-node-wait-for-all">
+      <para>
+       wait for all (WFA)機能を有効にします。WFAが有効な場合、クラスタはすべてのノードが認識可能になった後でのみ定足数に達します。一部の起動時の競合状態を回避するために、<option>wait_for_all</option>を<literal>1</literal>に設定すると役立つ場合があります。たとえば、5ノードクラスタでは、すべてのノードに1つの投票が割り当てられているため、<option>expected_votes</option>を<literal>5</literal>に設定します。3つ以上のノードが互いに認識できる場合、クラスタパーティションが定足数に達し、動作を開始できます。
+      </para>
+     </callout>
+    </calloutlist>
+   </example>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-config-basics-global-options">
+  <title>グローバルクラスタオプション</title>
+  <para> グローバルクラスタオプションは、一定の状況下でのクラスタの動作を制御します。それらは、セットにグループ化され、Hawk2や<command>crm</command>シェルなどのクラスタ管理ツールで表示したり、変更したりできます。 </para>
+  <para> 事前に定義されている値は、通常は、そのまま保持できます。ただし、クラスタの主要機能を想定どおりに機能させるには、クラスタの基本的なセットアップ後に、次のパラメータを調整する必要がある場合があります。
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <xref linkend="sec-ha-config-basics-global-quorum" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <xref linkend="sec-ha-config-basics-global-stonith" xrefstyle="select:title"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+
+ <sect2 xml:id="sec-ha-config-basics-global-quorum">
+  <title>グローバルオプション<literal>no-quorum-policy</literal></title>
+  <para>
+   このグローバルオプションは、クラスタパーティションにクォーラムがない(ノードの過半数がパーティションに含まれない)場合どうするかを定義します。
+  </para>
+  <para>
+   次の値を使用できます。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><literal>ignore</literal>
+    </term>
+    <listitem>
+     <para/>
+     <para>
+      <literal>no-quorum-policy</literal>を<literal>ignore</literal>に設定すると、クラスタパーティションは、クォーラムがない場合でも、クォーラムがあるように動作します。このクラスタパーティションは、フェンシングを発行し、リソース管理を継続できます。
+     </para>
+     <para>
+      SLES 11では、この値が2ノードのクラスタ用の推奨設定でした。SLES 12以降、値<literal>ignore</literal>は廃止されます。使用しないでください。設定と条件に基づいて、Corosyncはクラスタノードまたは単一ノードに<quote>クォーラム</quote>を与えます。または与えません。
+     </para>
+     <para>
+     2ノードのクラスタの場合、ノードが失われた場合の唯一の意味のある動作は、常に反応することです。最初のステップとして、クォーラムを失ったノードのフェンシングを試行してください。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>freeze</literal>
+    </term>
+    <listitem>
+     <para>
+      クォーラムが失われた場合は、クラスタパーティションがフリーズします。リソース管理は続行されます。実行中のリソースは停止されません(ただし、イベントの監視に対応して再起動される可能性があります)。ただし、影響を受けたパーティション内では、以後のリソースが開始されません。
+     </para>
+     <para>
+      一定のリソースが他のノードとの通信に依存しているクラスタの場合(たとえば、OCFS2マウントなど)は、この設定が推奨されます。この場合、デフォルト設定<literal>no-quorum-policy=stop</literal>は、次のようなシナリオになるので有効でありません。つまり、ピアノードが到達不能な間はそれらのリソースを停止できなくなります。その代わり、停止の試行は最終的にタイムアウトし、<literal>stop
+      failure</literal>になり、エスカレートされた復元とフェンシングを引き起こします。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>stop</literal> (デフォルト値)</term>
+    <listitem>
+     <para>
+      クォーラムが失われると、影響を受けるクラスタパーティション内のすべてのリソースが整然と停止します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>suicide</literal>
+    </term>
+    <listitem>
+     <para>
+      クォーラムが失われると、影響を受けるクラスタパーティション内のすべてのノードがフェンシングされます。このオプションは、SBDと組み合わせる場合にのみ機能します。<xref linkend="cha-ha-storage-protect"/>を参照してください。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect2>
+
+ <sect2 xml:id="sec-ha-config-basics-global-stonith">
+  <title>グローバルオプション<literal>stonith-enabled</literal></title>
+  <para>
+   このグローバルオプションは、フェンシングを適用して、STONITHデバイスによる、障害ノードや停止できないリソースを持つノードのダウンを許可するかどうか定義します。通常のクラスタ操作には、STONITHデバイスの使用が必要なので、このグローバルオプションは、デフォルトで<literal>true</literal>に設定されています。デフォルト値では、クラスタは、STONITHリソースが定義されていない場合にはリソースの開始を拒否します。
+  </para>
+  <para>
+   何らかの理由でフェンシングを無効にする必要がある場合は、<literal>stonith-enabled</literal>を<literal>false</literal>に設定しますが、これはご使用の製品のサポートステータスに影響を及ぼすことに注意してください。また、<literal>stonith-enabled="false"</literal>を指定すると、Distributed Lock Manager (DLM)のようなリソースやDLMによるすべてのサービス(lvmlockd、GFS2、OCFS2など)は開始できません。
+  </para>
+  <important>
+   <title>STONITHがない場合はサポートなし</title>
+   <para>
+    STONITHがないクラスタはサポートされません。
+   </para>
+  </important>
+  </sect2>
+ </sect1>
+
+
+ <xi:include href="ha_config_hawk2.xml"/>
+ <xi:include href="ha_config_cli.xml"/>
+
+
+ <sect1 xml:id="sec-ha-config-basics-more">
+  <title>詳細の参照先</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><link xlink:href="https://crmsh.github.io/"/>
+    </term>
+    <listitem>
+     <para>
+      crmシェル(crmsh)、High Availabilityクラスタ管理用の高度なコマンドラインインタフェースのホームページ。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="https://crmsh.github.io/documentation"/>
+    </term>
+    <listitem>
+     <para>
+      crmshを使用した基本的なクラスタ設定の『<citetitle>Getting Started</citetitle>』チュートリアルとcrmシェルの包括的な<citetitle>Manual</citetitle>を含む、crmシェルに関するいくつかのドキュメントが含まれています。マニュアルは<link xlink:href="https://crmsh.github.io/man-2.0/"/>で入手できます。チュートリアルは<link xlink:href="https://crmsh.github.io/start-guide/"/>に用意されています。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="https://clusterlabs.org/"/>
+    </term>
+    <listitem>
+     <para>
+      Pacemakerのホームページ、SUSE Linux Enterprise High Availabilityに付属のクラスタリソースマネージャ。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><link xlink:href="https://www.clusterlabs.org/pacemaker/doc/"/>
+    </term>
+    <listitem>
+     <para>
+      いくつかの包括的なマニュアルと一般的な概念を説明するより簡潔なドキュメントが含まれています。例:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+         <citetitle>Pacemaker Explained</citetitle>: 参照用に包括的で詳細な情報が含まれています。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Colocation Explained</citetitle>
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <citetitle>Ordering Explained</citetitle>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+</chapter>
