@@ -316,6 +316,14 @@ NAME       SIZELIMIT OFFSET AUTOCLEAR RO BACK-FILE
   connection-mesh { <co xml:id="co-drbd-config-connection-mesh"/>
     hosts &node1; &node2;;
   }
+  net {
+    protocol C; <co xml:id="co-drbd-config-protocol"/>
+    fencing resource-and-stonith; <co xml:id="co-drbd-config-fencing-policy"/>
+   }
+  handlers { <co xml:id="co-drbd-config-fencing-handlers"/>
+    fence-peer "/usr/lib/drbd/crm-fence-peer.9.sh";
+    after-resync-target "/usr/lib/drbd/crm-unfence-peer.9.sh";
+   }
 }</screen>
       <calloutlist>
        <callout arearefs="co-drbd-config-r0">
@@ -386,6 +394,27 @@ NAME       SIZELIMIT OFFSET AUTOCLEAR RO BACK-FILE
        </callout>
        <callout arearefs="co-drbd-config-connection-mesh">
         &drbd-connection-mesh;
+       </callout>
+       <callout arearefs="co-drbd-config-protocol">
+        <para>The protocol to use for this connection. Protocol <literal>C</literal>
+         is the default option. It provides better data availability and does not consider
+         a write to be complete until it has reached all local and remote disks.
+        </para>
+       </callout>
+       <callout arearefs="co-drbd-config-fencing-policy">
+        <para>
+         Specifies the fencing policy <literal>resource-and-stonith</literal> at the DRBD level.
+         This policy immediately suspends active I/O operations until &stonith; completes.
+        </para>
+       </callout>
+       <callout arearefs="co-drbd-config-fencing-handlers">
+        <para>
+         Enables resource-level fencing to prevent &pace; from starting a service
+         with outdated data. If the DRBD replication link becomes disconnected, the
+         <command>crm-fence-peer.9.sh</command> script stops the DRBD resource from
+         being promoted to another node until the replication link becomes connected
+         again and DRBD completes its synchronization process.
+        </para>
        </callout>
       </calloutlist>
      </step>
@@ -744,65 +773,6 @@ resource r0-U {
   }
 }</screen>
   </example>
- </sect1>
-
- <sect1 xml:id="sec-ha-drbd-fencing">
-  <title>Using resource-level fencing with &stonith;</title>
-  <para>
-   When a DRBD replication link becomes interrupted, &pace; tries to promote
-   the DRBD resource to another node. To prevent &pace; from starting a service
-   with outdated data, enable resource-level fencing in the DRBD configuration
-   file.
-  </para>
-   <para>
-    The fencing policy can have different values (see man page <command>drbdsetup</command> and the
-     <option>--fencing</option> option).
-    As a &productname; cluster is normally used with a &stonith; device, the value
-    <constant>resource-and-stonith</constant> is used in
-    <xref linkend="ex-ha-drbd-fencing"/>.
-  </para>
-
-  <example xml:id="ex-ha-drbd-fencing">
-   <title>Configuration of DRBD with resource-level fencing using the Cluster
-    Information Base (CIB)</title>
-   <screen>resource <replaceable>RESOURCE</replaceable> {
-  net {
-    fencing resource-and-stonith;
-    # ...
-  }
-  handlers {
-    fence-peer "/usr/lib/drbd/crm-fence-peer.9.sh";
-    after-resync-target "/usr/lib/drbd/crm-unfence-peer.9.sh";
-    # ...
-  }
-  ...
-}</screen>
-  </example>
-  <para>If the DRBD replication link becomes disconnected, DRBD does the
-  following:</para>
-  <orderedlist>
-   <listitem>
-    <para>DRBD calls the <command>crm-fence-peer.9.sh</command> script.</para>
-   </listitem>
-   <listitem>
-    <para>The script contacts the cluster manager.
-    </para>
-   </listitem>
-   <listitem>
-    <para>The script determines the &pace; resource associated with this
-     DRBD resource.</para>
-   </listitem>
-   <listitem>
-    <para>The script ensures that the DRBD resource no longer gets
-    promoted to any other node. It stays on the currently active one.</para>
-   </listitem>
-   <listitem>
-    <para>If the replication link becomes connected again and DRBD
-    completes its synchronization process, then the constraint is removed.
-    The cluster manager is now free to promote the resource.
-    </para>
-   </listitem>
-  </orderedlist>
  </sect1>
 
  <sect1 xml:id="sec-ha-drbd-test">
