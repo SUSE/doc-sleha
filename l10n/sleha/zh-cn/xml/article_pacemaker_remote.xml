@@ -1,1 +1,660 @@
-../../../../xml/article_pacemaker_remote.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:its="http://www.w3.org/2005/11/its" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="article_pacemaker_remote.xml" version="5.2" xml:lang="zh-cn" xml:id="article-pacemaker-remote">
+  <title>Pacemaker 远程快速入门</title>
+  <info>
+   <productnumber>15 SP6</productnumber>
+   <productname>SUSE Linux Enterprise High Availability</productname>
+   <date><?dbtimestamp format="Y"?> 年 <?dbtimestamp format="B" padding="0"?> 月 <?dbtimestamp format="d" padding="0"?> 日
+</date>
+   <xi:include href="common_copyright_gfdl.xml"/>
+   <abstract>
+    <para> 本文档将指导您完成具有远程节点或 Guest 节点的高可用性群集设置，这些节点由 Pacemaker 和 <systemitem class="daemon">pacemaker_remote</systemitem> 管理。<systemitem class="daemon">pacemaker_remote</systemitem> 中的 <emphasis>Remote</emphasis> 并不表示实际距离的远近，而是表示节点的特殊状态，即这些节点不运行完整的群集堆栈，因此不属于群集的常规成员。</para>
+   </abstract>
+   <dm:docmanager>
+    <dm:bugtracker/>
+    <dm:translation>yes</dm:translation>
+   </dm:docmanager>
+   <meta name="title" its:translate="yes">Pacemaker Remote 快速入门</meta>
+   <meta name="series" its:translate="no">产品和解决方案</meta>
+   <meta name="description" its:translate="yes">如何使用通过 Pacemaker 和 pacemaker_remote 管理的远程节点或 Guest 节点设置高可用性群集</meta>
+   <meta name="social-descr" its:translate="yes">使用远程节点设置 HA 群集</meta>
+   <meta name="task" its:translate="yes">
+     <phrase>安装</phrase>
+     <phrase>管理</phrase>
+     <phrase>群集</phrase>
+   </meta>
+   <revhistory xml:id="rh-pacemaker-remote">
+     <revision>
+       <date>2024-06-26</date>
+       <revdescription>
+         <para>
+          针对 SUSE Linux Enterprise High Availability15 SP6 的初始版本进行了更新。
+         </para>
+       </revdescription>
+     </revision>
+    </revhistory>
+   </info>
+
+ <sect1 xml:id="sec-ha-pmremote-concept">
+   <title>概念概述和术语</title>
+   <para>
+    一个常规群集最多只能包含 32 个节点。借助 <systemitem class="daemon">pacemaker_remote</systemitem> 服务，可以将高可用性群集进行扩展，使其包含超出此限制的额外节点。
+   </para>
+   <para>
+    <systemitem class="daemon">pacemaker_remote</systemitem> 服务可作为物理节点（称为远程节点）运行，也可作为虚拟节点（称为 Guest 节点）运行。与常规群集节点不同，远程节点和 Guest 节点都作为资源由群集进行管理。因此，它们不会计入群集堆栈的 32 个节点限制。不过，从资源管理的角度而言，它们的行为与常规群集节点无异。
+   </para>
+   <para>
+    对远程节点不需要安装完整的群集堆栈，因为它们只运行 <systemitem class="daemon">pacemaker_remote</systemitem> 服务。该服务充当代理，可让<quote>常规</quote>群集节点上的群集堆栈连接到该服务。因此，运行 <systemitem class="daemon">pacemaker_remote</systemitem> 服务的节点可作为远程节点（请参见<xref linkend="vl-ha-pmremote-terminology"/>）有效集成到群集中。
+   </para>
+   <variablelist xml:id="vl-ha-pmremote-terminology">
+    <title>术语</title>
+    <varlistentry>
+     <term>群集节点</term>
+     <listitem>
+      <para>
+       运行完整群集堆栈的节点。
+      </para>
+      <figure xml:id="fig-ha-pmremote-regular-cluster-stack">
+       <title>常规群集堆栈（双节点群集）</title>
+       <mediaobject>
+        <imageobject>
+         <imagedata fileref="ha_pmremote-regular.svg" width="50%"/>
+        </imageobject>
+        <textobject role="description">
+         <phrase>两个节点（Alice 和 Bob）。每个节点包含硬件（物理主机）、群集堆栈（Pacemaker 和 Corosync）及服务（例如 Web 服务器数据库）。</phrase>
+        </textobject>
+       </mediaobject>
+      </figure>
+      <para>
+       常规群集节点可以执行以下任务：
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         运行群集资源。
+        </para>
+       </listitem>
+       <listitem>
+        <para>运行所有命令行工具，例如 <command>crm</command>、<command>crm_mon</command>。
+        </para>
+       </listitem>
+       <listitem>
+        <para>执行屏蔽操作。</para>
+       </listitem>
+       <listitem>
+        <para>
+         计入群集仲裁。
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         充当群集的指定协调员 (DC)。
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Pacemaker 远程（<systemitem class="daemon">systemd</systemitem> 服务：<systemitem class="daemon">pacemaker_remote</systemitem>）</term>
+     <listitem>
+      <para>
+       可以使节点用作 Pacemaker 节点而无需部署完整群集堆栈的服务守护程序。<systemitem class="daemon">pacemaker_remote</systemitem> 是 systemd 服务的名称，pacemaker-remoted （服务名称后带一个 d）才是该守护程序的名称。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>远程节点</term>
+     <listitem>
+      <para>
+       运行 <systemitem class="daemon">pacemaker_remote</systemitem> 守护程序的物理机。需要在其中一个群集节点上运行的特殊资源 (<systemitem>ocf:pacemaker:remote</systemitem>)，用于管理群集节点与远程节点之间的通讯（请参见<xref linkend="sec-ha-pmremote-install-phys-remote-nodes"/>）。
+      </para>
+      <figure xml:id="fig-ha-pmremote-cluster-remote">
+       <title>包含一个远程节点的群集</title>
+       <mediaobject>
+        <imageobject>
+         <imagedata fileref="ha_pmremote-phys-remote-nodes.svg" width="45%"/>
+        </imageobject>
+        <textobject role="description">
+         <phrase>三个节点（Alice、Bob 和 Charlie）。Alice 和 Bob 的群集堆栈包括 Pacemaker 和 Corosync。Charlie 的群集堆栈只包括 Pacemaker Remote。</phrase>
+        </textobject>
+       </mediaobject>
+      </figure>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Guest 节点</term>
+     <listitem>
+      <para>
+       运行 <systemitem class="daemon">pacemaker_remote</systemitem> 守护程序的虚拟机。通过使用资源代理（例如 <systemitem>ocf:pacemaker:VirtualDomain</systemitem>）并指定 <option>remote-node</option> 元属性来创建 Guest 节点（请参见<xref linkend="sec-ha-pmremote-install-virt-guest-nodes"/>）。
+      </para>
+      <figure xml:id="fig-ha-pmremote-cluster-guests">
+       <title>包含 Guest 节点的群集</title>
+       <mediaobject>
+        <imageobject>
+         <imagedata fileref="ha_pmremote-virt-guest-nodes.svg" width="65%"/>
+        </imageobject>
+        <textobject role="description">
+         <phrase>两个节点（Alice 和 Bob）。除了硬件、群集堆栈和服务之外，每个节点还包含虚拟机作为 Guest 节点。Guest 节点运行 Pacemaker Remote。</phrase>
+        </textobject>
+       </mediaobject>
+      </figure>
+      <para>
+       对于包含数个 Guest 节点的物理机，创建过程如下所示：
+      </para>
+      <orderedlist>
+       <listitem>
+        <para>在群集节点上，虚拟机由 Pacemaker 启动。</para>
+       </listitem>
+       <listitem>
+        <para>群集会连接到虚拟机的 <systemitem class="daemon">pacemaker_remote</systemitem> 服务。</para>
+       </listitem>
+       <listitem>
+        <para>通过 <systemitem class="daemon">pacemaker_remote</systemitem> 将虚拟机集成到群集中。
+        </para>
+       </listitem>
+      </orderedlist>
+     <para>
+      了解虚拟机在高可用性群集中可以具有的数个角色的不同之处很重要：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        虚拟机可以运行完整的群集堆栈。在此情况下，虚拟机是常规群集节点，并非以自我管理的方式由群集进行管理。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        虚拟机可作为资源由群集进行管理，群集无需感知到虚拟机内运行的服务。在此情况下，虚拟机对于群集不透明。
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        虚拟机可以是群集资源并运行 <systemitem class="daemon">pacemaker_remote</systemitem>，这样群集便能管理虚拟机内的服务。在此情况下，虚拟机是 Guest 节点并对群集透明。
+       </para>
+      </listitem>
+     </itemizedlist>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    远程节点和 Guest 节点可以运行群集资源和大部分命令行工具，但它们具有以下限制：</para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      无法执行屏蔽操作。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      不会影响仲裁。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      无法充当指定协调员 (DC)。
+     </para>
+    </listitem>
+   </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-pmremote-usage">
+  <title>使用情形</title>
+  <para>
+   本文中的过程介绍了如何设置具有以下特征的最小群集：
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     两个运行 SUSE Linux Enterprise High Availability 12 GA 或更高版本的群集节点。在本指南中，它们的主机名分别为 <systemitem class="domainname">alice</systemitem> 和 <systemitem class="domainname">bob</systemitem>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     根据您选择的设置，群集将包含以下节点之一：
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>一个运行 <systemitem class="daemon">pacemaker_remote</systemitem> 的远程节点（本文中该远程节点名为 <systemitem class="domainname">charlie</systemitem>）。
+      </para>
+      <para>
+       或：
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       一个运行 <systemitem class="daemon">pacemaker_remote</systemitem> 的 Guest 节点（本文中该 Guest 节点名为 <systemitem class="domainname">doro</systemitem>）。
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     用于管理 Guest 节点和远程节点的 Pacemaker。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     当活动的主机发生故障（主动/被动设置）时，资源从一个节点故障转移至另一个节点。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-pmremote-install-phys-remote-nodes">
+  <title>用例 1：设置包含远程节点的群集</title>
+  <para>
+   下面的示例设置中使用了远程节点 <systemitem class="domainname">charlie</systemitem>。
+  </para>
+  <orderedlist>
+   <listitem>
+    <para><xref linkend="sec-ha-pmremote-prep-uc1"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec-ha-pmremote-config-uc1-virt-auth-keys"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec-ha-pmremote-config-uc1-remote-nodes"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec-ha-pmremote-config-uc1-integrate"/></para>
+   </listitem>
+  </orderedlist>
+
+  <sect2 xml:id="sec-ha-pmremote-prep-uc1">
+   <title>准备群集节点和远程节点</title>
+   <para>
+    要准备群集节点和远程节点，请执行以下操作：
+   </para>
+   <procedure>
+    <step>
+     <para>按<xref linkend="article-installation"/>中所述安装并设置一个基本的双节点群集。如此双节点群集将包含两个物理主机：<systemitem class="domainname">alice</systemitem> 和 <systemitem class="domainname">bob</systemitem>。</para>
+    </step>
+    <step>
+     <para>
+      在您要用作远程节点的物理主机 (<systemitem class="domainname">charlie</systemitem>) 上，安装 SUSE Linux Enterprise Server 15 SP6，并以扩展的形式添加 SUSE Linux Enterprise High Availability 15 SP6。但不要安装高可用性安装软件集，因为远程节点只需要单个软件包（请参见<xref linkend="sec-ha-pmremote-config-uc1-remote-nodes" xrefstyle="select:label"/>）。
+     </para>
+    </step>
+    <step>
+     <para>在所有群集节点上，查看 <filename>/etc/hosts</filename> 并添加 <literal>charlie</literal> 对应的项。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-pmremote-config-uc1-virt-auth-keys">
+   <title>配置身份验证密钥</title>
+   <para>
+    在群集节点 <systemitem class="domainname">alice</systemitem> 上，执行以下操作：
+   </para>
+   <procedure>
+      <step>
+       <para>为 <systemitem class="daemon">pacemaker_remote</systemitem> 服务创建特定的身份验证密钥： </para>
+       <screen><prompt role="root"># </prompt><command>dd if=/dev/urandom of=/etc/pacemaker/authkey bs=4k count=1</command></screen>
+       <para><systemitem class="daemon">pacemaker_remote</systemitem> 服务的密钥与您在 YaST 群集模块中创建的群集身份验证密钥不同。</para>
+      </step>
+      <step>
+       <para>使用 <command>scp</command> 在所有群集节点和您未来的远程节点之间同步身份验证密钥：</para>
+       <screen><prompt role="root"># </prompt><command>scp -r -p /etc/pacemaker/ bob:/etc</command>
+<prompt role="root"># </prompt><command>scp -r -p /etc/pacemaker/ charlie:/etc</command></screen>
+       <para>密钥需始终保持同步。</para>
+      </step>
+   </procedure>
+  </sect2>
+  <sect2 xml:id="sec-ha-pmremote-config-uc1-remote-nodes">
+   <title>配置远程节点</title>
+   <para>
+    下面的过程将物理主机 <literal>charlie</literal> 配置为远程节点：
+   </para>
+   <procedure>
+    <step>
+     <para>在 <systemitem class="domainname">charlie</systemitem> 上执行如下操作：</para>
+     <substeps>
+      <step>
+       <para>在防火墙设置中，为 <systemitem class="daemon">pacemaker_remote</systemitem> 打开 TCP 端口 3121。</para>
+      </step>
+      <step>
+       <para>安装 <package>pacemaker-remote</package> 和 <package>crmsh</package> 软件包。 </para>
+       <screen><prompt role="root"># </prompt><command>zypper in pacemaker-remote crmsh</command></screen>
+      </step>
+      <step>
+       <para>在 <systemitem class="daemon">pacemaker_remote</systemitem> 上启用并启动 <systemitem class="domainname">charlie</systemitem> 服务：</para>
+       <screen><prompt role="root"># </prompt><command>systemctl enable pacemaker_remote</command>
+<prompt role="root"># </prompt><command>systemctl start pacemaker_remote</command></screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      在 <systemitem class="domainname">alice</systemitem> 或 <systemitem class="domainname">bob</systemitem> 上，使用 <command>ssh</command> 校验连到远程节点的主机连接：
+     </para>
+     <screen><prompt role="root"># </prompt><command>ssh -p 3121 charlie</command></screen>
+     <para>此 SSH 连接将失败，但其失败<emphasis>过程</emphasis>会指出设置是否有效：</para>
+     <variablelist>
+      <varlistentry>
+       <term>有效设置</term>
+       <listitem>
+        <screen>ssh_exhange_identification: read: Connection reset by peer.</screen>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term>无效设置</term>
+       <listitem>
+        <screen>ssh: connect to host charlie port 3121: No route to host
+ssh: connect to host charlie port 3121: Connection refused</screen>
+        <para>如果您看到上面两条消息中的任意一条，则表示设置无效。对 <command>ssh</command> 使用 <option>-v</option> 选项并再次执行命令，以查看调试消息。这有助于您找出连接、身份验证或配置问题。使用多个 <option>-v</option> 选项可提高详细程度。
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+     <para>视需要添加更多远程节点并按上面所述进行配置。</para>
+    </step>
+   </procedure>
+  </sect2>
+  <sect2 xml:id="sec-ha-pmremote-config-uc1-integrate">
+   <title>将远程节点集成到群集中</title>
+   <para>要将远程节点集成到群集中，请执行以下操作：</para>
+   <procedure>
+    <step>
+     <para>
+      确保所有群集节点上均已启动群集服务。如果情况并非如此，请运行以下命令在所有节点上启动群集服务：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm cluster start --all</command></screen>
+    </step>
+    <step>
+     <para>在节点 <systemitem class="domainname">alice</systemitem> 上，创建 <systemitem>ocf:pacemaker:remote</systemitem> 原始资源：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm configure</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive charlie ocf:pacemaker:remote \
+     params server=charlie reconnect_interval=15m \
+     op monitor interval=30s</command>
+<prompt role="custom">crm(live)configure# </prompt><command>commit</command>
+<prompt role="custom">crm(live)configure# </prompt><command>quit</command></screen>
+    </step>
+    <step>
+     <para>使用 <command>crm status</command> 命令检查群集的状态。命令结果应包含一个所含节点全部都可访问的运行中群集：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Online: [ alice bob ]
+RemoteOnline: [ charlie ]
+
+Full list of resources:
+charlie (ocf:pacemaker:remote): Started alice
+ [...]</screen>
+    </step>
+   </procedure>
+  </sect2>
+  <sect2 xml:id="sec-ha-pmremote-config-uc1-start-resources">
+   <title>在远程节点上启动资源</title>
+   <para>
+    远程节点集成到群集中后，您便可以像在任意群集节点上启动资源一样在远程节点上启动资源。
+   </para>
+   <warning>
+    <title>有关组和约束的限制</title>
+    <para>
+     请勿在资源组、共置约束或顺序约束中包含远程节点连接资源，否则可能导致在群集转换时出现非预期的行为。
+    </para>
+    
+    </warning>
+   <formalpara>
+    <title>屏蔽远程节点</title>
+    <para>
+     屏蔽远程节点的方式与屏蔽群集节点的方式相同。请用为群集节点配置屏蔽资源的相同方式配置用于远程节点的屏蔽资源。
+    </para>
+   </formalpara>
+   <para>
+    远程节点不会发起屏蔽操作，只有群集节点才可对其他节点执行屏蔽操作。
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-pmremote-install-virt-guest-nodes">
+  <title>用例 2：设置包含 Guest 节点的群集</title>
+  <remark>toms 2017-07-11: Are other virtualization techniques supported, like
+  XEN...?</remark>
+  <remark>gao-yan 2017-07-24: Yes. As we know libvirt also supports Xen,
+   which means we can use the RA ocf:heartbeat:VirtualDomain to manage Xen
+   guests as well. But of course we can either use the RA ocf:heartbeat:Xen
+   to do that.</remark>
+  <para>下面的示例设置中使用 KVM 来设置虚拟 Guest 节点 (<systemitem class="domainname">doro</systemitem>)。</para>
+  <orderedlist>
+   <listitem>
+    <para><xref linkend="sec-ha-pmremote-prep-uc2"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec-ha-pmremote-config-uc2-virt-auth-keys"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec-ha-pmremote-config-uc2-guest"/></para>
+   </listitem>
+   <listitem>
+    <para><xref linkend="sec-ha-pmremote-integrate-uc2-guestsintocluster"/></para>
+   </listitem>
+  </orderedlist>
+
+  <sect2 xml:id="sec-ha-pmremote-prep-uc2">
+   <title>准备群集节点和 Guest 节点</title>
+   <para>
+     要准备群集节点和 Guest 节点，请执行以下操作：
+   </para>
+   <procedure>
+    <step>
+     <para>按<xref linkend="article-installation"/>中所述安装并设置一个基本的双节点群集。如此双节点群集将包含两个物理主机：<systemitem class="domainname">alice</systemitem> 和 <systemitem class="domainname">bob</systemitem>。</para>
+    </step>
+    <step>
+     <para>在 <systemitem class="domainname">alice</systemitem> 上创建 KVM Guest。有关详细信息，请参见<link xlink:href="https://documentation.suse.com/sles-15/html/SLES-all/cha-kvm-inst.html">
+       Virtualization Guide for SUSE Linux Enterprise Server 15 SP6</link>。
+     </para>
+    </step>
+    <step>
+     <para>
+      在您要用作 Guest 节点的 KVM Guest (<systemitem class="domainname">doro</systemitem>) 上，安装 SUSE Linux Enterprise Server 15 SP6，并以扩展的形式添加 SUSE Linux Enterprise High Availability 15 SP6。但不要安装高可用性安装软件集，因为远程节点只需要单个软件包（请参见<xref linkend="sec-ha-pmremote-config-uc2-guest" xrefstyle="select:label"/>）。
+     </para>
+    </step>
+    <step>
+     <para>在所有群集节点上，查看 <filename>/etc/hosts</filename> 并添加 <literal>doro</literal> 对应的项。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-pmremote-config-uc2-virt-auth-keys">
+   <title>配置身份验证密钥</title>
+   <para>
+    在群集节点 <systemitem class="domainname">alice</systemitem> 上，执行以下操作：
+   </para>
+   <procedure>
+    <step>
+     <para>为 <systemitem class="daemon">pacemaker_remote</systemitem> 服务创建特定的身份验证密钥： </para>
+     <screen><prompt role="root"># </prompt><command>mkdir -p --mode=0755 /etc/pacemaker</command>
+<prompt role="root"># </prompt><command>dd if=/dev/urandom of=/etc/pacemaker/authkey bs=4k count=1</command></screen>
+     <para><systemitem class="daemon">pacemaker_remote</systemitem> 服务的密钥与您在 YaST 群集模块中创建的群集身份验证密钥不同。</para>
+    </step>
+    <step>
+     <para>使用 <command>scp</command> 在所有群集节点和您的 Guest 节点之间同步身份验证密钥：</para>
+     <screen><prompt role="root"># </prompt><command>scp -r -p /etc/pacemaker/ bob:/etc</command>
+<prompt role="root"># </prompt><command>scp -p /etc/pacemaker/ doro:/etc</command></screen>
+     <para>密钥需始终保持同步。</para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-pmremote-config-uc2-guest">
+   <title>配置 Guest 节点</title>
+   <para>
+    下面的过程会将 <systemitem class="domainname">doro</systemitem> 配置为群集节点 <systemitem class="domainname">alice</systemitem> 上的 Guest 节点：
+   </para>
+   <procedure>
+    <step>
+     <para>在 <systemitem class="domainname">doro</systemitem> 上执行如下操作：</para>
+     <substeps>
+      <step>
+       <para>在防火墙设置中，为 <systemitem class="daemon">pacemaker_remote</systemitem> 打开 TCP 端口 3121。</para>
+      </step>
+      <step>
+       <para>安装 <package>pacemaker-remote</package> 和 <package>crmsh</package> 软件包。 </para>
+       <screen><prompt role="root"># </prompt><command>zypper in pacemaker-remote crmsh</command></screen>
+      </step>
+      <step>
+       <para>在 <systemitem class="daemon">pacemaker_remote</systemitem> 上启用并启动 <systemitem class="domainname">alice</systemitem> 服务：</para>
+       <screen><prompt role="root"># </prompt><command>systemctl enable pacemaker_remote</command>
+<prompt role="root"># </prompt><command>systemctl start pacemaker_remote</command></screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      在 <systemitem class="domainname">alice</systemitem> 或 <systemitem class="domainname">bob</systemitem> 上，运行 <command>ssh</command> 以校验连到 Guest 的主机连接：
+     </para>
+     <screen><prompt role="root"># </prompt><command>ssh -p 3121 doro</command></screen>
+     <para>此 SSH 连接将失败，但其失败<emphasis>过程</emphasis>会指出设置是否有效：</para>
+     <variablelist>
+      <varlistentry>
+       <term>有效设置</term>
+       <listitem>
+        <screen>ssh_exhange_identification: read: Connection reset by peer.</screen>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term>无效设置</term>
+       <listitem>
+        <screen>ssh: connect to host doro port 3121: No route to host
+ssh: connect to host doro port 3121: Connection refused</screen>
+        <para>如果您看到上面两条消息中的任意一条，则表示设置无效。对 <command>ssh</command> 使用 <option>-v</option> 选项并再次执行命令，以查看调试消息。这有助于您找出连接、身份验证或配置问题。使用多个 <option>-v</option> 选项可提高详细程度。
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+     <para>视需要添加更多 Guest 节点并按上面所述进行配置。</para>
+    </step>
+    <step>
+     <para>
+      关闭 Guest 节点并继续<xref linkend="sec-ha-pmremote-integrate-uc2-guestsintocluster"/>。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-pmremote-integrate-uc2-guestsintocluster">
+   <title>将 Guest 节点集成到群集中</title>
+   <para>要将 Guest 节点集成到群集中，请执行以下操作：</para>
+   <procedure>
+    <step>
+     <para>
+      确保所有群集节点上均已启动群集服务。如果情况并非如此，请运行以下命令在所有节点上启动群集服务：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm cluster start --all</command></screen>
+    </step>
+     <step xml:id="st-ha-pmremote-integrate-guestsintocluster-virsh-dump">
+     <para>转储下一步中需要用到的 KVM Guest 的 XML 配置：
+     </para>
+     <screen><prompt role="root"># </prompt><command>virsh list --all</command>
+ Id    Name         State
+-----------------------------------
+ -     doro       shut off
+<prompt role="root"># </prompt><command>virsh dumpxml doro &gt; /etc/pacemaker/doro.xml</command></screen>
+    </step>
+    <step>
+     <para>在节点 <systemitem class="domainname">alice</systemitem> 上，创建用于启动虚拟机的 <systemitem>VirtualDomain</systemitem> 资源。使用<xref linkend="st-ha-pmremote-integrate-guestsintocluster-virsh-dump"/> 中转储的配置：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm configure</command>
+<prompt role="custom">crm(live)configure# </prompt><command>primitive vm-doro ocf:heartbeat:VirtualDomain \
+  params hypervisor="qemu:///system" \
+         config="/etc/pacemaker/doro.xml" \
+         meta remote-node=doro</command></screen>
+     <para>
+      Pacemaker 将自动监控 pacemaker_remote 连接是否失败，因此无需针对 <systemitem>VirtualDomain</systemitem> 资源创建定期监控器。
+     </para>
+     <tip>
+      <title>启用实时迁移</title>
+      <para>
+       要启用资源的实时迁移，请将元属性 <option>allow-migrate</option> 设置为 <literal>true</literal>。默认值为 <literal>false</literal>。
+      </para>
+     </tip>
+    </step>
+    <step>
+     <para>使用 <command>crm status</command> 命令检查群集的状态。命令结果应包含一个所含节点全部都可访问的运行中群集。
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+  <sect2 xml:id="sec-ha-pmremote-testing-uc2">
+   <title>测试设置</title>
+   <para>要演示资源是如何执行的，请使用一个虚设资源。该资源仅作测试之用。
+   </para>
+   <procedure>
+    <step>
+     <para>创建虚设资源：</para>
+     <screen><prompt role="root"># </prompt><command>crm configure primitive fake1 ocf:pacemaker:Dummy</command></screen>
+    </step>
+    <step>
+     <para>使用 <command>crm status</command> 命令检查群集状态。您应该会看到如下内容：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Online: [ alice bob ]
+GuestOnline: [ doro@alice ]
+
+Full list of resources:
+vm-doro (ocf:heartbeat:VirtualDomain): Started alice
+fake1           (ocf:pacemaker:Dummy): Started bob</screen>
+    </step>
+    <step>
+     <para>要将虚设原始资源转移到 Guest 节点 (<systemitem class="domainname">doro</systemitem>)，请使用以下命令：</para>
+     <screen><prompt role="root"># </prompt><command>crm resource move fake1 doro</command></screen>
+     <para>状态将更改为：</para>
+     <screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Online: [ alice bob ]
+GuestOnline: [ doro@alice ]
+
+Full list of resources:
+vm-doro (ocf:heartbeat:VirtualDomain): Started alice
+fake1           (ocf:pacemaker:Dummy): Started doro</screen>
+    </step>
+    <step>
+     <para> 要测试屏蔽是否有效果，请终止 <systemitem class="domainname">doro</systemitem> 上的 <systemitem class="daemon">pacemaker-remoted</systemitem> 守护程序： </para>
+     <screen><prompt role="root"># </prompt><command>kill -9 $(pidof pacemaker-remoted)</command></screen>
+    </step>
+    <step>
+     <para>几秒后，再次检查群集状态。它应显示为：</para>
+     <screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Online: [ alice bob ]
+
+Full list of resources:
+vm-doro (ocf::heartbeat:VirtualDomain): Started alice
+fake1           (ocf:pacemaker:Dummy): Stopped
+
+Failed Actions:
+* doro_monitor_30000 on alice 'unknown error' (1): call=8, status=Error, exitreason='none',
+    last-rc-change='Tue Jul 18 13:11:51 2017', queued=0ms, exec=0ms</screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-pmremote-upgrade">
+  <title>升级群集和 pacemaker_remote 节点</title>
+  
+
+  <para>
+   有关不同情形和受支持升级路径的完整信息，请参见<xref linkend="cha-ha-migration"/>。有关您要升级到的产品的任何更改和新功能的详细信息，请参见其发行说明，所在网址为 <link xlink:href="https://www.suse.com/releasenotes/"/>。
+   </para>
+
+ </sect1>
+<sect1 xml:id="sec-ha-pmremote-more">
+<title>更多信息</title>
+ <para>
+  <link xlink:href="https://documentation.suse.com/sle-ha-15/"/> 上提供了更多有关此产品的文档。有关其他配置和管理任务，请参见详尽的 <link xlink:href="https://documentation.suse.com/sle-ha-15/html/SLE-HA-all/book-sleha-guide.html">
+   Administration Guide</link>。
+ </para>
+ <para>
+  <link xlink:href="https://www.clusterlabs.org/pacemaker/doc/"/> 上提供了上游文档。请参见文档《<citetitle>Pacemaker Remote—Scaling High Availability Clusters</citetitle>》。
+  </para>
+</sect1>
+ <xi:include href="common_legal.xml"/>
+</article>
