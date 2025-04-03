@@ -302,18 +302,24 @@
         read within this time. Otherwise, the node might self-fence.
        </para>
        <note>
-        <title>Multipath or iSCSI Setup</title>
+        <title>Multipath or iSCSI Setup for disk-based SBD</title>
           <para>
           If your SBD device(s) reside on a multipath setup or iSCSI, the timeout
           should be  set to the time required to detect a path failure and switch
           to the next path.
           </para>
           <para>
-           This also means that in <filename>/etc/multipath.conf</filename> the
-           value of  <literal>max_polling_interval</literal> must be less than
-           <literal>watchdog</literal> timeout.
+           This also means that in <filename>/etc/multipath.conf</filename>, the
+           value of <literal>max_polling_interval</literal> must be less than the
+           <literal>watchdog</literal> timeout set during initialization of the SBD device.
          </para>
        </note>
+       <para>
+        For diskless SBD, the watchdog timeout is set by the <literal>SBD_WATCHDOG_TIMEOUT</literal>
+        parameter in <filename>/etc/sysconfig/sbd</filename>. <literal>SBD_WATCHDOG_TIMEOUT</literal>
+        does not need to be set for disk-based SBD because the watchdog setting in the SBD device's
+        metadata takes precedence over <filename>/etc/sysconfig/sbd</filename>.
+       </para>
       </listitem>
      </varlistentry>
      <varlistentry>
@@ -351,26 +357,41 @@
        <para>
         This timeout is set in the CIB as a global cluster property. If not set
         explicitly, it defaults to <literal>0</literal>, which is appropriate for
-        using SBD with one to three devices. For use of SBD in diskless mode, see <xref
-        linkend="pro-ha-storage-protect-confdiskless"/> for more details.</para>
+        using SBD with one to three devices. For SBD in diskless mode, this timeout
+        must <emphasis>not</emphasis> be <literal>0</literal>.</para>
       </listitem>
      </varlistentry>
     </variablelist>
   <para>
-   If you change the watchdog timeout, you need to adjust the other two timeouts
-   as well. The following <quote>formula</quote> expresses the relationship
-   between these three values:
+   If you change the watchdog timeout, you must adjust the other timeouts
+   as well. The following formula expresses the relationship between these values
+   for disk-based SDB:
   </para>
-   <example xml:id="ex-ha-storage-protect-sbd-timings">
-    <title>Formula for Timeout Calculation</title>
+   <example xml:id="ex-ha-storage-protect-disk-based-sbd-timings">
+    <title>Formula for disk-based SBD timeout calculation</title>
     <screen>Timeout (msgwait) &gt;= (Timeout (watchdog) * 2)
 stonith-timeout &gt;= Timeout (msgwait) + 20%</screen>
+    <para>
+      For example, if you set the watchdog timeout to <literal>30</literal>,
+      set the <literal>msgwait</literal> timeout to at least <literal>60</literal> and
+      <literal>stonith-timeout</literal> to at least <literal>72</literal>.
+    </para>
    </example>
    <para>
-    For example, if you set the watchdog timeout to <literal>120</literal>,
-    set the <literal>msgwait</literal> timeout to at least <literal>240</literal> and the
-    <literal>stonith-timeout</literal> to at least <literal>288</literal>.
+    The following formula expresses the relationship between these values
+    for diskless SDB:
    </para>
+   <example xml:id="ex-ha-storage-protect-diskless-sbd-timings">
+    <title>Formula for diskless SBD timeout calculation</title>
+    <screen>stonith-watchdog-timeout &gt;= (SBD_WATCHDOG_TIMEOUT * 2)
+stonith-timeout &gt;= stonith-watchdog-timeout + 20%
+    </screen>
+    <para>
+      For example, if you set <literal>SBD_WATCHDOG_TIMEOUT</literal> to <literal>10</literal>,
+      set <literal>stonith-watchdog-timeout</literal> to at least <literal>20</literal> and
+      <literal>stonith-timeout</literal> to at least <literal>24</literal>.
+    </para>
+   </example>
     <para>
      If you use the <package>ha-cluster-bootstrap</package> scripts to set up a
      cluster and to initialize the SBD device, the relationship between these
@@ -661,12 +682,12 @@ Header version     : 2.1
 UUID               : 619127f4-0e06-434c-84a0-ea82036e144c
 Number of slots    : 255
 Sector size        : 512
-Timeout (watchdog) : 60
+Timeout (watchdog) : 15
 Timeout (allocate) : 2
 Timeout (loop)     : 1
-Timeout (msgwait)  : 180
+Timeout (msgwait)  : 30
 ==Header on disk /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable> is dumped</screen>
-    <para> As you can see, the timeouts are also stored in the header, to ensure
+    <para> As you can see, the timeouts are also stored in the header to ensure
     that all participating nodes agree on them. </para>
     </step>
    </procedure>
@@ -790,7 +811,7 @@ Timeout (msgwait)  : 180
     <screen>
 &prompt.crm.conf;<command>property</command> stonith-enabled="true" <co xml:id="co-ha-sbd-st-enabled"/>
 &prompt.crm.conf;<command>property</command> stonith-watchdog-timeout=0 <co xml:id="co-ha-sbd-watchdog-timeout"/>
-&prompt.crm.conf;<command>property</command> stonith-timeout="220s" <co xml:id="co-ha-sbd-st-timeout"
+&prompt.crm.conf;<command>property</command> stonith-timeout="40s" <co xml:id="co-ha-sbd-st-timeout"
 /></screen>
     <calloutlist>
      <callout arearefs="co-ha-sbd-st-enabled">
@@ -808,7 +829,7 @@ Timeout (msgwait)  : 180
       <para>
        To calculate the <parameter>stonith-timeout</parameter>, refer to
        <xref linkend="sec-ha-storage-protect-watchdog-timings"/>.
-       A <systemitem>stonith-timeout</systemitem> value of <literal>220</literal>
+       A <systemitem>stonith-timeout</systemitem> value of <literal>40</literal>
        would be appropriate if the <literal>msgwait</literal> timeout value for
        SBD was set to <literal>30</literal> seconds.</para>
      </callout>
