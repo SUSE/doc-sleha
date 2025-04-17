@@ -328,7 +328,7 @@
   params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype="gfs2" \
   op monitor interval="20" timeout="40" \
   op start timeout="60" op stop timeout="60" \
-  meta target-role="Stopped"</command></screen>
+  meta target-role="Started"</command></screen>
    </step>
    <step>
     <para>
@@ -355,6 +355,210 @@
      <command>quit</command>.
     </para>
    </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-migrate-ocfs2-gfs2">
+  <title>Migrating from &ocfs; to GFS2</title>
+  <para>
+    &ocfs; is deprecated in &productname; &productnumber;. It will not be supported in future
+    releases.
+  </para>
+  <para>
+    This procedure shows one method of migrating from &ocfs; to GFS2. It assumes
+    you have a single &ocfs; volume that is part of the <literal>g-storage</literal> group.
+  </para>
+  <para>
+    The steps for preparing new block storage and backing up data depend on your specific setup.
+    See the relevant documentation if you need more details.
+  </para>
+  <para>
+    You only need to perform this procedure on <emphasis>one</emphasis> of the cluster nodes.
+  </para>
+  <warning>
+    <title>Test this procedure first</title>
+    <para>
+      Thoroughly test this procedure in a test environment before performing it in a
+      production environment.
+    </para>
+  </warning>
+
+  <procedure xml:id="pro-migrate-ocfs2-gfs2">
+   <title>Migrating from &ocfs; to GFS2</title>
+   <step>
+    <para>
+     Prepare a block device for the GFS2 volume.
+    </para>
+    <para>
+      To check the disk space required, run <command>df -h</command> on the &ocfs; mount point.
+      For example:
+    </para>
+<screen>&prompt.root;<command>df -h /mnt/shared/</command>
+Filesystem     Size  Used Avail Use% Mounted on
+/dev/sdb        10G  2.3G  7.8G  23% /mnt/shared</screen>
+    <para>
+      Make a note of the disk name under <literal>Filesystem</literal>. This will be useful
+      later to help check if the migration worked.
+    </para>
+    <note>
+      <title>&ocfs; disk usage</title>
+      <para>
+        Because some &ocfs; system files can hold disk space instead of returning it to the
+        global bitmap file, the actual disk usage might be less than the amount shown in the
+        <command>df -h</command> output.
+      </para>
+    </note>
+   </step>
+   <step>
+    <para>
+      Install the GFS2 packages on all nodes in the cluster. You can do this on all nodes at once
+      with the following command:
+    </para>
+<screen>&prompt.root;<command>crm cluster run "zypper install -y gfs2-utils gfs2-kmp-default"</command></screen>
+  </step>
+  <step>
+    <para>
+      Create and format the GFS2 volume using the <command>mkfs.gfs2</command> utility. For information
+      about the syntax for this command, refer to the <command>mkfs.gfs2</command> man page.
+     </para>
+     <tip>
+       <title>Key differences between <command>mkfs.ofs2</command> and <command>mkfs.gfs2</command></title>
+       <itemizedlist>
+         <listitem>
+           <para>
+             &ocfs; uses <literal>-C</literal> to specify the cluster size and <literal>-b</literal>
+             to specify the block size. GFS2 also specifies the block size with <literal>-b</literal>,
+             but has no cluster size setting so does not use <literal>-C</literal>.
+           </para>
+         </listitem>
+         <listitem>
+           <para>
+             &ocfs; specifies the number of nodes with <literal>-N</literal>. GFS2 specifies the
+             number of nodes with <literal>-j</literal>.
+           </para>
+         </listitem>
+       </itemizedlist>
+      </tip>
+     <para>
+      For example, to create a new GFS2 file system that supports up to 32 cluster nodes,
+      use the following command:
+     </para>
+<screen>&prompt.root;<command>mkfs.gfs2 -t <replaceable>CLUSTERNAME</replaceable>:mygfs2 -p lock_dlm -j 32 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+     <para>
+      <literal>CLUSTERNAME</literal> must be the same as the entry <option>cluster_name</option>
+      in the file <filename>/etc/corosync/corosync.conf</filename>. The default is
+      <literal>hacluster</literal>.
+     </para>
+     <para>
+       Always use a stable device name for devices shared between cluster nodes.
+     </para>
+   </step>
+   <step>
+    <para>
+     Put the cluster into maintenance mode:
+    </para>
+<screen>&prompt.root;<command>crm maintenance on</command></screen>
+   </step>
+   <step>
+     <para>
+       Back up the &ocfs; volume's data.
+     </para>
+   </step>
+   <step>
+     <para>
+       Start the &crmshell; in interactive mode:
+     </para>
+<screen>&prompt.root;<command>crm configure</command></screen>
+   </step>
+   <step>
+    <para>
+      Delete the &ocfs; resource:
+    </para>
+<screen>&prompt.crm;<command>delete ocfs2-1</command></screen>
+  </step>
+  <step>
+    <para>
+      Mount the GFS2 file system on every node in the cluster, using the <emphasis>same</emphasis>
+      mount point that was used for the &ocfs; file system:
+    </para>
+<screen>&prompt.crm;<command>primitive gfs2-1 ocf:heartbeat:Filesystem \
+params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype="gfs2" \
+op monitor interval="20" timeout="40" \
+op start timeout="60" op stop timeout="60" \
+meta target-role="Started"</command></screen>
+  </step>
+  <step>
+    <para>
+      Add the GFS2 primitive to the <literal>g-storage</literal> group:
+    </para>
+<screen>&prompt.crm;<command>modgroup g-storage add gfs2-1</command></screen>
+  </step>
+  <step>
+    <para>
+      Review your changes with <command>show</command>.
+    </para>
+  </step>
+  <step>
+    <para>
+      If everything is correct, submit your changes with <command>commit</command> and leave the
+      crm live configuration with <command>quit</command>.
+    </para>
+  </step>
+   <step>
+     <para>
+       Take the cluster out of maintenance mode:
+     </para>
+<screen>&prompt.root;<command>crm maintenance off</command></screen>
+   </step>
+   <step>
+     <para>
+       Check the status of the cluster, with expanded details about the group
+       <literal>g-storage</literal>:
+     </para>
+<screen>&prompt.root;<command>crm status detail</command></screen>
+     <para>
+      The group should now include the primitive resource <literal>gfs2-1</literal>.
+     </para>
+   </step>
+   <step>
+     <para>
+       Run <command>df -h</command> on the mount point to make sure the disk name changed:
+     </para>
+<screen>&prompt.root;<command>df -h /mnt/shared/</command>
+Filesystem     Size  Used Avail Use% Mounted on
+/dev/sdc        10G  290M  9.8G   3% /mnt/shared</screen>
+     <para>
+      If the output shows the wrong disk, the new <literal>gfs2-1</literal> resource might be
+      restarting. This issue should resolve itself if you wait a short time and then run the
+      command again.
+     </para>
+   </step>
+   <step>
+    <para>
+      Restore the data from the backup to the GFS2 volume.
+    </para>
+    <note>
+      <title>GFS2 disk usage</title>
+      <para>
+        Even after restoring the data, the GFS2 volume might not use as much disk space as the
+        &ocfs; volume.
+      </para>
+    </note>
+  </step>
+  <step>
+    <para>
+      To check that the data appears correctly, check the contents of the mount point. For example:
+    </para>
+<screen>&prompt.root;<command>ls -l /mnt/shared/</command></screen>
+    <para>
+      You can also run this command on other nodes to make sure the data is being shared correctly.
+    </para>
+  </step>
+  <step>
+    <para>
+      If required, you can now remove the &ocfs; disk.
+    </para>
+  </step>
   </procedure>
  </sect1>
 </chapter>
