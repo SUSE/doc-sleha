@@ -14,7 +14,7 @@ Describe the overall goals of this pull request.
 When opening a PR, check all versions of the documentation that your PR applies to.
 
 - SLE-HA 15
-  - [ ] 15 next *(current `main`, no backport necessary)*
+  - [ ] 15 SP7 *(current `main`, no backport necessary)*
   - [ ] 15 SP6
   - [ ] 15 SP5
   - [ ] 15 SP4
