@@ -1,0 +1,579 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_rear.xml" version="5.0" xml:id="cha-ha-rear">
+ <title>ReaR (Relax-and-Recover)による障害復旧</title>
+ <info>
+      <abstract>
+        <para>
+    Relax-and-Recover (<quote>ReaR</quote>)はシステム管理者が使用する障害復旧フレームワークです。Rearは、障害発生時に保護対象となる特定の運用環境に合わせて調整する必要があるBashスクリプトのコレクションです。
+   </para>
+        <para>
+    障害復旧ソリューションはすぐには機能しません。したがって、障害が発生する<emphasis>前に</emphasis>準備をする必要があります。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec-ha-rear-concept">
+  <title>概念の概要</title>
+
+
+
+  <para>
+   以降のセクションでは、障害復旧の一般的な概念を述べ、ReaRを使用した復旧を実現するために必要となる基本的な手順について説明します。また、ReaRの要件に関する指針、知っておくべき制限事項、およびシナリオとバックアップツールについても紹介します。
+  </para>
+
+  <sect2 xml:id="sec-ha-rear-concept-drp">
+   <title>障害復旧プランの作成</title>
+   <para>
+    最悪のシナリオが発生する<emphasis>前に</emphasis>、ITインフラストラクチャに重大なリスクがあるかどうかの分析、予算の見積もり、障害復旧プランの作成などの対応策を講じます。障害復旧プランを手元に用意していない場合は、以下の手順ごとに情報を入手します。
+   </para>
+   <itemizedlist>
+    <listitem>
+     <formalpara>
+      <title>リスクの分析</title>
+      <para>
+       インフラの確かなリスク分析を実施します。可能性のあるすべての脅威を一覧表示し、深刻度を評価します。これらの脅威が発生する可能性を判断し、優先順位を設定します。可能性と影響の簡単な分類を使用することを推奨します。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>予算のプランニング</title>
+      <para>
+       分析結果には、どのリスクが耐えうるもので、どれがビジネスにとって致命的であるかを全般的に示します。リスクを最小限にする方法およびそれに要するコストを自問して検討します。会社の規模に応じて、IT予算全体の2～15%を障害復旧に使用します。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>障害復旧プランの作成</title>
+      <para>
+       チェックリストの作成、手順のテスト、優先順位の設定と割り当て、ITインフラのインベントリ調査を行います。インフラのサービスが失敗した際、問題に対処する方法を定義します。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>テスト</title>
+      <para>
+       念入りなプランを定義したら、それをテストします。最低でも1年に1度テストします。ご使用のメインITインフラと同じテストハードウェアを使用します。
+      </para>
+     </formalpara>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-recovery">
+   <title>障害復旧とは</title>
+   <para>
+    運用環境に存在するシステムが、ハードウェアの損傷、誤設定、ソフトウェア上の問題など、原因がどのようなものであっても破損した場合は、システムを再作成する必要があります。再作成は、同じハードウェア上または互換性のある代替ハードウェア上で実行できます。バックアップからファイルを復元するだけでは、システムを再作成することにはなりません。システムの再作成では、パーティション、ファイルシステム、マウントポイントの面からのシステムのストレージ作成や、ブートローダの再インストールなどの作業も必要になります。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-basics">
+   <title>ReaRによる障害復旧</title>
+   <para>
+    システムが正常に稼働しているときに、ファイルのバックアップを作成し、復旧メディア上に復旧システムを作成します。復旧システムには、復旧インストーラが収められています。
+   </para>
+   <para>
+    システムが破損した場合は、損傷したハードウェアを必要に応じて交換し、復旧メディアから復旧システムをブートして復旧インストーラを起動します。復旧インストーラはシステムを再作成します。まず、ストレージにパーティション、ファイルシステム、マウントポイントを作成し、続いてバックアップからファイルを復元します。最後に、ブートローダを再インストールします。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-requirements">
+   <title>ReaRの要件</title>
+   <para>
+    ReaRを使用するには、運用環境を実行するマシンおよびそれと同一のテストマシンが必要です。つまり、同一のシステムが2台以上必要になります。ここでいう<quote>同一</quote>とは、たとえば、ネットワークカードを、同じカーネルドライバを使用する他のネットワークカードに置き換えることができるということです。
+   </para>
+   <warning>
+    <title>同一のドライバが必要</title>
+    <para>
+     運用環境のドライバと同じドライバを使用していないハードウェアコンポーネントは、ReaRでは同一のコンポーネントとはみなされません。
+    </para>
+   </warning>
+  </sect2>
+
+
+  <sect2 xml:id="sec-ha-rear-concept-versions">
+   <title>ReaRバージョンの更新</title>
+
+   <para>
+    SUSE Linux Enterprise High Availability 15 SP7で使用できるReaRのバージョンを確認するには、次のコマンドを実行します。
+   </para>
+<screen><prompt role="root"># </prompt><command>zypper search --type package --verbose rear</command></screen>
+
+   <note>
+    <title>変更ログでの重要な情報の検索</title>
+    <para>
+     バグ修正、非互換性、および他の問題に関する情報はすべて、パッケージの変更ログで検索できます。障害復旧手順を再検証する必要がある場合は、ReaRのより最新のパッケージバージョンも確認することをお勧めします。
+    </para>
+   </note>
+
+   <para>
+     ReaRには次の問題がありますので注意してください。
+   </para>
+
+    <itemizedlist>
+     <listitem>
+     <para>
+      UEFIシステムで障害復旧を許可するには、ヘルパーツール<filename>/usr/bin/xorrisofs</filename>を提供するパッケージ<package>xorriso</package>が必要です。このヘルパーツールは、UEFIブート可能ReaR復旧システムISOイメージの作成に使用されます。
+     </para>
+     </listitem>
+     <listitem>
+     <para>
+      特定のReaRバージョンによる障害復旧手順をテスト済みで、その手順が十分に機能しているのであれば、ReaRを更新しないでください。ReaRパッケージをそのまま保持し、障害復旧手法を変更しないようにします。
+     </para>
+     </listitem>
+     <listitem>
+     <para>
+      ReaRの各バージョン更新は、インストール済みのバージョンが誤って別のバージョンに置き換えられることがないよう、相互に意図的に衝突する別個のパッケージとして提供されています。
+     </para>
+     </listitem>
+    </itemizedlist>
+
+   <para>
+    次の場合に、既存の障害復旧手順を再検証する必要があります。
+   </para>
+
+   <itemizedlist>
+    <listitem>
+     <para>
+      ReaRバージョンの更新ごとに。
+     </para>
+    </listitem>
+    <listitem>
+     <para>ReaRを手動で更新する場合。</para>
+    </listitem>
+    <listitem>
+     <para>
+      ReaRで使用されるソフトウェアごとに。
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <command>parted</command>、<command>btrfs</command>などの低レベルのシステムコンポーネントを更新する場合。
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-limit">
+   <title>Btrfsに伴う制限事項</title>
+   <para>
+    Btrfsを使用する場合は次の制限事項が発生します。
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>システムにサブボリュームは存在しても、スナップショットのサブボリュームが存在しない場合</term>
+     <listitem>
+      <para>
+       ReaRバージョン1.17.2.a以上が必要です。このバージョンは、スナップショットのサブボリュームが存在しない<quote>通常の</quote>Btrfsサブボリューム構造の再作成をサポートしています。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>システムにスナップショットのサブボリュームが存在する場合</term>
+     <listitem>
+      <warning>
+       <para>
+        ファイルベースのバックアップソフトウェアでは、Btrfsスナップショットのサブボリュームを通常どおりにはバックアップできず、復元することも<emphasis>できません</emphasis>。
+       </para>
+      </warning>
+      <para>
+       Btrfsにはコピーオンライト機能があることから、Btrfsファイルシステム上にある最近のスナップショットサブボリュームはディスク容量をほとんど必要としません。一方、ファイルベースのバックアップソフトウェアを使用すると、これらのファイルは完全なファイルとしてバックアップされます。最終的に、これらのファイルはその本来のファイルサイズで2回バックアップされることになります。したがって、元のシステム上に以前に存在していたときと同じ状態にスナップショットを復元することができません。
+      </para>
+
+
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>SLEシステムに適合するReaR設定が必要な場合</term>
+     <listitem>
+      <remark>toms 2018-04-18: See https://github.com/rear/rear/issues/1368#issuecomment-302410707</remark>
+      <para>
+       たとえば、SLE12 GA、SLE12 SP1、およびSLE12 SP2の設定には、いくつかの不適合Btrfsのデフォルト構造があります。そのため、適合するReaR設定ファイルを使用することはたいへん重要です。サンプルファイル<filename>/usr/share/rear/conf/examples/SLE12*-btrfs-example.conf</filename>を参照してください 。<remark>toms 2018-04-18: https://github.com/rear/rear/issues/1368#issuecomment-302410707</remark>
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-scenarios">
+   <title>シナリオとバックアップのツール</title>
+   <para>
+    ReaRでは、ハードディスク、フラッシュディスク、DVD/CD-RなどのローカルメディアからのブートやPXEを介したブートが可能な障害復旧システム(システム固有の復旧インストーラなど)を作成できます。バックアップデータは、<xref linkend="ex-ha-rear-nfs-server-backup" xrefstyle="select:label"/>に説明があるNFSなどのネットワークファイルシステムに保存できます。
+   </para>
+   <para>
+    ReaRは、ファイルのバックアップに取って代わるツールではなく、それを補完するツールです。ReaRは、汎用的な<command>tar</command>コマンドのほか、いくつかのサードパーティのバックアップツールをデフォルトでサポートしています。このようなバックアップツールとして、Tivoli Storage Manager、QNetix Galaxy、Symantec NetBackup、EMC NetWorker、HP DataProtectorなどがあります。バックアップツールとしてEMC NetWorkerを使用したReaRの設定例については<xref linkend="ex-ha-rear-config-EMC" xrefstyle="select:label"/>を参照してください。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-rear-concept-overview">
+   <title>基本手順</title>
+   <para>
+    障害発生時にReaRを使用して効果的な復旧を実現するには、以下の基本手順を実行する必要があります。
+   </para>
+   <variablelist>
+    <varlistentry>
+
+     <term><xref linkend="sec-ha-rear-config" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       この手順では、ReaR設定ファイルの編集、Bashスクリプトの調整、使用するバックアップソリューションの設定などのタスクを実行します。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+
+     <term><xref linkend="sec-ha-rear-mkbackup" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       保護対象のシステムが稼働しているときに、ファイルのバックアップを作成し、システム固有のReaR復旧インストーラを含む復旧システムを生成します。
+      </para>
+      <para>
+       <command>tar</command>を使用した基本的なバックアップの場合 、<command>rear mkbackup</command>コマンドを使用して、バックアップと復旧システムの両方を作成します。
+      </para>
+      <para>
+       サードパーティのバックアップツールの場合は、 <command>rear mkrescue</command>コマンドを使用して復旧システムを作成し、サードパーティのバックアップツールを使用してバックアップを作成します。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+
+     <term><xref linkend="sec-ha-rear-testing" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       ReaRを使用して障害復旧メディアを作成した場合は、その障害復旧プロセスを必ず十分にテストしておくようにします。ここでは、運用環境を構成するハードウェアと<emphasis>同一の</emphasis>ハードウェアを備えたテストマシンの使用が不可欠です。詳細については、<xref linkend="sec-ha-rear-concept-requirements"/>を参照してください。
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+
+     <term><xref linkend="sec-ha-rear-recover" xrefstyle="select:title"/>
+     </term>
+     <listitem>
+      <para>
+       障害が発生した場合は、必要に応じて損傷したハードウェアを交換します。続いて、ReaR復旧システムをブートし、<command>rear recover</command>コマンドで復旧インストーラを起動します。
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec-ha-rear-config">
+  <title>ReaRおよびバックアップソリューションのセットアップ</title>
+  <para>
+   ReaRの最新バージョンをインストールするには、次のコマンドを実行します。
+  </para>
+<screen><prompt role="root"># </prompt><command>zypper install rear</command></screen>
+  <para>
+    以前のバージョンのReaRをインストールする必要がある場合は、パッケージバージョンを指定できます。次に例を示します。
+  </para>
+<screen><prompt role="root"># </prompt><command>zypper install rear23a</command></screen>
+  <para>
+   ReaRを設定するには、ReaR設定ファイル<filename>/etc/rear/local.conf</filename>に設定を追加します。さらに、ReaRフレームワークを構成するBashスクリプトも必要に応じて編集します。特に、ReaRが実行する以下のタスクの定義が必要です。
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <formalpara>
+     <title>ファイルをバックアップする方法および障害復旧システムを作成して保存する方法</title>
+     <para>
+      これは、<filename>/etc/rear/local.conf</filename>で設定する必要があります。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>再作成を必要とする対象(パーティション、ファイルシステム、マウントポイントなど)。</title>
+     <para>
+      これは<filename>/etc/rear/local.conf</filename>で定義できます。標準とは異なるシステムを再作成するには、Bashスクリプトの拡張が必要になることがあります。
+     </para>
+    </formalpara>
+   </listitem>
+   <listitem>
+    <formalpara>
+     <title>復旧プロセスの仕組み</title>
+     <para>
+      ReaRで復旧インストーラを生成する方法の変更やReaR復旧インストーラによる実行タスクとの適合を可能にするには、Bashスクリプトの編集が必要です。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   すべてのReaR設定変数およびそのデフォルト値は<filename>/usr/share/rear/conf/default.conf</filename>で説明されています。
+  </para>
+  <para>
+   以下に、便利な設定オプションの例をいくつか示します。<filename>/usr/share/rear/conf/examples/</filename>サブディレクトリには、別のシナリオのサンプルファイルもあります。これらを使用して、<filename>/etc/rear/local.conf</filename>ファイルを作成できます。
+  </para>
+
+  <example xml:id="ex-ha-rear-nfs-server-backup">
+   <title>NFSサーバを使用したファイルバックアップの保存</title>
+  <orderedlist>
+   <listitem>
+    <para>
+     <link xlink:href="https://documentation.suse.com/sles-15/html/SLES-all/cha-nfs.html">SUSE Linux Enterprise Server 15 SP7の『管理ガイド』</link>の説明に従って、YaSTを使用してNFSサーバを設定します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     目的のNFSサーバの設定を<filename>/etc/exports</filename>ファイルで定義します。NFSサーバ上のディレクトリに適切なマウントオプションが設定されていることを確認します。たとえば、<command>rear mkbackup</command>コマンドが<systemitem class="username">root</systemitem>として実行されるので、<literal>no_root_squash</literal>が必要になる場合があります。詳細については、<command>man exports</command>を参照してください。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     さまざまな<varname>BACKUP</varname>パラメータ(設定ファイル<filename>/etc/rear/local.conf</filename>に記述されています)を調整して、該当のNFSサーバ上にReaRからファイルのバックアップを保存できるようにします。この例は、インストールしたシステムの<filename>/usr/share/rear/conf/examples/SLE*-example.conf</filename>にあります。
+    </para>
+   </listitem>
+  </orderedlist>
+  </example>
+
+  <example xml:id="ex-ha-rear-config-sles-btrfs">
+    <title><command>tar</command>によるBtrfsサブボリュームのバックアップ</title>
+    <para>
+     Btrfsはサブボリュームを使用して設定しますが、<command>tar</command>では<option>--one-file-system</option>オプションを使用してバックアップを作成するため、サブボリュームは除外されます。したがって、サブボリュームのマウントポイントをReaR設定に明示的に含める必要があります。
+    </para>
+    <para>
+     この設定スニペットを<filename>/etc/rear/local.conf</filename>に追加し、それぞれのセットアップに応じて調整します。詳細情報と追加オプションについては、<filename>/usr/share/rear/conf/examples/SLE*-btrfs-example.conf</filename>にあるサンプルファイルを参照してください。
+    </para>
+<screen>OUTPUT=ISO
+BACKUP=NETFS
+BACKUP_URL=nfs://<replaceable>host.example.com/path/to/rear/backup</replaceable>
+BACKUP_PROG_INCLUDE=( /root /boot/grub2/i386-pc /tmp /opt /var /boot/grub2/x86_64-efi /srv /usr/local )</screen>
+    <tip>
+      <title><literal>BACKUP_PROG_INCLUDE</literal>のマウントポイント</title>
+      <para>
+        次のコマンドを実行して、特定のシステム上のサブボリュームのマウントポイントを確認できます。
+      </para>
+<screen><prompt role="root"># </prompt><command>findmnt -n -r -o TARGET -t btrfs | grep -v '^/$' | egrep -v 'snapshots|crash'</command></screen>
+    </tip>
+  </example>
+
+  <example xml:id="ex-ha-rear-config-EMC">
+   <title>サードパーティのバックアップツール(EMC NetWorkerなど)の使用</title>
+   <para>
+    <command>tar</command>の代わりにサードパーティのバックアップツールを使用するには、ReaR設定ファイルを適切に設定する必要があります。
+   </para>
+   <para>
+    以下は、EMC NetWorkerを使用する場合の設定例です。この設定スニペットを<filename>/etc/rear/local.conf</filename>に追加し、それぞれのセットアップに応じて調整します。
+   </para>
+<screen>BACKUP=NSR
+OUTPUT=ISO
+BACKUP_URL=nfs://<replaceable>host.example.com/path/to/rear/backup</replaceable>
+OUTPUT_URL=nfs://<replaceable>host.example.com/path/to/rear/backup</replaceable>
+NSRSERVER=<replaceable>backupserver.example.com</replaceable>
+RETENTION_TIME="Month"</screen>
+   <para>
+    サポートされているサードパーティのバックアップツールの詳細については、<command>man rear</command>の<citetitle>BACKUP SOFTWARE INTEGRATION</citetitle>のセクションを参照してください。
+   </para>
+  </example>
+
+  <example xml:id="ex-ha-rear-config-multipath">
+    <title>マルチパスデバイスのバックアップ</title>
+    <para>
+     デフォルトでは、ReaRはマルチパスデバイス上のファイルシステムを無視します。ReaRでは、マルチパスデバイスはローカルシステムの一部ではなくリモートストレージ上にあると想定するためです。ReaRでこれらのファイルシステムを含めるには、次の行を<filename>/etc/rear/local.conf</filename>に追加します。
+    </para>
+    <screen>AUTOEXCLUDE_MULTIPATH=n</screen>
+  </example>
+
+  <example xml:id="ex-ha-rear-config-UEFI">
+    <title>YaSTによるシステムのブート</title>
+    <para>
+      システムがUEFIブートローダでブートする場合は、追加の設定が必要です。
+    </para>
+    <orderedlist>
+      <listitem>
+        <para>
+          パッケージ<package>xorriso</package>をインストールします:。
+        </para>
+<screen><prompt role="root"># </prompt><command>zypper install xorriso</command></screen>
+      </listitem>
+      <listitem>
+        <para>
+          次の行を<filename>/etc/rear/local.conf</filename>に追加します。
+        </para>
+<screen>ISO_MKISOFS_BIN="/usr/bin/xorrisofs"</screen>
+      </listitem>
+      <listitem>
+        <para>
+          システムがUEFIセキュアブートで起動する場合は、次の行も追加する必要があります。
+        </para>
+<screen>SECURE_BOOT_BOOTLOADER="/boot/efi/EFI/sles/shim.efi"</screen>
+      </listitem>
+    </orderedlist>
+    <para>
+     UEFIのReaR設定変数の詳細については、<filename>/usr/share/rear/conf/default.conf</filename>ファイルを参照してください。
+    </para>
+  </example>
+ </sect1>
+ <sect1 xml:id="sec-ha-rear-mkbackup">
+  <title>復旧インストールシステムの作成</title>
+  <para>
+   <xref linkend="sec-ha-rear-config" xrefstyle="select:label"/>の説明に従ってReaRを設定した後、ReaR復旧インストーラを持つ復旧インストールシステムを作成した上で、ファイルのバックアップを作成します。
+  </para>
+  <example xml:id="ex-ha-rear-mkbackup">
+    <title>基本的な<command>tar</command>バックアップによる復旧システムの作成</title>
+    <para>
+      <command>rear mkbackup</command>コマンドを実行します。
+    </para>
+<screen><prompt role="root"># </prompt><command>rear -d -D mkbackup</command></screen>
+    <para>
+     このコマンドは以下のステップを実行します。
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+        ターゲットシステムを分析し、ディスクのレイアウト(パーティション、ファイルシステム、マウントポイント)やブートローダに関する情報を中心として必要な情報を収集する。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+        最初の手順で収集した情報を使用して、ブート可能な復旧システムを作成する。ここで得られるReaR復旧インストーラは、障害から保護する個々のシステム<emphasis>専用</emphasis>のインストーラです。このインストーラは、この固有のシステムを再作成する目的でのみ使用できます。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+        内部バックアップツールを呼び出し、システムファイルとユーザファイルをバックアップする。
+        </para>
+      </listitem>
+    </itemizedlist>
+  </example>
+  <example xml:id="ex-ha-rear-mkrescue">
+    <title>サードパーティのバックアップによる復旧システムの作成</title>
+    <orderedlist>
+      <listitem>
+        <para>
+          <command>rear mkrescue</command>コマンドを実行します。
+        </para>
+<screen><prompt role="root"># </prompt><command>rear -d -D mkrescue</command></screen>
+        <para>
+          このコマンドはターゲットを分析して復旧システムを作成しますが、ファイルのバックアップは作成<emphasis>しません</emphasis>。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          サードパーティのバックアップ ツールを使用してファイルのバックアップを作成します。
+        </para>
+      </listitem>
+    </orderedlist>
+  </example>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-rear-testing">
+  <title>復旧プロセスのテスト</title>
+
+  <para>
+   復旧システムを作成した後、運用マシンと同一のハードウェアを備えたテストマシンで復旧プロセスをテストします。<xref linkend="sec-ha-rear-concept-requirements"/>も参照してください。テストマシンの設定が適切で、メインマシンの代わりとして機能できることを確認します。
+  </para>
+
+  <warning>
+   <title>運用マシンと同一のハードウェア上での包括的なテスト</title>
+   <para>
+    マシン上で障害復旧プロセスを十分にテストする必要があります。復旧手順を定期的にテストし、すべてが想定どおりに機能することを確認します。
+   </para>
+  </warning>
+
+  <procedure xml:id="pro-ha-rear-testing">
+   <title>テストマシン上での障害復旧の実行</title>
+   <step>
+    <para>
+     <xref linkend="sec-ha-rear-mkbackup" xrefstyle="select:label"/>で作成した復旧システムをDVDやCDに書き込み、復旧メディアを作成します。PXEを介したネットワークブートとすることもできます。
+    </para>
+   </step>
+   <step>
+    <para>
+     復旧メディアからテストマシンをブートします。
+    </para>
+   </step>
+   <step>
+    <para>
+     メニューから<guimenu>復旧</guimenu>を選択します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <systemitem class="username">root</systemitem>としてログインします(パスワードは必要なし)。
+    </para>
+   </step>
+   <step>
+    <para>
+     次のコマンドを入力して復旧インストーラを起動します。
+    </para>
+<screen>rear -d -D recover</screen>
+    <para>
+     このプロセスでReaRが実行する手順の詳細については<xref linkend="ol-ha-rear-recovers-steps"/>を参照してください。
+    </para>
+   </step>
+   <step>
+    <para>
+     復旧プロセスが完了した後、システムが正常に再作成されたかどうか、および運用環境で元のシステムの代替として機能するかどうかを確認します。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-rear-recover">
+  <title>障害からの復旧</title>
+
+  <para>
+   障害が発生した場合には、必要に応じて損傷したハードウェアを取り替えます。次に、<xref linkend="pro-ha-rear-testing" xrefstyle="select:label"/>の説明に従って、修復したマシンまたは元のシステムの代替として機能することをテスト済みの同一構成のマシンを使用して手順を進めます。
+  </para>
+
+  <para>
+   <command>rear recover</command>コマンドは次の手順を実行します。
+  </para>
+
+  <orderedlist xml:id="ol-ha-rear-recovers-steps" spacing="normal">
+   <title>回復プロセス</title>
+   <listitem>
+    <para>
+     ディスクのレイアウト(パーティション、ファイルシステム、およびマウントポイント)を復元する。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     バックアップからシステムとユーザファイルを復元する。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ブートローダを復元する。
+    </para>
+   </listitem>
+  </orderedlist>
+ </sect1>
+ <sect1 xml:id="sec-ha-rear-more">
+  <title>詳細情報</title>
+
+
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     <link xlink:href="https://en.opensuse.org/SDB:Disaster_Recovery"></link>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <command>rear</command>のマニュアルページ
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>/usr/share/doc/packages/rear/</filename>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+</chapter>

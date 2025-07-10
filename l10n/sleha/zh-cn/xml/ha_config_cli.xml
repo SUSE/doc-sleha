@@ -1,0 +1,870 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sect1 xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_config_cli.xml" xml:id="cha-ha-manual-config" version="5.0">
+ <title>crmsh 简介</title>
+ <info>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+
+   <para>
+    要配置和管理群集资源，可以使用 crm 外壳 (crmsh) 命令行实用程序或 Hawk2（基于 Web 的用户界面）。
+   </para>
+        <para>
+    本节介绍命令行工具 <command>crm</command>。<command>crm</command> 命令有多个子命令，用于管理资源、CIB、节点和资源代理等对象。它提供了全面的帮助系统，并嵌入了示例。所有示例都遵循<xref linkend="app-naming" xrefstyle="select:label"/> 中所述的命名约定。
+   </para>
+     <para>
+   事件记录到 <filename>/var/log/crmsh/crmsh.log</filename> 中。
+  </para>
+
+
+
+  <tip>
+   <title>交互式 crm 提示符</title>
+   <para>使用不带参数（或只带一个 sublevel 参数）的 crm，crm 外壳将进入交互式模式。此模式由以下提示符指示：
+   </para>
+   <screen><prompt>crm(live/HOSTNAME)</prompt></screen>
+   <para>
+    为了容易阅读，我们的文档在交互式 crm 提示符中省略了主机名。仅当您需要在特定的节点（如 alice）上运行交互式外壳时，才包含主机名，例如：
+   </para>
+   <screen><prompt>crm(live/alice)</prompt></screen>
+  </tip>
+
+  <sect2 xml:id="sec-ha-manual-config-crm-user-privileges">
+    <title>用户权限和身份验证</title>
+    <para>
+      管理群集需要有充足的权限。以下用户可以运行 <command>crm</command> 命令及其子命令：
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          <systemitem class="username">root</systemitem> 用户或具有 <command>sudo</command> 特权的用户。这些用户通过使用 SSH 执行 crmsh 操作（例如 <command>crm cluster init</command>、<command>crm cluster join</command> 和 <command>crm report</command>）拥有所有群集节点的完整权限。他们还可以对 CIB 进行更改，例如添加资源和约束。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          CRM 所有者用户（通常是在群集安装期间默认创建的用户 <systemitem class="username">hacluster</systemitem>）。此用户可以对 CIB 进行更改，但执行使用 SSH 的操作（例如 <command>crm report</command>）的权限受到限制。
+        </para>
+        <tip>
+          <title>非特权用户</title>
+          <para>
+            使用 <option>user</option> 选项，您能以普通（非特权）用户身份运行 <command>crm</command> 及其子命令，而且必要时能使用 <command>sudo</command> 更改其 ID。例如，下面的命令会将 <systemitem class="username">hacluster</systemitem> 设置为特权用户 ID：
+          </para>
+          <screen><prompt role="root"># </prompt><command>crm options user hacluster</command></screen>
+          <para>
+            必须设置 <filename>/etc/sudoers</filename>，这样 <command>sudo</command> 就不会要求提供口令。
+          </para>
+        </tip>
+      </listitem>
+    </itemizedlist>
+    <para>
+      对于使用 SSH 的操作，群集使用无口令 SSH 访问方式在节点之间进行通讯。如果使用 <command>crm cluster init</command> 设置群集，脚本会检查 SSH 密钥是否存在，如果尚不存在，则会生成这些密钥。如果使用 YaST 群集模块设置群集，您必须自行配置 SSH 密钥。
+    </para>
+    <para>
+      在大多数情况下，<systemitem class="username">root</systemitem> 或 <command>sudo</command> 用户的 SSH 密钥必须存在于节点上（或在其上生成）。或者，<command>sudo</command> 用户的 SSH 密钥可以存在于本地计算机上，并通过 SSH 代理转发传递到节点。如果您需要避免在节点上存储 SSH 密钥，此方法可能很有用，不过这需要进行额外的配置。
+    </para>
+    <procedure xml:id="pro-ha-manual-config-crm-user-privileges-ssh-agent">
+      <title>使用引导脚本设置启用了 SSH 代理转发的群集</title>
+      <step>
+        <para>
+          在本地计算机上，启动 SSH 代理并为其添加密钥。有关详细信息，请参见 SUSE Linux Enterprise Server 的《<citetitle>Security and Hardening Guide</citetitle>》中的<link xlink:href="https://documentation.suse.com/sles/html/SLES-all/cha-ssh.html#sec-ssh-authentic-agent"><citetitle>Automated public key logins with ssh-agent</citetitle></link>。
+        </para>
+      </step>
+      <step>
+        <para>
+          以具有 <command>sudo</command> 特权的用户身份登录到第一个群集节点，并使用 <option>-A</option> 选项启用 SSH 代理转发：
+        </para>
+<screen><prompt>user@local&gt; </prompt><command>ssh -A <replaceable>USER@NODE1</replaceable></command></screen>
+      </step>
+      <step>
+        <para>
+          使用 <command>crm cluster init</command> 脚本初始化群集：
+        </para>
+<screen><prompt>user@node1&gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \</command><co xml:id="co-ssh-auth-sock"/>
+<command>crm cluster init --use-ssh-agent</command><co xml:id="co-use-ssh-agent"/></screen>
+       <calloutlist>
+         <callout arearefs="co-ssh-auth-sock">
+           <para>
+             这会保留 <literal>SSH_AUTH_SOCK</literal> 环境变量，SSH 代理通讯时需要用到该变量。
+           </para>
+        </callout>
+        <callout arearefs="co-use-ssh-agent">
+           <para>
+             指示脚本使用本地 SSH 密钥，而不是在节点上生成密钥。
+           </para>
+         </callout>
+       </calloutlist>
+      </step>
+      <step>
+        <para>
+          初始配置完成后，退出第一个节点并使用 <option>-A</option> 选项登录到第二个节点。
+        </para>
+      </step>
+      <step>
+        <para>
+          使用 <command>crm cluster join</command> 脚本为群集添加第二个节点。使用 <literal>-c</literal> 选项指定之前初始化群集的用户和节点：
+        </para>
+<screen><prompt>user@node2&gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster join --use-ssh-agent -c <replaceable>USER@NODE1</replaceable></command></screen>
+      </step>
+    </procedure>
+    <para>
+      如果您是使用 YaST 而不是引导脚本设置群集的，系统将不会自动生成 SSH 密钥。要在启用 SSH 代理转发的情况下配置 SSH 密钥，可以单独使用引导脚本的 <literal>ssh</literal> 阶段。应在使用 YaST 配置群集后、在使群集上线前运行这些命令。
+    </para>
+    <procedure xml:id="pro-ha-manual-config-crm-user-privileges-ssh-keys">
+      <title>为现有群集配置无口令 SSH（和 SSH 代理转发）</title>
+      <step>
+        <para>
+          在第一个节点上运行以下命令：
+        </para>
+<screen><prompt>user@node1&gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster init ssh --use-ssh-agent</command></screen>
+      </step>
+      <step>
+        <para>
+          在第一个节点上启动群集服务，以便让其他节点可以使用 <command>crm cluster join</command> 命令：
+        </para>
+<screen><prompt>user@node1&gt; </prompt><command>sudo crm cluster start</command></screen>
+      </step>
+      <step>
+        <para>
+          在所有其他节点上运行以下命令：
+        </para>
+<screen><prompt>user@node2&gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster join ssh --use-ssh-agent -c <replaceable>USER@NODE1</replaceable></command></screen>
+      </step>
+    </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-crm-help">
+   <title>获得帮助</title>
+   <para>
+    可通过以下方式之一访问帮助：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      输出 <command>crm</command> 及其命令行选项的用法：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm --help</command></screen>
+    </listitem>
+    <listitem>
+     <para>
+      列出所有可用的命令：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm help</command></screen>
+    </listitem>
+    <listitem>
+     <para>
+      访问其他帮助部分，而不只是命令参考：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm help topics</command></screen>
+    </listitem>
+    <listitem>
+     <para>
+      查看 <command>configure</command> 子命令的完整帮助文本：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure help</command></screen>
+    </listitem>
+    <listitem>
+     <para>
+      列显 <command>configure</command> 的子命令 <command>group</command> 的语法、用法及示例：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure help group</command></screen>
+     <para>
+      以下命令的作用相同：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm help configure group</command></screen>
+    </listitem>
+   </itemizedlist>
+   <para>
+    基本上 <command>help</command> 子命令（不要与 <option>--help</option> 选项混淆）的所有输出都会打开一个文本查看器。此文本查看器允许您向上/向下滚动，以便更加方便地阅读帮助文本。要退出文本查看器，请按 <keycap>Q</keycap> 键。
+   </para>
+   <tip xml:id="tip-crm-tabcompletion">
+    <title>在 Bash 和交互式外壳中使用 Tab 键补全</title>
+    <para>
+     crmsh 不仅为交互式外壳提供 Tab 键补全，还全面支持在 Bash 中直接使用此功能。例如，键入 <literal>crm help
+     config</literal><keycap function="tab"></keycap> 会补全文字，就像在交互式外壳中一样。
+    </para>
+   </tip>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-crm-run">
+   <title>执行 crmsh 的子命令</title>
+   <para>
+    <command>crm</command> 命令本身可按以下方式使用：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <formalpara>
+      <title>直接：</title>
+      <para>
+       在 <command>crm</command> 后追加所有子命令，按 <keycap function="enter"></keycap> 键，便会立即看到输出。例如，输入 <command>crm help ra</command> 可获取有关 <command>ra</command> 子命令（资源代理）的信息。
+      </para>
+     </formalpara>
+      <para>可以缩写子命令，前提是缩写后的子命令是唯一的。例如，您可以将 <command>status</command> 缩写为 <command>st</command>，crmsh 可以识别该缩写。
+      </para>
+      <para>另一项功能是缩写参数。通常，您是通过 <command>params</command> 关键字添加参数的。如果 <literal>params</literal> 是第一个且是唯一存在的部分，则可以省略。例如，下面一行：
+      </para>
+      <screen><prompt role="root"># </prompt><command>crm configure primitive ipaddr IPaddr2 params ip=192.168.0.55</command></screen>
+      <para>相当于下行：</para>
+      <screen><prompt role="root"># </prompt><command>crm configure primitive ipaddr IPaddr2 ip=192.168.0.55</command></screen>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>作为 crm 外壳脚本：</title>
+      <para>
+       外壳脚本包含 <command>crm</command>crm 的子命令。有关详细信息，请访问 <xref linkend="sec-ha-manual-config-crmshellscripts"/>。
+      </para>
+     </formalpara>
+    </listitem>
+    <listitem>
+      <formalpara>
+        <title>作为 crmsh 群集脚本：</title>
+        <para>此类脚本是元数据、对 RPM 包的参照、配置文件及多个 crmsh 子命令捆绑在一起并以单个描述性名称命名的集合。可以通过 <command>crm script</command> 命令来管理这些内容。
+        </para>
+      </formalpara>
+      <para>请不要将它们与 crmsh 外壳脚本相混淆：尽管两者具有一些共同的目标，但 crm 外壳脚本只包含子命令，而群集脚本所包含的远远不只是简单的命令枚举。有关详细信息，请访问 <xref linkend="sec-ha-manual-config-clusterscripts"/>。
+      </para>
+    </listitem>
+    <listitem>
+     <formalpara>
+      <title>作为内部外壳交互：</title>
+      <para>
+       输入 <command>crm</command> 以进入内壳。提示符会切换为 <literal>crm(live)</literal>。使用 <command>help</command> 可获取可用子命令的概述。由于内部内壳具有不同级别的子命令，您可以键入一个子命令然后按 <keycap function="enter"></keycap> 键<quote>进入</quote>相应级别。
+      </para>
+     </formalpara>
+     <para>
+      例如，如果输入 <command>resource</command>，则进入资源管理级别。提示符会切换为 <literal>crm(live)resource#</literal>。要退出该内部的外壳，请使用 <command>quit</command> 命令。如果需要返回上一个级别，可使用 <command>back</command>、<command>up</command>、<command>end</command> 或 <command>cd</command>。
+     </para>
+     <para>
+      键入 <command>crm</command> 和相应子命令（不带任何选项）并按 <keycap function="enter"></keycap>，即可直接进入该级别。
+     </para>
+     <para>
+      该内部外壳还支持使用 Tab 键补全子命令和资源。键入命令的开头，然后按 <keycap function="tab"></keycap>，<command>crm</command> 便会补全相应对象。
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    crmsh 还支持执行同步命令。使用 <option>-w</option> 选项可以激活该功能。如果已启动 <command>crm</command> 但未指定 <option>-w</option>，之后可以将用户首选项的 <command>wait</command> 设为 <literal>yes</literal> (<command>options
+    wait yes</command>) 来启用它。如果此选项已启用，则 <command>crm</command> 将会等到事务完成为止。事务一经启用，就会打印出点以指示进度。同步命令执行仅适用于 <command>resource
+    start</command> 之类的命令。
+   </para>
+   <note>
+    <title>区分管理子命令与配置子命令</title>
+    <para>
+     <command>crm</command> 工具有管理功能（子命令 <command>resource</command> 和 <command>node</command>），可用于配置设置（<command>configure</command> 和 <command>cib</command>）。
+    </para>
+   </note>
+   <para>
+    下面的小节概述了 <command>crm</command> 工具的重要方面。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-ocf">
+   <title>显示有关 OCF 资源代理的信息</title>
+   <para>
+    由于在群集配置中一直需要处理资源代理，<command>crm</command> 工具包含了 <command>ra</command> 命令。使用该命令可以显示有关资源代理的信息并对其进行管理（如需其他信息，另请参见<xref linkend="sec-ha-config-basics-raclasses"/>）：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm ra</command>
+<prompt role="custom">crm(live)ra# </prompt></screen>
+   <para>
+    <command>classes</command> 命令可列出所有类别和提供方：
+   </para>
+<screen><prompt role="custom">crm(live)ra# </prompt><command>classes</command>
+ lsb
+ ocf / heartbeat linbit lvm2 ocfs2 pacemaker
+ service
+ stonith
+ systemd</screen>
+   <para>
+    要大致了解某个类别（和提供方）的所有可用资源，请使用 <command>list</command> 命令：
+   </para>
+<screen><prompt role="custom">crm(live)ra# </prompt><command>list ocf</command>
+AoEtarget           AudibleAlarm        CTDB                ClusterMon
+Delay               Dummy               EvmsSCC             Evmsd
+Filesystem          HealthCPU           HealthSMART         ICP
+IPaddr              IPaddr2             IPsrcaddr           IPv6addr
+LVM                 LinuxSCSI           MailTo              ManageRAID
+ManageVE            Pure-FTPd           Raid1               Route
+SAPDatabase         SAPInstance         SendArp             ServeRAID
+...</screen>
+   <para>
+    可使用 <command>info</command> 查看资源代理的概述：
+   </para>
+<screen><prompt role="custom">crm(live)ra# </prompt><command>info ocf:linbit:drbd</command>
+This resource agent manages a DRBD* resource
+as a master/slave resource. DRBD is a shared-nothing replicated storage
+device. (ocf:linbit:drbd)
+
+Master/Slave OCF Resource Agent for DRBD
+
+Parameters (* denotes required, [] the default):
+
+drbd_resource* (string): drbd resource name
+    The name of the drbd resource from the drbd.conf file.
+
+drbdconf (string, [/etc/drbd.conf]): Path to drbd.conf
+    Full path to the drbd.conf file.
+
+Operations' defaults (advisory minimum):
+
+    start         timeout=240
+    promote       timeout=90
+    demote        timeout=90
+    notify        timeout=90
+    stop          timeout=100
+    monitor_Slave_0 interval=20 timeout=20 start-delay=1m
+    monitor_Master_0 interval=10 timeout=20 start-delay=1m</screen>
+   <para>
+    按 <keycap>Q</keycap> 退出查看器。
+   </para>
+   <tip>
+    <title>直接使用 <command>crm</command></title>
+    <para>
+     在之前的示例中，我们使用了 <command>crm</command> 命令的内壳。但是您不一定非要使用它。将相应子命令添加到 <command>crm</command> 中也可获得相同的结果。例如，在外壳中输入 <command>crm ra list ocf</command> 可以列出所有 OCF 资源代理。
+    </para>
+   </tip>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-crmshellscripts">
+   <title>使用 crmsh 的外壳脚本</title>
+   <para>
+    Crmsh 外壳脚本提供了将 crmsh 子命令枚举到文件中的便捷方式。如此，您便可轻松地注释特定行或稍后重新运行这些行。请注意，crmsh 外壳脚本<emphasis>只能包含 crmsh 子命令</emphasis>,不允许包含任何其他命令。
+   </para>
+   <para>
+    您需要先创建包含特定命令的文件，然后才能使用 crmsh 外壳脚本。例如，下面的文件会列显群集的状态并提供所有节点的列表：
+   </para>
+   <example xml:id="ex-ha-manual-config-crmshellscripts">
+    <title>简单的 crmsh 外壳脚本</title>
+    <screen># A small example file with some crm subcommands
+<command>status</command>
+<command>node list</command></screen>
+   </example>
+   <para>
+    以井字符号 (<literal>#</literal>) 开头的所有行都是注释，系统会将其忽略。如果某行过长，可在结尾插入反斜杠 (<literal>\</literal>)，然后换到下一行。为方便阅读，建议将属于特定子命令的行进行缩进。
+   </para>
+
+   <para>要使用此脚本，请使用以下其中一种方法：</para>
+   <screen><prompt role="root"># </prompt><command>crm -f example.cli</command>
+<prompt role="root"># </prompt><command>crm &lt; example.cli</command></screen>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-clusterscripts">
+    <title>使用 crmsh 的群集脚本</title>
+    <para>从所有群集节点收集信息并部署任何更改是一项关键的群集管理任务。您不必在不同的节点上手动执行相同的过程（这很容易出错），可以使用 crmsh 群集脚本来代替该过程。
+   </para>
+   <para>
+    请不要将它们与 <emphasis>crmsh 外壳脚本</emphasis>相混淆，<xref linkend="sec-ha-manual-config-crmshellscripts"/>中对后者进行了介绍。
+    </para>
+
+   <para>对比 crmsh 外壳脚本，群集脚本另外会执行如下任务：</para>
+    <itemizedlist>
+      <listitem>
+        <para>安装特定任务所需的软件。</para>
+      </listitem>
+      <listitem>
+        <para>创建或修改任何配置文件。</para>
+      </listitem>
+      <listitem>
+        <para>收集信息并报告群集的潜在问题。</para>
+      </listitem>
+      <listitem>
+        <para>将更改部署到所有节点。</para>
+      </listitem>
+    </itemizedlist>
+
+    <para>crmsh 群集脚本并不能取代其他群集管理工具，它只是提供了一种集成的方式用于在群集中执行上述任务。有关详细信息，请参见 <link xlink:href="https://crmsh.github.io/scripts/" xlink:show="new"></link>。
+    </para>
+
+    <sect3 xml:id="sec-ha-manual-config-clusterscripts-usage">
+      <title>用法</title>
+      <para>要获取所有可用群集脚本的列表，请运行：</para>
+      <screen><prompt role="root"># </prompt><command>crm script list</command></screen>
+
+      <para>要查看脚本的组成部分，请使用 <command>show</command> 命令和群集脚本的名称，例如：</para>
+      <screen><prompt role="root"># </prompt><command>crm script show mailto</command>
+mailto (Basic)
+MailTo
+
+ This is a resource agent for MailTo. It sends email to a sysadmin
+whenever  a takeover occurs.
+
+1. Notifies recipients by email in the event of resource takeover
+
+  id (required)  (unique)
+      Identifier for the cluster resource
+  email (required)
+      Email address
+  subject
+      Subject</screen>
+
+      <para><command>show</command> 的输出包含标题、简要说明和过程。每个过程分为一系列按给定顺序执行的步骤。</para>
+      <para>每个步骤都包含一份必要参数与可选参数及其简要说明和默认值的列表。</para>
+
+      <para>每个群集脚本都可识别一组通用参数。这些参数可传递给任何脚本：</para>
+
+      <table>
+        <title>通用参数</title>
+        <tgroup cols="3">
+          <thead>
+            <row>
+              <entry>参数</entry>
+              <entry>参数</entry>
+              <entry>说明</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry><parameter>action</parameter></entry>
+              <entry><replaceable>INDEX</replaceable></entry>
+              <entry>如果设置此参数，则只会执行单个操作（verify 会返回索引）</entry>
+            </row>
+            <row>
+              <entry><parameter>dry_run</parameter></entry>
+              <entry><replaceable>BOOL</replaceable></entry>
+              <entry>如果设置此参数，则只会模拟执行（默认值：no） </entry>
+            </row>
+            <row>
+              <entry><parameter>nodes</parameter></entry>
+              <entry><replaceable>LIST</replaceable></entry>
+              <entry>列出要对其执行脚本的节点</entry>
+            </row>
+            <row>
+              <entry><parameter>port</parameter></entry>
+              <entry><replaceable>NUMBER</replaceable></entry>
+              <entry>要连接的端口</entry>
+            </row>
+            <row>
+              <entry><parameter>statefile</parameter></entry>
+              <entry><replaceable>FILE</replaceable></entry>
+              <entry>在以单一步进方式执行时，状态将保存在给定文件中 </entry>
+            </row>
+            <row>
+              <entry><parameter>sudo</parameter></entry>
+              <entry><replaceable>BOOL</replaceable></entry>
+              <entry>如果设置此参数，crm 会在适当的情况下提示输入 sudo 口令并使用 sudo（默认值为 no） </entry>
+            </row>
+            <row>
+              <entry><parameter>timeout</parameter></entry>
+              <entry><replaceable>NUMBER</replaceable></entry>
+              <entry>以秒为单位的执行超时（默认值：600） </entry>
+            </row>
+            <row>
+              <entry><parameter>user</parameter></entry>
+              <entry><replaceable>USER</replaceable></entry>
+              <entry>以给定用户的身份运行脚本 </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </sect3>
+
+    <sect3 xml:id="sec-ha-manual-config-clusterscripts-verify-run">
+      <title>校验和运行群集脚本</title>
+      <para>在运行某个群集脚本之前，请检查该脚本将要执行的操作并校验其参数，以免出现问题。群集脚本可能会执行一系列操作，并且可能会出于各种原因而失败。因此，在运行脚本之前校验参数有助于避免出现问题。</para>
+      <para>例如，<systemitem>mailto</systemitem> 资源代理需要唯一的标识符和一个电子邮件地址。要校验这些参数，请运行：</para>
+      <screen><prompt role="root"># </prompt><command>crm script verify mailto id=sysadmin email=tux@example.org</command>
+1. Ensure mail package is installed
+
+        mailx
+
+2. Configure cluster resources
+
+        primitive sysadmin MailTo
+                email="tux@example.org"
+                op start timeout="10"
+                op stop timeout="10"
+                op monitor interval="10" timeout="10"
+
+        clone c-sysadmin sysadmin</screen>
+      <para><command>verify</command> 命令会列显步骤，并将所有占位符替换为给定的参数。<command>verify</command> 会报告发现的任何问题。如果一切正常，请将 <command>verify</command> 命令替换为 <command>run</command>：</para>
+      <screen><prompt role="root"># </prompt><command>crm script run mailto id=sysadmin email=tux@example.org</command>
+INFO: MailTo
+INFO: Nodes: alice, bob
+OK: Ensure mail package is installed
+OK: Configure cluster resources</screen>
+      <para>使用 <command>crm status</command> 检查您的资源是否已集成到群集中：</para>
+      <screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+ Clone Set: c-sysadmin [sysadmin]
+     Started: [ alice bob ]</screen>
+    </sect3>
+
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-template">
+   <title>使用配置模板</title>
+    <note>
+      <title>弃用注意事项</title>
+      <para>配置模板已弃用，将来会被去除。配置模板将由群集脚本取代。请参见<xref linkend="sec-ha-manual-config-clusterscripts"/>。
+      </para>
+    </note>
+   <para>
+    配置模板可为 crmsh 提供即时可用的群集配置。请不要将其与<emphasis>资源模板</emphasis>（如<xref linkend="sec-ha-manual-config-rsc-template"/>中所述）混淆。资源模板只适用于<emphasis>群集</emphasis>，而不适用于 crm 外壳。
+   </para>
+   <para>
+    配置模板只需稍作更改，即可满足特定用户的需要。每次使用模板创建配置时，都会出现警告消息，提示您哪些可以稍后编辑以供将来自定义。
+   </para>
+   <para>
+    以下步骤显示了如何创建简单有效的 Apache 配置：
+   </para>
+   <procedure xml:id="pro-ha-manual-config-template">
+    <step>
+     <para>
+      以 <systemitem class="username">root</systemitem> 用户身份登录，然后启动 <command>crm</command> 交互式外壳：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+    </step>
+    <step>
+     <para>
+      从配置模板创建一个新配置：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        切换到 <command>template</command> 子命令：
+       </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>template</command></screen>
+      </step>
+      <step>
+       <para>
+        列出可用的配置模板：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>list templates</command>
+gfs2-base   filesystem  virtual-ip  apache   clvm     ocfs2    gfs2</screen>
+      </step>
+      <step>
+       <para>
+        确定需要的配置模板。由于我们需要 Apache 配置，因此选择了 <literal>apache</literal> 模板并将其命名为 <literal>g-intranet</literal>：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>new g-intranet apache</command>
+INFO: pulling in template apache
+INFO: pulling in template virtual-ip</screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      定义参数：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        列出您创建的配置：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>list</command>
+g-intranet</screen>
+      </step>
+      <step xml:id="st-config-cli-show">
+       <para>
+        显示需要由您填充的最少的必要更改：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>show</command>
+ERROR: 23: required parameter ip not set
+ERROR: 61: required parameter id not set
+ERROR: 65: required parameter configfile not set</screen>
+      </step>
+      <step xml:id="st-config-cli-edit">
+       <para>
+        调用首选的文本编辑器，填写显示为错误（如<xref linkend="st-config-cli-show"/> 中所示）的所有行：
+       </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>edit</command></screen>
+      </step>
+
+     </substeps>
+    </step>
+    <step>
+     <para>
+      显示配置并检查配置是否有效（粗体文本取决于您在<xref linkend="st-config-cli-edit" xrefstyle="select:label"/> 中进入的配置）：
+     </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>show</command>
+primitive virtual-ip ocf:heartbeat:IPaddr \
+    params ip=<emphasis role="strong">"192.168.1.101"</emphasis>
+primitive apache apache \
+    params configfile=<emphasis role="strong">"/etc/apache2/httpd.conf"</emphasis>
+    monitor apache 120s:60s
+group <emphasis role="strong">g-intranet</emphasis> \
+    apache virtual-ip</screen>
+    </step>
+    <step>
+     <para>
+      应用配置：
+     </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>apply</command>
+<prompt role="custom">crm(live)configure# </prompt><command>cd ..</command>
+<prompt role="custom">crm(live)configure# </prompt><command>show</command></screen>
+    </step>
+    <step>
+     <para>
+      将更改提交到 CIB：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+    </step>
+   </procedure>
+   <para>
+    如果知道细节，可以更加简化命令。上述过程可汇总为外壳上的以下命令：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm configure template \
+   new g-intranet apache params \
+   configfile="/etc/apache2/httpd.conf" ip="192.168.1.101"</command></screen>
+   <para>
+    如果在 <command>crm</command> 内壳中，可使用以下命令：
+   </para>
+<screen><prompt role="custom">crm(live)configure template# </prompt><command>new intranet apache params \
+   configfile="/etc/apache2/httpd.conf" ip="192.168.1.101"</command></screen>
+   <para>
+    但是，前一条命令仅会从配置模板创建其配置。它不会将其应用或提交到 CIB。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-shadowconfig">
+   <title>使用阴影配置进行测试</title>
+   <para>
+    阴影配置可用于测试不同的配置方案。如果创建了多个阴影配置，则可逐一测试这些配置，以查看更改的影响。
+   </para>
+   <para>
+    一般的流程显示如下：
+   </para>
+   <procedure>
+    <step>
+     <para>
+      以 <systemitem class="username">root</systemitem> 用户身份登录，然后启动 <command>crm</command> 交互式外壳：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+    </step>
+    <step>
+     <para>
+      创建新的阴影配置：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>cib new myNewConfig</command>
+INFO: myNewConfig shadow CIB created</screen>
+     <para>
+      如果省略阴影 CIB 的名称，将会创建临时名称 <literal>@tmp@</literal>。
+     </para>
+    </step>
+    <step>
+     <para>
+      要将当前的活动配置复制到阴影配置中，可使用以下命令，否则请跳过此步骤：
+     </para>
+<screen>crm(myNewConfig)# <command>cib reset myNewConfig</command></screen>
+     <para>
+      使用上面的命令便于稍后修改现有资源。
+     </para>
+    </step>
+    <step>
+     <para>
+      照常进行更改。创建阴影配置后，会应用所有更改。要保存所有更改，请使用以下命令：
+     </para>
+<screen>crm(myNewConfig)# <command>commit</command></screen>
+    </step>
+    <step>
+     <para>
+      如果再次需要活动群集配置，可使用以下命令切换回此配置：
+     </para>
+<screen>crm(myNewConfig)configure# <command>cib use live</command>
+<prompt role="custom">crm(live)# </prompt></screen>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-debugging">
+   <title>调试配置更改</title>
+   <para>
+    将配置更改加载回群集之前，建议使用 <command>ptest</command> 复查更改。使用 <command>ptest</command> 命令可显示提交更改后产生的操作图。需要 <package>graphviz</package> 软件包才能显示这些图。以下示例是一个抄本，添加了监控操作：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command>
+<prompt role="custom">crm(live)configure# </prompt><command>show fence-bob</command>
+primitive fence-bob stonith:apcsmart \
+        params hostlist="bob"
+<prompt role="custom">crm(live)configure# </prompt><command>monitor fence-bob 120m:60s</command>
+<prompt role="custom">crm(live)configure# </prompt><command>show changed</command>
+primitive fence-bob stonith:apcsmart \
+        params hostlist="bob" \
+        op monitor interval="120m" timeout="60s"
+<prompt role="custom">crm(live)configure# </prompt><command>ptest</command>
+<prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-manual-config-diagram">
+   <title>群集图表</title>
+   <para>
+    要输出群集图表，请使用 <command>crm configure graph</command> 命令。它会在当前的窗口上显示当前配置，因此需要配备 X11。
+   </para>
+   <para>
+    如果您希望使用可缩放矢量图 (SVG)，请使用以下命令：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm configure graph dot config.svg svg</command></screen>
+  </sect2>
+
+ <sect2 xml:id="sec-ha-manual-config-crm-corosync">
+  <title>管理 Corosync 配置</title>
+
+  <para>
+   Corosync 是大多数 HA 群集的基础消息交换层。<command>corosync</command> 子命令提供用于编辑和管理 Corosync 配置的命令。
+  </para>
+
+  <para>
+   例如，要列出群集的状态，请使用 <command>status</command>：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm corosync status</command>
+Printing ring status.
+Local node ID 175704363
+RING ID 0
+        id      = 10.121.9.43
+        status  = ring 0 active with no faults
+Quorum information
+------------------
+Date:             Thu May  8 16:41:56 2014
+Quorum provider:  corosync_votequorum
+Nodes:            2
+Node ID:          175704363
+Ring ID:          4032
+Quorate:          Yes
+
+Votequorum information
+----------------------
+Expected votes:   2
+Highest expected: 2
+Total votes:      2
+Quorum:           2
+Flags:            Quorate
+
+Membership information
+----------------------
+    Nodeid      Votes Name
+ 175704363          1 alice.example.com (local)
+ 175704619          1 bob.example.com</screen>
+
+  <para>
+   <command>diff</command> 命令会比较所有节点上的 Corosync 配置（如果未另行指定）并列显各节点之间的差异：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm corosync diff</command>
+--- bob
++++ alice
+@@ -46,2 +46,2 @@
+-       expected_votes: 2
+-       two_node: 1
++       expected_votes: 1
++       two_node: 0</screen>
+
+  <para>
+   有关详细信息，请参见 <link xlink:href="https://crmsh.nongnu.org/crm.8.html#cmdhelp_corosync"></link>。
+  </para>
+
+  <para>
+    您可以使用 <command>crm cluster init</command> 脚本更改 Corosync 通讯通道（或环）。例如，之前您使用两个 Corosync 环，现在可能需要改为使用带有网络设备绑定功能的单个环，或相反情况。
+  </para>
+  <procedure xml:id="pro-ha-config-crm-corosync">
+    <title>使用 crmsh 更改 Corosync 通讯通道</title>
+    <step>
+      <para>
+        停止所有节点上的群集服务：
+      </para>
+<screen><prompt role="root"># </prompt><command>crm cluster stop --all</command></screen>
+    </step>
+    <step>
+      <para>
+        在第一个节点上，使用以下命令之一更改 Corosync 的环配置：
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            要配置一个环，请不带其他参数运行脚本的 <option>corosync</option> 阶段：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init corosync</command></screen>
+          <para>
+            输入 <literal>y</literal> 以覆盖 <filename>/etc/corosync/authkey</filename> 和 <filename>/etc/corosync/corosync.conf</filename>，然后接受建议的网络地址或输入其他地址。
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            要配置两个环，请使用 <literal>--interface</literal>（或 <literal>-i</literal>）选项两次，指定两个网络地址：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init corosync -i eth0 -i eth1</command></screen>
+          <para>
+            按 <keycap>Enter</keycap> 或输入 <literal>y</literal> 接受所有提示。
+          </para>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+      <para>
+        <emphasis>仅</emphasis>在第一个节点上启动群集服务，以便让其他节点可以使用 <command>crm cluster join</command> 命令：
+      </para>
+<screen><prompt role="root"># </prompt><command>crm cluster start</command></screen>
+    </step>
+    <step>
+      <para>
+        在其他每个群集节点上，重新加入群集以更新 Corosync 配置：
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            要配置一个环，请运行以下命令：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join -c <replaceable>NODE1</replaceable></command></screen>
+          <para>
+            接受建议的网络地址。
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            要配置两个环，请指定用于第一个节点的网络接口：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join -c <replaceable>NODE1</replaceable> -i eth0 -i eth1</command></screen>
+          <para>
+            接受建议的网络地址。
+          </para>
+        </listitem>
+      </itemizedlist>
+      <para>
+        这样会更新 Corosync 配置并启动节点上的群集服务。
+      </para>
+    </step>
+  </procedure>
+ </sect2>
+
+ <sect2 xml:id="sec-ha-config-crm-setpwd">
+  <title>设置独立于 <filename>cib.xml</filename> 的口令</title>
+
+  <para>
+   如果群集配置包含口令之类的敏感信息，应将其存储在本地文件中。这样的话，这些参数将永远不会记录到或导入支持报告中。
+  </para>
+
+  <para>
+   使用 <command>secret</command> 前，请先运行 <command>show</command> 命令了解一下所有资源的概况：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm configure show</command>
+primitive mydb mysql \
+   params replication_user=admin ...</screen>
+
+  <para>
+   要为上面的 <literal>mydb</literal> 资源设置口令，请使用以下命令：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm resource secret mydb set passwd linux</command>
+INFO: syncing /var/lib/heartbeat/lrm/secrets/mydb/passwd to [your node list]</screen>
+
+  <para>
+   使用以下命令可以取回保存的密码：
+  </para>
+
+<screen><prompt role="root"># </prompt><command>crm resource secret mydb show passwd</command>
+linux</screen>
+
+  <para>
+   各节点间的参数需要同步；<command>crm resource secret</command> 命令可用于执行此操作。强烈建议仅使用此命令来管理机密参数。
+  </para>
+ </sect2>
+</sect1>

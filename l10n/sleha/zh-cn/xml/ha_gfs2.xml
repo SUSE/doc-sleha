@@ -1,0 +1,477 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_gfs2.xml" version="5.0" xml:id="cha-ha-gfs2">
+ <title>GFS2</title>
+ <info>
+      <abstract>
+        <para>
+    全局文件系统 2 或称 GFS2 是适用于 Linux 计算机群集的共享磁盘文件系统。GFS2 允许所有节点直接同时访问同一个共享块存储。GFS2 不提供断开连接操作模式，也没有客户端角色或服务器角色。GFS2 群集中的所有节点以对等体的形式运行。GFS2 最多支持 32 个群集节点。在群集中使用 GFS2 需要通过硬件来访问共享存储设备，并需要通过一个锁管理器来控制对存储空间的访问。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+
+    <sect1 xml:id="sec-ha-gfs2-utils">
+  <title>GFS2 软件包和管理实用程序</title>
+
+  <para>
+   要使用 GFS2，请确保群集的每个节点上均已安装适用于您的内核的 <package>gfs2-utils</package> 和匹配的 <package>gfs2-kmp-*</package> 软件包。
+  </para>
+
+  <para>
+   <package>gfs2-utils</package> 软件包提供以下实用程序，用于管理 GFS2 卷。有关语法信息，请参见其手册页。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>fsck.gfs2</term>
+    <listitem>
+     <para>
+      检查文件系统的错误并进行选择性的修改。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>gfs2_jadd</term>
+    <listitem>
+     <para>
+      将其他日记添加到 GFS2 文件系统。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>gfs2_grow</term>
+    <listitem>
+     <para>
+      产生 GFS2 文件系统。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>mkfs.gfs2</term>
+    <listitem>
+     <para>
+      在设备上创建 GFS2 文件系统，这通常是一个共享设备或分区。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>tunegfs2</term>
+    <listitem>
+     <para>
+      用于查看和调整 GFS2 文件系统参数，例如 <varname>UUID</varname>、<varname>label</varname>、<varname>lockproto</varname> 和 <varname>locktable</varname>。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-gfs2-create-service">
+  <title>配置 GFS2 服务和 STONITH 资源</title>
+
+  <para>
+   在创建 GFS2 卷之前，必须先配置 DLM 和 STONITH 资源。
+  </para>
+
+  <procedure xml:id="pro-gfs2-stonith">
+   <title>配置 STONITH 资源</title>
+   <note>
+    <title>需要 STONITH 设备</title>
+    <para>
+     您需要配置屏蔽设备。如果未实施 STONITH 机制（如 <literal>external/sbd</literal>），配置将会失败。
+    </para>
+   </note>
+   <step>
+    <para>
+     启动外壳，并以 <systemitem class="username">root</systemitem> 用户或同等身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     如<xref linkend="pro-ha-storage-protect-sbd-create"/>中所述，创建 SBD 分区。
+    </para>
+   </step>
+   <step>
+    <para>
+     运行 <command>crm configure</command>。
+    </para>
+   </step>
+   <step>
+    <para>
+     将 <literal>external/sbd</literal> 配置为屏蔽设备：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive sbd_stonith stonith:external/sbd \
+    params pcmk_delay_max=30 meta target-role="Started"</command></screen>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 查看所做的更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有设置均正确无误，请使用 <command>commit</command> 提交更改，然后使用 <command>quit</command> 退出 crm 实时配置。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+    有关为 DLM 配置资源的细节，请参见<xref linkend="sec-ha-storage-generic-dlm-config"/>。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-gfs2-create">
+  <title>创建 GFS2 卷</title>
+
+  <para>
+   按<xref linkend="sec-ha-gfs2-create-service"/>中所述将 DLM 配置为群集资源后，将系统配置为使用 GFS2 并创建 GFS2 卷。
+  </para>
+
+  <note>
+   <title>用于存储应用程序和数据文件的 GFS2 卷</title>
+   <para>
+    我们建议您通常应将应用程序文件和数据文件存储在不同的 GFS2 卷上。如果应用程序卷和数据卷具有不同的装入要求，则必须将它们存储在不同的卷上。
+   </para>
+  </note>
+
+  <para>
+   开始之前要准备计划用于 GFS2 卷的块设备。将这些设备留作可用空间。
+  </para>
+
+  <para>
+   然后按<xref linkend="pro-gfs2-volume"/>中所述，使用 <command>mkfs.gfs2</command> 创建并格式化 GFS2 卷。下面列出了此命令最重要的参数。有关详细信息和命令语法，请参见 <command>mkfs.gfs2</command> 手册页。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>锁定协议名称 (<option>-p</option>)</term>
+    <listitem>
+     <para>
+      要使用的锁定协议的名称。可接受的锁定协议包括 lock_dlm（用于共享存储）；如果您将 GFS2 用作本地文件系统（只有 1 个节点），则可以指定 lock_nolock 协议。如果未指定此选项，将采用 lock_dlm 协议。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>锁定表名称 (<option>-t</option>)</term>
+    <listitem>
+     <para>
+      与您正在使用的锁定模块对应的锁定表字段。其为 <replaceable>clustername</replaceable>:<replaceable>fsname</replaceable>。<replaceable>clustername</replaceable> 值必须与群集配置文件 <filename>/etc/corosync/corosync.conf</filename> 中的值匹配。只允许此群集的成员使用此文件系统。<replaceable>fsname</replaceable> 值是唯一的文件系统名称（1 到 16 个字符），用于将此 GFS2 文件系统与创建的其他文件系统区分开。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>日志数量 (<option>-j</option>)</term>
+    <listitem>
+     <para>
+      要为 gfs2_mkfs 创建的日志数量。要挂载该文件系统的每台计算机至少需要一个日志。如果未指定此选项，将创建一个日志。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <procedure xml:id="pro-gfs2-volume">
+   <title>创建并格式化 GFS2 卷</title>
+   <para>
+    仅在群集的<emphasis>一个</emphasis>节点上执行以下步骤。
+   </para>
+   <step>
+    <para>
+     打开终端窗口并以 <systemitem class="username">root</systemitem> 用户身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用命令 <command>crm
+     status</command> 检查群集是否已上线。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>mkfs.gfs2</command> 实用程序创建并格式化卷。有关此命令的语法的信息，请参见 <command>mkfs.gfs2</command> 手册页。
+    </para>
+    <para>
+     例如，要创建最多支持 32 个群集节点的新 GFS2 文件系统，请使用以下命令：
+    </para>
+<screen><prompt role="root"># </prompt><command>mkfs.gfs2 -t hacluster:mygfs2 -p lock_dlm -j 32 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+    <para>
+     <systemitem class="server">hacluster</systemitem> 名称与文件 <filename>/etc/corosync/corosync.conf</filename> 中的 <option>cluster_name</option> 项相关（这是默认设置）。
+    </para>
+    <para>
+      始终使用稳定的设备名称（例如 <filename>/dev/disk/by-id/scsi-ST2000DM001-0123456_Wabcdefg</filename>）。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-gfs2-mount">
+  <title>挂载 GFS2 卷</title>
+
+  <para>
+   可以手动挂载 GFS2 卷，也可以按<xref linkend="pro-gfs2-mount-cluster"/>中所述使用群集管理器挂载。
+  </para>
+
+  <procedure xml:id="pro-gfs2-mount-manual">
+   <title>手动挂载 GFS2 卷</title>
+   <step>
+    <para>
+     打开终端窗口并以 <systemitem class="username">root</systemitem> 用户身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用命令 <command>crm
+     status</command> 检查群集是否已上线。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>mount</command> 命令从命令行挂载卷。
+    </para>
+   </step>
+  </procedure>
+
+  <warning>
+   <title>手动挂载的 GFS2 设备</title>
+   <para>
+    如果您为了进行测试手动挂载了 GFS2 文件系统，在开始将其作为群集资源使用前，请务必将其卸载以恢复原状。
+   </para>
+  </warning>
+
+  <procedure xml:id="pro-gfs2-mount-cluster">
+   <title>使用群集管理器挂载 GFS2 卷</title>
+   <para>
+    要使用高可用性软件挂载 GFS2 卷，请在群集中配置 OCF 文件系统资源。以下过程使用 <command>crm</command> 外壳配置群集资源。或者，您可以使用 Hawk2 配置资源。
+   </para>
+   <step>
+    <para>
+     启动外壳，并以 <systemitem class="username">root</systemitem> 用户或同等身份登录。
+    </para>
+   </step>
+   <step>
+    <para>
+     运行 <command>crm configure</command>。
+    </para>
+   </step>
+   <step>
+    <para>
+     配置 Pacemaker 以在群集中的每个节点上挂载 GFS2 文件系统：
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive gfs2-1 ocf:heartbeat:Filesystem \
+  params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype="gfs2" \
+  op monitor interval="20" timeout="40" \
+  op start timeout="60" op stop timeout="60" \
+  meta target-role="Started"</command></screen>
+   </step>
+   <step>
+    <para>
+     将 <literal>gfs2-1</literal> 原始资源添加到您在<xref linkend="pro-dlm-resources"/>中创建的 <literal>g-storage</literal> 组。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-storage add gfs2-1</command></screen>
+    <para>
+     受限于基础组的内部共置和顺序约束，<systemitem class="resource">gfs2-1</systemitem> 资源仅可在已有 <literal>dlm</literal> 资源在运行的节点上启动。
+    </para>
+   </step>
+   <step>
+    <para>
+     使用 <command>show</command> 查看所做的更改。
+    </para>
+   </step>
+   <step>
+    <para>
+     如果所有设置均正确无误，请使用 <command>commit</command> 提交更改，然后使用 <command>quit</command> 退出 crm 实时配置。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-migrate-ocfs2-gfs2">
+  <title>从 OCFS2 迁移到 GFS2</title>
+  <para>
+    SUSE Linux Enterprise High Availability 15 SP7 中已弃用 OCFS2。未来的版本将不再支持该功能。
+  </para>
+  <note>
+    <title>GFS2 不支持 reflink</title>
+    <para>
+      与 OCFS2 不同，GFS2 <emphasis>不</emphasis>支持 reflink 功能。
+    </para>
+  </note>
+  <para>
+    下面的过程介绍了从 OCFS2 迁移到 GFS2 的一种方法。该方法假定您有一个 OCFS2 卷，并且该卷是 <literal>g-storage</literal> 组的一部分。
+  </para>
+  <para>
+    准备新的块存储设备和备份数据的步骤取决于具体设置。如需更多详细信息，请参见相关文档。
+  </para>
+  <para>
+    您只需在群集的<emphasis>一个</emphasis>节点上执行以下过程。
+  </para>
+  <warning>
+    <title>请先测试该过程</title>
+    <para>
+      在生产环境中执行此过程之前，请先在测试环境中进行全面测试。
+    </para>
+  </warning>
+
+  <procedure xml:id="pro-migrate-ocfs2-gfs2">
+   <title>从 OCFS2 迁移到 GFS2</title>
+   <step>
+    <para>
+     为 GFS2 卷准备一个块设备。
+    </para>
+    <para>
+      要检查所需磁盘空间，请在 OCFS2 挂载点上运行 <command>df -h</command>。例如：
+    </para>
+<screen><prompt role="root"># </prompt><command>df -h /mnt/shared/</command>
+Filesystem     Size  Used Avail Use% Mounted on
+/dev/sdb        10G  2.3G  7.8G  23% /mnt/shared</screen>
+    <para>
+      记下 <literal>Filesystem</literal> 下方的磁盘名称。这将有助于稍后检查迁移是否成功。
+    </para>
+    <note>
+      <title>OCFS2 磁盘的使用</title>
+      <para>
+        由于某些 OCFS2 系统文件可能会保留磁盘空间，而不是将其返回给全局位图文件，因此实际磁盘使用量可能小于 <command>df -h</command> 输出中显示的数量。
+      </para>
+    </note>
+   </step>
+   <step>
+    <para>
+      在群集中的所有节点上安装 GFS2 软件包。您可以使用以下命令同时在所有节点上执行此操作：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "zypper install -y gfs2-utils gfs2-kmp-default"</command></screen>
+  </step>
+  <step>
+    <para>
+      使用 <command>mkfs.gfs2</command> 实用程序创建并格式化 GFS2 卷。有关此命令的语法的信息，请参见 <command>mkfs.gfs2</command> 手册页。
+     </para>
+     <tip>
+       <title><command>mkfs.ofs2</command> 和 <command>mkfs.gfs2</command> 的主要区别</title>
+       <itemizedlist>
+         <listitem>
+           <para>
+             OCFS2 使用 <literal>-C</literal> 指定群集大小，使用 <literal>-b</literal> 指定块大小。GFS2 也使用 <literal>-b</literal> 指定块大小，但没有群集大小设置，因此不会使用 <literal>-C</literal>。
+           </para>
+         </listitem>
+         <listitem>
+           <para>
+             OCFS2 通过 <literal>-N</literal> 指定节点数。GFS2 通过 <literal>-j</literal> 指定节点数。
+           </para>
+         </listitem>
+       </itemizedlist>
+      </tip>
+     <para>
+      例如，要创建最多支持 32 个群集节点的新 GFS2 文件系统，请使用以下命令：
+     </para>
+<screen><prompt role="root"># </prompt><command>mkfs.gfs2 -t <replaceable>CLUSTERNAME</replaceable>:mygfs2 -p lock_dlm -j 32 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+     <para>
+      <literal>CLUSTERNAME</literal> 必须与文件 <filename>/etc/corosync/corosync.conf</filename> 中的 <option>cluster_name</option> 相同。默认值为 <literal>hacluster</literal>。
+     </para>
+     <para>
+       对于在群集节点之间共享的设备，始终使用稳定的设备名称。
+     </para>
+   </step>
+   <step>
+    <para>
+     将群集置于维护模式：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm maintenance on</command></screen>
+   </step>
+   <step>
+     <para>
+       备份 OCFS2 卷的数据。
+     </para>
+   </step>
+   <step>
+     <para>
+       以交互模式启动 crm 外壳：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+   </step>
+   <step>
+    <para>
+      删除 OCFS2 资源：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>delete ocfs2-1</command></screen>
+  </step>
+  <step>
+    <para>
+      使用 OCFS2 文件系统所用的<emphasis>相同</emphasis>挂载点，在群集中的每个节点上挂载 GFS2 文件系统：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>primitive gfs2-1 ocf:heartbeat:Filesystem \
+params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype="gfs2" \
+op monitor interval="20" timeout="40" \
+op start timeout="60" op stop timeout="60" \
+meta target-role="Started"</command></screen>
+  </step>
+  <step>
+    <para>
+      将 GFS2 原始资源添加到 <literal>g-storage</literal> 组：
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>modgroup g-storage add gfs2-1</command></screen>
+  </step>
+  <step>
+    <para>
+      使用 <command>show</command> 查看所做的更改。
+    </para>
+  </step>
+  <step>
+    <para>
+      如果所有设置均正确无误，请使用 <command>commit</command> 提交更改，然后使用 <command>quit</command> 退出 crm 实时配置。
+    </para>
+  </step>
+   <step>
+     <para>
+       使群集退出维护模式：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm maintenance off</command></screen>
+   </step>
+   <step>
+     <para>
+       查看群组状态，了解组 <literal>g-storage</literal> 的详细信息：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm status detail</command></screen>
+     <para>
+      该组现在应包含原始资源 <literal>gfs2-1</literal>。
+     </para>
+   </step>
+   <step>
+     <para>
+       在挂载点上运行 <command>df -h</command>，确保磁盘名称已更改：
+     </para>
+<screen><prompt role="root"># </prompt><command>df -h /mnt/shared/</command>
+Filesystem     Size  Used Avail Use% Mounted on
+/dev/sdc        10G  290M  9.8G   3% /mnt/shared</screen>
+     <para>
+      如果输出中未显示正确磁盘，可能是因为新的 <literal>gfs2-1</literal> 资源正在重启动。如果您稍作等待后再次运行该命令，这个问题应该会自行解决。
+     </para>
+   </step>
+   <step>
+    <para>
+      将备份中的数据恢复到 GFS2 卷。
+    </para>
+    <note>
+      <title>GFS2 磁盘的使用</title>
+      <para>
+        即使恢复数据以后，GFS2 卷使用的磁盘空间也可能没有 OCFS2 卷多。
+      </para>
+    </note>
+  </step>
+  <step>
+    <para>
+      为确保数据正确显示，请检查挂载点的内容。例如：
+    </para>
+<screen><prompt role="root"># </prompt><command>ls -l /mnt/shared/</command></screen>
+    <para>
+      您也可以在其他节点上运行此命令，以确保正确共享数据。
+    </para>
+  </step>
+  <step>
+    <para>
+      如果需要，现在可以去除 OCFS2 磁盘。
+    </para>
+  </step>
+  </procedure>
+ </sect1>
+</chapter>

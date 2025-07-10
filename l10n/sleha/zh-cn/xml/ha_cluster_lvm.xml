@@ -1,0 +1,864 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_cluster_lvm.xml" version="5.0" xml:id="cha-ha-clvm">
+ <title>群集逻辑卷管理器（群集 LVM）</title>
+ <info>
+      <abstract>
+        <para>
+    管理群集上的共享存储设备时，存储子系统发生的所有更改都必须通知到每个节点。逻辑卷管理器 (LVM) 支持以透明方式来管理整个群集中的卷组。在多个主机之间共享的卷组可使用与本地存储相同的命令进行管理。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+    <sect1 xml:id="sec-ha-clvm-overview">
+  <title>概念概述</title>
+
+  <para>
+   系统通过不同的工具来协调群集 LVM：
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>分布式锁管理器 (DLM)</term>
+    <listitem>
+     <para> 通过群集范围的锁定协调对多个主机之间共享资源的访问。</para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>逻辑卷管理器 (LVM)</term>
+    <listitem>
+     <para>
+      LVM 提供了一个虚拟的磁盘空间池，允许将一个逻辑卷灵活分布在多个磁盘上。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>群集逻辑卷管理器（群集 LVM）</term>
+    <listitem>
+     <para>
+      <literal>Cluster LVM</literal> 一词表示在群集环境中使用了 LVM。这需要对配置进行一些调整，以保护共享存储设备上的 LVM 元数据。自 SUSE Linux Enterprise 15 起，群集扩展使用 lvmlockd 取代了 clvmd。有关 lvmlockd 的详细信息，请参见 <command>lvmlockd</command> 命令的手册页 (<command>man 8 lvmlockd</command>)。
+     </para>
+     <important role="compact">
+      <para>
+        结合使用 lvmlockd 和 sanlock 不受官方支持。
+      </para>
+    </important>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>卷组和逻辑卷</term>
+    <listitem>
+     <para>
+      卷组 (VG) 和逻辑卷 (LV) 都属于 LVM 的基本概念。卷组是多个物理磁盘的存储池。逻辑卷属于卷组，可视为一种弹性卷，您可以在其上创建文件系统。在群集环境中，存在共享 VG 的概念，共享 VG 由共享存储设备组成，可被多个主机同时使用。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-clvm-config">
+  <title>群集式 LVM 的配置</title>
+
+  <para>
+   确保满足以下要求：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     有共享存储设备可用，例如，该共享存储设备可通过光纤通道、FCoE、SCSI、iSCSI SAN 或 DRBD* 提供。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     确保已安装以下软件包：<systemitem class="resource">lvm2</systemitem> 和 <systemitem class="resource">lvm2-lockd</systemitem>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     自 SUSE Linux Enterprise 15 起，群集扩展使用 lvmlockd 取代了 clvmd。确保 clvmd 守护程序未运行，否则 lvmlockd 将无法启动。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <sect2 xml:id="sec-ha-clvm-config-resources">
+   <title>创建群集资源</title>
+   <para>
+    在一个节点上执行以下基本步骤，以在群集中配置共享 VG：
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <xref linkend="pro-ha-clvm-rsc-dlm" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="pro-ha-clvm-rsc-lvmlockd" xrefstyle="select:title"/></para>
+    </listitem>
+    <listitem>
+    <para>
+      <xref linkend="pro-ha-clvm-rsc-vg-lv" xrefstyle="select:title"/></para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="pro-ha-clvm-rsc-lvm-activate" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+
+   <procedure xml:id="pro-ha-clvm-rsc-dlm">
+    <title>创建 DLM 资源</title>
+    <step>
+     <para>
+      启动外壳并以 <systemitem class="username">root</systemitem> 用户身份登录。
+     </para>
+    </step>
+    <step>
+     <para>
+      检查群集资源的当前配置：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm configure show</command></screen>
+    </step>
+    <step>
+     <para>
+      如果已经配置 DLM 资源（及相应的基本组和基本克隆），则继续<xref linkend="pro-ha-clvm-rsc-lvmlockd"/>。
+     </para>
+     <para>
+      否则，如<xref linkend="pro-dlm-resources"/>中所述配置 DLM 资源和相应的基本组和基本克隆。
+     </para>
+    </step>
+   </procedure>
+   <procedure xml:id="pro-ha-clvm-rsc-lvmlockd">
+    <title>创建 lvmlockd 资源</title>
+    <step>
+     <para>
+      启动外壳并以 <systemitem class="username">root</systemitem> 用户身份登录。
+     </para>
+    </step>
+    <step>
+     <para>
+      运行以下命令以查看此资源的使用情况：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm configure ra info lvmlockd</command></screen>
+    </step>
+    <step>
+     <para>
+      按如下所示配置 <systemitem>lvmlockd</systemitem> 资源：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm configure primitive lvmlockd lvmlockd \
+        op start timeout="90" \
+        op stop timeout="100" \
+        op monitor interval="30" timeout="90"</command></screen>
+    </step>
+    <step>
+     <para>
+      为了确保在每个节点上启动 <systemitem>lvmlockd</systemitem> 资源，请将原始资源添加到您在<xref linkend="pro-ha-clvm-rsc-dlm"/>中为存储创建的基本组：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm configure modgroup g-storage add lvmlockd</command></screen>
+    </step>
+    <step>
+     <para>
+      查看所做的更改：</para>
+     <screen><prompt role="root"># </prompt><command>crm configure show</command></screen>
+    </step>
+    <step>
+     <para>检查资源是否运行正常：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm status full</command></screen>
+    </step>
+   </procedure>
+   <procedure xml:id="pro-ha-clvm-rsc-vg-lv">
+    <title>创建共享 VG 和 LV</title>
+    <step>
+     <para>
+      启动外壳并以 <systemitem class="username">root</systemitem> 用户身份登录。
+     </para>
+    </step>
+    <step>
+     <para>
+     假设您已有两个共享磁盘，并使用它们创建共享 VG：
+     </para>
+     <screen><prompt role="root"># </prompt><command>vgcreate --shared vg1 /dev/disk/by-id/<replaceable>DEVICE_ID1</replaceable> /dev/disk/by-id/<replaceable>DEVICE_ID2</replaceable></command></screen>
+    </step>
+    <step>
+     <para>
+      创建 LV，但一开始不激活它：
+     </para>
+     <screen><prompt role="root"># </prompt><command>lvcreate -an -L10G -n lv1 vg1</command></screen>
+    </step>
+   </procedure>
+   <procedure xml:id="pro-ha-clvm-rsc-lvm-activate">
+    <title>创建 LVM-activate 资源</title>
+    <step>
+     <para>
+      启动外壳并以 <systemitem class="username">root</systemitem> 用户身份登录。
+     </para>
+    </step>
+    <step>
+     <para>
+      运行以下命令以查看此资源的使用情况：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm configure ra info LVM-activate</command></screen>
+     <para>
+      此资源负责管理 VG 的激活。在共享 VG 中，有两种不同的 LV 激活模式：排它模式和共享模式。排它模式是默认模式，通常应在 <systemitem>ext4</systemitem> 等本地文件系统使用 LV 时使用。共享模式仅应用于 OCFS2 等群集文件系统。
+     </para>
+    </step>
+    <step>
+     <para>
+      配置资源以管理 VG 的激活。根据您的方案，选择下列其中一个选项：
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>对于本地文件系统使用情形，使用排它激活模式：</para>
+<screen><prompt role="root"># </prompt><command>crm configure primitive vg1 LVM-activate \
+   params vgname=vg1 vg_access_mode=lvmlockd \
+   op start timeout=90s interval=0 \
+   op stop timeout=90s interval=0 \
+   op monitor interval=30s timeout=90s</command></screen>
+      </listitem>
+      <listitem>
+       <para>
+        为 OCFS2 使用共享激活模式：
+       </para>
+<screen><prompt role="root"># </prompt><command>crm configure primitive vg1 LVM-activate \
+   params vgname=vg1 vg_access_mode=lvmlockd activation_mode=shared \
+   op start timeout=90s interval=0 \
+   op stop timeout=90s interval=0 \
+   op monitor interval=30s timeout=90s</command></screen>
+      </listitem>
+     </itemizedlist>
+    </step>
+    <step>
+      <para>
+        确保 VG 只能在 DLM 和 <systemitem>lvmlockd</systemitem> 资源已在运行的节点上激活：
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+           <emphasis role="bold">专用激活模式：</emphasis>
+          </para>
+          <para>
+            由于此 VG 只在单个节点上处于活动状态，因此<emphasis>请勿</emphasis>将其添加到克隆的 <literal>g-storage</literal> 组中，而是应直接为资源添加约束：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm configure colocation col-vg-with-dlm inf: vg1 cl-storage</command>
+<prompt role="root"># </prompt><command>crm configure order o-dlm-before-vg Mandatory: cl-storage vg1</command></screen>
+          <para>
+            如果有多个 VG，可以同时为多个资源添加约束：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm configure colocation col-vg-with-dlm inf: ( vg1 vg2 ) cl-storage</command>
+<prompt role="root"># </prompt><command>crm configure order o-dlm-before-vg Mandatory: cl-storage ( vg1 vg2 )</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            <emphasis role="bold">共享激活模式：</emphasis>
+          </para>
+          <para>
+            由于此 VG 在多个节点上都处于活动状态，因此可以将其添加到克隆的 <literal>g-storage</literal> 组中，该组已具有内部共置和顺序约束：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm configure modgroup g-storage add vg1</command></screen>
+          <para>
+            <emphasis>不要</emphasis>向组中添加多个 VG，因为这会在 VG 之间产生依赖关系。如果有多个 VG，请克隆相关资源并为克隆的资源添加约束：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm configure clone cl-vg1 vg1 meta interleave=true</command>
+<prompt role="root"># </prompt><command>crm configure clone cl-vg2 vg2 meta interleave=true</command>
+<prompt role="root"># </prompt><command>crm configure colocation col-vg-with-dlm inf: ( cl-vg1 cl-vg2 ) cl-storage</command>
+<prompt role="root"># </prompt><command>crm configure order o-dlm-before-vg Mandatory: cl-storage ( cl-vg1 cl-vg2 )</command></screen>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+     <para>
+      检查资源是否运行正常：
+     </para>
+     <screen><prompt role="root"># </prompt><command>crm status full</command></screen>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-clvm-scenario-iscsi">
+   <title>方案：在 SAN 上将群集 LVM 与 iSCSI 搭配使用</title>
+   <para>
+    以下方案使用两个 SAN 盒，将其 iSCSI 目标导出到多个客户端。大致想法如<xref linkend="fig-ha-clvm-scenario-iscsi"/>所示。
+   </para>
+   <figure xml:id="fig-ha-clvm-scenario-iscsi">
+    <title>使用群集 LVM 的共享磁盘设置</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="ha_clvm.svg" width="80%"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="ha_clvm.png" width="45%"/>
+     </imageobject>
+     <textobject role="description">
+       <phrase>该图显示了 VG 上的 LV，VG 则在 PV 之上。PV 又分别连接到基于 SAN 1 和 SAN 2 的两个独立的 iSCSI 实例。</phrase>
+     </textobject>
+    </mediaobject>
+   </figure>
+   <warning>
+    <title>数据丢失</title>
+    <para>
+     以下过程将损坏磁盘上的所有数据。
+    </para>
+   </warning>
+   <para>
+    首先只配置一个 SAN 盒。每个 SAN Box 都需要导出自己的 iSCSI 目标。按如下所示继续：
+   </para>
+
+   <procedure xml:id="pro-ha-clvm-scenario-iscsi-targets">
+    <title>配置 iSCSI 目标 (SAN)</title>
+    <step>
+     <para>
+      运行 YaST，然后单击<menuchoice><guimenu>网络服务</guimenu> <guimenu>iSCSI LIO 对象</guimenu></menuchoice>启动 iSCSI 服务器模块。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果要在计算机引导时启动 iSCSI 目标，请选择<guimenu>引导时</guimenu>，否则请选择<guimenu>手动</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果正在运行防火墙，请启用<guimenu>打开防火墙中的端口</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      切换到<guimenu>全局</guimenu>选项卡。如果需要身份验证，请启用传入及/或传出身份验证。在本例中，我们选择<guimenu>无身份验证</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      添加新的 iSCSI 目标：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        切换到<guimenu>目标</guimenu>选项卡。
+       </para>
+      </step>
+      <step>
+       <para>
+        单击<guimenu>添加</guimenu>。
+       </para>
+      </step>
+      <step xml:id="st-ha-clvm-iscsi-iqn">
+       <para>
+        输入目标名称。名称需要采用如下所示的格式：
+       </para>
+<screen>iqn.<replaceable>DATE</replaceable>.<replaceable>DOMAIN</replaceable></screen>
+       <para>
+        有关格式的详细信息，请参见 <citetitle>Section
+        3.2.6.3.1. Type "iqn." (iSCSI Qualified Name) </citetitle>，网址为 <link xlink:href="https://www.ietf.org/rfc/rfc3720.txt"></link>。
+       </para>
+      </step>
+      <step>
+       <para>
+        如果需要描述性更强的名称，可以进行更改，但要确保每个目标的标识符都是唯一的。
+       </para>
+      </step>
+      <step>
+       <para>
+        单击<guimenu>添加</guimenu>。
+       </para>
+      </step>
+      <step>
+       <para>
+        在<guimenu>路径</guimenu>中输入设备名称，并使用 <guimenu>Scsiid</guimenu>。
+       </para>
+      </step>
+      <step>
+       <para>
+        单击<guimenu>下一步</guimenu>两次。
+       </para>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      出现警告框时，单击<guimenu>是</guimenu>确认。
+     </para>
+    </step>
+    <step>
+     <para>
+      打开配置文件 <filename>/etc/iscsi/iscsid.conf</filename>，将参数 <literal>node.startup</literal> 更改为 <literal>automatic</literal>。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    现在按如下方式设置 iSCSI 发起端：
+   </para>
+   <procedure xml:id="pro-ha-clvm-scenarios-iscsi-initiator">
+    <title>配置 iSCSI 发起端</title>
+    <step>
+     <para>
+      运行 YaST，然后单击<menuchoice><guimenu>网络服务</guimenu> <guimenu>iSCSI 发起端</guimenu></menuchoice>。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果要在计算机引导时启动 iSCSI 发起端，请选择<guimenu>引导时</guimenu>，否则请将其设置为<guimenu>手动</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      切换到<guimenu>发现</guimenu>选项卡并单击<guimenu>发现</guimenu>按钮。
+     </para>
+    </step>
+    <step>
+     <para>
+      添加 iSCSI 目标的 IP 地址和端口（请参见<xref linkend="pro-ha-clvm-scenario-iscsi-targets"/>）。通常，可以保留端口并使用其默认值。
+     </para>
+    </step>
+    <step>
+     <para>
+      如果使用身份验证，请插入传入和传出用户名和口令，否则请选中<guimenu>无身份验证</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      选择<guimenu>下一步</guimenu>。找到的连接随即显示在列表中。
+     </para>
+    </step>
+    <step>
+     <para>
+      单击<guimenu>完成</guimenu>。
+     </para>
+    </step>
+    <step>
+     <para>
+      打开外壳，并以 <systemitem class="username">root</systemitem> 用户身份登录。
+     </para>
+    </step>
+    <step>
+     <para>
+      测试 iSCSI 发起端是否已成功启动：
+     </para>
+<screen><prompt role="root"># </prompt><command>iscsiadm -m discovery -t st -p 192.168.3.100</command>
+192.168.3.100:3260,1 iqn.2010-03.de.jupiter:san1</screen>
+    </step>
+    <step>
+     <para>
+      建立会话：
+     </para>
+<screen><prompt role="root"># </prompt><command>iscsiadm -m node -l -p 192.168.3.100 -T iqn.2010-03.de.jupiter:san1</command>
+Logging in to [iface: default, target: iqn.2010-03.de.jupiter:san1, portal: 192.168.3.100,3260]
+Login to [iface: default, target: iqn.2010-03.de.jupiter:san1, portal: 192.168.3.100,3260]: successful</screen>
+     <para>
+      使用 <command>lsscsi</command> 查看设备名：
+     </para>
+<screen>...
+[4:0:0:2]    disk    IET      ...     0     /dev/sdd
+[5:0:0:1]    disk    IET      ...     0     /dev/sde</screen>
+     <para>
+      查找第三列中有 <literal>IET</literal> 的项。在本例中，设备为 <filename>/dev/sdd</filename> 和 <filename>/dev/sde</filename>。
+     </para>
+    </step>
+   </procedure>
+   <procedure xml:id="pro-ha-clvm-scenarios-iscsi-lvm">
+    <title>创建共享卷组</title>
+    <step>
+     <para>
+      打开已按<xref linkend="pro-ha-clvm-scenarios-iscsi-initiator"/>运行 iSCSI 发起端的一个节点上的 <systemitem class="username">root</systemitem> 外壳。
+     </para>
+    </step>
+    <step>
+     <para>
+     使用磁盘 <filename>/dev/sdd</filename> 和 <filename>/dev/sde</filename> 的稳定设备名称在磁盘上创建共享卷组（例如，在 <filename>/dev/disk/by-id/</filename> 中创建）：
+     </para>
+<screen><prompt role="root"># </prompt><command>vgcreate --shared testvg /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable> /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+    </step>
+    <step>
+     <para>
+      根据需要创建逻辑卷：
+     </para>
+<screen><prompt role="root"># </prompt><command>lvcreate --name lv1 --size 500M testvg</command></screen>
+    </step>
+    <step>
+     <para>
+      使用 <command>vgdisplay</command> 检查卷组：
+     </para>
+<screen>  --- Volume group ---
+      VG Name               testvg
+      System ID
+      Format                lvm2
+      Metadata Areas        2
+      Metadata Sequence No  1
+      VG Access             read/write
+      VG Status             resizable
+      MAX LV                0
+      Cur LV                0
+      Open LV               0
+      Max PV                0
+      Cur PV                2
+      Act PV                2
+      VG Size               1016,00 MB
+      PE Size               4,00 MB
+      Total PE              254
+      Alloc PE / Size       0 / 0
+      Free  PE / Size       254 / 1016,00 MB
+      VG UUID               UCyWw8-2jqV-enuT-KH4d-NXQI-JhH3-J24anD</screen>
+    </step>
+    <step>
+     <para>
+      使用 <command>vgs</command> 命令检查卷组的共享状态：
+     </para>
+     <screen><prompt role="root"># </prompt><command>vgs</command>
+  VG       #PV #LV #SN Attr   VSize     VFree
+  vgshared   1   1   0 wz--ns 1016.00m  1016.00m</screen>
+     <para>
+      <literal>Attr</literal> 列显示卷属性。在本例中，卷组可写入 (<literal>w</literal>)、可调整大小 <literal>z</literal>()，分配策略为普通 (<literal>n</literal>)，并且其为共享资源 (<literal>s</literal>)。有关细节，请参见 <command>vgs</command> 的手册页。</para>
+    </step>
+   </procedure>
+   <para>
+    创建卷并启动资源后，<filename>/dev/testvg</filename> 下会显示新的设备名称，例如 <filename>/dev/testvg/lv1</filename>。这表示 LV 已激活，可以使用。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-clvm-scenario-drbd">
+   <title>方案：将群集 LVM 与 DRBD 搭配使用</title>
+   <para>
+    如果数据中心位于城市、国家/地区或大洲的不同区域，则可使用以下方案。
+   </para>
+   <procedure xml:id="pro-ha-clvm-withdrbd">
+    <title>创建使用 DRBD 的群集感知卷组</title>
+    <step>
+     <para>
+      创建主/主 DRBD 资源：
+     </para>
+     <substeps performance="required">
+      <step>
+       <para>
+        首先，按<xref linkend="pro-drbd-configure"/>中所述将 DRBD 设备设置为主/从模式。确保两个节点上的磁盘状态均为 <literal>up-to-date</literal>。使用 <command>drbdadm status</command> 确认是否如此。
+       </para>
+      </step>
+      <step>
+       <para>
+        将以下选项添加到配置文件（通常类似于 <filename>/etc/drbd.d/r0.res</filename>）：
+       </para>
+<screen>resource r0 {
+  net {
+     allow-two-primaries;
+  }
+  ...
+}</screen>
+      </step>
+      <step>
+       <para>
+        将更改的配置文件复制到另一个节点，例如：
+       </para>
+<screen><prompt role="root"># </prompt><command>scp /etc/drbd.d/r0.res venus:/etc/drbd.d/</command></screen>
+      </step>
+      <step>
+       <para>
+        在<emphasis>两个</emphasis>节点上都运行以下命令：
+       </para>
+<screen><prompt role="root"># </prompt><command>drbdadm disconnect r0</command>
+<prompt role="root"># </prompt><command>drbdadm connect r0</command>
+<prompt role="root"># </prompt><command>drbdadm primary r0</command></screen>
+      </step>
+      <step>
+       <para>
+        检查节点的状态：
+    </para>
+    <screen><prompt role="root"># </prompt><command>drbdadm status r0</command></screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      将 lvmlockd 资源作为克隆包含在 Pacemaker 配置中，并使它依赖于 DLM 克隆资源。有关详细指示信息，请参见<xref linkend="pro-ha-clvm-rsc-dlm"/>。继续之前，请确认这些资源已在群集上成功启动。可以使用 <command>crm status</command> 或 Web 界面检查正在运行的服务。
+     </para>
+    </step>
+    <step>
+     <para>
+      使用 <command>pvcreate</command> 命令为 LVM 准备物理卷。例如，在设备 <filename>/dev/drbd_r0</filename> 上，应使用如下命令：
+     </para>
+<screen><prompt role="root"># </prompt><command>pvcreate /dev/drbd_r0</command></screen>
+    </step>
+    <step>
+     <para>
+      创建共享卷组：
+     </para>
+<screen><prompt role="root"># </prompt><command>vgcreate --shared testvg /dev/drbd_r0</command></screen>
+    </step>
+    <step>
+     <para>
+      根据需要创建逻辑卷。例如，使用以下命令创建 4 GB 的逻辑卷：
+     </para>
+<screen><prompt role="root"># </prompt><command>lvcreate --name lv1 -L 4G testvg</command></screen>
+    </step>
+    <step>
+     <para>
+      现在 VG 内的逻辑卷可以作为挂载的文件系统用于原始用途。确保使用逻辑卷的服务具备适当的依赖项，以便在激活 VG 后对它们进行共置和排序。
+     </para>
+    </step>
+   </procedure>
+   <para>
+    完成这些配置步骤后，即可像在任何独立工作站上一样进行 LVM 配置。
+   </para>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="sec-ha-clvm-drbd">
+  <title>明确配置适合的 LVM 设备</title>
+
+  <para>
+   如果看似有若干设备共享同一个物理卷签名（多路径设备或 DRBD 就有可能发生这种情况），建议明确配置 LVM 扫描 PV 的设备。
+  </para>
+
+  <para>
+   例如，如果命令 <command>vgcreate</command> 使用物理设备而非镜像块设备，DRBD 会产生混乱。进而导致 DRBD 出现节点分裂情况。
+  </para>
+
+  <para>
+   要停用 LVM 的单个设备，请执行以下操作：
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     编辑文件 <filename>/etc/lvm/lvm.conf</filename>，搜索以 <literal>filter</literal> 开头的行。
+    </para>
+   </step>
+   <step>
+    <para>
+     其中的模式作为正则表达式来处理。前面的<quote>a</quote>表示接受扫描的设备模式，前面的<quote>r</quote>表示拒绝遵循该设备模式的设备。
+    </para>
+   </step>
+   <step>
+    <para>
+     要去除名为 <filename>/dev/sdb1</filename> 的设备，请在过滤规则中添加以下表达式：
+    </para>
+<screen>"r|^/dev/sdb1$|"</screen>
+    <para>
+     完整的过滤行将显示如下：
+    </para>
+<screen>filter = [ "r|^/dev/sdb1$|", "r|/dev/.*/by-path/.*|", "r|/dev/.*/by-id/.*|", "a/.*/" ]</screen>
+    <para>
+     接受 DRBD 和 MPIO 设备但拒绝其他所有设备的过滤行如下所示：
+    </para>
+<screen>filter = [ "a|/dev/drbd.*|", "a|/dev/.*/by-id/dm-uuid-mpath-.*|", "r/.*/" ]</screen>
+   </step>
+
+   <step>
+    <para>
+     编写配置文件并将它复制到所有群集节点。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+<sect1 xml:id="sec-ha-clvm-migrate">
+  <title>从镜像 LV 联机迁移到群集 MD</title>
+  <para>
+   从 SUSE Linux Enterprise High Availability 15 开始，群集 LVM 中的 <systemitem class="daemon">cmirrord</systemitem> 已弃用。我们强烈建议将群集中的镜像逻辑卷迁移到群集 MD。群集 MD 表示“群集多设备”，是适用于群集的基于软件的 RAID 存储解决方案。
+  </para>
+
+ <sect2 xml:id="sec-ha-clvm-migrate-setup-before">
+  <title>迁移之前的示例设置</title>
+    <para>
+     假设您采用以下示例设置：
+    </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    您有一个双节点群集，它由节点 <literal>alice</literal> 和 <literal>bob</literal> 组成。
+   </para>
+  </listitem>
+  <listitem>
+    <para>
+     名为 <literal>test-lv</literal> 的镜像逻辑卷是基于名为 <literal>cluster-vg2</literal> 的卷组创建的。
+    </para>
+  </listitem>
+  <listitem>
+   <para>
+     卷组 <literal>cluster-vg2</literal> 由磁盘 <filename>/dev/vdb</filename> 和 <filename>/dev/vdc</filename> 组成。
+   </para>
+  </listitem>
+ </itemizedlist>
+ <screen><prompt role="root"># </prompt><command>lsblk</command>
+NAME                                  MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+vda                                   253:0    0   40G  0 disk
+├─vda1                                253:1    0    4G  0 part [SWAP]
+└─vda2                                253:2    0   36G  0 part /
+vdb                                   253:16   0   20G  0 disk
+├─cluster--vg2-test--lv_mlog_mimage_0 254:0    0    4M  0 lvm
+│ └─cluster--vg2-test--lv_mlog        254:2    0    4M  0 lvm
+│   └─cluster--vg2-test--lv           254:5    0   12G  0 lvm
+└─cluster--vg2-test--lv_mimage_0      254:3    0   12G  0 lvm
+  └─cluster--vg2-test--lv             254:5    0   12G  0 lvm
+vdc                                   253:32   0   20G  0 disk
+├─cluster--vg2-test--lv_mlog_mimage_1 254:1    0    4M  0 lvm
+│ └─cluster--vg2-test--lv_mlog        254:2    0    4M  0 lvm
+│   └─cluster--vg2-test--lv           254:5    0   12G  0 lvm
+└─cluster--vg2-test--lv_mimage_1      254:4    0   12G  0 lvm
+  └─cluster--vg2-test--lv             254:5    0   12G  0 lvm</screen>
+
+  <important xml:id="adm-migration-fail">
+  <title>避免迁移失败</title>
+  <para>
+   在启动迁移过程之前，请检查逻辑卷和物理卷的容量与利用率。如果逻辑卷使用了所有物理卷容量，迁移可能会失败，并且目标卷上会显示 <literal>insufficient free space</literal> 错误。如何防止这种迁移失败取决于镜像日志所用的选项：
+  </para>
+  <itemizedlist>
+    <listitem>
+     <formalpara>
+      <title>镜像日志本身是否已镜像（<option>mirrored</option> 选项），并且已在镜像分支所在的同一个设备上分配？</title>
+      <para> （例如，如果您按照 <link xlink:href="https://documentation.suse.com/sle-ha/12-SP5/html/SLE-HA-all/cha-ha-clvm.html#sec-ha-clvm-config-cmirrord">SUSE Linux Enterprise High Availability Extension 11 或 12《管理指南》</link>中的说明，为这些版本上的 <systemitem class="daemon">cmirrord</systemitem> 设置创建了逻辑卷，可能会出现这种情况。）</para>
+     </formalpara>
+     <para>
+      默认情况下，<command>mdadm</command> 会在设备开头到数组数据开头之间预留一定数量的空间。在迁移期间，您可以检查未使用的填充空间，并使用 <option>data-offset</option> 选项减小此空间（如<xref linkend="step-data-offset"/> 和下文所述）。
+     </para>
+     <para>
+      <option>data-offset</option> 必须在设备上保留足够的空间，使群集 MD 能够将其元数据写入设备。但偏移量必须足够小，使设备的剩余容量可以容纳所迁移卷的所有物理卷区域。由于卷可能已跨越整个设备但不包括镜像日志，因此，偏移量必须小于镜像日志的大小。
+     </para>
+     <para>
+      我们建议将 <option>data-offset</option> 设置为 128 KB。如果未指定偏移量的值，其默认值为 1 KB（1024 字节）。
+     </para>
+    </listitem>
+   <listitem>
+    <formalpara>
+     <title>
+      镜像日志是已写入不同的设备（<option>disk</option> 选项）还是保留在内存中（<option>core</option> 选项）？
+     </title>
+     <para>
+      在开始迁移之前，请增大物理卷的大小，或减小逻辑卷的大小（以便为物理卷释放更多的空间）。
+     </para>
+    </formalpara>
+   </listitem>
+  </itemizedlist>
+ </important>
+</sect2>
+<sect2 xml:id="sec-ha-clvm-migrate-lv2clustermd">
+ <title>将镜像 LV 迁移到群集 MD</title>
+  <para>
+    以下过程基于<xref linkend="sec-ha-clvm-migrate-setup-before"/>。请根据您的设置调整指令，并相应地替换 LV、VG、磁盘和群集 MD 设备的名称。
+  </para>
+  <para>
+  迁移过程完全不会造成停机。在迁移过程中仍可挂载文件系统。
+ </para>
+ <procedure>
+   <step>
+    <para>
+     在节点 <literal>alice</literal> 上执行以下步骤：
+    </para>
+   <substeps>
+   <step>
+    <para>
+     将镜像逻辑卷 <literal>test-lv</literal> 转换为线性逻辑卷：
+    </para>
+    <screen><prompt role="root"># </prompt><command>lvconvert -m0 cluster-vg2/test-lv /dev/vdc</command></screen>
+   </step>
+   <step>
+    <para>
+      从卷组 <literal>cluster-vg2</literal> 中去除物理卷 <filename>/dev/vdc</filename>：
+    </para>
+    <screen><prompt role="root"># </prompt><command>vgreduce cluster-vg2 /dev/vdc</command></screen>
+   </step>
+   <step>
+    <para>
+      从 LVM 中去除以下物理卷：
+    </para>
+    <screen><prompt role="root"># </prompt><command>pvremove /dev/vdc</command></screen>
+    <para>如果现在就运行 <command>lsblk</command>，您将会看到：</para>
+   <screen>NAME                                  MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+vda                     253:0    0   40G  0 disk
+├─vda1                  253:1    0    4G  0 part [SWAP]
+└─vda2                  253:2    0   36G  0 part /
+vdb                     253:16   0   20G  0 disk
+└─cluster--vg2-test--lv 254:5    0   12G  0 lvm
+vdc                     253:32   0   20G  0 disk</screen>
+   </step>
+   <step xml:id="step-data-offset">
+    <para>
+      使用磁盘 <filename>/dev/vdc</filename> 创建群集 MD 设备 <filename>/dev/md0</filename>：
+    </para>
+    <screen><prompt role="root"># </prompt><command>mdadm --create /dev/md0 --bitmap=clustered \
+     --metadata=1.2 --raid-devices=1 --force --level=mirror \
+     /dev/vdc --data-offset=128</command></screen>
+    
+    <para>
+     有关为何要使用 <option>data-offset</option> 选项的细节，请参见<xref linkend="adm-migration-fail"/>。
+    </para>
+   </step>
+  </substeps>
+  </step>
+   <step>
+    <para>
+     在节点 <literal>bob</literal> 上组装以下 MD 设备：
+    </para>
+    <screen><prompt role="root"># </prompt><command>mdadm --assemble md0 /dev/vdc</command></screen>
+    <para>
+     如果您的群集由两个以上的节点组成，请在该群集中的所有剩余节点上执行此步骤。
+    </para>
+   </step>
+   <step>
+    <para>返回到节点 <literal>alice</literal>：
+   </para>
+   <substeps>
+   <step>
+    <para>
+     将 MD 设备 <filename>/dev/md0</filename> 初始化为与 LVM 搭配使用的物理卷：
+    </para>
+    <screen><prompt role="root"># </prompt><command>pvcreate /dev/md0</command></screen>
+   </step>
+   <step>
+    <para>
+     将 MD 设备 <filename>/dev/md0</filename> 添加到卷组 <literal>cluster-vg2</literal>：
+    </para>
+    <screen><prompt role="root"># </prompt><command>vgextend cluster-vg2 /dev/md0</command></screen>
+   </step>
+   <step>
+    <para>
+     将磁盘 <filename>/dev/vdb</filename> 中的数据移到 <filename>/dev/md0</filename> 设备：
+    </para>
+    <screen><prompt role="root"># </prompt><command>pvmove /dev/vdb /dev/md0</command></screen>
+   </step>
+   <step>
+    <para>
+     从卷 <literal>group cluster-vg2</literal> 中去除物理卷 <filename>/dev/vdb</filename>：
+    </para>
+    <screen><prompt role="root"># </prompt><command>vgreduce cluster-vg2 /dev/vdb</command></screen>
+   </step>
+   <step>
+    <para>
+     从设备中去除标签，使 LVM 不再将该设备识别为物理卷：
+    </para>
+    <screen><prompt role="root"># </prompt><command>pvremove /dev/vdb</command></screen>
+   </step>
+   <step>
+    <para>
+     将 <filename>/dev/vdb</filename> 添加到 MD 设备 <filename>/dev/md0</filename>：
+    </para>
+    <screen><prompt role="root"># </prompt><command>mdadm --grow /dev/md0 --raid-devices=2 --add /dev/vdb</command></screen>
+   </step>
+  </substeps>
+  </step>
+ </procedure>
+</sect2>
+
+<sect2 xml:id="ex-ha-clvm-migrate-setup-after">
+ <title>迁移之后的示例设置</title>
+  <para>
+   如果现在就运行 <command>lsblk</command>，您将会看到：
+  </para>
+  <screen>NAME                      MAJ:MIN RM  SIZE RO TYPE  MOUNTPOINT
+vda                       253:0    0   40G  0 disk
+├─vda1                    253:1    0    4G  0 part  [SWAP]
+└─vda2                    253:2    0   36G  0 part  /
+vdb                       253:16   0   20G  0 disk
+└─md0                       9:0    0   20G  0 raid1
+  └─cluster--vg2-test--lv 254:5    0   12G  0 lvm
+vdc                       253:32   0   20G  0 disk
+└─md0                       9:0    0   20G  0 raid1
+  └─cluster--vg2-test--lv 254:5    0   12G  0 lvm</screen>
+  </sect2>
+ </sect1>
+
+</chapter>

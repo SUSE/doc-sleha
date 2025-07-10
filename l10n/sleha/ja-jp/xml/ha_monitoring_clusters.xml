@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_monitoring_clusters.xml" xml:id="cha-ha-monitor-clusters" xml:lang="ja" version="5.1">
+ <title>クラスタの監視</title>
+ <info>
+  <abstract>
+   <para>
+    この章では、クラスタのヘルスを監視し、その履歴を表示する方法について説明します。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+ <xi:include href="ha_hawk2_monitor_i.xml"/>
+ <xi:include href="ha_hawk2_health_i.xml"/>
+ <xi:include href="ha_hawk2_history_i.xml"/>
+
+ <sect1 xml:id="sec-ha-config-basics-monitor-health">
+  <title><literal>SysInfo</literal>リソースエージェントによるシステムヘルスの監視</title>
+  <para>
+   ノードがディスク容量が使い尽くし、そこに割り当てられたリソースを管理できなくなることを避けるため、SUSE Linux Enterprise High Availabilityでは、<systemitem>ocf:pacemaker:SysInfo</systemitem>というリソースエージェントが提供されています。これを使用して、ディスクパーティションに関してノードのヘルスを監視します。SysInfo RAは、<literal>#health_disk</literal>という名前のノード属性を作成します。この属性は、監視対象のディスク空き容量が指定された制限を下回ると<literal>red</literal>に変更されます。
+  </para>
+  <para>
+   ノードのヘルスがクリティカルな状態に達した場合のCRMの対応方法を定義するには、グローバルなクラスタオプションである<systemitem>node-health-strategy</systemitem>を使用します。
+  </para>
+  <procedure xml:id="pro-ha-health-monitor">
+   <title>システムヘルスの監視設定</title>
+   <para>
+    ノードがディスク容量を使い尽くした場合に、リソースを自動的にノードから移動させるには、次の手順に従います。
+   </para>
+   <step>
+    <para>
+     <systemitem>ocf:pacemaker:SysInfo</systemitem>リソースを設定します。
+    </para>
+<screen><?dbsuse-fo font-size="0.71em"?>
+primitive sysinfo ocf:pacemaker:SysInfo \
+     params disks="/tmp /var"<co xml:id="co-disks"/> min_disk_free="100M"<co xml:id="co-min-disk-free"/> disk_unit="M"<co xml:id="co-disk-unit"/> \
+     op monitor interval="15s"</screen>
+    <calloutlist>
+     <callout arearefs="co-disks">
+      <para>
+       監視対象のディスクパーティション。<filename>/tmp</filename>、<filename>/usr</filename>、<filename>/var</filename>、<filename>/dev</filename>などです。複数のパーティションを属性値として指定するには、空白で区切ります。
+      </para>
+      <note>
+       <title><filename>/</filename>のファイルシステムは常に監視される</title>
+       <para>
+        <literal>disks</literal>でルートパーティション(<filename>/</filename>)を指定する必要はありません。これはデフォルトで常に監視されます。
+       </para>
+      </note>
+     </callout>
+     <callout arearefs="co-min-disk-free">
+      <para>
+       これらのパーティションの必要最小限の空きディスク容量。オプションで、計測に使用する単位を指定できます(上記の例では、メガバイトを表す<literal>M</literal>が使用されています)。指定しない場合、<systemitem>min_disk_free</systemitem>は<systemitem>disk_unit</systemitem>パラメータで定義されている単位にデフォルト設定されます。
+      </para>
+     </callout>
+     <callout arearefs="co-disk-unit">
+      <para>
+       ディスク容量をレポートする場合の単位。
+      </para>
+     </callout>
+    </calloutlist>
+   </step>
+   <step>
+    <para>
+     リソース設定を完了するには、<systemitem>ocf:pacemaker:SysInfo</systemitem>のクローンを作成し、各クラスタノードでそれを起動します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <systemitem>node-health-strategy</systemitem>を<literal>migrate-on-red</literal>に設定します。
+    </para>
+<screen>property node-health-strategy="migrate-on-red"</screen>
+    <para>
+     <systemitem>#health_disk</systemitem>属性が<literal>red</literal>に設定されている場合、<systemitem class="daemon">pacemaker-schedulerd</systemitem>によって、そのノードのリソースのスコアに<literal>-INF</literal>が追加されます。これにより、このノードからすべてのリソースが移動します。この処理はSTONITHリソースのところで停止しますが、STONITHリソースが実行されていない場合でも、ノードをフェンスすることができます。フェンスでCIBに直接アクセスすることで、動作を続行できるからです。
+    </para>
+   </step>
+  </procedure>
+  <para>
+   ノードのヘルス状態が<literal>red</literal>になったら、原因となる問題を解決します。次に<literal>red</literal>ステータスをクリアして、ノードを再びリソースの実行に適した状態にします。クラスタノードにログインして、次のいずれかの方法を使用します。
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     次のコマンドを実行します。
+    </para>
+<screen><prompt role="root"># </prompt><command>crm node status-attr <replaceable>NODE</replaceable> delete #health_disk</command></screen>
+   </listitem>
+   <listitem>
+    <para>
+     そのノードでクラスタサービスを再起動します。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     ノードを再起動します。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   ノードがサービスに復帰し、再びリソースを実行できるようになります。
+  </para>
+ </sect1>
+</chapter>
