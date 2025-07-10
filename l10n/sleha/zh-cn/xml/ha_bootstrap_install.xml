@@ -1,0 +1,439 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_bootstrap_install.xml" xml:id="cha-ha-bootstrap-install" xml:lang="zh-cn" version="5.1">
+  <title>使用引导脚本</title>
+  <info>
+    <abstract>
+      <para>
+        SUSE Linux Enterprise High Availability 包含可简化群集安装过程的引导脚本。您可以使用这些脚本在第一个节点上设置群集、向群集添加更多节点、从群集中去除节点，以及调整现有群集中的某些设置。
+      </para>
+    </abstract>
+    <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+      <dm:bugtracker/>
+      <dm:translation>yes</dm:translation>
+    </dm:docmanager>
+  </info>
+
+  <sect1 xml:id="sec-ha-bootstrap-install-overview">
+    
+    <title><command>crm cluster init</command> 脚本概述</title>
+    <para>
+      <command>crm cluster init</command> 命令会执行定义了群集通讯所需基本参数的引导脚本，以创建可正常运行的单节点群集。该脚本会检查并配置以下组件：
+    </para>
+    <variablelist>
+    <varlistentry>
+      <term>NTP/Chrony</term>
+      <listitem>
+        <para>
+          检查 NTP/Chrony 是否配置为在系统引导时启动。如果未配置成这样，系统会显示一条消息。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>SSH</term>
+      <listitem>
+        <para>
+          检测或生成 SSH 密钥，以用于在群集节点之间进行无口令登录。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>Csync2</term>
+      <listitem>
+        <para>
+          配置 Csync2，让其在群集中的所有节点上复制配置文件。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>Corosync</term>
+      <listitem>
+        <para>
+          配置群集通讯系统。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>SBD/看门狗</term>
+      <listitem>
+        <para>
+          检查是否存在看门狗，并询问您是否要将 SBD 配置为节点屏蔽机制。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>虚拟浮动 IP</term>
+      <listitem>
+        <para>
+          询问您是否要配置虚拟 IP 地址，以便使用 Hawk2 进行群集管理。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>防火墙</term>
+      <listitem>
+        <para>
+          在防火墙中打开群集通讯所需的端口。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>群集名称</term>
+      <listitem>
+        <para>
+          为群集定义名称，默认为 <systemitem>hacluster</systemitem>。对于基本群集来说，这并非强制要求，但在使用 DLM 时必须指定名称。对 Geo 群集而言，使用独特的群集名称也很有用。群集名称通常会反映地理位置，这样您便可更轻松地识别 Geo 群集内的站点。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>QDevice/QNetd</term>
+      <listitem>
+        <para>
+          询问您是否要配置 QDevice/QNetd 以参与仲裁决定。我们建议对节点数为偶数的群集（特别是双节点群集）使用 QDevice 和 QNetd。
+        </para>
+      </listitem>
+    </varlistentry>
+    </variablelist>
+    <note>
+      <title>Pacemaker 默认设置</title>
+      <para>
+        引导脚本设置的选项可能与 Pacemaker 默认设置不同。您可以在 <filename>/var/log/crmsh/crmsh.log</filename> 中查看引导脚本更改了哪些设置。引导期间设置的任何选项都可在以后使用 YaST 或 crmsh 进行修改。
+      </para>
+    </note>
+    <note>
+      <title>不同平台的群集配置</title>
+      <para>
+        <command>crm cluster init</command> 脚本会检测系统环境（例如 Microsoft Azure），并根据该环境的配置文件调整特定的群集设置。有关详细信息，请参见 <filename>/etc/crm/profiles.yml</filename> 文件。
+      </para>
+    </note>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-bootstrap-install-first-node">
+  
+    <title>使用 <command>crm cluster init</command> 设置第一个节点</title>
+    <para>
+      使用 <command>crm cluster init</command> 脚本设置第一个节点只需极少的时间和人工干预。
+    </para>
+    <para>
+      下面的过程介绍了多种配置方式。我们建议在启动脚本前先查看整个过程。另外，若要配置只使用默认选项的最小设置，请参见<xref linkend="article-installation"/>。
+    </para>
+    <itemizedlist>
+      <title>要求</title>
+      <listitem>
+        <para>
+          要使用引导脚本配置 SBD（STONITH 块设备），必须在初始化群集<emphasis>之前</emphasis>在每个节点上设置看门狗。请参见<xref linkend="sec-ha-storage-protect-watchdog"/>。
+      </para>
+      </listitem>
+      <listitem>
+        <para>
+          要使用引导脚本配置 QDevice，必须在初始化群集<emphasis>之前</emphasis>在每个节点上设置 QNetd 服务器。请参见<xref linkend="sec-ha-qdevice-setup-qnetd"/>。
+      </para>
+      </listitem>
+    </itemizedlist>
+    <procedure xml:id="pro-ha-bootstrap-install-first-node">
+    <title>使用 <command>crm cluster init</command> 设置第一个节点</title>
+    <step>
+      <para>
+        以 <systemitem class="username">root</systemitem> 或具有 <command>sudo</command> 特权的用户身份登录到第一个群集节点。
+      </para>
+    </step>
+    <step>
+      <para>
+      启动引导脚本：
+      </para>
+      <para>
+        您可以不带任何选项启动脚本。这样，系统会提示您输入某些设置，并对其他设置使用 crmsh 的默认值。
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            如果您是以 <systemitem class="username">root</systemitem> 身份登录，则可以不带其他参数运行以下命令：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            如果您是以没有 SSH 代理转发权限的 <command>sudo</command> 用户身份登录，请使用 <command>sudo</command> 运行以下命令：
+          </para>
+<screen><prompt>&gt; </prompt><command>sudo crm cluster init</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            如果您是以启用了 SSH 代理转发功能的 <command>sudo</command> 用户身份登录，则必须保留环境变量 <literal>SSH_AUTH_SOCK</literal>，并指示脚本使用本地 SSH 密钥，而不要在节点上生成密钥：
+          </para>
+<screen><prompt>&gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK crm cluster init --use-ssh-agent</command></screen>
+        </listitem>
+      </itemizedlist>
+      <para>
+        或者，也可以在初始化命令中指定其他选项。您可以在同一命令中包含多个选项。下面列举了一些示例。如需查看更多选项，请运行 <command>crm cluster init --help</command>。
+      </para>
+      <variablelist>
+      <varlistentry>
+        <term>群集名称</term>
+        <listitem>
+          <para>
+            默认群集名称为 <literal>hacluster</literal>。要选择其他名称，请使用 <option>--name</option>（或 <option>-n</option>）选项。例如：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init --name <replaceable>CLUSTERNAME</replaceable></command></screen>
+          <para>
+            选择一个有意义的名称，如群集的地理位置。如果日后要创建 Geo 群集，这将特别有用，因为站点的识别会变得简单。
+          </para>
+        </listitem>
+      </varlistentry>
+        <varlistentry>
+          <term>多播</term>
+          <listitem>
+            <para>
+              单播是用于群集通讯的默认传输类型。要改用多播，请使用选项 <option>--multicast</option>（或 <option>-U</option>）。例如：
+            </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init --multicast</command></screen>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term>SBD 磁盘</term>
+          <listitem>
+            <para>
+              在后面的步骤中，脚本会询问您是否要设置 SBD，并提示您指定要使用的磁盘。要为群集配置多个 SBD 磁盘，请多次使用选项 <option>--sbd-device</option>（或 <option>-s</option>）。例如：
+            </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init -s /dev/disk/by-id/<replaceable>ID1</replaceable> -s /dev/disk/by-id/<replaceable>ID2</replaceable></command></screen>
+            <para>
+              此选项也很有用，因为稍后脚本提示您输入路径时将不会提供设备 ID，届时您便可以使用制表符补全功能来补全设备 ID。
+            </para>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term>冗余通讯通道</term>
+          <listitem>
+            <para>
+              受支持的群集必须有两个通讯通道。首选方法是使用网络设备绑定。如果不能使用绑定，可以在 Corosync 中设置冗余通讯通道（也称为第二环或心跳线）。默认情况下，脚本会提示您输入单个环的网络地址。要配置双环群集，请使用 <option>--interface</option>（或 <option>-i</option>）选项两次。例如：
+            </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init -i eth0 -i eth1</command></screen>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+      <para>
+        启动脚本后，它会提示您提供以下信息。如果在 <command>init</command> 命令中包含了其他选项，部分步骤可能会略有不同。
+      </para>
+    </step>
+    <step>
+      <para>
+      配置群集通讯层 (Corosync)：
+      </para>
+      <substeps>
+      <step>
+        <para>
+        输入要绑定的网络地址。默认情况下，脚本会建议使用网络地址 <systemitem>eth0</systemitem>。也可以输入其他网络地址，例如地址 <literal>bond0</literal>。
+        </para>
+      </step>
+      <step>
+        <para>
+        接受建议的端口 (<literal>5405</literal>) 或输入其他端口。
+        </para>
+      </step>
+      <step>
+        <para>
+          如果搭配用于配置冗余通讯通道的选项启动脚本，则输入 <literal>y</literal> 接受第二条心跳线，然后接受建议的网络地址和端口，或输入其他地址和端口。
+        </para>
+      </step>
+      </substeps>
+    </step>
+    <step>
+      <para>
+        选择是否要将 SBD 设置为节点屏蔽机制。如果要使用其他屏蔽机制或稍后再设置 SBD，请输入 <literal>n</literal> 跳过此步骤。
+      </para>
+      <para>
+        如果选择 <literal>y</literal>，请选择要使用的 SBD 类型：
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            要使用无磁盘 SBD，请输入 <literal>none</literal>。
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            要使用基于磁盘的 SBD，请输入要使用的块设备分区的持久性路径。该路径必须在群集中的所有节点中都保持一致，例如 <filename>/dev/disk/by-id/<replaceable>ID</replaceable></filename>。
+          </para>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+      <para>
+        选择是否要配置虚拟 IP 地址，以便使用 Hawk2 进行群集管理。然后，您便可以连接到该虚拟 IP 地址，而无需使用 Hawk2 登录单个群集节点。
+      </para>
+      <para>
+        如果选择 <literal>y</literal>，请输入一个未使用的 IP 地址供 Hawk2 使用。
+      </para>
+    </step>
+    <step>
+      <para>
+        选择是否配置 QDevice 和 QNetd。如果不需要使用 QDevice 或尚未设置 QNetd 服务器，请输入 <literal>n</literal> 跳过此步骤。您可以稍后再设置 QDevice 和 QNetd（如果需要）。
+      </para>
+      <para>
+        如果选择 <literal>y</literal>，请提供以下信息：
+      </para>
+      <substeps>
+        <step>
+          <para>
+            输入 QNetd 服务器的主机名或 IP 地址。群集节点必须能够通过 SSH 访问此服务器，才能完成配置。
+          </para>
+          <para>
+            对于其余字段，您可以接受默认值，也可以根据需要更改：
+          </para>
+        </step>
+        <step>
+          <para>
+            接受建议的端口 (<literal>5403</literal>) 或输入其他端口。
+          </para>
+        </step>
+        <step>
+          <para>
+            选择决定如何分配投票的算法。
+          </para>
+        </step>
+        <step>
+          <para>
+            选择需要决胜值时应使用的方法。
+          </para>
+        </step>
+        <step>
+          <para>
+            选择是否启用 TLS。
+          </para>
+        </step>
+        <step>
+          <para>
+            输入启发命令来影响投票的决定方式。要跳过此步骤，请将该字段留空。
+          </para>
+        </step>
+      </substeps>
+    </step>
+    </procedure>
+    <para>
+    该脚本会检查是否存在 NTP/Chrony 配置和硬件看门狗服务。如果需要，它会生成用于进行无口令 SSH 访问及 Csync2 同步的公共和私用 SSH 密钥，并启动相应服务。最后，该脚本会启动群集服务以使群集上线，并启用 Hawk2。要用于 Hawk2 的 URL 将显示在屏幕上。
+    </para>
+    <para>
+      要登录 Hawk2，请参见<xref linkend="sec-conf-hawk2-login"/>。
+    </para>
+    <important>
+      <title><systemitem class="username">hacluster</systemitem> 的安全口令</title>
+      <para>
+        <command>crm cluster init</command> 脚本会创建一个默认用户 (<systemitem class="username">hacluster</systemitem>) 和口令 (<literal>linux</literal>)。尽快用安全口令替换默认口令：
+      </para>
+<screen><prompt role="root"># </prompt><command>passwd hacluster</command></screen>
+    </important>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-install-node-join-bootstrap">
+  
+    <title>使用 <command>crm cluster join</command> 添加节点</title>
+    <para>
+      您可以使用 <command>crm cluster join</command> 引导脚本为群集添加更多节点。脚本只需要能够访问一个现有群集节点即可在当前计算机上自动完成基本设置。
+    </para>
+    <para>
+      有关详细信息，请运行 <command>crm cluster join --help</command> 命令。
+    </para>
+    <itemizedlist>
+      <title>要求</title>
+      <listitem>
+        <para>
+          如果群集使用 SBD（STONITH 块设备），则必须在运行 <command>crm cluster join</command> 脚本<emphasis>之前</emphasis>在该节点上设置看门狗。请参见<xref linkend="sec-ha-storage-protect-watchdog"/>。
+        </para>
+      </listitem>
+    </itemizedlist>
+    <procedure xml:id="pro-ha-install-node-join-bootstrap">
+    <title>使用 <command>crm cluster join</command> 添加节点</title>
+    <step>
+      <para>
+        使用用于设置第一个节点的用户登录此节点。
+      </para>
+    </step>
+    <step>
+      <para>
+        启动引导脚本：
+      </para>
+      <para>
+        应使用什么方式启动脚本取决于您是如何设置第一个节点的。请查看以下选项，使用与第一个节点的设置相匹配的命令。如果需要，您可以在同一命令中包含多个选项。
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            如果将第一个节点设置为 <systemitem class="username">root</systemitem>，且仅为其配置了一个网络接口（或绑定设备），则可以不带其他参数运行以下命令：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            如果为第一个节点设置了两个网络接口，则必须使用 <literal>--interface</literal>（或 <literal>-i</literal>）选项两次来为该节点指定相同的接口：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join -i eth0 -i eth1</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            您可选择使用 <literal>--cluster-node</literal>（或 <literal>-c</literal>）指定第一个节点：
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join -c [<replaceable>USER</replaceable>]@<replaceable>NODE1</replaceable></command></screen>
+          <para>
+            如果将第一个节点设置为 <systemitem class="username">root</systemitem>，则无需指定用户。
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            如果您是以 <command>sudo</command> 用户身份设置的第一个节点，则<emphasis>必须</emphasis>使用 <literal>-c</literal> 选项指定该用户和节点：
+          </para>
+<screen><prompt>&gt; </prompt><command>sudo crm cluster join -c <replaceable>USER</replaceable>@<replaceable>NODE1</replaceable></command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            如果您是以启用了 SSH 代理转发功能的 <command>sudo</command> 用户身份设置的第一个节点，则还必须指示脚本使用本地 SSH 密钥，而不要在节点上生成密钥：
+          </para>
+<screen><prompt>&gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster join --use-ssh-agent -c <replaceable>USER</replaceable>@<replaceable>NODE1</replaceable></command></screen>
+        </listitem>
+      </itemizedlist>
+      <para>
+        如果 NTP/Chrony 未配置为在系统引导时启动，一条消息将会显示。脚本还会检查是否存在硬件看门狗设备。如果不存在此类设备，将会向您发出警告。
+      </para>
+    </step>
+    <step>
+      <para>
+        如果尚未使用 <option>-c</option> 选项指定第一个群集节点，系统将提示您输入其 IP 地址。
+      </para>
+    </step>
+    <step>
+      <para>
+        如果您尚未在群集节点之间配置无口令 SSH 访问方式，系统会提示您输入第一个节点的口令。
+      </para>
+      <para>
+        登录到指定节点后，脚本会复制 Corosync 配置，配置 SSH 和 Csync2，使当前计算机作为新群集节点上线，并启动 Hawk2 所需的服务。
+      </para>
+    </step>
+    </procedure>
+    <para>
+      对每个节点重复上述过程。您可以随时使用 <command>crm status</command> 命令或登录 Hawk2 并导航至<menuchoice><guimenu>状态</guimenu> <guimenu>节点</guimenu></menuchoice>来检查群集的状态。
+    </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-install-cluster-remove">
+    <title>使用 <command>crm cluster remove</command> 去除节点</title>
+    <para>
+      您可以使用 <command>crm cluster remove</command> 引导脚本从群集中去除节点。
+    </para>
+    <para>
+      如果不带其他参数运行 <command>crm cluster remove</command>，系统会提示您输入要去除的节点的 IP 地址或主机名。或者，也可以在运行命令时指定相应节点：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm cluster remove <replaceable>NODE</replaceable></command></screen>
+    <para>
+       在指定节点上，这会停止所有群集服务并去除本地群集配置文件。在群集的其余节点上，则会从群集配置中去除指定节点。
+    </para>
+    <para>
+      在大多数情况下，您必须在另一个节点上运行 <command>crm cluster remove</command>，而<emphasis>不</emphasis>应在要去除的节点上运行该命令。不过，如果要去除最后一个节点并删除群集，则可以使用选项 <option>--force</option>（或 <option>-F</option>）：
+    </para>
+<screen><prompt role="root"># </prompt><command>crm cluster remove --force <replaceable>LASTNODE</replaceable></command></screen>
+    <para>
+      有关详细信息，请运行 <command>crm cluster remove --help</command>。
+    </para>
+  </sect1>
+</chapter>

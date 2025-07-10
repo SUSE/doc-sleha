@@ -1,0 +1,477 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_gfs2.xml" version="5.0" xml:id="cha-ha-gfs2">
+ <title>GFS2</title>
+ <info>
+      <abstract>
+        <para>
+    Global File System 2 (GFS2)は、Linuxコンピュータクラスタ用の共有ディスクファイルシステムです。GFS2により、すべてのノードが同じ共有ブロックストレージに直接同時にアクセスすることができます。GFS2には、非接続運用モードがなく、クライアント役割やサーバ役割もありません。GFS2クラスタのすべてのノードがピアとして機能します。GFS2は、クラスタノードを32台までサポートします。クラスタでGFS2を使用する場合は、ハードウェアが共有ストレージへのアクセスを許可し、ロックマネージャがストレージへのアクセスを制御する必要があります。
+   </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+        <dm:maintainer/>
+        <dm:status>editing</dm:status>
+        <dm:deadline/>
+        <dm:priority/>
+        <dm:translation>yes</dm:translation>
+        <dm:languages/>
+        <dm:release/>
+        <dm:repository/>
+      </dm:docmanager>
+    </info>
+
+    <sect1 xml:id="sec-ha-gfs2-utils">
+  <title>GFS2パッケージおよび管理ユーティリティ</title>
+
+  <para>
+   GFS2を使用するには、<package>gfs2-utils</package>と、ご使用のカーネルに適合する<package>gfs2-kmp-*</package>パッケージが、クラスタの各ノードにインストールされていることを確認してください。
+  </para>
+
+  <para>
+   <package>gfs2-utils</package>パッケージには、次に示すGFS2ボリュームの管理ユーティリティがあります。構文については、各マニュアルページを参照してください。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>fsck.gfs2</term>
+    <listitem>
+     <para>
+      ファイルシステムにエラーがないかをチェックし、必要に応じてエラーを修復します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>gfs2_jadd</term>
+    <listitem>
+     <para>
+      GFS2ファイルシステムにジャーナルを追加します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>gfs2_grow</term>
+    <listitem>
+     <para>
+      GFS2ファイルシステムを拡張します。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>mkfs.gfs2</term>
+    <listitem>
+     <para>
+      デバイス上にGFS2ファイルシステムを作成します。通常は、共有デバイスまたはパーティションになります。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>tunegfs2</term>
+    <listitem>
+     <para>
+      <varname>UUID</varname>、<varname>label</varname>、<varname>lockproto</varname>、<varname>locktable</varname>などのGFS2ファイルシステムパラメータを表示および操作できます。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+ <sect1 xml:id="sec-ha-gfs2-create-service">
+  <title>GFS2サービスとSTONITHリソースの設定</title>
+
+  <para>
+   GFS2ボリュームを作成する前に、DLMおよびSTONITHリソースを設定する必要があります。
+  </para>
+
+  <procedure xml:id="pro-gfs2-stonith">
+   <title>STONITHリソースの設定</title>
+   <note>
+    <title>必要なSTONITHデバイス</title>
+    <para>
+     フェンシングデバイスを設定する必要があります。STONITHなしでは、設定内に配置されたメカニズム(<literal>external/sbd</literal>など)は失敗します。
+    </para>
+   </note>
+   <step>
+    <para>
+     シェルを起動し、<systemitem class="username">root</systemitem>または同等のものとしてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     <xref linkend="pro-ha-storage-protect-sbd-create"/>で説明されるとおり、SBDパーティションを作成します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>crm configure</command>を実行します。
+    </para>
+   </step>
+   <step>
+    <para>
+     フェンシングデバイスとして<literal>external/sbd</literal>を設定します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive sbd_stonith stonith:external/sbd \
+    params pcmk_delay_max=30 meta target-role="Started"</command></screen>
+   </step>
+   <step>
+    <para>
+     <command>show</command>で変更内容をレビューします。
+    </para>
+   </step>
+   <step>
+    <para>
+     すべて正しければ、<command>commit</command>で変更を送信し、<command>quit</command>でcrmライブ設定を終了します。
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+    DLMに対するリソースの設定の詳細については、<xref linkend="sec-ha-storage-generic-dlm-config"/>を参照してください。
+  </para>
+ </sect1>
+ <sect1 xml:id="sec-ha-gfs2-create">
+  <title>GFS2ボリュームの作成</title>
+
+  <para>
+   <xref linkend="sec-ha-gfs2-create-service"/>で説明されているように、DLMをクラスタリソースとして設定したら、システムがGFS2を使用できるように設定し、GFS2ボリュームを作成します。
+  </para>
+
+  <note>
+   <title>アプリケーションファイルとデータファイル用のGFS2ボリューム</title>
+   <para>
+    一般に、アプリケーションファイルとデータファイルは、異なるGFS2ボリュームに保存することをお勧めします。アプリケーションボリュームとデータボリュームのマウント要件が異なる場合は、必ず、異なるボリュームに保存します。
+   </para>
+  </note>
+
+  <para>
+   作業を始める前に、GFS2ボリュームに使用するブロックデバイスを準備します。デバイスは空き領域のままにしてください。
+  </para>
+
+  <para>
+   次に、<xref linkend="pro-gfs2-volume"/>で説明されているように、<command>mkfs.gfs2</command>で、GFS2ボリュームを作成し、フォーマットします。そのコマンドの重要なパラメータを以下に示します。詳細情報とコマンド構文については、<command>mkfs.gfs2</command>のマニュアルページを参照してください。
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>ロックプロトコル名(<option>-p</option>)</term>
+    <listitem>
+     <para>
+      使用するロッキングプロトコルの名前。使用可能なロッキングプロトコルはlock_dlm (共有ストレージ用)です。またはローカルファイルシステム(1ノードのみ)としてGFS2を使用している場合は、lock_nolockプロトコルを指定できます。このオプションを指定しない場合、lock_dlmプロトコルであるとみなされます。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ロックテーブル名(<option>-t</option>)</term>
+    <listitem>
+     <para>
+      使用しているロックモジュールに適切はロックテーブルフィールド。<replaceable>clustername</replaceable>:<replaceable>fsname</replaceable>です。<replaceable>clustername</replaceable>値は、クラスタ設定ファイル<filename>/etc/corosync/corosync.conf</filename>の値と一致している必要があります。このクラスタのメンバーだけが、このファイルシステムの使用を許可されます。<replaceable>fsname</replaceable>値は、このGFS2ファイルシステムと作成された他のファイルシステムを区別するために使用される固有のファイルシステム名です(1～16文字)。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ジャーナル数(<option>-j</option>)</term>
+    <listitem>
+     <para>
+      作成するgfs2_mkfs用のジャーナル数。ファイルシステムをマウントするマシンごとに少なくとも1つのジャーナルが必要です。このオプションを指定しない場合、1つのジャーナルが作成されます。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <procedure xml:id="pro-gfs2-volume">
+   <title>GFS2ボリュームの作成とフォーマット</title>
+   <para>
+    クラスタノードの<emphasis>1つ</emphasis>だけで、次の手順を実行します。
+   </para>
+   <step>
+    <para>
+     端末ウィンドウを開いて、<systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     クラスタがオンラインであることをコマンド<command>crm
+     status</command>で確認します。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>mkfs.gfs2</command>ユーティリティを使用して、ボリュームを作成およびフォーマットします。このコマンドの構文については、<command>mkfs.gfs2</command>マニュアルページを参照してください。
+    </para>
+    <para>
+     たとえば、最大32台のクラスタノードをサポートする新しいGFS2ファイルシステムを作成するには、次のコマンドを使用します。
+    </para>
+<screen><prompt role="root"># </prompt><command>mkfs.gfs2 -t hacluster:mygfs2 -p lock_dlm -j 32 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+    <para>
+     <systemitem class="server">hacluster</systemitem>名は、ファイル<filename>/etc/corosync/corosync.conf</filename> (これはデフォルトです)のエントリ<option>cluster_name</option>に関係します。
+    </para>
+    <para>
+      常に固定デバイス名(例: <filename>/dev/disk/by-id/scsi-ST2000DM001-0123456_Wabcdefg</filename>)を使用します。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 xml:id="sec-ha-gfs2-mount">
+  <title>GFS2ボリュームのマウント</title>
+
+  <para>
+   GFS2ボリュームは、手動でマウントするか、クラスタマネージャでマウントできます(<xref linkend="pro-gfs2-mount-cluster"/>を参照)。
+  </para>
+
+  <procedure xml:id="pro-gfs2-mount-manual">
+   <title>GFS2ボリュームの手動によるマウント</title>
+   <step>
+    <para>
+     端末ウィンドウを開いて、<systemitem class="username">root</systemitem>としてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     クラスタがオンラインであることをコマンド<command>crm
+     status</command>で確認します。
+    </para>
+   </step>
+   <step>
+    <para>
+     コマンドラインから、<command>mount</command>コマンドを使ってボリュームをマウントします。
+    </para>
+   </step>
+  </procedure>
+
+  <warning>
+   <title>手動マウントによるGFS2デバイス</title>
+   <para>
+    GFS2ファイルシステムをテスト目的で手動マウントした場合、そのファイルシステムは、いったんマウント解除してから、クラスタリソースで使用してください。
+   </para>
+  </warning>
+
+  <procedure xml:id="pro-gfs2-mount-cluster">
+   <title>クラスタマネージャによるGFS2ボリュームのマウント</title>
+   <para>
+    High AvailabilityソフトウェアでGFS2ボリュームをマウントするには、クラスタ内でOCFファイルシステムのリソースを設定します。次の手順では、<command>crm</command>シェルを使用してクラスタリソースを設定します。リソースの設定には、Hawk2を使用することもできます。
+   </para>
+   <step>
+    <para>
+     シェルを起動し、<systemitem class="username">root</systemitem>または同等のものとしてログインします。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>crm configure</command>を実行します。
+    </para>
+   </step>
+   <step>
+    <para>
+     GFS2ファイルシステムをクラスタ内のすべてのノードにマウントするように、Pacemakerを設定します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive gfs2-1 ocf:heartbeat:Filesystem \
+  params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype="gfs2" \
+  op monitor interval="20" timeout="40" \
+  op start timeout="60" op stop timeout="60" \
+  meta target-role="Started"</command></screen>
+   </step>
+   <step>
+    <para>
+     <literal>gfs2-1</literal>プリミティブを<xref linkend="pro-dlm-resources"/>で作成した<literal>g-storage</literal>グループに追加します。
+    </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-storage add gfs2-1</command></screen>
+    <para>
+     ベースグループの内部コロケーションおよび順序付けのため、<systemitem class="resource">gfs2-1</systemitem>リソースは、すでに実行中の<literal>dlm</literal>リソースも持つノード上でのみ開始できます。
+    </para>
+   </step>
+   <step>
+    <para>
+     <command>show</command>で変更内容をレビューします。
+    </para>
+   </step>
+   <step>
+    <para>
+     すべて正しければ、<command>commit</command>で変更を送信し、<command>quit</command>でcrmライブ設定を終了します。
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-migrate-ocfs2-gfs2">
+  <title>OCFS2からGFS2への移行</title>
+  <para>
+    OCFS2は、SUSE Linux Enterprise High Availability 15 SP7で廃止されました。将来のリリースではサポートされません。
+  </para>
+  <note>
+    <title>GFS2ではreflinkはサポートされない</title>
+    <para>
+      OCFS2とは異なり、GFS2はreflink機能をサポートして<emphasis>いません</emphasis>。
+    </para>
+  </note>
+  <para>
+    この手順では、OCFS2からGFS2に移行する方法の1つを示します。<literal>g-storage</literal>グループの一部である単一のOCFS2ボリュームがあることを前提としています。
+  </para>
+  <para>
+    新しいブロックストレージを準備し、データをバックアップする手順は、特定のセットアップによって異なります。詳細が必要な場合は、関連するドキュメントを参照してください。
+  </para>
+  <para>
+    この手順は、クラスタノードの<emphasis>1つ</emphasis>でのみ実行する必要があります。
+  </para>
+  <warning>
+    <title>この手順を最初にテストする</title>
+    <para>
+      この手順は、運用環境で実行する前に、テスト環境で十分にテストしてください。
+    </para>
+  </warning>
+
+  <procedure xml:id="pro-migrate-ocfs2-gfs2">
+   <title>OCFS2からGFS2への移行</title>
+   <step>
+    <para>
+     GFS2ボリューム用のブロックデバイスを準備します。
+    </para>
+    <para>
+      必要なディスク容量を確認するには、OCFS2のマウントポイントで<command>df -h</command>を実行します。次に例を示します。
+    </para>
+<screen><prompt role="root"># </prompt><command>df -h /mnt/shared/</command>
+Filesystem     Size  Used Avail Use% Mounted on
+/dev/sdb        10G  2.3G  7.8G  23% /mnt/shared</screen>
+    <para>
+      <literal>Filesystem</literal>の下に表示されるディスク名をメモしておきます。これは後で、移行が成功したかどうかを確認するのに役立ちます。
+    </para>
+    <note>
+      <title>OCFS2のディスク使用量</title>
+      <para>
+        一部のOCFS2システムファイルは、ディスク容量をグローバルビットマップファイルに返すのではなく保持することがあります。そのため、実際のディスク使用量は、<command>df -h</command>の出力に表示される量よりも少なくなる可能性があります。
+      </para>
+    </note>
+   </step>
+   <step>
+    <para>
+      クラスタのすべてのノードにGFS2パッケージをインストールします。次のコマンドを使用して、すべてのノードに対して一度に実行できます。
+    </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "zypper install -y gfs2-utils gfs2-kmp-default"</command></screen>
+  </step>
+  <step>
+    <para>
+      <command>mkfs.gfs2</command>ユーティリティを使用して、GFS2ボリュームを作成およびフォーマットします。このコマンドの構文については、<command>mkfs.gfs2</command>マニュアルページを参照してください。
+     </para>
+     <tip>
+       <title><command>mkfs.ofs2</command>と<command>mkfs.gfs2</command>との主な相違点</title>
+       <itemizedlist>
+         <listitem>
+           <para>
+             OCFS2では、<literal>-C</literal>でクラスタサイズを指定し、<literal>-b</literal>でブロックサイズを指定します。GFS2でも、<literal>-b</literal>でブロックサイズを指定しますが、クラスタサイズの設定がないため、<literal>-C</literal>は使用しません。
+           </para>
+         </listitem>
+         <listitem>
+           <para>
+             OCFS2では、<literal>-N</literal>でノードの数を指定します。GFS2では、<literal>-j</literal>でノードの数を指定します。
+           </para>
+         </listitem>
+       </itemizedlist>
+      </tip>
+     <para>
+      たとえば、最大32台のクラスタノードをサポートする新しいGFS2ファイルシステムを作成するには、次のコマンドを使用します。
+     </para>
+<screen><prompt role="root"># </prompt><command>mkfs.gfs2 -t <replaceable>CLUSTERNAME</replaceable>:mygfs2 -p lock_dlm -j 32 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+     <para>
+      <literal>CLUSTERNAME</literal>は、ファイル<filename>/etc/corosync/corosync.conf</filename>のエントリ<option>cluster_name</option>と同じである必要があります。 デフォルトは<literal>hacluster</literal>です。
+     </para>
+     <para>
+       クラスタノード間で共有されるデバイスには、常に安定したデバイス名を使用してください。
+     </para>
+   </step>
+   <step>
+    <para>
+     クラスタを保守モードにします。
+    </para>
+<screen><prompt role="root"># </prompt><command>crm maintenance on</command></screen>
+   </step>
+   <step>
+     <para>
+       OCFS2ボリュームのデータをバックアップします。
+     </para>
+   </step>
+   <step>
+     <para>
+       crmシェルを対話式モードで開始します。
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+   </step>
+   <step>
+    <para>
+      OCFS2リソースを削除します。
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>delete ocfs2-1</command></screen>
+  </step>
+  <step>
+    <para>
+      OCFS2ファイルシステムに使用したものと<emphasis>同じ</emphasis>マウントポイントを使用して、GFS2ファイルシステムをクラスタ内のすべてのノードにマウントします。
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>primitive gfs2-1 ocf:heartbeat:Filesystem \
+params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype="gfs2" \
+op monitor interval="20" timeout="40" \
+op start timeout="60" op stop timeout="60" \
+meta target-role="Started"</command></screen>
+  </step>
+  <step>
+    <para>
+      GFS2プリミティブを<literal>g-storage</literal>グループに追加します。
+    </para>
+<screen><prompt role="custom">crm(live)# </prompt><command>modgroup g-storage add gfs2-1</command></screen>
+  </step>
+  <step>
+    <para>
+      <command>show</command>で変更内容をレビューします。
+    </para>
+  </step>
+  <step>
+    <para>
+      すべて正しければ、<command>commit</command>で変更を送信し、<command>quit</command>でcrmライブ設定を終了します。
+    </para>
+  </step>
+   <step>
+     <para>
+       クラスタの保守モードを解除します。
+     </para>
+<screen><prompt role="root"># </prompt><command>crm maintenance off</command></screen>
+   </step>
+   <step>
+     <para>
+       クラスタの状態と、グループ<literal>g-storage</literal>の詳細情報を確認します。
+     </para>
+<screen><prompt role="root"># </prompt><command>crm status detail</command></screen>
+     <para>
+      グループにプリミティブリソース<literal>gfs2-1</literal>が含まれているはずです。
+     </para>
+   </step>
+   <step>
+     <para>
+       マウントポイントで<command>df -h</command>を実行して、ディスク名が変更されていることを確認します。
+     </para>
+<screen><prompt role="root"># </prompt><command>df -h /mnt/shared/</command>
+Filesystem     Size  Used Avail Use% Mounted on
+/dev/sdc        10G  290M  9.8G   3% /mnt/shared</screen>
+     <para>
+      出力に間違ったディスクが表示されている場合、新しい<literal>gfs2-1</literal>リソースが再起動中である可能性があります。少し待ってからコマンドを再度実行すると、この問題は自動的に解決します。
+     </para>
+   </step>
+   <step>
+    <para>
+      バックアップからGFS2ボリュームにデータを復元します。
+    </para>
+    <note>
+      <title>GFS2のディスク使用量</title>
+      <para>
+        データを復元した後でも、GFS2ボリュームはOCFS2ボリュームほど多くのディスク容量を使用しない場合があります。
+      </para>
+    </note>
+  </step>
+  <step>
+    <para>
+      データが正しく表示されることを確認するには、マウントポイントの内容を確認します。次に例を示します。
+    </para>
+<screen><prompt role="root"># </prompt><command>ls -l /mnt/shared/</command></screen>
+    <para>
+      このコマンドを他のノードで実行して、データが正しく共有されていることを確認することもできます。
+    </para>
+  </step>
+  <step>
+    <para>
+      必要に応じて、OCFS2ディスクを削除できます。
+    </para>
+  </step>
+  </procedure>
+ </sect1>
+</chapter>

@@ -1,0 +1,439 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_bootstrap_install.xml" xml:id="cha-ha-bootstrap-install" xml:lang="ja" version="5.1">
+  <title>ブートストラップスクリプトの使用</title>
+  <info>
+    <abstract>
+      <para>
+        SUSE Linux Enterprise High Availabilityには、クラスタのインストールを簡素化するブートストラップスクリプトが含まれています。これらのスクリプトを使用して、最初のノードにクラスタを設定したり、クラスタにノードを追加したり、クラスタからノードを削除したり、既存のクラスタで特定の設定を調整したりすることができます。
+      </para>
+    </abstract>
+    <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+      <dm:bugtracker/>
+      <dm:translation>yes</dm:translation>
+    </dm:docmanager>
+  </info>
+
+  <sect1 xml:id="sec-ha-bootstrap-install-overview">
+    
+    <title><command>crm cluster init</command>スクリプトの概要</title>
+    <para>
+      <command>crm cluster init</command>コマンドは、クラスタ通信に必要な基本パラメータを定義するブートストラップスクリプトを実行し、その結果、動作する1ノードクラスタが作成されます。このスクリプトが確認および設定するコンポーネントは、次のとおりです。
+    </para>
+    <variablelist>
+    <varlistentry>
+      <term>NTP/Chrony</term>
+      <listitem>
+        <para>
+          NTP/Chronyがブート時に開始するように設定されているかどうかをチェックします。設定されていない場合は、メッセージが表示されます。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>SSH</term>
+      <listitem>
+        <para>
+          クラスタノード間でパスワード不要のログインを行うためのSSHキーを検出または生成します。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>Csync2</term>
+      <listitem>
+        <para>
+          クラスタ内のすべてのノードで設定ファイルを複製するようにCsync2を設定します。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>Corosync</term>
+      <listitem>
+        <para>
+          クラスタ通信システムを設定します。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>SBD/ウォッチドッグ</term>
+      <listitem>
+        <para>
+          ウォッチドッグが存在するかどうかをチェックし、SBDをノードフェンシングメカニズムとして設定するかどうか確認メッセージを表示します。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>仮想浮動IP</term>
+      <listitem>
+        <para>
+          Hawk2でのクラスタ管理用の仮想IPアドレスを設定するかどうか確認メッセージを表示します。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>ファイアウォール</term>
+      <listitem>
+        <para>
+          クラスタ通信に必要なポートをファイアウォールで開きます。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>クラスタ名</term>
+      <listitem>
+        <para>
+          クラスタの名前を定義します。デフォルトでは<systemitem>hacluster</systemitem>です。これは基本クラスタではオプションですが、DLMを使用する場合は必須です。一意のクラスタ名はGeoクラスタにも便利です。通常、クラスタ名は地理的な場所を反映し、Geoクラスタ内のサイトを識別しやすくします。
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>QDevice/QNetd</term>
+      <listitem>
+        <para>
+          QDevice/QNetdを設定してクォーラムの決定に参加するかどうか確認メッセージを表示します。ノード数が偶数であるクラスタ、特に2ノードクラスタについては、QDeviceおよびQNetdの使用をお勧めします。
+        </para>
+      </listitem>
+    </varlistentry>
+    </variablelist>
+    <note>
+      <title>Pacemakerのデフォルト設定</title>
+      <para>
+        ブートストラップスクリプトによって設定されるオプションは、Pacemakerのデフォルト設定と同じではない場合があります。ブートストラップスクリプトが変更した設定は<filename>/var/log/crmsh/crmsh.log</filename>で確認できます。ブートストラッププロセス中に設定されたオプションは、YaSTまたはcrmshで後で変更できます。
+      </para>
+    </note>
+    <note>
+      <title>さまざまなプラットフォームに対するクラスタ設定</title>
+      <para>
+        <command>crm cluster init</command>スクリプトは、システム環境(Microsoft Azureなど)を検出し、その環境のプロファイルに基づいて特定のクラスタ設定を調整します。詳細については、ファイル<filename>/etc/crm/profiles.yml</filename>を参照してください。
+      </para>
+    </note>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-bootstrap-install-first-node">
+  
+    <title><command>crm cluster init</command>を使用して最初のノードを設定する</title>
+    <para>
+      <command>crm cluster init</command>スクリプトを使用して最初のノードを設定すると、最小限の時間と手動介入しか必要ありません。
+    </para>
+    <para>
+      この手順では、複数の設定オプションについて説明します。スクリプトを開始する前に、手順全体を確認することをお勧めします。または、デフォルトのオプションのみを使用した最小限のセットアップについては、 <xref linkend="article-installation"/>を参照してください。
+    </para>
+    <itemizedlist>
+      <title>要件</title>
+      <listitem>
+        <para>
+          ブートストラップスクリプトを使用してSBD (STONITHブロックデバイス)を設定するには、クラスタを初期化する<emphasis>前に</emphasis>各ノードにウォッチドッグを設定する必要があります。<xref linkend="sec-ha-storage-protect-watchdog"/>を参照してください。
+      </para>
+      </listitem>
+      <listitem>
+        <para>
+          ブートストラップスクリプトを使用してQDeviceを設定するには、クラスタを初期化する<emphasis>前に</emphasis>QNetdサーバを設定する必要があります。<xref linkend="sec-ha-qdevice-setup-qnetd"/>を参照してください。
+      </para>
+      </listitem>
+    </itemizedlist>
+    <procedure xml:id="pro-ha-bootstrap-install-first-node">
+    <title><command>crm cluster init</command>を使用して最初のノードを設定する</title>
+    <step>
+      <para>
+        最初のクラスタノードに<systemitem class="username">root</systemitem>として、または<command>sudo</command>特権を持つユーザとしてログインします。
+      </para>
+    </step>
+    <step>
+      <para>
+      ブートストラップスクリプトを起動します。
+      </para>
+      <para>
+        スクリプトは、オプションを指定しなくても起動できます。この場合、特定の設定については入力を求められ、他の設定についてはcrmshのデフォルト値が使用されます。
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            <systemitem class="username">root</systemitem>としてログインした場合は、追加のパラメータなしで次のコマンドを実行できます。
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            SSHエージェント転送を使用せずに<command>sudo</command>ユーザとしてログインした場合は、<command>sudo</command>を使用して次のコマンドを実行します。 
+          </para>
+<screen><prompt>&gt; </prompt><command>sudo crm cluster init</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            SSHエージェント転送が有効になっている状態で<command>sudo</command>ユーザとしてログインした場合は、環境変数<literal>SSH_AUTH_SOCK</literal>を保持し、ノードでキーを生成するのではなくローカルSSHキーを使用するようにスクリプトに指示する必要があります。
+          </para>
+<screen><prompt>&gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK crm cluster init --use-ssh-agent</command></screen>
+        </listitem>
+      </itemizedlist>
+      <para>
+        または、追加のオプションを初期化コマンドの一部として指定することもできます。同じコマンドに複数のオプションを含めることができます。いくつかの例を以下に示します。その他のオプションについては、<command>crm cluster init --help</command>を実行してください。
+      </para>
+      <variablelist>
+      <varlistentry>
+        <term>クラスタ名</term>
+        <listitem>
+          <para>
+            デフォルトのクラスタ名は<literal>hacluster</literal>です。別の名前を選択するには、オプション<option>--name</option> (または<option>-n</option>)を使用します。次に例を示します。
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init --name <replaceable>CLUSTERNAME</replaceable></command></screen>
+          <para>
+            クラスタの地理的な場所など、わかりやすい名前を選択します。これによってサイトを識別しやすくなるため、後でGeoクラスタを作成する場合に特に役立ちます。
+          </para>
+        </listitem>
+      </varlistentry>
+        <varlistentry>
+          <term>マルチキャスト</term>
+          <listitem>
+            <para>
+              ユニキャストは、クラスタ通信のデフォルトのトランスポートタイプです。代わりにマルチキャストを使用するには、オプション<option>--multicast</option> (または<option>-U</option>)を使用します。次に例を示します。
+            </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init --multicast</command></screen>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term>SBDディスク</term>
+          <listitem>
+            <para>
+              後の手順で、スクリプトにより、SBDを設定するかどうかを尋ねられ、使用するディスクを指定するように求められます。複数のSBDディスクを使用してクラスタを設定するには、オプション<option>--sbd-device</option> (または<option>-s</option>) を複数回使用します。次に例を示します。
+            </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init -s /dev/disk/by-id/<replaceable>ID1</replaceable> -s /dev/disk/by-id/<replaceable>ID2</replaceable></command></screen>
+            <para>
+              このオプションは、タブ補完を使用してデバイスIDを入力できるという点でも便利です。タブ補完は、スクリプトによってパスの入力を求められたときには使用できません。
+            </para>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term>冗長通信チャンネル</term>
+          <listitem>
+            <para>
+              サポートされるクラスタには、通信チャンネルが2つ必要です。推奨される方法は、ネットワークデバイスボンディングを使用することです。ボンディングを使用できない場合は、Corosyncで冗長通信チャンネル(第2リングまたはハートビート回線とも呼ばれます)を設定できます。デフォルトでは、1つのリングのネットワークアドレスの入力を求められます。クラスタを2つのリングで設定するには、オプション<option>--interface</option> (または<option>-i</option>)を2回使用します。次に例を示します。
+            </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init -i eth0 -i eth1</command></screen>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+      <para>
+        スクリプトを開始すると、次の情報の入力を求められます。<command>init</command>コマンドに追加のオプションを含めた場合、以下の手順の一部は多少異なる場合があります。
+      </para>
+    </step>
+    <step>
+      <para>
+      クラスタ通信層(Corosync)を設定します。
+      </para>
+      <substeps>
+      <step>
+        <para>
+        バインドするネットワークアドレスを入力します。デフォルトでは、スクリプトは<systemitem>eth0</systemitem>のネットワークアドレスを提案します。または、たとえば<literal>bond0</literal>のアドレスなど、別のネットワークアドレスを入力します。
+        </para>
+      </step>
+      <step>
+        <para>
+        提案されたポート(<literal>5405</literal>)を受け入れるか、別のポートを入力します。
+        </para>
+      </step>
+      <step>
+        <para>
+          冗長通信チャンネルを設定するオプションを指定してスクリプトを開始した場合は、「<literal>y</literal>」と入力して2番目のハートビートラインを受け入れてから、提案されたネットワークアドレスとポートを受け入れるか、別のアドレスとポートを入力します。
+        </para>
+      </step>
+      </substeps>
+    </step>
+    <step>
+      <para>
+        SBDをノードフェンシングメカニズムとして設定するかどうかを選択します。別のフェンシングメカニズムを使用している場合、または後でSBDを設定する場合は、「<literal>n</literal>」と入力して、この手順をスキップします。
+      </para>
+      <para>
+        <literal>y</literal>を選択した場合は、使用するSBDのタイプを選択します。
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            ディスクレスSBDを使用するには、「<literal>none</literal>」と入力します。
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            ディスクベースのSBDを使用するには、使用するブロックデバイスのパーティションの永続的なパスを入力します。パスはクラスタ内のすべてのノード全体で一致している必要があります。例: <filename>/dev/disk/by-id/<replaceable>ID</replaceable></filename>。
+          </para>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+      <para>
+        Hawk2でのクラスタ管理用の仮想IPアドレスを設定するかどうかを選択します。Hawk2で個々のクラスタノードにログインする代わりに、その仮想IPアドレスに接続できるようになります。
+      </para>
+      <para>
+        <literal>y</literal>を選択した場合、Hawk2に使用する未使用のIPアドレスを入力します。
+      </para>
+    </step>
+    <step>
+      <para>
+        QDeviceおよびQNetdを設定するかどうかを選択します。QDeviceを使用する必要がない場合、またはQNetdサーバをまだ設定していない場合は、「<literal>n</literal>」と入力して、この手順をスキップします。QDeviceおよびQNetdは後で必要に応じて設定できます。
+      </para>
+      <para>
+        <literal>y</literal>を選択した場合、次の情報を入力します。
+      </para>
+      <substeps>
+        <step>
+          <para>
+            QNetdサーバのホスト名またはIPアドレスを入力します。設定を完了するには、クラスタノードがこのサーバにSSHでアクセスできる必要があります。
+          </para>
+          <para>
+            残りのフィールドについては、デフォルト値を受け入れるか、必要に応じて変更できます。
+          </para>
+        </step>
+        <step>
+          <para>
+            提案されたポート(<literal>5403</literal>)を受け入れるか、別のポートを入力します。
+          </para>
+        </step>
+        <step>
+          <para>
+            投票の割り当て方法を決定するアルゴリズムを選択します。
+          </para>
+        </step>
+        <step>
+          <para>
+            タイブレーカが必要な場合に使用する方法を選択します。
+          </para>
+        </step>
+        <step>
+          <para>
+            TLSを有効にするかどうかを選択します。
+          </para>
+        </step>
+        <step>
+          <para>
+            投票の決定方法に影響を与えるヒューリスティックコマンドを入力します。この手順をスキップするには、フィールドを空白のままにします。
+          </para>
+        </step>
+      </substeps>
+    </step>
+    </procedure>
+    <para>
+    このスクリプトは、NTP/Chrony設定とハードウェアウォッチドッグサービスを確認します。必要な場合、パスワード不要のSSHアクセスとCsync2の同期に使用される公開SSHキーおよび秘密SSHキーが生成され、それぞれのサービスが起動されます。最後に、スクリプトはクラスタサービスを開始し、クラスタをオンラインにして、Hawk2を有効にします。Hawk2に使用するURLが画面に表示されます。
+    </para>
+    <para>
+      Hawk2にログインするには、<xref linkend="sec-conf-hawk2-login"/>を参照してください。
+    </para>
+    <important>
+      <title><systemitem class="username">hacluster</systemitem>のセキュリティ保護されたパスワード</title>
+      <para>
+        <command>crm cluster init</command>スクリプトはデフォルトのユーザ(<systemitem class="username">hacluster</systemitem>)とパスワード(<literal>linux</literal>)を作成します。デフォルトのパスワードはできるだけ早くセキュリティ保護されたパスワードに変更します。
+      </para>
+<screen><prompt role="root"># </prompt><command>passwd hacluster</command></screen>
+    </important>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-install-node-join-bootstrap">
+  
+    <title><command>crm cluster join</command>によるノードの追加</title>
+    <para>
+      <command>crm cluster join</command>ブートストラップスクリプトを使用して、クラスタにノードを追加できます。スクリプトは既存のクラスタノードへのアクセスのみが必要で、ご使用のマシンで自動的に基本セットアップを完了します。
+    </para>
+    <para>
+      詳細については、<command>crm cluster join --help</command>コマンドを実行してください。
+    </para>
+    <itemizedlist>
+      <title>要件</title>
+      <listitem>
+        <para>
+          クラスタがSBD (STONITHブロックデバイス)を使用する場合は、<command>crm cluster join</command>スクリプトを実行する<emphasis>前に</emphasis>このノードにウォッチドッグを設定する必要があります。<xref linkend="sec-ha-storage-protect-watchdog"/>を参照してください。
+        </para>
+      </listitem>
+    </itemizedlist>
+    <procedure xml:id="pro-ha-install-node-join-bootstrap">
+    <title><command>crm cluster join</command>によるノードの追加</title>
+    <step>
+      <para>
+        最初のノードの設定に使用したユーザと同じユーザとして、このノードにログインします。
+      </para>
+    </step>
+    <step>
+      <para>
+        ブートストラップスクリプトを起動します。
+      </para>
+      <para>
+        スクリプトの開始方法は、最初のノードの設定方法によって異なります。次のオプションを確認し、最初のノードの設定に一致するコマンドを使用します。必要に応じて、同じコマンドに複数のオプションを含めることができます。
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+            最初のノードを<systemitem class="username">root</systemitem>として、1つのネットワークインタフェース(またはボンドデバイス)のだけで設定した場合、追加のパラメータなしで次のコマンドを実行できます。
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            最初のノードを2つのネットワークインタフェースで設定した場合は、オプション<literal>--interface</literal> (または<literal>-i</literal>)を2回使用して、このノードに同じインタフェースを指定する必要があります。
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join -i eth0 -i eth1</command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            必要に応じて、<literal>--cluster-node</literal> (または<literal>-c</literal>)を使用して最初のノードを指定できます。
+          </para>
+<screen><prompt role="root"># </prompt><command>crm cluster join -c [<replaceable>USER</replaceable>]@<replaceable>NODE1</replaceable></command></screen>
+          <para>
+            最初のノードを<systemitem class="username">root</systemitem>として設定した場合は、ユーザを指定する必要はありません。
+          </para>
+        </listitem>
+        <listitem>
+          <para>
+            最初のノードを<command>sudo</command>ユーザとして設定した場合は、<literal>-c</literal>オプションでそのユーザとノードを指定する<emphasis>必要があります</emphasis>。
+          </para>
+<screen><prompt>&gt; </prompt><command>sudo crm cluster join -c <replaceable>USER</replaceable>@<replaceable>NODE1</replaceable></command></screen>
+        </listitem>
+        <listitem>
+          <para>
+            最初のノードをSSHエージェント転送を使用して<command>sudo</command>ユーザとして設定した場合は、ノードでキーを生成するのではなくローカルSSHキーを使用するようにスクリプトに指示する必要があります。
+          </para>
+<screen><prompt>&gt; </prompt><command>sudo --preserve-env=SSH_AUTH_SOCK \
+crm cluster join --use-ssh-agent -c <replaceable>USER</replaceable>@<replaceable>NODE1</replaceable></command></screen>
+        </listitem>
+      </itemizedlist>
+      <para>
+        NTP/Chronyがブート時に開始するよう設定されていない場合、メッセージが表示されます。スクリプトは、ハードウェアウォッチドッグデバイスもチェックします。デバイスがないときは警告が表示されます。
+      </para>
+    </step>
+    <step>
+      <para>
+        まだ<option>-c</option>オプションを使用して最初のクラスタノードを指定していない場合は、そのIPアドレスの入力を求められます。
+      </para>
+    </step>
+    <step>
+      <para>
+        クラスタノード間にパスワード不要のSSHアクセスをまだ設定していない場合、最初のノードのパスワードの入力を求められます。
+      </para>
+      <para>
+        指定したノードへのログイン後、スクリプトは、Corosync設定をコピーし、SSHおよびCsync2を設定し、現在のマシンを新しいクラスタノードとしてオンラインにし、Hawk2に必要なサービスを起動します。
+      </para>
+    </step>
+    </procedure>
+    <para>
+      各ノードでこの手順を繰り返します。クラスタの状態は、<command>crm status</command>コマンドを使用するか、Hawk2にログインして<menuchoice><guimenu>状態</guimenu><guimenu>ノード</guimenu></menuchoice>に移動することでいつでも確認できます。
+    </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-install-cluster-remove">
+    <title><command>crm cluster remove</command>によるノードの削除</title>
+    <para>
+      <command>crm cluster remove</command>ブートストラップスクリプトを使用して、クラスタからノードを削除できます。
+    </para>
+    <para>
+      追加のパラメータを指定せずに<command>crm cluster remove</command>を実行すると、削除するノードのIPアドレスまたはホスト名の入力を求められます。または、コマンドの実行時にノードを指定することもできます。
+    </para>
+<screen><prompt role="root"># </prompt><command>crm cluster remove <replaceable>NODE</replaceable></command></screen>
+    <para>
+       指定したノードでは、すべてのクラスタサービスが停止され、ローカルクラスタ設定ファイルが削除されます。残りのクラスタノードでは、指定したノードがクラスタ設定から削除されます。
+    </para>
+    <para>
+      ほとんどの場合、<command>crm cluster remove</command>は、削除対象のノード<emphasis>ではなく</emphasis>、別のノードから実行する必要があります。ただし、最後のノードを削除してクラスタを削除する場合は、オプション<option>--force</option> (または<option>-F</option>)を使用できます。
+    </para>
+<screen><prompt role="root"># </prompt><command>crm cluster remove --force <replaceable>LASTNODE</replaceable></command></screen>
+    <para>
+      詳細については、<command>crm cluster remove --help</command>を実行してください。
+    </para>
+  </sect1>
+</chapter>

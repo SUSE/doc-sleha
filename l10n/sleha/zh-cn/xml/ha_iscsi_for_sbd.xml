@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_iscsi_for_sbd.xml" xml:id="ha-iscsi-for-sbd" xml:lang="zh-cn" version="5.1">
+ <title>SBD 的基本 iSCSI 存储</title>
+ <info>
+  <abstract>
+   <para>
+    使用以下过程可配置用于 SBD 的基本 iSCSI 存储。建议仅将这些过程用于测试目的。在生产环境中使用 iSCSI 之前，请先参见<link xlink:href="https://documentation.suse.com/sles/html/SLES-all/cha-iscsi.html">《SUSE Linux Enterprise Server 存储管理指南》</link>。
+   </para>
+  </abstract>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+ </info>
+
+ <itemizedlist>
+  <title>要求</title>
+  <listitem>
+   <para>
+    作为 iSCSI 目标的 SUSE Linux Enterprise Server 虚拟机。此 VM 不是群集的一部分。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    VM 上的两个虚拟存储设备：一个 20 GB 设备（用于系统），一个 1 GB 设备（用于 SBD）。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    两个尚未添加到 High Availability 群集的 SUSE Linux Enterprise Server 节点。
+   </para>
+  </listitem>
+ </itemizedlist>
+
+ <para>
+  首先，在虚拟机上设置 iSCSI 目标：
+ </para>
+
+ <procedure xml:id="pro-iscsi-for-sbd-target">
+  <title>配置 iSCSI 目标</title>
+  <step>
+   <para>
+    安装软件包 <package>yast2-iscsi-lio-server</package>:
+   </para>
+<screen><prompt role="root"># </prompt><command>zypper install yast2-iscsi-lio-server</command></screen>
+  </step>
+  <step>
+   <para>
+    在 YaST 中启动 <literal>iscsi-lio-server</literal> 模块：
+   </para>
+<screen><prompt role="root"># </prompt><command>yast2 iscsi-lio-server</command></screen>
+  </step>
+  <step>
+   <para>
+    在<guimenu>服务</guimenu>选项卡中的<guimenu>重启后</guimenu>下，选择<guimenu>引导时启动</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    选中<guimenu>打开防火墙中的端口</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    在<guimenu>发现</guimenu>选项卡中，选中<guimenu>发现认证</guimenu>。
+    </para>
+   </step>
+  <step>
+   <para>
+    在<guimenu>由目标认证</guimenu>下，输入<guimenu>用户名</guimenu>和<guimenu>密码</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    在<guimenu>由发起端认证</guimenu>下，输入<guimenu>相互用户名</guimenu>和<guimenu>相互密码</guimenu>。此密码不得与<guimenu>由目标认证</guimenu>中的密码相同。
+   </para>
+  </step>
+  <step>
+   <para>
+    在<guimenu>目标</guimenu>选项卡中选择<guimenu>添加</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    替换 <literal>.com.example</literal>，以更改<guimenu>目标</guimenu>名称。
+   </para>
+  </step>
+  <step>
+   <para>
+    系统应该会自动填充该服务器的 <guimenu>IP 地址</guimenu>。如果没有自动填充，此时请添加其 IP 地址。
+   </para>
+  </step>
+  <step>
+   <para>
+    选择<guimenu>添加</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    在 <guimenu>LUN 细节</guimenu>窗口中，输入 1 GB 存储设备的 <guimenu>LUN 路径</guimenu>（例如 <filename>/dev/vbd</filename>）。
+   </para>
+  </step>
+  <step>
+   <para>
+    选择<guimenu>确定</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    选择<guimenu>下一步</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    选择<guimenu>完成</guimenu>关闭 YaST。
+   </para>
+  </step>
+  <step>
+   <para>
+    要检查目标设置，请切换到目标 CLI：
+   </para>
+<screen><prompt role="root"># </prompt><command>targetcli</command></screen>
+   <para>
+    显示配置：
+   </para>
+<screen><prompt>/&gt; </prompt><command>ls</command></screen>
+  </step>
+ </procedure>
+
+ <para>
+  接下来在节点上设置 iSCSI 发起端。在两个节点上重复以下过程：
+ </para>
+
+ <procedure xml:id="pro-iscsi-for-sbd-clients">
+  <title>配置 iSCSI 发起端</title>
+  <step>
+   <para>
+    安装所需的软件包：
+   </para>
+<screen><prompt role="root"># </prompt><command>zypper install open-iscsi yast2-iscsi-client</command></screen>
+  </step>
+  <step>
+   <para>
+    启动 <literal>iscsid</literal> 服务：
+   </para>
+<screen><prompt role="root"># </prompt><command>systemctl start iscsid</command></screen>
+  </step>
+  <step>
+   <para>
+    在 YaST 中打开 <literal>iscsi-client</literal> 模块：
+   </para>
+<screen><prompt role="root"># </prompt><command>yast2 iscsi-client</command></screen>
+  </step>
+  <step>
+   <para>
+    在<guimenu>已发现目标</guimenu>选项卡中，选择<guimenu>发现</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    输入 iSCSI 目标的 IP 地址。
+   </para>
+  </step>
+  <step>
+   <para>
+    清除<guimenu>不进行发现认证</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    在<guimenu>由发起端认证</guimenu>下，输入发起端<guimenu>用户名</guimenu>和<guimenu>密码</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    在<guimenu>由目标认证</guimenu>下，输入目标<guimenu>用户名</guimenu>和<guimenu>密码</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    选择<guimenu>下一步</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    当 YaST 发现 iSCSI 目标后，选择<guimenu>连接</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    在<guimenu>启动</guimenu>下，选择<guimenu>引导时</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    选择<guimenu>下一步</guimenu>。
+   </para>
+  </step>
+  <step>
+   <para>
+    选择<guimenu>确定</guimenu>关闭 YaST。
+   </para>
+  </step>
+  <step>
+   <para>
+    检查 iSCSI 发起端：
+   </para>
+<screen><prompt role="root"># </prompt><command>lsscsi</command>
+[0:0:1:0] cd/dvd QEMU QEMU DVD-ROM 2.5+ /dev/sr0
+[2:0:0:0] disk LIO-ORG IBLOCK 4.0 /dev/sda</screen>
+   <para>
+    查找包含 <literal>IBLOCK</literal> 的行。在此示例中，iSCSI 设备为 <literal>/dev/sda</literal>。
+   </para>
+  </step>
+  <step>
+   <para>
+    检查 <literal>iscsid</literal> 服务的状态：
+   </para>
+<screen><prompt role="root"># </prompt><command>systemctl status iscsid</command></screen>
+  </step>
+ </procedure>
+
+ <para>
+  您可以在 <filename>/dev/disk/by-id/</filename> 中查找稳定的设备名称。iSCSI 设备的名称通常以 <literal>scsi-SLIO-ORG_IBLOCK</literal> 开头。
+ </para>
+ <para>
+  如果您有多个磁盘，可以运行 <command>lsblk -o name,serial</command> 命令来确认哪个稳定设备名称对应哪个简短名称（例如 <filename>/dev/sda</filename>）。
+ </para>
+ <para>
+  配置群集时，请使用以下其中一种方法来指定稳定的设备名称：
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    运行 <command>crm cluster init</command> 时，按提示输入稳定的设备名称。
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    运行 <command>crm cluster init</command> 前，在 <filename>/etc/sysconfig/sbd</filename> 中添加稳定的设备名称：
+   </para>
+<screen>SBD_DEVICE=/dev/disk/by-id/scsi-SLIO-ORG_IBLOCK_<replaceable>DEVICE_ID_STRING</replaceable></screen>
+   <para>
+    运行 <command>crm cluster init</command> 时，对下面的问题回复 <literal>n</literal>：
+   </para>
+<screen>SBD is already configured to use /dev/disk/by-id/scsi-SLIO-ORG_IBLOCK_... - overwrite (y/n)?</screen>
+  </listitem>
+ </itemizedlist>
+</appendix>
