@@ -1,0 +1,410 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_qdevice-qnetd.xml" version="5.0" xml:id="cha-ha-qdevice">
+   <title>QDevice 和 QNetd</title>
+   <info>
+      <abstract>
+         <para>
+            QDevice 和 QNetd 会参与仲裁决定。在仲裁方 <systemitem class="daemon">corosync-qnetd</systemitem> 的协助下，<systemitem class="daemon">corosync-qdevice</systemitem> 会提供一个可配置的投票数，以使群集可以承受大于标准仲裁规则所允许的节点故障数量。我们建议您对节点数为偶数的群集（特别是双节点群集）部署 <systemitem class="daemon">corosync-qnetd</systemitem> 和 <systemitem class="daemon">corosync-qdevice</systemitem>。
+         </para>
+      </abstract>
+      <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+         <dm:maintainer/>
+         <dm:status>editing</dm:status>
+         <dm:deadline/>
+         <dm:priority/>
+         <dm:translation>yes</dm:translation>
+         <dm:languages/>
+         <dm:release/>
+         <dm:repository/>
+      </dm:docmanager>
+   </info>
+
+   <sect1 xml:id="sec-ha-qdevice-overview">
+      <title>概念概述</title>
+      <para>
+         与计算各群集节点的定额相比，搭配使用 QDevice 和 QNetd 的方法具有以下优点：
+      </para>
+
+      <itemizedlist>
+         <listitem>
+            <para>
+               发生节点故障时，会提供更好的可持续性。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               您可以编写自己的启发脚本来影响投票。这非常适合用于复杂设置。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               可让您配置 QNetd 服务器来为多个群集提供投票。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               允许为双节点群集使用无磁盘 SBD。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               可帮助节点数为偶数且处于节点分裂状况下的群集（特别是双节点群集）做出仲裁决定。
+            </para>
+         </listitem>
+      </itemizedlist>
+
+      <para>
+        使用 QDevice/QNetd 的设置由以下组件和机制构成：
+      </para>
+
+      <variablelist>
+         <title>QDevice/QNetd 组件和机制</title>
+         <varlistentry>
+            <term>QNetd (<systemitem class="daemon">corosync-qnetd</systemitem>)</term>
+            <listitem>
+               <para>
+                  它是一项 systemd 服务（即 <quote>QNetd 服务器</quote>守护程序），并非群集的一部分。向 <systemitem class="daemon">corosync-qdevice</systemitem> 守护程序提供投票的 systemd 守护程序。
+               </para>
+               <para>
+                  要提高安全性，可以将 <systemitem class="daemon">corosync-qnetd</systemitem> 与 TLS 搭配使用以进行客户端证书检查。
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>QDevice (<systemitem class="daemon">corosync-qdevice</systemitem>)</term>
+            <listitem>
+               <para>
+                  每个群集节点上与 Corosync 一起运行的 systemd 服务（守护程序）。这是 <systemitem>corosync-qnetd</systemitem> 的客户端。其主要用途是让群集能够承受大于标准仲裁规则所允许的节点故障数量。
+               </para>
+               <para>
+                  QDevice 可以与不同的仲裁方配合工作，但目前仅支持与 QNetd 配合工作。
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>算法</term>
+            <listitem>
+               <para>
+                  QDevice 支持多种不同的算法，而这些算法决定着如何分配投票的行为。目前提供的算法如下：
+               </para>
+               <itemizedlist>
+                  <listitem>
+                     <para>
+                        FFSplit（<quote>fifty-fifty split</quote>，50-50 均分）为默认算法，用于所含节点数为偶数的群集。如果群集分裂为两个相似的部分，此算法会根据启发检查结果和其他因素为其中一个部分提供一个投票。
+                     </para>
+                  </listitem>
+                  <listitem>
+                     <para>
+                       LMS（<quote>last man standing</quote>，最后存活节点）允许仅剩的唯一能看到 QNetd 服务器的节点获得投票。因此此算法适用于只有一个活动节点应保留法定票数的群集。
+                     </para>
+                  </listitem>
+               </itemizedlist>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>启发</term>
+            <listitem>
+               <para>
+                  QDevice 支持一组命令（即<quote>启发</quote>）。这些命令在群集服务启动、群集成员资格发生变化、成功连接到 <systemitem class="daemon">corosync-qnetd</systemitem> 时或（可选）定期在本地执行。可以使用 <parameter>quorum.device.heuristics</parameter> 键（在 <filename>corosync.conf</filename> 文件中）或 <option>--qdevice-heuristics-mode</option> 选项来设置启发。这两种方式都可理解 <literal>off</literal>（默认值）、<literal>sync</literal> 和 <literal>on</literal> 值。<literal>sync</literal> 与 <literal>on</literal> 之间的区别在于，您另外还可以定期执行以上命令。
+               </para>
+               <para>
+                  仅当所有命令都成功执行时，才会视为已通过启发，否则视为启发失败。启发的结果会发送到 <systemitem class="daemon">corosync-qnetd</systemitem>，用于进行计算以确定哪个部分应具有法定票数。
+               </para>
+            </listitem>
+         </varlistentry>
+         <varlistentry>
+            <term>决胜值</term>
+            <listitem>
+               <para>
+                  此项用作群集的几个部分完全均衡且启发结果相同的情况下的后备措施。它可配置为最小、最大或特定的节点 ID。
+               </para>
+            </listitem>
+         </varlistentry>
+      </variablelist>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-require">
+      <title>要求和先决条件</title>
+      <para>
+         设置 QDevice 和 QNetd 之前，您需要按如下所示准备环境：
+      </para>
+      <itemizedlist>
+         <listitem>
+            <para>
+               除了群集节点外，您需准备一个单独的计算机，将其作为 QNetd 服务器。请参见<xref linkend="sec-ha-qdevice-setup-qnetd"/>。
+            </para>
+         </listitem>
+         <listitem>
+            <para>
+               建议让 QDevice 通过与 Corosync 所用网络不同的物理网络连接 QNetd 服务器。理想情况下，QNetd 服务器应位于与主群集不同的机架中，或者至少位于一个单独的 PSU 上，且不要位于与 Corosync 环相同的网段中。
+            </para>
+         </listitem>
+      </itemizedlist>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-setup-qnetd">
+      <title>设置 QNetd 服务器</title>
+      <para>
+         QNetd 服务器在群集外运行，可支持多个群集（只要每个群集的名称具有唯一性）。因此，您无法将资源转移到此服务器。
+      </para>
+      <para>
+         QNetd 服务器几乎<quote>无状态</quote>。一般情况下，您无需更改配置文件 <filename>/etc/sysconfig/corosync-qnetd</filename> 中的任何内容。默认情况下，<package>corosync-qnetd</package> 服务以 <systemitem class="groupname">coroqnetd</systemitem> 组中的 <systemitem class="username">coroqnetd</systemitem> 用户身份运行守护程序。这可避免以 <systemitem class="username">root</systemitem> 身份运行守护程序。
+      </para>
+      <para>
+         要创建 QNetd 服务器，请执行以下步骤：
+      </para>
+      <procedure>
+         <step>
+            <para>
+               在将作为 QNetd 服务器的计算机上，安装 SUSE Linux Enterprise Server 15 SP7。
+            </para>
+         </step>
+         <step>
+          <para>
+           使用 <command>SUSEConnect --list-extensions</command> 中列出的命令启用 SUSE Linux Enterprise High Availability。
+          </para>
+         </step>
+         <step>
+            <para>
+               安装 <package>corosync-qnetd</package> 软件包：
+            </para>
+            <screen><prompt role="root"># </prompt><command>zypper install corosync-qnetd</command></screen>
+            <para>
+               您不需要手动启动 <systemitem class="daemon">corosync-qnetd</systemitem> 服务。当您在群集上配置 QDevice 时，该服务会自动启动。
+      </para>
+         </step>
+      </procedure>
+
+      <para>
+         QNetd 服务器现已准备好接受来自 QDevice 客户端 (<systemitem>corosync-qdevice</systemitem>) 的连接。进一步的配置将在您连接 QDevice 客户端时由 crmsh 完成。
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-qdevice">
+      <title>将 QDevice 客户端连接到 QNetd 服务器</title>
+      <para>
+         设置好 QNetd 服务器后，您便可以设置并运行客户端。您可以在安装群集的过程中将客户端连接到 QNetd 服务器，也可以稍后再添加。此过程会讲解如何在稍后添加客户端。
+      </para>
+      <important role="compact">
+        <para>
+          要完成 QNetd 配置，客户端必须拥有 QNetd 服务器的 <systemitem class="username">root</systemitem> SSH 访问权限。
+        </para>
+       </important>
+      <procedure>
+         <step>
+            <para>
+             在所有节点上安装 <package>corosync-qdevice</package> 软件包：
+            </para>
+            <screen><prompt role="root"># </prompt><command>zypper install corosync-qdevice</command></screen>
+         </step>
+         <step>
+            <para>
+             在一个节点上运行以下命令配置 QDevice：
+            </para>
+<screen><prompt role="root"># </prompt><command>crm cluster init qdevice</command>
+Do you want to configure QDevice (y/n)? <command>y</command>
+HOST or IP of the QNetd server to be used []<command><replaceable>QNETD_SERVER</replaceable></command>
+TCP PORT of QNetd server [5403]
+QNetd decision ALGORITHM (ffsplit/lms) [ffsplit]
+QNetd TIE_BREAKER (lowest/highest/valid node id) [lowest]
+Whether using TLS on QDevice/QNetd (on/off/required) [on]
+Heuristics COMMAND to run with absolute path; For multiple commands, use ";" to separate []</screen>
+            <para>
+             按 <literal>y</literal> 确认您要配置 QDevice，然后输入 QNetd 服务器的主机名或 IP 地址。对于其余字段，您可以接受默认值，也可以根据需要更改。
+            </para>
+         </step>
+      </procedure>
+      <para>
+        脚本会在节点上配置 QDevice，并在 QNetd 服务器上完成 QNetd 配置，包括生成 CA 和服务器证书、启动 QNetd 守护程序，以及更新群集的仲裁配置。
+      </para>
+      <important>
+        <title>无磁盘 SBD 和 QDevice 的 <literal>SBD_WATCHDOG_TIMEOUT</literal></title>
+        <para>
+          如果您将 QDevice 和无磁盘 SBD 搭配使用，<literal>SBD_WATCHDOG_TIMEOUT</literal> 值必须大于 QDevice 的 <literal>sync_timeout</literal> 值，否则 SBD 将会超时并无法启动。
+        </para>
+        <para>
+          <literal>sync_timeout</literal> 的默认值为 30 秒。因此，请确保在 <filename>/etc/sysconfig/sbd</filename> 中将 <literal>SBD_WATCHDOG_TIMEOUT</literal> 设置为更大的值（例如 <literal>35</literal>）。
+        </para>
+      </important>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-heuristic">
+      <title>使用启发设置 QDevice</title>
+      <para>
+         如果您需要对确定投票的方式进行额外的控制，请使用启发。启发是一组可并行执行的命令。
+      </para>
+      <para>
+         为了此目的，<command>crm cluster init qdevice</command> 命令提供了 <option>--qdevice-heuristics</option> 选项。您可以使用绝对路径传递一个或多个命令（以分号分隔）。
+      </para>
+      <para>
+         例如，如果您自己的启发检查命令位于 <filename>/usr/sbin/my-script.sh</filename>，则可以在其中一个群集节点上按如下方式运行该命令：
+      </para>
+      <screen><prompt role="root"># </prompt><command>crm cluster init qdevice --qnetd-hostname=charlie \
+     --qdevice-heuristics=/usr/sbin/my-script.sh \
+     --qdevice-heuristics-mode=on</command></screen>
+      <para>
+         命令可以任何语言编写，例如 Shell、Python 或 Ruby 语言。如果命令成功执行，将返回 <literal>0</literal>（零），否则会返回错误代码。
+      </para>
+      <para>
+         您也可以传递一组命令。仅当所有命令都成功完成（返回代码为 0）后，启发才会通过。
+      </para>
+      <para>
+         <option>--qdevice-heuristics-mode=on</option> 选项可让启发命令定期运行。
+      </para>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-status">
+      <title>检查和显示仲裁状态</title>
+      
+      <para>
+         您可以查询某个群集节点上的仲裁状态，如<xref linkend="ex-ha-qdevice-crm-corosync-status-quorum"/>中所示。该示例显示了 QDevice 节点的状态。
+      </para>
+
+      <example xml:id="ex-ha-qdevice-crm-corosync-status-quorum">
+         <title>QDevice 的状态</title>
+         <screen><prompt role="root"># </prompt><command>corosync-quorumtool</command><co xml:id="co-quorum-cmd"/>
+ Quorum information
+------------------
+Date:             ...
+Quorum provider:  corosync_votequorum
+Nodes:            2 <co xml:id="co-quorum-nodesnumber"/>
+Node ID:          3232235777 <co xml:id="co-quorum-nodeid"/>
+Ring ID:          3232235777/8
+Quorate:          Yes <co xml:id="co-quorum-quorate"/>
+
+Votequorum information
+----------------------
+Expected votes:   3
+Highest expected: 3
+Total votes:      3
+Quorum:           2
+Flags:            Quorate Qdevice
+
+Membership information
+----------------------
+    Nodeid      Votes    Qdevice Name
+ 3232235777         1    A,V,NMW 192.168.1.1 (local) <co xml:id="co-quorum-nodes"/>
+ 3232235778         1    A,V,NMW 192.168.1.2 <xref linkend="co-quorum-nodes"/>
+         0          1            Qdevice</screen>
+         <calloutlist>
+            <callout arearefs="co-quorum-cmd">
+               <para>
+                  或者，您也可以使用 <command>crm corosync status quorum</command> 命令获得相同的结果。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodesnumber">
+               <para>
+                  我们预计的节点数量。在此示例中，这是一个双节点群集。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodeid">
+               <para>
+                  由于 <filename>corosync.conf</filename> 中未显式指定节点 ID，此 ID 会以 32 位整数来表示 IP 地址。在此示例中，值 <literal>3232235777</literal> 表示 IP 地址 <systemitem class="ipaddress">192.168.1.1</systemitem>。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-quorate">
+               <para>
+                  仲裁状态。在此例中，群集具有仲裁。
+               </para>
+            </callout>
+            <callout arearefs="co-quorum-nodes">
+               <para>
+                  每个群集节点的状态的含意如下：
+               </para>
+               <variablelist>
+                  <varlistentry>
+                     <term><literal>A</literal>（保持连接）或 <literal>NA</literal>（未连接）</term>
+                     <listitem>
+                        <para>
+                           显示 QDevice 与 Corosync 之间的连接状态。如果 QDevice 与 Corosync 之间存在检测信号，则会显示为保持连接 (A)。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>V</literal>（投票）或 <literal>NV</literal>（无投票）</term>
+                     <listitem>
+                        <para>
+                           显示仲裁设备是否已为节点投票（字母 <literal>V</literal>）。字母 <literal>V</literal> 表示两个节点可以相互通讯。在节点分裂情况下，一个节点会设置为 <literal>V</literal>，另一个节点会设置为 <literal>NV</literal>。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>MW</literal>（主体获胜）或 <literal>NMW</literal>（不是主体获胜）</term>
+                     <listitem>
+                        <para>
+                           指明是否设置了仲裁设备 <parameter>master_wins</parameter> 标志。默认不会设置该标志，因此您会看到 <literal>NMW</literal>（不是主体获胜）。请参见 votequorum_qdevice_master_wins(3) 的手册页获取详细信息。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+                  <varlistentry>
+                     <term><literal>NR</literal>（未注册）</term>
+                     <listitem>
+                        <para>
+                           表示群集未在使用仲裁设备。
+                        </para>
+                     </listitem>
+                  </varlistentry>
+               </variablelist>
+            </callout>
+         </calloutlist>
+      </example>
+
+      <para>
+         如果您查询 QNetd 服务器的状态，会获得类似<xref linkend="ex-ha-qdevice-crm-corosync-status-qnetd"/>中所示的输出：
+      </para>
+      <example xml:id="ex-ha-qdevice-crm-corosync-status-qnetd">
+         <title>QNetd 服务器的状态</title>
+         <screen><prompt role="root"># </prompt><command>corosync-qnetd-tool -lv</command><co xml:id="co-quorum-qnet-cmd"/>
+Cluster "hacluster": <co xml:id="co-quorum-qnet-name"/>
+    Algorithm:          Fifty-Fifty split <co xml:id="co-quorum-qnet-algo"/>
+    Tie-breaker:        Node with lowest node ID
+    Node ID 3232235777: <co xml:id="co-quorum-qnet-alice"/>
+        Client address:         ::ffff:192.168.1.1:54732
+        HB interval:            8000ms
+        Configured node list:   3232235777, 3232235778
+        Ring ID:                aa10ab0.8
+        Membership node list:   3232235777, 3232235778
+        Heuristics:             Undefined (membership: Undefined, regular: Undefined)
+        TLS active:             Yes (client certificate verified)
+        Vote:                   ACK (ACK)
+    Node ID 3232235778:
+        Client address:         ::ffff:192.168.1.2:43016
+        HB interval:            8000ms
+        Configured node list:   3232235777, 3232235778
+        Ring ID:                aa10ab0.8
+        Membership node list:   3232235777, 3232235778
+        Heuristics:             Undefined (membership: Undefined, regular: Undefined)
+        TLS active:             Yes (client certificate verified)
+        Vote:                   No change (ACK)</screen>
+       <calloutlist>
+          <callout arearefs="co-quorum-qnet-cmd">
+             <para>
+                您也可以在群集的其中一个节点上使用 <command>crm corosync status qnetd</command> 命令，这种方法会获得相同的结果。
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-name">
+             <para>
+                在配置文件 <filename>/etc/corosync/corosync.conf</filename> 的 <literal>totem.cluster_name</literal> 部分设置的群集名称。
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-algo">
+             <para>
+                当前使用的算法。此示例中为 <literal>FFSplit</literal>。
+             </para>
+          </callout>
+          <callout arearefs="co-quorum-qnet-alice">
+             <para>
+                这是 IP 地址为 <systemitem class="ipaddress">192.168.1.1</systemitem> 的节点的相应条目。TLS 处于活动状态。
+             </para>
+          </callout>
+       </calloutlist>
+      </example>
+   </sect1>
+
+   <sect1 xml:id="sec-ha-qdevice-more">
+      <title>更多信息</title>
+      <para>
+         有关 QDevice 和 QNetd 的其他信息，请参见 corosync-qdevice(8) 和 corosync-qnetd(8) 的手册页。
+      </para>
+   </sect1>
+</chapter>
