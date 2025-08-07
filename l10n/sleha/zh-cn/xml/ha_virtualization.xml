@@ -1,0 +1,448 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="ha_virtualization.xml" xml:id="cha-ha-virtualization" xml:lang="zh-cn" version="5.1">
+  <title>虚拟化的高可用性</title>
+  <info>
+    <abstract>
+      <para>
+        本章介绍如何将虚拟机配置为高度可用的群集资源。
+      </para>
+    </abstract>
+    <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+      <dm:bugtracker/>
+      <dm:translation>yes</dm:translation>
+    </dm:docmanager>
+  </info>
+
+  <sect1 xml:id="sec-ha-virtualization-overview">
+    <title>概述</title>
+      <para>
+      虚拟机在 High Availability 群集中可以充当不同的角色：
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          虚拟机可作为资源由群集进行管理，群集无需管理虚拟机上运行的服务。在这种情况下，VM 对于群集是不透明的。本文中所述的便是这种场景。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          虚拟机可以是群集资源并运行 <systemitem class="daemon">pacemaker_remote</systemitem>，这样群集便能管理虚拟机上运行的服务。在这种情况下，VM 是 guest 节点，对群集是透明的。对于这种场景，请参见<xref linkend="sec-ha-pmremote-install-virt-guest-nodes"/>。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          虚拟机可以运行完整的群集堆栈。在这种情况下，VM 是常规群集节点，不是受群集管理的资源。对于这种场景，请参见<xref linkend="article-installation"/>。
+        </para>
+      </listitem>
+    </itemizedlist>
+    <para>
+      以下过程介绍了如何在块存储设备上设置高度可用的虚拟机，并将另一个块设备用作 OCFS2 卷来存储 VM 锁文件和 XML 配置文件。虚拟机和 OCFS2 卷配置为由群集管理的资源，并具有资源约束，以确保虚拟机在任何节点上启动之前，锁文件目录始终可用。这样可以防止虚拟机在多个节点上启动。
+    </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-requirements">
+    <title>要求</title>
+    <itemizedlist>
+      <listitem>
+        <para>
+          一个正在运行的 High Availability 群集，该群集至少包含两个节点和一个隔离设备（如 SBD）。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          群集节点之间采用无口令 <systemitem class="username">root</systemitem> SSH 登录方式。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          每个群集节点上都设置了网桥，用于安装和运行 VM。网桥必须与用于群集通讯和管理的网络分开。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          两个或多个共享存储设备（或单个共享设备上的多个分区），以便所有群集节点都可以访问 VM 所需的文件和存储空间：
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>
+              用作 OCFS2 卷的设备，用于存储 VM 锁文件和 XML 配置文件。下面的过程介绍了如何创建和挂载 OCFS2 卷。
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              包含 VM 安装源（例如 ISO 文件或磁盘映像）的设备。
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              根据安装源的不同，可能还需要另一个设备作为 VM 存储磁盘。
+            </para>
+          </listitem>
+        </itemizedlist>
+        <para>
+          为避免 I/O 速度过慢，这些设备必须与用于 SBD 的共享设备分开。
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          所有存储路径的稳定设备名称，例如 <filename>/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></filename>。同一个共享存储设备在不同的节点上可能会使用不一致的 <filename>/dev/sdX</filename> 名称，这会导致 VM 迁移失败。
+        </para>
+      </listitem>
+    </itemizedlist>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-configuring-cluster-resources">
+    <title>配置群集资源以管理锁文件</title>
+    <para>
+      按照下面的过程配置群集以管理虚拟机锁文件。在所有节点上都必须可以使用锁文件目录，这样无论 VM 在哪个节点上运行，群集都能识别锁文件。
+    </para>
+    <para>
+      您只需在其中一个群集节点上运行以下命令。
+    </para>
+    <procedure xml:id="pro-ha-virtualization-configuring-cluster-resources">
+      <title>配置群集资源以管理锁文件</title>
+      <step>
+        <para>
+          在其中一个共享存储设备上创建 OCFS2 卷：
+        </para>
+<screen><prompt role="root"># </prompt><command>mkfs.ocfs2 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
+      </step>
+      <step>
+        <para>
+          运行 <command>crm configure</command> 启动 <command>crm</command> 交互式外壳。
+        </para>
+      </step>
+      <step>
+        <para>
+          为 DLM 创建原始资源：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive dlm ocf:pacemaker:controld \
+  op monitor interval=60 timeout=60</command></screen>
+      </step>
+      <step>
+        <para>
+          为 OCFS2 卷创建原始资源：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive ocfs2 Filesystem \
+  params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype=ocfs2 \
+  op monitor interval=20 timeout=40</command></screen>
+      </step>
+      <step>
+        <para>
+          为 DLM 和 OCFS2 资源创建组：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group g-virt-lock dlm ocfs2</command></screen>
+      </step>
+      <step>
+        <para>
+          克隆该组，使它在所有节点上运行：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>clone cl-virt-lock g-virt-lock \
+  meta interleave=true</command></screen>
+      </step>
+      <step>
+        <para>
+          使用 <command>show</command> 查看所做的更改。
+        </para>
+      </step>
+      <step>
+        <para>
+          如果所有设置均正确无误，请使用 <command>commit</command> 提交更改，然后使用 <command>quit</command> 退出 crm 实时配置。
+        </para>
+      </step>
+      <step>
+        <para>
+          检查组克隆的状态。它在所有节点上都应处于运行状态：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Full List of Resources:
+[...]
+  * Clone Set: cl-virt-lock [g-virt-lock]:
+    * Started: [ alice bob ]</screen>
+      </step>
+    </procedure>
+    <para>
+
+    </para>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-preparing-the-cluster-nodes">
+    <title>准备群集节点以托管虚拟机</title>
+    <para>
+      按照下面的过程安装和启动所需的虚拟化服务，并将节点配置为将 VM 锁文件存储在共享的 OCFS2 卷上。
+    </para>
+    <para>
+      此过程使用 <command>crm cluster run</command> 同时在所有节点上运行命令。如果您更喜欢单独管理每个节点，可以省略命令的 <command>crm cluster run</command> 部分。
+    </para>
+    <procedure xml:id="pro-ha-virtualization-preparing-the-cluster-nodes">
+      <title>准备群集节点以托管虚拟机</title>
+      <step>
+        <para>
+          在群集中的所有节点上安装虚拟化软件包：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "zypper install -y -t pattern kvm_server kvm_tools"</command></screen>
+      </step>
+      <step>
+        <para>
+          在一个节点上的 <filename>/etc/libvirt/qemu.conf</filename> 文件中，找到并启用 <literal>lock_manager</literal> 设置：
+        </para>
+<screen>lock_manager = "lockd"</screen>
+      </step>
+      <step>
+        <para>
+          在同一节点上的 <filename>/etc/libvirt/qemu-lockd.conf</filename> 文件中，找到并启用 <literal>file_lockspace_dir</literal> 设置，然后将值更改为指向 OCFS2 卷上的目录：
+        </para>
+<screen>file_lockspace_dir = "/mnt/shared/lockd"</screen>
+      </step>
+      <step>
+        <para>
+          将这些文件复制到群集中的其他节点：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm cluster copy /etc/libvirt/qemu.conf</command>
+<prompt role="root"># </prompt><command>crm cluster copy /etc/libvirt/qemu-lockd.conf</command></screen>
+      </step>
+      <step>
+        <para>
+          在群集中的所有节点上启用并启动 <literal>libvirtd</literal> 服务：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "systemctl enable --now libvirtd"</command></screen>
+        <para>
+          这也会启动 <literal>virtlockd</literal> 服务。
+        </para>
+      </step>
+    </procedure>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-adding-virtual-machines">
+    <title>将虚拟机添加为群集资源</title>
+    <para>
+      按照下面的过程将虚拟机作为群集资源添加到群集，并设置资源限制，以确保 VM 始终可以访问锁文件。锁文件由组 <literal>g-virt-lock</literal> 中的资源管理，通过克隆 <literal>cl-virt-lock</literal> 可在所有节点上使用该组。
+    </para>
+    <procedure xml:id="pro-ha-virtualization-adding-virtual-machines">
+      <title>将虚拟机添加为群集资源</title>
+      <step>
+        <para>
+          在其中一个群集节点上安装虚拟机，但需符合以下限制：
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>
+              安装源和存储区必须位于共享设备上。
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              不要将 VM 配置为在主机引导时启动。
+            </para>
+          </listitem>
+        </itemizedlist>
+        <para>
+          有关详细信息，请参见 <link xlink:href="https://documentation.suse.com/sles/html/SLES-all/book-virtualization.html">SUSE Linux Enterprise Server 的<citetitle>Virtualization Guide</citetitle></link>。
+        </para>
+      </step>
+      <step>
+        <para>
+          如果虚拟机正在运行，请将其关闭。将 VM 添加为资源后，群集将启动 VM。
+        </para>
+      </step>
+      <step>
+        <para>
+          将 XML 配置转储到 OCFS2 卷。对每个 VM 重复此步骤：
+        </para>
+<screen><prompt role="root"># </prompt><command>virsh dumpxml <replaceable>VM1</replaceable> &gt; /mnt/shared/<replaceable>VM1</replaceable>.xml</command></screen>
+        <important role="compact">
+          <para>
+            确保 XML 文件不包含对未共享本地路径的任何引用。
+          </para>
+        </important>
+      </step>
+      <step>
+        <para>
+          运行 <command>crm configure</command> 启动 <command>crm</command> 交互式外壳。
+        </para>
+      </step>
+      <step>
+        <para>
+          创建原始资源来管理虚拟机。对每个 VM 重复此步骤：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive <replaceable>VM1</replaceable> VirtualDomain \
+  params config="/mnt/shared/<replaceable>VM1</replaceable>.xml" remoteuri="qemu+ssh://%n/system" \
+  meta allow-migrate=true \
+  op monitor timeout=30s interval=10s</command></screen>
+        <para>
+          选项 <literal>allow-migrate=true</literal> 可启用实时迁移。如果其值设置为 <literal>false</literal>，群集会迁移 VM，具体做法是在一个节点上关闭 VM，然后在另一个节点上重启动该 VM。
+        </para>
+        <para>
+          如果需要设置利用率属性，以帮助系统根据 VM 的负载影响放置 VM，请参见<xref linkend="sec-ha-config-basics-utilization"/>。
+        </para>
+      </step>
+      <step>
+        <para>
+          创建共置约束，使虚拟机只能在正在运行 <literal>cl-virt-lock</literal> 的节点上启动：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>colocation col-fs-virt inf: ( <replaceable>VM1 VM2 VMX</replaceable> ) cl-virt-lock</command></screen>
+      </step>
+      <step>
+        <para>
+          创建顺序约束，使 <literal>cl-virt-lock</literal> 始终先于虚拟机启动：
+        </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order o-fs-virt Mandatory: cl-virt-lock ( <replaceable>VM1 VM2 VMX</replaceable> )</command></screen>
+      </step>
+      <step>
+        <para>
+          使用 <command>show</command> 查看所做的更改。
+        </para>
+      </step>
+      <step>
+        <para>
+          如果所有设置均正确无误，请使用 <command>commit</command> 提交更改，然后使用 <command>quit</command> 退出 crm 实时配置。
+        </para>
+      </step>
+      <step>
+        <para>
+          检查虚拟机的状态：
+        </para>
+<screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Full List of Resources:
+[...]
+  * Clone Set: cl-virt-lock [g-virt-lock]:
+    * Started: [ alice bob ]
+  * VM1 (ocf::heartbeat:VirtualDomain): Started alice
+  * VM2 (ocf::heartbeat:VirtualDomain): Started alice
+  * VMX (ocf::heartbeat:VirtualDomain): Started alice</screen>
+      </step>
+    </procedure>
+    <para>
+      虚拟机现在由 High Availability 群集管理，并且可以在群集节点之间迁移。
+    </para>
+    <important>
+      <title>请勿手动启动或停止群集管理的 VM</title>
+      <para>
+        将虚拟机添加为群集资源后，请勿手动管理它们，应仅使用<xref linkend="cha-ha-manage-resources"/>中所述的群集工具来管理。
+      </para>
+      <para>
+        要在群集管理的 VM 上执行维护任务，请参见<xref linkend="sec-ha-maint-overview"/>。
+      </para>
+    </important>
+  </sect1>
+
+  <sect1 xml:id="sec-ha-virtualization-testing">
+    <title>测试设置</title>
+    <para>
+      执行以下测试来确认虚拟机 High Availability 设置是否按预期工作。
+    </para>
+    <important role="compact">
+      <para>
+        请在测试环境而非生产环境中执行这些测试。
+      </para>
+    </important>
+    <procedure>
+      <title>校验 VM 资源是否会跨群集节点受保护</title>
+      <step>
+        <para>
+          虚拟机 <literal>VM1</literal> 正在节点 <literal>alice</literal> 上运行
+        </para>
+      </step>
+      <step>
+        <para>
+          在节点 <literal>bob</literal> 上，尝试使用 <command>virsh start VM1</command> 手动启动该 VM。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">预期结果：</emphasis><command>virsh</command> 命令失败。当 <literal>VM1</literal> 正在 <literal>alice</literal> 上运行时，无法在 <literal>bob</literal> 上手动启动它。
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>校验 VM 资源是否可以在群集节点之间实时迁移</title>
+      <step>
+        <para>
+          虚拟机 <literal>VM1</literal> 正在节点 <literal>alice</literal> 上运行
+        </para>
+      </step>
+      <step>
+        <para>
+          打开两个终端。
+        </para>
+      </step>
+      <step>
+        <para>
+          在第一个终端中，通过 SSH 连接到 <literal>VM1</literal>。
+        </para>
+      </step>
+      <step>
+        <para>
+          在第二个终端中，尝试使用 <command>crm resource move VM1 bob</command> 将 <literal>VM1</literal> 迁移到节点 <literal>bob</literal>。
+        </para>
+      </step>
+      <step>
+        <para>
+          运行 <command>crm_mon -r</command> 监控群集状态，直到其稳定为止。这可能需要一点时间。
+        </para>
+      </step>
+      <step>
+        <para>
+          在第一个终端中，检查与 <literal>VM1</literal> 的 SSH 连接是否仍处于活动状态。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">预期结果：</emphasis>群集状态会显示 <literal>VM1</literal> 已在 <literal>bob</literal> 上启动。与 <literal>VM1</literal> 的 SSH 连接在整个迁移过程中都会保持活动状态。
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>校验 VM 资源是否可以在当前节点重引导时迁移到另一个节点</title>
+      <step>
+        <para>
+          虚拟机 <literal>VM1</literal> 正在节点 <literal>bob</literal> 上运行
+       </para>
+      </step>
+      <step>
+        <para>
+          重引导 <literal>bob</literal>。
+        </para>
+      </step>
+      <step>
+        <para>
+          在节点 <literal>alice</literal> 上，运行 <command>crm_mon -r</command> 监控群集状态，直到其稳定为止。这可能需要一点时间。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">预期结果：</emphasis>群集状态会显示 <literal>VM1</literal> 已在 <literal>alice</literal> 上启动。
+        </para>
+      </step>
+    </procedure>
+    <procedure>
+      <title>校验 VM 资源是否可以在当前节点崩溃时故障转移到另一个节点</title>
+      <step>
+        <para>
+          虚拟机 <literal>VM1</literal> 正在节点 <literal>alice</literal> 上运行
+        </para>
+      </step>
+      <step>
+        <para>
+          在 <literal>alice</literal> 上，通过强制关机或拔下电源线来模拟崩溃。
+        </para>
+      </step>
+      <step>
+        <para>
+          在节点 <literal>bob</literal> 上，运行 <command>crm_mon -r</command> 监控群集状态，直到其稳定为止。与节点重引导后发生的 VM 迁移相比，节点崩溃后发生的 VM 故障转移通常需要更长的时间。
+        </para>
+      </step>
+      <step>
+        <para>
+          <emphasis role="bold">预期结果：</emphasis>很快，群集状态会显示 <literal>VM1</literal> 已在 <literal>bob</literal> 上启动。
+        </para>
+      </step>
+    </procedure>
+  </sect1>
+
+</chapter>
