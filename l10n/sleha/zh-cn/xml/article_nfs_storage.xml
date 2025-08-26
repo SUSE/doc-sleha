@@ -1,1 +1,858 @@
-../../../../xml/article_nfs_storage.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+  type="text/xml"
+  title="Profiling step"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:dm="urn:x-suse:ns:docmanager" xmlns:its="http://www.w3.org/2005/11/its" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="article_nfs_storage.xml" version="5.2" xml:lang="zh-cn" xml:id="article-nfs-storage">
+ <title>使用 DRBD 和 Pacemaker 的高度可用 NFS 存储服务</title>
+ <info>
+  <productnumber>15 SP7</productnumber>
+  <productname>SUSE Linux Enterprise High Availability</productname> <date><?dbtimestamp format="Y"?> 年 <?dbtimestamp format="B" padding="0"?> 月 <?dbtimestamp format="d" padding="0"?> 日 </date>
+  <xi:include href="common_copyright_gfdl.xml"/>
+  <abstract>
+   <para>
+     本文档介绍如何使用以下组件在双节点群集中设置高可用性 NFS 存储服务：DRBD*（分布式复制块设备）、LVM（逻辑卷管理器）以及作为群集资源管理器的 Pacemaker。
+   </para>
+  </abstract>
+  <dm:docmanager>
+   <dm:bugtracker/>
+   <dm:translation>yes</dm:translation>
+  </dm:docmanager>
+  <meta name="title" its:translate="yes">使用 DRBD 和 Pacemaker 的高度可用 NFS 存储服务</meta>
+  <meta name="series" its:translate="no">Products &amp; Solutions</meta>
+  <meta name="description" its:translate="yes">如何在双节点群集中使用 DRBD、LVM 和 Pacemaker 设置高度可用的 NFS 存储服务</meta>
+  <meta name="social-descr" its:translate="yes">设置高度可用的 NFS 存储服务</meta>
+  <meta name="task" its:translate="no">
+    <phrase>Installation</phrase>
+    <phrase>Administration</phrase>
+    <phrase>Clustering</phrase>
+  </meta>
+  <revhistory xml:id="rh-article-nfs-storage">
+    <revision>
+      <date>2025-06-17</date>
+      <revdescription>
+        <para>
+          针对 SUSE Linux Enterprise High Availability 15 SP7 的初始版本进行了更新。
+        </para>
+      </revdescription>
+    </revision>
+   </revhistory>
+ </info>
+
+ <sect1 xml:id="sec-ha-quick-nfs-usagescenario">
+  <title>使用情形</title>
+  <para>
+   本文档将帮助您设置高度可用的 NFS 服务器。用于实现高度可用的 NFS 存储的群集具有以下属性：
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     两个节点：<systemitem class="server">alice</systemitem>（IP：<systemitem class="ipaddress">192.168.1.1</systemitem>）和 <systemitem class="server">bob</systemitem>（IP：<systemitem class="ipaddress">192.168.1.2</systemitem>），两者之间通过网络相连。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     两个浮动虚拟 IP 地址（<systemitem class="ipaddress">192.168.1.10</systemitem> 和 <systemitem class="ipaddress">192.168.1.11</systemitem>），这样无论服务在哪个物理节点上运行，客户端都可连接到服务。一个 IP 地址用于使用 Hawk2 进行群集管理，另一个 IP 地址专用于 NFS 导出。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     SBD 用作 STONITH 屏蔽设备，以避免分裂情况。STONITH 对于 HA 群集而言是必需的。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     当活动的主机发生故障（<emphasis>主动/被动</emphasis>设置）时，资源从一个节点故障转移至另一个节点。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     每个节点上的本地存储。使用 LVM 上的 DRBD 在节点之间同步数据。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+      通过 NFS 导出的文件系统，以及一个用于跟踪 NFS 客户端状态的单独文件系统。
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   安装并设置好基本的双节点群集后，再使用 NFS 的存储和群集资源对其进行扩展，即可获得一个高度可用的 NFS 存储服务器。
+  </para>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-quick-nfs-installation">
+  <title>准备双节点群集</title>
+  <para>
+   在设置高度可用的 NFS 存储之前，您必须先准备好一个高可用性群集：
+  </para>
+  <procedure xml:id="pro-ha-nfs-prepare-cluster">
+   <title>为 NFS 存储准备两节点群集</title>
+   <step>
+    <para>
+     按照<link xlink:href="https://documentation.suse.com/sle-ha/15-SP7/html/SLE-HA-all/article-installation.html">《安装和设置快速入门》</link>中所述安装并设置基本的双节点群集。
+
+    </para>
+   </step>
+   <step>
+    <para>
+     在<emphasis>两个</emphasis>节点上安装软件包 <package>nfs-kernel-server</package>：
+    </para>
+<screen><prompt role="root"># </prompt><command>zypper install nfs-kernel-server</command></screen>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-quick-nfs-lvm">
+   <title>创建 LVM 设备</title>
+   <para>
+    使用 LVM（逻辑卷管理器）可在多个文件系统上灵活分配存储空间。
+   </para>
+   <para>
+    使用 <command>crm cluster run</command> 同时在两个节点上运行这些命令。
+   </para>
+   <procedure xml:id="pro-ha-nfs-create-lvm-devices">
+    <title>为 DRBD 创建 LVM 设备</title>
+    <step>
+     <para>
+      创建 LVM 物理卷，并将 <filename>/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></filename> 替换为 LVM 的相应设备：</para>
+     <screen><prompt role="root"># </prompt><command>crm cluster run "pvcreate /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>"</command></screen>
+    </step>
+    <step>
+     <para>创建包含此物理卷的 LVM 卷组 <systemitem>nfs</systemitem>：</para>
+     <screen><prompt role="root"># </prompt><command>crm cluster run "vgcreate nfs /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>"</command></screen>
+    </step>
+    <step>
+      <para>
+       在卷组 <systemitem>nfs</systemitem> 中创建一个名为 <systemitem>share</systemitem> 的逻辑卷：
+      </para>
+      <screen><prompt role="root"># </prompt><command>crm cluster run "lvcreate -n share -L 20G nfs"</command></screen>
+      <para>
+       此卷用于 NFS 导出。
+      </para>
+     </step>
+     <step>
+      <para>
+       在卷组 <systemitem>nfs</systemitem> 中创建一个名为 <systemitem>state</systemitem> 的逻辑卷：
+      </para>
+      <screen><prompt role="root"># </prompt><command>crm cluster run "lvcreate -n state -L 8G nfs"</command></screen>
+      <para>
+       此卷用于跟踪 NFS 客户端状态。本示例中使用的 8 GB 卷大小应支持数千个并发 NFS 客户端。
+      </para>
+     </step>
+     <step>
+      <para>
+       激活卷组：</para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "vgchange -ay nfs"</command></screen>
+     </step>
+   </procedure>
+   <para>
+    现在应会在系统上看到以下设备：<filename>/dev/nfs/share</filename> 和 <filename>/dev/nfs/state</filename>。
+   </para>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-quick-nfs-drbd-device">
+   <title>创建 DRBD 设备</title>
+   <para>
+    本章介绍如何在 LVM 上设置 DRBD 设备。使用 LVM 作为 DRBD 的后端可获得以下好处：
+   </para>
+  <itemizedlist>
+   <listitem>
+    <para>比在 DRBD 上使用 LVM 的配置更容易设置。</para>
+   </listitem>
+   <listitem>
+    <para>当需要调整 LVM 磁盘的大小或有更多磁盘添加到卷组时，管理起来更容易。
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+    以下过程会创建两个 DRBD 设备：一个设备用于 NFS 导出，另一个设备用于跟踪 NFS 客户端状态。
+   </para>
+
+   <sect2 xml:id="sec-ha-quick-nfs-drbd-config">
+    <title>创建 DRBD 配置</title>
+    <para>
+     DRBD 配置文件保存在 <filename>/etc/drbd.d/</filename> 目录中，必须以 <filename class="extension">.res</filename> 扩展名结尾。在此过程中，配置文件命名为 <filename>/etc/drbd.d/nfs.res</filename>。
+    </para>
+    <procedure xml:id="pro-ha-nfs-create-drbd-config">
+     <title>创建 DRBD 配置</title>
+     <step>
+      <para>
+       创建包含以下内容的 <filename>/etc/drbd.d/nfs.res</filename> 文件：
+      </para>
+<screen>resource nfs {
+   volume 0 { <co xml:id="co-ha-quick-nfs-drbd-volume"/>
+      device           /dev/drbd0; <co xml:id="co-ha-quick-nfs-drbd-device"/>
+      disk             /dev/nfs/state; <co xml:id="co-ha-quick-nfs-drbd-disk"/>
+      meta-disk        internal; <co xml:id="co-ha-quick-nfs-drbd-metadisk"/>
+   }
+   volume 1 {
+      device           /dev/drbd1;
+      disk             /dev/nfs/share;
+      meta-disk        internal;
+   }
+
+   net {
+      protocol C; <co xml:id="co-ha-quick-nfs-drbd-protocol"/>
+      fencing resource-and-stonith; <co xml:id="co-ha-quick-nfs-fencing-policy"/>
+   }
+
+   handlers { <co xml:id="co-ha-quick-nfs-fencing-handlers"/>
+      fence-peer "/usr/lib/drbd/crm-fence-peer.9.sh";
+      after-resync-target "/usr/lib/drbd/crm-unfence-peer.9.sh";
+   }
+
+   connection-mesh { <co xml:id="co-ha-quick-nfs-connectionmesh"/>
+      hosts     alice bob;
+   }
+   on alice { <co xml:id="co-ha-quick-nfs-drbd-on"/>
+      address   192.168.1.1:7790;
+      node-id   0;
+   }
+   on bob {
+      address   192.168.1.2:7790;
+      node-id   1;
+   }
+}</screen>
+      <calloutlist>
+       <callout arearefs="co-ha-quick-nfs-drbd-volume">
+        <para>要创建的每个 DRBD 设备的卷号。</para>
+       </callout>
+       <callout arearefs="co-ha-quick-nfs-drbd-device">
+        <para>应用程序要访问的 DRBD 设备。</para>
+       </callout>
+       <callout arearefs="co-ha-quick-nfs-drbd-disk">
+        <para>DRBD 用于存储实际数据的较低级别块设备。这是在<xref linkend="sec-ha-quick-nfs-lvm"/>中创建的 LVM 设备。
+        </para>
+       </callout>
+       <callout arearefs="co-ha-quick-nfs-drbd-metadisk">
+        <para>元数据的存储位置。如果使用 <literal>internal</literal>，元数据将与用户数据一起存储在同一设备上。有关更多信息，请参见手册页。
+        </para>
+       </callout>
+       <callout arearefs="co-ha-quick-nfs-drbd-protocol">
+        <para>此连接使用的协议。协议 <literal>C</literal> 是默认选项。它可提供更好的数据可用性，只有在写入内容进入所有本地和远程磁盘之后，该协议才将写入操作视为已完成。
+        </para>
+       </callout>
+       <callout arearefs="co-ha-quick-nfs-fencing-policy">
+        <para>
+         在 DRBD 级别指定屏蔽策略 <literal>resource-and-stonith</literal>。该策略会立即暂停正在进行的 I/O 操作，直到 STONITH 完成。
+        </para>
+       </callout>
+       <callout arearefs="co-ha-quick-nfs-fencing-handlers">
+        <para>
+         为防止 Pacemaker 使用过时数据启动服务，请启用资源级屏蔽。如果 DRBD 复制链路断开，<command>crm-fence-peer.9.sh</command> 脚本会阻止将 DRBD 资源提升至其他节点，直至复制链路恢复连接且 DRBD 完成同步过程。
+        </para>
+       </callout>
+       <callout arearefs="co-ha-quick-nfs-connectionmesh">
+        <para>
+       定义网格的所有节点。<option>hosts</option> 参数包含共享相同 DRBD 设置的所有主机名。
+    </para>
+       </callout>
+       <callout arearefs="co-ha-quick-nfs-drbd-on">
+        <para>包含每个节点的 IP 地址和唯一标识符。</para>
+       </callout>
+      </calloutlist>
+     </step>
+     <step>
+      <para>
+       打开 <filename>/etc/csync2/csync2.cfg</filename> 并检查其中是否包含以下两行：
+      </para>
+<screen>include /etc/drbd.conf;
+include /etc/drbd.d;</screen>
+      <para>
+       如果不存在，请将这两行添加到文件中。
+      </para>
+     </step>
+     <step>
+      <para>
+       将文件复制到其他节点上：
+      </para>
+<screen><prompt role="root"># </prompt><command>csync2 -xv</command></screen>
+      <para>
+       有关 Csync2 的信息，请参见<xref linkend="sec-ha-installation-setup-csync2"/>。
+      </para>
+     </step>
+    </procedure>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-quick-nfs-drbd-activate">
+    <title>激活 DRBD 设备</title>
+    <para>
+     准备好 DRBD 配置后，激活设备：
+    </para>
+    <procedure xml:id="pro-ha-nfs-activate-drbd-devices">
+     <title>激活 DRBD 设备</title>
+     <step>
+      <para>
+       如果您在群集中使用防火墙，请在防火墙配置中打开端口 <systemitem>7790</systemitem>。
+      </para>
+     </step>
+     <step>
+      <para>
+       初始化元数据存储：
+      </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "drbdadm create-md nfs"</command></screen>
+     </step>
+     <step>
+      <para>
+       创建 DRBD 设备：
+      </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "drbdadm up nfs"</command></screen>
+     </step>
+     <step>
+      <para>
+       设备中尚不包含数据，因此您可以运行以下命令来跳过初始同步：
+      </para>
+<screen><prompt role="root"># </prompt><command>drbdadm new-current-uuid --clear-bitmap nfs/0</command>
+<prompt role="root"># </prompt><command>drbdadm new-current-uuid --clear-bitmap nfs/1</command></screen>
+     </step>
+     <step>
+       <para>将 <systemitem>alice</systemitem> 设为主节点：</para>
+<screen><prompt role="root"># </prompt><command>drbdadm primary --force nfs</command></screen>
+     </step>
+      <step>
+       <para>检查 <literal>nfs</literal> 的 DRBD 状态：</para>
+<screen><prompt role="root"># </prompt><command>drbdadm status nfs</command></screen>
+       <para>此命令将返回以下消息：</para>
+<screen>nfs role:Primary
+  volume:0 disk:UpToDate
+  volume:1 disk:UpToDate
+  bob role:Secondary
+    volume:0 peer-disk:UpToDate
+    volume:1 peer-disk:UpToDate</screen>
+     </step>
+    </procedure>
+    <para>
+     您可以访问块设备 <filename>/dev/drbd0</filename> 和 <filename>/dev/drbd1</filename> 上的 DRBD 资源。
+     </para>
+   </sect2>
+
+   <sect2 xml:id="sec-ha-quick-nfs-drbd-createfs">
+    <title>创建文件系统</title>
+    <para>
+     激活 DRBD 设备后，在其上创建文件系统：
+
+    </para>
+    <procedure xml:id="pro-ha-nfs-create-drbd-file-systems">
+     <title>为 DRBD 创建文件系统</title>
+     <step>
+      <para>
+       在 <filename>/dev/drbd0</filename> 上创建 <literal>ext4</literal> 文件系统：
+      </para>
+      <screen><prompt role="root"># </prompt><command>mkfs.ext4 /dev/drbd0</command></screen>
+     </step>
+     <step>
+      <para>
+       在 <filename>/dev/drbd1</filename> 上创建 <literal>ext4</literal> 文件系统：
+      </para>
+      <screen><prompt role="root"># </prompt><command>mkfs.ext4 /dev/drbd1</command></screen>
+     </step>
+    </procedure>
+   </sect2>
+  </sect1>
+
+ <sect1 xml:id="sec-ha-quick-nfs-resources">
+  <title>创建群集资源</title>
+  <para>
+   以下过程说明如何配置高度可用的 NFS 群集所需的资源。
+  </para>
+  <variablelist>
+   <title>群集资源概述</title>
+   <varlistentry>
+    <term>DRBD 原始资源和可升级克隆资源</term>
+    <listitem>
+     <para>
+      这些资源用于复制数据。群集资源管理器认为有必要时，会将可升级克隆资源在主次角色之间切换。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>文件系统资源</term>
+    <listitem>
+     <para>
+      这些资源将管理要导出的文件系统，以及要跟踪 NFS 客户端状态的文件系统。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>NFS 内核服务器资源</term>
+    <listitem>
+     <para>
+      此资源管理 NFS 服务器守护程序。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>NFS 导出</term>
+    <listitem>
+     <para>
+      此资源用于将目录 <filename>/srv/nfs/share</filename> 导出到客户端。
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>虚拟 IP 地址</term>
+    <listitem>
+     <para>
+      初始安装会创建用于 Hawk2 的管理虚拟 IP 地址。创建另一个专用于 NFS 导出的虚拟 IP 地址。这样，以后便可更轻松地应用安全限制。
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <itemizedlist>
+    <title>示例 NFS 情形</title>
+    <listitem>
+        <para>下列配置示例假设 <systemitem class="ipaddress">192.168.1.11</systemitem> 是用于为 <systemitem class="ipaddress">192.168.1.x/24</systemitem> 子网中的客户端传递数据的 NFS 服务器的虚拟 IP 地址。</para>
+    </listitem>
+    <listitem>
+        <para>服务导出从 <literal>/srv/nfs/share</literal> 传递的数据。</para>
+    </listitem>
+    <listitem>
+        <para>群集将 DRBD 设备 <filename>/dev/drbd1</filename> 中的 <literal>ext4</literal> 文件系统挂载到此导出目录中。此 DRBD 设备位于名为 <literal>/dev/nfs/share</literal> 的 LVM 逻辑卷上。
+        </para>
+    </listitem>
+    <listitem>
+     <para>
+      DRBD 设备 <literal>/dev/drbd0</literal> 用于共享 <filename>/var/lib/nfs</filename> 中的 NFS 客户端状态。此 DRBD 设备位于名为 <literal>/dev/nfs/state</literal> 的 LVM 逻辑卷上。
+     </para>
+    </listitem>
+  </itemizedlist>
+
+  <sect2 xml:id="sec-ha-quick-nfs-resources-drbd">
+   <title>创建 DRBD 原始资源和可升级克隆资源</title>
+   <para>
+    创建一个群集资源用于管理 DRBD 设备，并创建一个可升级克隆资源，使此群集资源可在两个节点上运行：
+   </para>
+   <procedure xml:id="pro-ha-nfs-create-drbd-resource">
+    <title>为 NFS 创建 DRBD 资源</title>
+    <step>
+     <para>
+      启动 <command>crm</command> 交互外壳：
+     </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+    </step>
+    <step>
+     <para>
+      为 DRBD 配置 <literal>nfs</literal> 创建原始资源：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive drbd-nfs ocf:linbit:drbd \
+  params drbd_resource="nfs" \
+  op monitor interval=15 role=Promoted \
+  op monitor interval=30 role=Unpromoted</command></screen>
+    </step>
+    <step>
+     <para>
+      为 <literal>drbd-nfs</literal> 原始资源创建一个可升级克隆资源：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>clone cl-drbd-nfs drbd-nfs \
+  meta promotable="true" promoted-max="1" promoted-node-max="1" \
+  clone-max="2" clone-node-max="1" notify="true" interleave=true</command></screen>
+    </step>
+    <step>
+     <para>
+      提交此配置：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+    </step>
+   </procedure>
+   <para>
+    Pacemaker 将激活两个节点上的 DRBD 资源，并将其升级为其中一个节点上的主要角色。使用 <command>crm status</command> 命令检查群集的状态，或运行 <command>drbdadm status</command>。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-quick-nfs-resources-lvm">
+   <title>创建文件系统资源</title>
+   <para>
+    创建群集资源来管理要导出的文件系统和用于状态跟踪的文件系统：
+   </para>
+   <procedure xml:id="pro-ha-nfs-create-fs-resource">
+    <title>为 NFS 创建文件系统资源</title>
+    <step>
+     <para>
+      在 <literal>/dev/drbd0</literal> 上创建一个用于跟踪 NFS 客户端状态的原始资源：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive fs-nfs-state Filesystem \
+  params device=/dev/drbd0 directory=/var/lib/nfs fstype=ext4 \
+  op monitor timeout=40s interval=20s</command></screen>
+    </step>
+    <step>
+     <para>
+      在 <literal>/dev/drbd1</literal> 上为要导出的文件系统创建一个原始资源：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive fs-nfs-share Filesystem \
+  params device=/dev/drbd1 directory=/srv/nfs/share fstype=ext4 \
+  op monitor timeout=40s interval=20s</command></screen>
+     <para>
+      请<emphasis>仅在</emphasis>添加共置约束和顺序约束之后才提交此配置。
+     </para>
+    </step>
+    <step>
+     <para>
+      将这两个资源添加到名为 <literal>g-nfs</literal> 的资源组：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>group g-nfs fs-nfs-state fs-nfs-share</command></screen>
+     <para>
+      资源按照它们在组中的添加顺序启动，并按照相反的顺序停止。
+     </para>
+    </step>
+    <step>
+     <para>
+      添加共置约束，以确保资源组始终在 DRBD 可升级克隆资源充当主要角色的节点上启动：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>colocation col-nfs-on-drbd inf: g-nfs cl-drbd-nfs:Promoted</command></screen>
+    </step>
+    <step>
+     <para>
+      添加顺序约束，以确保 DRBD 可升级克隆资源始终在资源组之前启动：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>order o-drbd-before-nfs Mandatory: cl-drbd-nfs:promote g-nfs:start</command></screen>
+    </step>
+    <step>
+     <para>
+      提交此配置：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+    </step>
+   </procedure>
+   <para>
+    Pacemaker 将 <literal>/dev/drbd0</literal> 挂载到 <filename>/var/lib/nfs</filename>，将 <literal>/dev/drbd1</literal> 挂载到 <filename>srv/nfs/share</filename>。使用 <command>mount</command> 或通过查看 <filename>/proc/mounts</filename> 来确认是否如此。
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-quick-nfs-resources-nfsserver">
+   <title>创建 NFS 内核服务器资源</title>
+   <para>
+    创建一个群集资源来管理 NFS 服务器守护程序：
+   </para>
+   <procedure xml:id="pro-ha-nfs-create-nfs-server-resource">
+    <title>创建 NFS 内核服务器资源</title>
+    <step>
+     <para>
+      创建一个原始资源来管理 NFS 服务器守护程序：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive nfsserver nfsserver \
+  params nfs_server_scope=SUSE \
+  op monitor interval=10s timeout=20s</command></screen>
+     <para>
+      在群集中运行 NFS 服务器的所有节点上，<literal>nfs_server_scope</literal> 必须相同，但默认情况下并非采用这种设置。所有使用 SUSE 软件的群集都可以使用相同的范围，因此我们建议将该值设置为 <literal>SUSE</literal>。
+     </para>
+     <warning>
+      <title>过短的租用时间可能会导致文件状态丢失</title>
+      <para>
+       NFS 客户端定期与 NFS 服务器续订其状态。如果租用时间过短，系统或网络延迟可能会导致计时器在续订完成之前失效，从而导致发生 I/O 错误并丢失文件状态。
+      </para>
+      <para>
+       <literal>NFSV4LEASETIME</literal> 是在 NFS 服务器上的 <filename>/etc/sysconfig/nfs</filename> 文件中设置的。默认值为 90 秒。如果有必要缩短租用时间，我们建议将值设置为 60 或更大。强烈反对设置小于 30 的值。
+      </para>
+     </warning>
+    </step>
+    <step>
+     <para>
+      将此资源追加到现有的 <literal>g-nfs</literal> 资源组：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-nfs add nfsserver</command></screen>
+    </step>
+    <step>
+     <para>
+      提交此配置：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-quick-nfs-resources-nfsexport">
+   <title>创建 NFS 导出资源</title>
+   <para>
+    创建一个群集资源来管理 NFS 导出：
+   </para>
+   <procedure xml:id="pro-ha-nfs-create-nfs-export-resource">
+    <title>创建 NFS 导出资源</title>
+     <step>
+      <para>
+       为 NFS 导出创建原始资源：
+      </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive exportfs-nfs exportfs \
+  params directory="/srv/nfs/share" \
+  options="rw,mountpoint" clientspec="192.168.1.0/24" \
+  op monitor interval=30s timeout=90s</command></screen>
+      <para>
+        <literal>op monitor timeout</literal> 的值必须大于 <literal>stonith-timeout</literal> 的值。要查找 <literal>stonith-timeout</literal> 值，请运行 <command>crm configure show</command> 并查看 <literal>property</literal> 部分。
+      </para>
+      <important>
+       <title>不要设置 <literal>wait_for_leasetime_on_stop=true</literal></title>
+       <para>
+        在高度可用的 NFS 设置中将此选项设置为 <literal>true</literal> 可能会导致不必要的延迟和锁丢失。
+       </para>
+       <para>
+        <literal>wait_for_leasetime_on_stop</literal> 的默认值为 <literal>false</literal>。如果已按本指南中所述配置了 <filename>/var/lib/nfs</filename> 和 <literal>nfsserver</literal>，则无需将其设置为 <literal>true</literal>。
+       </para>
+      </important>
+     </step>
+     <step>
+      <para>
+       将此资源追加到现有的 <literal>g-nfs</literal> 资源组：
+      </para>
+ <screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-nfs add exportfs-nfs</command></screen>
+     </step>
+    <step>
+     <para>
+      提交此配置：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+    </step>
+    <step>
+     <para>
+      确认 NFS 导出设置正确：
+     </para>
+<screen><prompt role="root"># </prompt><command>exportfs -v</command>
+/srv/nfs/share   <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(<replaceable>OPTIONS</replaceable>)</screen>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 xml:id="sec-ha-quick-nfs-resources-vip">
+   <title>为 NFS 导出创建虚拟 IP 地址</title>
+   <para>
+    创建一个群集资源来管理 NFS 导出的虚拟 IP 地址：
+   </para>
+   <procedure xml:id="pro-ha-nfs-create-vip-resource">
+    <title>为 NFS 导出创建虚拟 IP 地址</title>
+    <step>
+     <para>
+      为虚拟 IP 地址创建原始资源：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive vip-nfs IPaddr2 \
+  params ip=192.168.1.11 \
+  op monitor timeout=20s interval=10s
+</command></screen>
+    </step>
+    <step>
+     <para>
+      将此资源追加到现有的 <literal>g-nfs</literal> 资源组：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-nfs add vip-nfs</command></screen>
+    </step>
+    <step>
+     <para>
+      提交此配置：
+     </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+    </step>
+    <step>
+     <para>
+      退出 <command>crm</command> 交互外壳：
+     </para>
+  <screen><prompt role="custom">crm(live)configure# </prompt><command>quit</command></screen>
+    </step>
+    <step>
+     <para>
+      检查集群的状态。<literal>g-nfs</literal> 组中的资源应按以下顺序显示：
+     </para>
+  <screen><prompt role="root"># </prompt><command>crm status</command>
+  [...]
+  Full List of Resources
+    [...]
+    * Resource Group: g-nfs:
+      * fs-nfs-state    (ocf:heartbeat:Filesystem):   Started alice
+      * fs-nfs-share    (ocf:heartbeat:Filesystem):   Started alice
+      * nfsserver       (ocf:heartbeat:nfsserver):    Started alice
+      * exportfs-nfs    (ocf:heartbeat:exportfs):     Started alice
+      * vip-nfs         (ocf:heartbeat:IPaddr2):      Started alice</screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-ha-quick-nfs-use">
+  <title>使用 NFS 服务</title>
+  <para>
+   本章概述如何从 NFS 客户端使用高度可用的 NFS 服务。
+  </para>
+  <para>
+   要连接到 NFS 服务，请务必使用<emphasis>虚拟 IP 地址</emphasis>来连接群集，而不要使用某个群集节点网络接口上配置的物理 IP。出于兼容性原因，请使用服务器上 NFS 导出的<emphasis>完整</emphasis>路径。
+  </para>
+  <para>
+   用于挂载 NFS 导出的命令如下：
+  </para>
+<screen><prompt role="root"># </prompt><command>mount 192.168.1.11:/srv/nfs/share /home/share</command></screen>
+  <para>
+   如果您需要配置其他挂载选项，例如特定的传输协议 (<option>proto</option>)、最大读写请求大小（<option>rsize</option> 和 <option>wsize</option>）或特定的 NFS 版本 (<option>vers</option>)，请使用 <option>-o</option> 选项。例如：
+  </para>
+<screen><prompt role="root"># </prompt><command>mount -o proto=tcp,rsize=32768,wsize=32768,vers=3 \
+192.168.1.11:/srv/nfs/share /home/share</command></screen>
+  <para>
+   要了解更多 NFS 挂载选项，请参见 <command>nfs</command> 手册页。
+  </para>
+  <note>
+   <title>回写挂载</title>
+   <para>
+    只有 NFS 版本 3 支持回写挂载，而 NFS 版本 4 则<emphasis>不</emphasis>支持。有关详细信息，请参见 <link xlink:href="https://www.suse.com/support/kb/doc/?id=000018709"></link>。
+   </para>
+  </note>
+ </sect1>
+
+<sect1 xml:id="sec-ha-quick-nfs-add-filesystems">
+ <title>将更多 NFS 共享添加到群集</title>
+ <para>
+  如果需要增加可用存储，您可以将更多 NFS 共享添加到群集。
+ </para>
+ <para>
+  在此示例中，名为 <literal>/dev/drbd2</literal> 的新 DRBD 设备位于名为 <literal>/dev/nfs/share2</literal> 的 LVM 逻辑卷上。
+ </para>
+ <procedure xml:id="pro-ha-nfs-add-nfs-shares">
+  <title>将更多 NFS 共享添加到群集</title>
+  <step>
+   <para>
+    为新共享创建 LVM 逻辑卷：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "lvcreate -n share2 -L 20G nfs"</command></screen>
+  </step>
+  <step>
+   <para>
+    更新文件 <filename>/etc/drbd.d/nfs.res</filename> 以在现有卷下添加新卷：
+   </para>
+<screen>   volume 2 {
+      device           /dev/drbd2;
+      disk             /dev/nfs/share2;
+      meta-disk        internal;
+   }</screen>
+  </step>
+  <step>
+   <para>
+    将已更新的文件复制到其他节点：
+   </para>
+<screen><prompt role="root"># </prompt><command>csync2 -xv</command></screen>
+  </step>
+  <step>
+   <para>
+    初始化新卷的元数据存储：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "drbdadm create-md nfs/2 --force"</command></screen>
+  </step>
+  <step>
+   <para>
+    更新 <literal>nfs</literal> 配置以创建新设备：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm cluster run "drbdadm adjust nfs"</command></screen>
+  </step>
+  <step>
+   <para>
+    跳过新设备的初始同步：
+   </para>
+<screen><prompt role="root"># </prompt><command>drbdadm new-current-uuid --clear-bitmap nfs/2</command></screen>
+  </step>
+  <step>
+   <para>
+    NFS 群集资源自创建后可能已转移到其他节点。使用 <command>drbdadm status nfs</command> 检查 DRBD 状态，并记下哪个节点充当 <literal>Primary</literal> 角色。
+   </para>
+  </step>
+  <step>
+   <para>
+    在充当 <literal>Primary</literal> 角色的节点上的 <literal>/dev/drbd2</literal> 中创建 <literal>ext4</literal> 文件系统：
+   </para>
+<screen><prompt role="root"># </prompt><command>mkfs.ext4 /dev/drbd2</command></screen>
+  </step>
+  <step>
+   <para>
+    启动 <command>crm</command> 交互外壳：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm configure</command></screen>
+  </step>
+  <step>
+   <para>
+    在 <literal>/dev/drbd2</literal> 上为要导出的文件系统创建一个原始资源：
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive fs-nfs-share2 Filesystem \
+  params device="/dev/drbd2" directory="/srv/nfs/share2" fstype=ext4 \
+  op monitor timeout=40s interval=20s</command></screen>
+  </step>
+  <step>
+   <para>
+    将新文件系统资源添加到 <literal>g-nfs</literal> 组中的 <literal>nfsserver</literal> 资源<emphasis>之前</emphasis>：
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-nfs add fs-nfs-share2 before nfsserver</command></screen>
+  </step>
+  <step>
+   <para>
+    为新共享中的 NFS 导出创建原始资源：
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>primitive exportfs-nfs2 exportfs \
+  params directory="/srv/nfs/share2" \
+  options="rw,mountpoint" clientspec="192.168.1.0/24" \
+  op monitor interval=30s timeout=90s</command></screen>
+  </step>
+  <step>
+   <para>
+    将新的 NFS 导出资源添加到 <literal>g-nfs</literal> 组中的 <literal>vip-nfs</literal> 资源<emphasis>之前</emphasis>：
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>modgroup g-nfs add exportfs-nfs2 before vip-nfs</command></screen>
+  </step>
+  <step>
+   <para>
+    提交此配置：
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>commit</command></screen>
+  </step>
+  <step>
+   <para>
+    退出 <command>crm</command> 交互外壳：
+   </para>
+<screen><prompt role="custom">crm(live)configure# </prompt><command>quit</command></screen>
+  </step>
+  <step>
+   <para>
+    检查集群的状态。<literal>g-nfs</literal> 组中的资源应按以下顺序显示：
+   </para>
+<screen><prompt role="root"># </prompt><command>crm status</command>
+[...]
+Full List of Resources
+  [...]
+  * Resource Group: g-nfs:
+    * fs-nfs-state    (ocf:heartbeat:Filesystem):   Started alice
+    * fs-nfs-share    (ocf:heartbeat:Filesystem):   Started alice
+    * fs-nfs-share2   (ocf:heartbeat:Filesystem):   Started alice
+    * nfsserver       (ocf:heartbeat:nfsserver):    Started alice
+    * exportfs-nfs    (ocf:heartbeat:exportfs):     Started alice
+    * exportfs-nfs2   (ocf:heartbeat:exportfs):     Started alice
+    * vip-nfs         (ocf:heartbeat:IPaddr2):      Started alice</screen>
+  </step>
+  <step>
+   <para>
+    确认 NFS 导出设置正确：
+   </para>
+<screen><prompt role="root"># </prompt><command>exportfs -v</command>
+/srv/nfs/share   <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(<replaceable>OPTIONS</replaceable>)
+/srv/nfs/share2  <replaceable>IP_ADDRESS_OF_CLIENT</replaceable>(<replaceable>OPTIONS</replaceable>)</screen>
+  </step>
+ </procedure>
+</sect1>
+
+ <sect1 xml:id="sec-ha-quick-nfs-more-info">
+  <title>更多信息</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     有关本指南中所述步骤的更多细节，请参见 <link xlink:href="https://www.suse.com/support/kb/doc/?id=000020396"></link>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     有关 NFS 和 LVM 的详细信息，请参见<link xlink:href="https://documentation.suse.com/sles/html/SLES-all/book-storage.html">《SUSE Linux Enterprise Server 存储管理指南》</link>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     有关 DRBD 的详细信息，请参见<xref linkend="cha-ha-drbd"/>。
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     有关群集资源的详细信息，请参见<xref linkend="sec-ha-config-basics-resources"/>。
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ <xi:include href="common_legal.xml"/>
+ </article>
