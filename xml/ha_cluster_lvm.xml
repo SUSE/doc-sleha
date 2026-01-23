@@ -122,12 +122,12 @@
   </itemizedlist>
 
   <sect2 xml:id="sec-ha-clvm-config-resources">
-   <title>Creating the cluster resources</title>
+   <title>Creating the cluster resources for shared use</title>
    <para>
     Perform the following basic steps on one node to configure a shared VG in
     the cluster:
    </para>
-   <itemizedlist>
+   <orderedlist>
     <listitem>
      <para>
       <xref linkend="pro-ha-clvm-rsc-dlm" xrefstyle="select:title"/>
@@ -146,7 +146,7 @@
       <xref linkend="pro-ha-clvm-rsc-lvm-activate" xrefstyle="select:title"/>
      </para>
     </listitem>
-   </itemizedlist>
+   </orderedlist>
 
    <procedure xml:id="pro-ha-clvm-rsc-dlm">
     <title>Creating a DLM resource</title>
@@ -254,29 +254,13 @@
     </step>
     <step>
      <para>
-      Configure a resource to manage the activation of your VG. Choose one of the
-      following options according to your scenario:
+      Configure a resource to manage the activation of your VG:
      </para>
-     <itemizedlist>
-      <listitem>
-       <para>Use exclusive activation mode for local file system usage:</para>
 <screen>&prompt.root;<command>crm configure primitive vg1 LVM-activate \
-   params vgname=vg1 vg_access_mode=lvmlockd \
-   op start timeout=90s interval=0 \
-   op stop timeout=90s interval=0 \
-   op monitor interval=30s timeout=90s</command></screen>
-      </listitem>
-      <listitem>
-       <para>
-        Use shared activation mode for &ocfs;:
-       </para>
-<screen>&prompt.root;<command>crm configure primitive vg1 LVM-activate \
-   params vgname=vg1 vg_access_mode=lvmlockd activation_mode=shared \
-   op start timeout=90s interval=0 \
-   op stop timeout=90s interval=0 \
-   op monitor interval=30s timeout=90s</command></screen>
-      </listitem>
-     </itemizedlist>
+    params vgname=vg1 vg_access_mode=lvmlockd activation_mode=shared \
+    op start timeout=90s interval=0 \
+    op stop timeout=90s interval=0 \
+    op monitor interval=30s timeout=90s</command></screen>
     </step>
     <step>
       <para>
@@ -286,24 +270,7 @@
       <itemizedlist>
         <listitem>
           <para>
-           <emphasis role="bold">Exclusive activation mode:</emphasis>
-          </para>
-          <para>
-            Because this VG is only active on a single node, do <emphasis>not</emphasis>
-            add it to the cloned <literal>g-storage</literal> group. Instead, add
-            constraints directly to the resource:
-          </para>
-<screen>&prompt.root;<command>crm configure colocation col-vg-with-dlm inf: vg1 cl-storage</command>
-&prompt.root;<command>crm configure order o-dlm-before-vg Mandatory: cl-storage vg1</command></screen>
-          <para>
-            For multiple VGs, you can add constraints to multiple resources at once:
-          </para>
-<screen>&prompt.root;<command>crm configure colocation col-vg-with-dlm inf: ( vg1 vg2 ) cl-storage</command>
-&prompt.root;<command>crm configure order o-dlm-before-vg Mandatory: cl-storage ( vg1 vg2 )</command></screen>
-        </listitem>
-        <listitem>
-          <para>
-            <emphasis role="bold">Shared activation mode:</emphasis>
+           <emphasis role="bold">One VG:</emphasis>
           </para>
           <para>
             Because this VG is active on multiple nodes, you can add it to the cloned
@@ -311,6 +278,11 @@
             and order constraints:
           </para>
 <screen>&prompt.root;<command>crm configure modgroup g-storage add vg1</command></screen>
+         </listitem>
+        <listitem>
+          <para>
+            <emphasis role="bold">Multiple VGs:</emphasis>
+          </para>
           <para>
             Do <emphasis>not</emphasis> add multiple VGs to the group, because this
             creates a dependency between the VGs. For multiple VGs, clone the resources and add
@@ -325,7 +297,84 @@
     </step>
     <step>
      <para>
-      Check if the resources are running well:
+      Check the status of the resources:
+     </para>
+     <screen>&prompt.root;<command>crm status full</command></screen>
+    </step>
+   </procedure>
+  </sect2>
+
+    <sect2 xml:id="sec-ha-clvm-config-resources-exclusive">
+   <title>Creating the cluster resources for exclusive use</title>
+   <para>
+    Perform the following basic steps on one node to configure a shared VG in
+    the cluster:
+   </para>
+   <orderedlist>
+    <listitem>
+    <para>
+      <xref linkend="pro-ha-clvm-rsc-vg-lv-exclusive" xrefstyle="select:title"/></para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="pro-ha-clvm-rsc-lvm-activate-exclusive" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+   </orderedlist>
+
+   <procedure xml:id="pro-ha-clvm-rsc-vg-lv-exclusive">
+    <title>Creating a shared VG and LV</title>
+    <step>
+     <para>
+      Start a shell and log in as &rootuser;.
+     </para>
+    </step>
+    <step>
+     <para>
+     Assuming you already have two shared disks, create a shared VG with them:
+     </para>
+<screen>&prompt.root;<command>vgcreate --shared vg1 /dev/disk/by-id/<replaceable>DEVICE_ID1</replaceable> /dev/disk/by-id/<replaceable>DEVICE_ID2</replaceable></command></screen>
+    </step>
+    <step>
+     <para>
+      Create an LV and do not activate it initially:
+     </para>
+     <screen>&prompt.root;<command>lvcreate -an -L10G -n lv1 vg1</command></screen>
+    </step>
+   </procedure>
+   <procedure xml:id="pro-ha-clvm-rsc-lvm-activate-exclusive">
+    <title>Creating an LVM-activate resource</title>
+    <step>
+     <para>
+      Start a shell and log in as &rootuser;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Run the following command to see the usage of this resource:
+     </para>
+<screen>&prompt.root;<command>crm configure ra info LVM-activate</command></screen>
+     <para>
+      This resource manages the activation of a VG. In a shared VG, LV activation
+      has two different modes: exclusive and shared mode. The exclusive mode is
+      the default and should be used normally, when a local file system like <systemitem>ext4</systemitem>
+      uses the LV. The shared mode should only be used for cluster file systems
+      like &ocfs;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Configure a resource to manage the activation of your VG:
+     </para>
+<screen>&prompt.root;<command>crm configure primitive vg1 LVM-activate \
+    params vgname=vg1 vg_access_mode=system_id \
+    op start timeout=90s interval=0 \
+    op stop timeout=90s interval=0 \
+    op monitor interval=30s timeout=90s</command></screen>
+    </step>
+    <step>
+     <para>
+      Check the status of the resource:
      </para>
      <screen>&prompt.root;<command>crm status full</command></screen>
     </step>
