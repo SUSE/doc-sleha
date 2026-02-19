@@ -14,7 +14,7 @@
     When managing shared storage on a cluster, every node must be informed
     about changes to the storage subsystem. Logical Volume
     Manager (LVM) supports transparent management of volume groups
-    across the whole cluster. Volume groups shared among multiple hosts
+    across the whole cluster. Volume groups shared among multiple nodes
     can be managed using the same commands as local storage.
    </para>
         <important role="compact">
@@ -67,8 +67,7 @@
       Volume groups (VGs) and logical volumes (LVs) are basic concepts of LVM.
       A volume group is a storage pool of multiple physical
       disks. A logical volume belongs to a volume group, and can be seen as an
-      elastic volume on which you can create a file system. In a cluster environment,
-      shared VGs consist of shared storage and can be used concurrently by multiple nodes.
+      elastic volume on which you can create a file system.
      </para>
     </listitem>
    </varlistentry>
@@ -76,25 +75,26 @@
     <term><literal>LVM-activate</literal> resource agent</term>
     <listitem>
      <para>
-      To protect the LVM metadata on shared storage, the cluster uses the resource agent
-      <literal>LVM-activate</literal> to manage the activation of LVs in a particular VG.
-      LV activation has two modes:
+      In a cluster environment, VGs consist of shared storage and can be used either by
+      multiple nodes concurrently, or by one node at a time with the ability to migrate
+      to other nodes. To protect the LVM metadata on shared storage, the cluster uses the
+      resource agent <literal>LVM-activate</literal> to manage the activation of LVs in a
+      particular VG. LV activation has two modes:
      </para>
      <itemizedlist>
        <listitem>
          <para>
            Exclusive mode should be used for local file systems like <systemitem>ext4</systemitem>.
-           In this mode, the LV can only be activated on one node at a time. Access to the LV is
-           restricted using the <systemitem>system_id</systemitem>. For more information, see
-           <command>man lvmsystemid</command>.
+           In this mode, LVs can only be activated on one node at a time. Exclusive access to the
+           LV is managed either by &dlm; and <systemitem>lvmlockd</systemitem> or by using the
+           <systemitem>system_id</systemitem>.
          </para>
        </listitem>
        <listitem>
          <para>
            Shared mode should be used for cluster file systems like &gfs;. In this mode,
-           the LV can be activated concurrently on multiple nodes. Locking is managed by
-           &dlm; and <systemitem>lvmlockd</systemitem>. For more information, see
-           <command>man lvmlockd</command>.
+           LVs can be activated concurrently on multiple nodes. Locking is managed by
+           &dlm; and <systemitem>lvmlockd</systemitem>.
          </para>
         <important role="compact">
           <para>
@@ -109,13 +109,30 @@
     <term>&dlm.long; (&dlm;)</term>
     <listitem>
      <para>
-      &dlm; coordinates access to shared resources among multiple nodes through
-      cluster-wide locking. This is only required when <literal>LVM-activate</literal>
-      is used in shared mode.
+      &dlm; coordinates cluster-wide locking. This is only required when using
+      <systemitem>lvmlockd</systemitem>.
     </para>
     </listitem>
    </varlistentry>
   </variablelist>
+  <itemizedlist>
+    <title>For more information</title>
+    <listitem>
+      <para>
+        <command>crm ra info LVM-activate</command>
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        <command>man lvmlockd</command>
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        <command>man lvmsystemid</command>
+      </para>
+    </listitem>
+  </itemizedlist>
  </sect1>
 
  <sect1 xml:id="sec-ha-clvm-requirements">
@@ -123,8 +140,9 @@
     <itemizedlist>
     <listitem>
       <para>
-        A shared storage device is available, such as Fibre Channel, FCoE, SCSI, iSCSI SAN,
-        or DRBD*, for example. To create a volume group, you must have at least two shared disks.
+        A shared storage device is available, such as Fibre Channel, FCoE, SCSI, &iscsi; SAN,
+        or &nvmeof;, for example. Volume groups must have at least one disk, but typically have
+        multiple disks.
       </para>
     </listitem>
     <listitem>
@@ -145,7 +163,7 @@
  </sect1>
 
  <sect1 xml:id="sec-ha-clvm-config">
-  <title>Configuration of &clvm;</title>
+  <title>Configuring &clvm; with <systemitem>lvmlockd</systemitem></title>
   <para>
     You can configure &clvm; in one of the following ways, depending on your storage
     and cluster setup:
@@ -154,14 +172,15 @@
     <listitem>
       <para>
         <xref linkend="sec-ha-clvm-config-resources"/>. Use this mode for cluster file systems
-        like &gfs;. This is useful for active/active clusters where all nodes are active at once.
+        like &gfs;. This is useful for active/active clusters where the VG is active on all nodes
+        at once.
       </para>
     </listitem>
     <listitem>
       <para>
         <xref linkend="sec-ha-clvm-config-resources-exclusive"/>. Use this mode for local
         file systems like <systemitem>ext4</systemitem>. This is useful for active/passive
-        clusters where only one node at a time is active.
+        clusters where only one node at a time has the VG active.
       </para>
     </listitem>
   </itemizedlist>
@@ -350,8 +369,13 @@
    </para>
    <orderedlist>
     <listitem>
-    <para>
-      <xref linkend="pro-ha-clvm-rsc-vg-lv-systemid" xrefstyle="select:title"/></para>
+     <para>
+      <xref linkend="pro-ha-clvm-rsc-dlm-exclusive" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="pro-ha-clvm-rsc-lvmlockd-exclusive" xrefstyle="select:title"/></para>
     </listitem>
     <listitem>
     <para>
@@ -364,45 +388,70 @@
     </listitem>
    </orderedlist>
 
-    <procedure xml:id="pro-ha-clvm-rsc-vg-lv-systemid">
-     <title>Configuring LVM to use <systemitem>system_id</systemitem></title>
-     <step>
-       <para>
-        Start a shell and log in as &rootuser;.
-       </para>
-     </step>
-     <step>
-       <para>
-        Open the <filename>/etc/lvm/lvm.conf</filename> file.
-       </para>
-     </step>
-     <step>
-       <para>
-         Make sure the <literal>use_lvmlockd</literal> line is commented out or set to
-         <literal>0</literal>.
-       </para>
-     </step>
-     <step>
-       <para>
-         Uncomment the <literal>system_id_source</literal> line and change the value to
-         <literal>uname</literal>:
-       </para>
-<screen>system_id_source = "uname"</screen>
-     </step>
-     <step>
-       <para>
-         Save and exit the file.
-       </para>
-     </step>
-     <step>
-       <para>
-         Copy the updated file to all nodes:
-       </para>
-<screen>&prompt.root;<command>crm cluster copy /etc/lvm/lvm.conf</command></screen>
-       <para>
-        This allows the VG to move to another node if the active node fails.
-       </para>
-     </step>
+   <procedure xml:id="pro-ha-clvm-rsc-dlm-exclusive">
+    <title>Creating a DLM resource</title>
+    <step>
+     <para>
+      Start a shell and log in as &rootuser;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Check the current configuration of the cluster resources:
+     </para>
+     <screen>&prompt.root;<command>crm configure show</command></screen>
+    </step>
+    <step>
+     <para>
+      If you have already configured a DLM resource (and a corresponding
+      base group and base clone), continue with <xref linkend="pro-ha-clvm-rsc-lvmlockd"/>.
+     </para>
+     <para>
+      Otherwise, configure a DLM resource and a corresponding base group and
+      base clone as described in <xref linkend="pro-dlm-resources"/>.
+     </para>
+    </step>
+   </procedure>
+   <procedure xml:id="pro-ha-clvm-rsc-lvmlockd-exclusive">
+    <title>Creating an <systemitem>lvmlockd</systemitem> resource</title>
+    <step>
+     <para>
+      Start a shell and log in as &rootuser;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Run the following command to see the usage of this resource:
+     </para>
+     <screen>&prompt.root;<command>crm configure ra info lvmlockd</command></screen>
+    </step>
+    <step>
+     <para>
+      Configure an <systemitem>lvmlockd</systemitem> resource as follows:
+     </para>
+<screen>&prompt.root;<command>crm configure primitive lvmlockd lvmlockd \
+    op start timeout="90" \
+    op stop timeout="100" \
+    op monitor interval="30" timeout="90"</command></screen>
+    </step>
+    <step>
+     <para>
+      To ensure the <systemitem>lvmlockd</systemitem> resource is started on every node,
+      add the primitive resource to the base group for storage you have created in
+      <xref linkend="pro-ha-clvm-rsc-dlm"/>:
+     </para>
+     <screen>&prompt.root;<command>crm configure modgroup g-storage add lvmlockd</command></screen>
+    </step>
+    <step>
+     <para>
+      Review your changes:</para>
+     <screen>&prompt.root;<command>crm configure show</command></screen>
+    </step>
+    <step>
+     <para>Check the status of the resources:
+     </para>
+     <screen>&prompt.root;<command>crm status</command></screen>
+    </step>
    </procedure>
    <procedure xml:id="pro-ha-clvm-rsc-vg-lv-exclusive">
     <title>Creating a local VG and LV on shared storage</title>
@@ -442,12 +491,180 @@
       Configure a resource to manage the activation of your VG:
      </para>
 <screen>&prompt.root;<command>crm configure primitive vg1 LVM-activate \
+    params vgname=vg1 vg_access_mode=lvmlockd \
+    op start timeout=90s interval=0 \
+    op stop timeout=90s interval=0 \
+    op monitor interval=30s timeout=90s</command></screen>
+      <para>
+        Exclusive activation mode is the default setting, so you don't need to specify it.
+      </para>
+    </step>
+    <step>
+      <para>
+        Make sure the VG can only be activated on nodes where the &dlm; and
+        <systemitem>lvmlockd</systemitem> resources are already running:
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>
+           <emphasis role="bold">One VG:</emphasis>
+          </para>
+          <para>
+            Because this VG is only active on a single node, do <emphasis>not</emphasis> add it
+            to the cloned <literal>g-storage</literal> group. Instead, add constraints directly
+            to the resource:
+          </para>
+<screen>&prompt.root;<command>crm configure colocation col-vg-with-dlm inf: vg1 cl-storage</command>
+&prompt.root;<command>crm configure order o-dlm-before-vg Mandatory: cl-storage vg1</command></screen>
+         </listitem>
+        <listitem>
+          <para>
+            <emphasis role="bold">Multiple VGs:</emphasis>
+          </para>
+          <para>
+            For multiple VGs, you can add constraints to multiple resources at once:
+          </para>
+<screen>&prompt.root;<command>crm configure colocation col-vg-with-dlm inf: ( vg1 vg2 ) cl-storage</command>
+&prompt.root;<command>crm configure order o-dlm-before-vg Mandatory: cl-storage ( vg1 vg2 )</command></screen>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+     <para>
+      Check the status of the resources:
+     </para>
+<screen>&prompt.root;<command>crm status</command></screen>
+    </step>
+   </procedure>
+  </sect2>
+ </sect1>
+
+  <sect1 xml:id="sec-ha-lvm-config-systemid">
+  <title>Configuring LVM with <systemitem>system_id</systemitem></title>
+   <para>
+    Perform the following steps on the active node to configure a local VG for an
+    active/passive cluster:
+   </para>
+   <orderedlist>
+    <listitem>
+    <para>
+      <xref linkend="pro-ha-lvm-rsc-systemid" xrefstyle="select:title"/></para>
+    </listitem>
+    <listitem>
+    <para>
+      <xref linkend="pro-ha-lvm-rsc-vg-lv-systemid" xrefstyle="select:title"/></para>
+    </listitem>
+    <listitem>
+     <para>
+      <xref linkend="pro-ha-lvm-rsc-lvm-activate-systemid" xrefstyle="select:title"/>
+     </para>
+    </listitem>
+   </orderedlist>
+
+    <procedure xml:id="pro-ha-lvm-rsc-systemid">
+     <title>Configuring LVM to use <systemitem>system_id</systemitem></title>
+     <step>
+       <para>
+        Start a shell and log in as &rootuser;.
+       </para>
+     </step>
+     <step>
+       <para>
+        Open the <filename>/etc/lvm/lvm.conf</filename> file.
+       </para>
+     </step>
+     <step>
+       <para>
+         Make sure the <literal>use_lvmlockd</literal> line is commented out or set to
+         <literal>0</literal>.
+       </para>
+     </step>
+     <step>
+       <para>
+         Uncomment the <literal>system_id_source</literal> line and change the value to
+         <literal>uname</literal>:
+       </para>
+<screen>system_id_source = "uname"</screen>
+       <para>
+         This means that the VG gets its <systemitem>system_id</systemitem> from the
+         host name (<command>uname -n</command>) of whichever node the VG is currently
+         active on. If the VG moves to another node, the <systemitem>system_id</systemitem>
+         changes to the host name of the new node.
+       </para>
+     </step>
+     <step>
+       <para>
+         Save and exit the file.
+       </para>
+     </step>
+     <step>
+       <para>
+         Copy the updated configuration to all nodes:
+       </para>
+<screen>&prompt.root;<command>crm cluster copy /etc/lvm/lvm.conf</command></screen>
+     </step>
+   </procedure>
+   <procedure xml:id="pro-ha-lvm-rsc-vg-lv-systemid">
+    <title>Creating a local VG and LV on shared storage</title>
+    <step>
+     <para>
+      Start a shell and log in as &rootuser;.
+     </para>
+    </step>
+    <step>
+     <para>
+     Assuming you already have two shared disks, create a local VG with them:
+     </para>
+<screen>&prompt.root;<command>vgcreate vg1 /dev/disk/by-id/<replaceable>DEVICE_ID1</replaceable> /dev/disk/by-id/<replaceable>DEVICE_ID2</replaceable></command></screen>
+    </step>
+    <step>
+     <para>
+      Create an LV and do not activate it initially:
+     </para>
+     <screen>&prompt.root;<command>lvcreate -an -L10G -n lv1 vg1</command></screen>
+    </step>
+    <step>
+      <para>
+        Reboot the other cluster nodes to refresh their LVM metadata.
+      </para>
+      <tip>
+        <title>Refreshing LVM metadata without rebooting the nodes</title>
+        <para>
+          TODO pvscan --cache: Rescans the Physical Volumes.
+        </para>
+        <para>
+          TODO vgscan --cache: Rescans the Volume Groups.
+        </para>
+        <para>
+          TODO lvscan: Refreshes the status of the Logical Volumes.
+        </para>
+      </tip>
+    </step>
+   </procedure>
+   <procedure xml:id="pro-ha-lvm-rsc-lvm-activate-systemid">
+    <title>Creating an LVM-activate resource</title>
+    <step>
+     <para>
+      Start a shell and log in as &rootuser;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Run the following command to see the usage of this resource:
+     </para>
+<screen>&prompt.root;<command>crm configure ra info LVM-activate</command></screen>
+    </step>
+    <step>
+     <para>
+      Configure a resource to manage the activation of your VG:
+     </para>
+<screen>&prompt.root;<command>crm configure primitive vg1 LVM-activate \
     params vgname=vg1 vg_access_mode=system_id \
     op start timeout=90s interval=0 \
     op stop timeout=90s interval=0 \
     op monitor interval=30s timeout=90s</command></screen>
       <para>
-        Exclusive activation mode is the default setting, so you do not need to specify it.
+        Exclusive activation mode is the default setting, so you don't need to specify it.
       </para>
     </step>
     <step>
@@ -457,7 +674,6 @@
 <screen>&prompt.root;<command>crm status</command></screen>
     </step>
    </procedure>
-  </sect2>
  </sect1>
 
   <sect1 xml:id="sec-ha-clvm-scenario-iscsi">
@@ -734,107 +950,6 @@ Login to [iface: default, target: iqn.2010-03.de.&wsI;:san1, portal: &wwwip;,326
     After you have created the volumes and started your resources you should have new device
     names under <filename>/dev/testvg</filename>, for example <filename>/dev/testvg/lv1</filename>.
     This indicates the LV has been activated for use.
-   </para>
-  </sect1>
-
-  <sect1 xml:id="sec-ha-clvm-scenario-drbd">
-   <title>Scenario: &clvm; with DRBD</title>
-   <para>
-    The following scenarios can be used if you have data centers located in
-    different parts of your city, country, or continent.
-   </para>
-   <procedure xml:id="pro-ha-clvm-withdrbd">
-    <title>Creating a cluster-aware volume group with DRBD</title>
-    <step>
-     <para>
-      Create a primary/primary DRBD resource:
-     </para>
-     <substeps performance="required">
-      <step>
-       <para>
-        First, set up a DRBD device as primary/secondary as described in
-        <xref linkend="pro-drbd-configure"/>. Make sure the disk state is
-        <literal>up-to-date</literal> on both nodes. Check this with
-        <command>drbdadm status</command>.
-       </para>
-      </step>
-      <step>
-       <para>
-        Add the following options to your configuration file (usually
-        something like <filename>/etc/drbd.d/r0.res</filename>):
-       </para>
-<screen>resource r0 {
-  net {
-     allow-two-primaries;
-  }
-  ...
-}</screen>
-      </step>
-      <step>
-       <para>
-        Copy the changed configuration file to the other node, for example:
-       </para>
-<screen>&prompt.root;<command>scp /etc/drbd.d/r0.res &wsII;:/etc/drbd.d/</command></screen>
-      </step>
-      <step>
-       <para>
-        Run the following commands on <emphasis>both</emphasis> nodes:
-       </para>
-<screen>&prompt.root;<command>drbdadm disconnect r0</command>
-&prompt.root;<command>drbdadm connect r0</command>
-&prompt.root;<command>drbdadm primary r0</command></screen>
-      </step>
-      <step>
-       <para>
-        Check the status of your nodes:
-    </para>
-    <screen>&prompt.root;<command>drbdadm status r0</command></screen>
-      </step>
-     </substeps>
-    </step>
-    <step>
-     <para>
-      Include the <systemitem>lvmlockd</systemitem> resource as a clone in the pacemaker configuration,
-      and make it depend on the DLM clone resource. See
-      <xref linkend="pro-ha-clvm-rsc-dlm"/> for detailed instructions.
-      Before proceeding, confirm that these resources have started
-      successfully on your cluster. Use <command>crm status</command>
-      or the Web interface to check the running services.
-     </para>
-    </step>
-    <step>
-     <para>
-      Prepare the physical volume for LVM with the command
-      <command>pvcreate</command>. For example, on the device
-      <filename>/dev/drbd_r0</filename> the command would look like this:
-     </para>
-<screen>&prompt.root;<command>pvcreate /dev/drbd_r0</command></screen>
-    </step>
-    <step>
-     <para>
-      Create a shared volume group:
-     </para>
-<screen>&prompt.root;<command>vgcreate --shared testvg /dev/drbd_r0</command></screen>
-    </step>
-    <step>
-     <para>
-      Create logical volumes as needed. For example, create a 4&nbsp;GB logical
-      volume with the following command:
-     </para>
-<screen>&prompt.root;<command>lvcreate --name lv1 -L 4G testvg</command></screen>
-    </step>
-    <step>
-     <para>
-      The logical volumes within the VG are now available as file system
-      mounts for raw usage. Ensure that services using them have proper
-      dependencies to collocate them with and order them after the VG has
-      been activated.
-     </para>
-    </step>
-   </procedure>
-   <para>
-    After finishing these configuration steps, the LVM configuration can be
-    done like on any stand-alone workstation.
    </para>
   </sect1>
 
