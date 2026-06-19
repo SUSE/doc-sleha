@@ -562,11 +562,14 @@
     </para>
   </note>
   <para>
-    This procedure shows one method of migrating from &ocfs; to GFS2. It assumes
-    you have a single &ocfs; volume that is part of the <literal>g-storage</literal> group.
+    This procedure shows one method of migrating from &ocfs; to GFS2 with minimal service
+    disruption. It assumes you have a single &ocfs; volume (named <literal>ocfs2-1</literal>)
+    that is part of the <literal>g-storage</literal> group. The &gfs; volume will be added to
+    the cluster at the <emphasis>same</emphasis> mount point that the &ocfs; volume used,
+    so you won't need to edit any other configuration that specifies that mount point.
   </para>
   <para>
-    The steps for preparing new block storage and backing up data depend on your specific setup.
+    The steps for preparing new block storage depend on your specific setup.
     See the relevant documentation if you need more details.
   </para>
   <para>
@@ -579,6 +582,15 @@
       production environment.
     </para>
   </warning>
+
+  <itemizedlist>
+    <title>Requirements</title>
+    <listitem>
+      <para>
+        Make sure all the nodes are fully up to date to avoid mismatched kernel requirements between &ocfs; and &gfs;.
+      </para>
+    </listitem>
+  </itemizedlist>
 
   <procedure xml:id="pro-migrate-ocfs2-gfs2">
    <title>Migrating from &ocfs; to GFS2</title>
@@ -612,6 +624,19 @@ Filesystem     Size  Used Avail Use% Mounted on
       with the following command:
     </para>
 <screen>&prompt.root;<command>crm cluster run "zypper install -y gfs2-utils gfs2-kmp-default"</command></screen>
+    <warning>
+      <title>Mismatched &ocfs; and &gfs; kernel requirements</title>
+      <para>
+        If your nodes aren't up to date, installing &gfs; might also install a new kernel version.
+        This new kernel version might be incompatible with the current version of &ocfs;, so the
+        &ocfs; resource will fail to start after you reboot the node.
+      </para>
+      <para>
+        You can avoid this situation by making sure the nodes are up to date before you install
+        &gfs;. However, if this error has already occurred, you can resolve it by installing the
+        latest version of the <package>ocfs2-kmp-default</package> package.
+      </para>
+    </warning>
   </step>
   <step>
     <para>
@@ -654,15 +679,57 @@ Filesystem     Size  Used Avail Use% Mounted on
      </para>
    </step>
    <step>
+     <para>
+       Create a temporary mount point for the &gfs; volume:
+     </para>
+<screen>&prompt.root;<command>mkdir /mnt/gfs2_temp</command></screen>
+     <para>
+      This temporary mount point is only used to copy the data from the &ocfs; volume to the
+      &gfs; volume.
+     </para>
+   </step>
+   <step>
+     <para>
+       Mount the &gfs; volume to the temporary mount point:
+     </para>
+<screen>&prompt.root;<command>mount /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable> /mnt/gfs2_temp</command></screen>
+   </step>
+   <step>
+     <para>
+       Copy the data from the &ocfs; volume to the &gfs; volume:
+     </para>
+<screen>&prompt.root;<command>rsync -aHAXW --info=progress2 /mnt/shared/ /mnt/gfs2_temp/</command></screen>
+     <para>
+      This could take a long time, depending on the amount of data. Run <command>rsync --help</command> for more information about the options used in this command.
+     </para>
+   </step>
+  <step>
+     <para>
+       When the sync is complete, stop the &ocfs; resource to prevent it from gathering additonal data. This unmounts the volume from <filename>/mnt/shared</filename>:
+     </para>
+<screen>&prompt.root;<command>crm --wait resource stop ocfs2-1</command></screen>
+     <para>
+      Use <option>--wait</option> to make sure the resource has really stopped before the command
+      returns.
+     </para>
+   </step>
+   <step>
+    <para>
+      Check the contents of the temporary mount point to make sure the data appears correctly:
+    </para>
+<screen>&prompt.root;<command>ls -l /mnt/gfs2_temp/</command></screen>
+   </step>
+   <step>
+    <para>
+      Unmount the &gfs; volume from the temporary mount point:
+    </para>
+<screen>&prompt.root;<command>umount /mnt/gfs2_temp</command></screen>
+   </step>
+   <step>
     <para>
      Put the cluster into maintenance mode:
     </para>
 <screen>&prompt.root;<command>crm maintenance on</command></screen>
-   </step>
-   <step>
-     <para>
-       Back up the &ocfs; volume's data.
-     </para>
    </step>
    <step>
      <para>
@@ -695,7 +762,7 @@ meta target-role="Started"</command></screen>
   </step>
   <step>
     <para>
-      Review your changes with <command>show</command>.
+      Review your changes with <command>show changed</command>.
     </para>
   </step>
   <step>
@@ -733,15 +800,9 @@ Filesystem     Size  Used Avail Use% Mounted on
       command again.
      </para>
    </step>
-   <step>
-    <para>
-      Restore the data from the backup to the GFS2 volume.
-    </para>
-  </step>
   <step>
     <para>
-      To make sure that the data appears correctly, check the contents of the mount point.
-      For example:
+      Check the contents of the mount point to make sure the data still appears correctly:
     </para>
 <screen>&prompt.root;<command>ls -l /mnt/shared/</command></screen>
     <para>
