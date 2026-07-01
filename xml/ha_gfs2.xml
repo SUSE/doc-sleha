@@ -32,7 +32,7 @@
       </dm:docmanager>
     <revhistory xml:id="rh-cha-ha-gfs2">
    <revision>
-     <date>2025-05-13</date>
+     <date>2026-07-02</date>
      <revdescription>
        <para/>
      </revdescription>
@@ -550,28 +550,31 @@
  </sect1>
 
  <sect1 xml:id="sec-ha-migrate-ocfs2-gfs2">
-  <title>Migrating from &ocfs; to GFS2</title>
+  <title>Migrating from &ocfs; to &gfs;</title>
   <para>
-    &ocfs; is deprecated in &productname; &productnumber;. It will not be supported in future
-    releases.
-  </para>
-  <note>
-    <title>No reflink support in GFS2</title>
-    <para>
-      Unlike &ocfs;, GFS2 does <emphasis>not</emphasis> support the reflink feature.
-    </para>
-  </note>
-  <para>
-    This procedure shows one method of migrating from &ocfs; to GFS2. It assumes
-    you have a single &ocfs; volume that is part of the <literal>g-storage</literal> group.
+    &ocfs; is deprecated in &productname; &productnumber;. It will not be included in &sleha; 16.
   </para>
   <para>
-    The steps for preparing new block storage and backing up data depend on your specific setup.
+    This procedure shows one method of migrating from &ocfs; to &gfs; with minimal service disruption.
+    It assumes you have a single &ocfs; volume (named <literal>ocfs2-1</literal>) that is part of
+    the <literal>g-storage</literal> group and is mounted on <filename>/mnt/shared</filename>.
+    The &gfs; volume will be added to the cluster on the <emphasis>same</emphasis> mount point,
+    so you won't need to edit any other configuration that specifies that mount point.
+    This procedure requires a short service interruption to the &ocfs; storage.
+  </para>
+  <para>
+    The steps for preparing new block storage depend on your specific setup.
     See the relevant documentation if you need more details.
   </para>
   <para>
     You only need to perform this procedure on <emphasis>one</emphasis> of the cluster nodes.
   </para>
+  <note>
+    <title>No reflink support in &gfs;</title>
+    <para>
+      Unlike &ocfs;, &gfs; does <emphasis>not</emphasis> support the reflink feature.
+    </para>
+  </note>
   <warning>
     <title>Test this procedure first</title>
     <para>
@@ -580,11 +583,43 @@
     </para>
   </warning>
 
-  <procedure xml:id="pro-migrate-ocfs2-gfs2">
-   <title>Migrating from &ocfs; to GFS2</title>
-   <step>
+  <orderedlist>
+    <title>Procedure overview</title>
     <para>
-     Prepare a block device for the GFS2 volume.
+      To migrate from &ocfs; to &gfs;, perform the following tasks:
+    </para>
+    <listitem>
+      <para>
+        <xref linkend="pro-migrate-ocfs2-gfs2-prepare-new-volume"/>
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        <xref linkend="pro-migrate-ocfs2-gfs2-copy-data"/>
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        <xref linkend="pro-migrate-ocfs2-gfs2-replace-cluster-resources"/>
+      </para>
+    </listitem>
+  </orderedlist>
+
+  <itemizedlist>
+    <title>Requirements</title>
+    <listitem>
+      <para>
+        Make sure all the nodes are fully up to date to avoid mismatched kernel requirements
+        between &ocfs; and &gfs;.
+      </para>
+    </listitem>
+  </itemizedlist>
+
+  <procedure xml:id="pro-migrate-ocfs2-gfs2-prepare-new-volume">
+    <title>Preparing the new &gfs; volume</title>
+    <step>
+    <para>
+     Prepare a block device for the &gfs; volume.
     </para>
     <para>
       To check the disk space required, run <command>df -h</command> on the &ocfs; mount point.
@@ -608,14 +643,27 @@ Filesystem     Size  Used Avail Use% Mounted on
    </step>
    <step>
     <para>
-      Install the GFS2 packages on all nodes in the cluster. You can do this on all nodes at once
+      Install the &gfs; packages on all nodes in the cluster. You can do this on all nodes at once
       with the following command:
     </para>
 <screen>&prompt.root;<command>crm cluster run "zypper install -y gfs2-utils gfs2-kmp-default"</command></screen>
+    <warning>
+      <title>Mismatched &ocfs; and &gfs; kernel requirements</title>
+      <para>
+        If your nodes aren't up to date, installing &gfs; might also install a new kernel version.
+        This new kernel version might be incompatible with the current version of &ocfs;, so the
+        &ocfs; resource will fail to start after you reboot the node.
+      </para>
+      <para>
+        You can avoid this situation by making sure the nodes are up to date before you install
+        &gfs;. However, if this error has already occurred, you can resolve it by installing the
+        latest version of the <package>ocfs2-kmp-default</package> package.
+      </para>
+    </warning>
   </step>
   <step>
     <para>
-      Create and format the GFS2 volume using the <command>mkfs.gfs2</command> utility. For information
+      Create and format the &gfs; volume using the <command>mkfs.gfs2</command> utility. For information
       about the syntax for this command, refer to the <command>mkfs.gfs2</command> man page.
      </para>
      <tip>
@@ -624,20 +672,20 @@ Filesystem     Size  Used Avail Use% Mounted on
          <listitem>
            <para>
              &ocfs; uses <literal>-C</literal> to specify the cluster size and <literal>-b</literal>
-             to specify the block size. GFS2 also specifies the block size with <literal>-b</literal>,
+             to specify the block size. &gfs; also specifies the block size with <literal>-b</literal>,
              but has no cluster size setting so does not use <literal>-C</literal>.
            </para>
          </listitem>
          <listitem>
            <para>
-             &ocfs; specifies the number of nodes with <literal>-N</literal>. GFS2 specifies the
+             &ocfs; specifies the number of nodes with <literal>-N</literal>. &gfs; specifies the
              number of nodes with <literal>-j</literal>.
            </para>
          </listitem>
        </itemizedlist>
       </tip>
      <para>
-      For example, to create a new GFS2 file system that supports up to 32 cluster nodes,
+      For example, to create a new &gfs; file system that supports up to 32 cluster nodes,
       use the following command:
      </para>
 <screen>&prompt.root;<command>mkfs.gfs2 -t <replaceable>CLUSTERNAME:FSNAME</replaceable> -p lock_dlm -j 32 /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable></command></screen>
@@ -653,16 +701,107 @@ Filesystem     Size  Used Avail Use% Mounted on
        Always use a stable device name for devices shared between cluster nodes.
      </para>
    </step>
+  </procedure>
+
+  <procedure xml:id="pro-migrate-ocfs2-gfs2-copy-data">
+    <title>Copying the &ocfs; data to the new &gfs; volume</title>
+    <step>
+     <para>
+       Create a temporary mount point for the &gfs; volume:
+     </para>
+<screen>&prompt.root;<command>mkdir /mnt/gfs2_temp</command></screen>
+     <para>
+      This temporary mount point is only used to copy the data from the &ocfs; volume to the
+      &gfs; volume.
+     </para>
+   </step>
+   <step>
+     <para>
+       Mount the &gfs; volume on the temporary mount point:
+     </para>
+<screen>&prompt.root;<command>mount /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable> /mnt/gfs2_temp</command></screen>
+   </step>
+   <step>
+     <para>
+       Copy the data from the &ocfs; volume to the &gfs; volume:
+     </para>
+<screen>&prompt.root;<command>rsync -aHAXW --info=progress2 /mnt/shared/ /mnt/gfs2_temp/</command></screen>
+     <para>
+      This could take a long time, depending on the amount of data. Run
+      <command>rsync --help</command> for more information about the options used in this command.
+     </para>
+   </step>
+   <step>
+     <para>
+       The &ocfs; volume might have gathered more data during the copy operation. Follow these
+       steps to copy the additional data and prevent &ocfs; from gathering more data:
+     </para>
+     <substeps>
+      <step>
+        <para>
+          List and make a note of the &ocfs; volume's current mount options:
+        </para>
+<screen>&prompt.root;<command>mount -l | grep ocfs2</command></screen>
+      </step>
+       <step>
+        <para>
+          Stop the &ocfs; resource to prevent it from gathering additonal data. Use
+          <option>--wait</option> to make sure the resource has really stopped before
+          the command returns:
+        </para>
+<screen>&prompt.root;<command>crm --wait resource stop ocfs2-1</command></screen>
+        <para>
+          This also unmounts the volume from <filename>/mnt/shared</filename> and stops any
+          resources that depend on &ocfs;, such as resources that start after it in an order
+          constraint.
+        </para>
+      </step>
+      <step>
+        <para>
+          Manually mount the &ocfs; volume so you can retrieve the additional data. Use the same
+          mount options it had before:
+        </para>
+<screen>&prompt.root;<command>mount -t ocfs2 -o <replaceable>MOUNT_OPTIONS</replaceable> /dev/disk/by-id/<replaceable>DEVICE_ID</replaceable> /mnt/shared</command></screen>
+      </step>
+      <step>
+        <para>
+          Copy the additional data from the &ocfs; volume to the &gfs; volume:
+        </para>
+<screen>&prompt.root;<command>rsync -aHAX --delete /mnt/shared/ /mnt/gfs2_temp/</command></screen>
+        <para>
+          Run <command>rsync --help</command> for more information about the options used
+          in this command.
+        </para>
+      </step>
+      <step>
+        <para>
+          Unmount the &ocfs; volume again:
+        </para>
+<screen>&prompt.root;<command>umount /mnt/shared</command></screen>
+      </step>
+     </substeps>
+   </step>
+   <step>
+    <para>
+      Check the contents of the temporary &gfs; mount point to make sure the data appears:
+    </para>
+<screen>&prompt.root;<command>ls -l /mnt/gfs2_temp/</command></screen>
+   </step>
+   <step>
+    <para>
+      Unmount the &gfs; volume from the temporary mount point:
+    </para>
+<screen>&prompt.root;<command>umount /mnt/gfs2_temp</command></screen>
+   </step>
+  </procedure>
+
+  <procedure xml:id="pro-migrate-ocfs2-gfs2-replace-cluster-resources">
+   <title>Replacing &ocfs; with &gfs; in the cluster</title>
    <step>
     <para>
      Put the cluster into maintenance mode:
     </para>
 <screen>&prompt.root;<command>crm maintenance on</command></screen>
-   </step>
-   <step>
-     <para>
-       Back up the &ocfs; volume's data.
-     </para>
    </step>
    <step>
      <para>
@@ -678,8 +817,8 @@ Filesystem     Size  Used Avail Use% Mounted on
   </step>
   <step>
     <para>
-      Mount the GFS2 file system on every node in the cluster, using the <emphasis>same</emphasis>
-      mount point that was used for the &ocfs; file system:
+      Mount the &gfs; volume on every node in the cluster, using the <emphasis>same</emphasis>
+      mount point that was used for the &ocfs; volume:
     </para>
 <screen>&prompt.crm;<command>primitive gfs2-1 ocf:heartbeat:Filesystem \
 params device="/dev/disk/by-id/<replaceable>DEVICE_ID</replaceable>" directory="/mnt/shared" fstype="gfs2" \
@@ -689,20 +828,22 @@ meta target-role="Started"</command></screen>
   </step>
   <step>
     <para>
-      Add the GFS2 primitive to the <literal>g-storage</literal> group:
+      Add the &gfs; primitive to the <literal>g-storage</literal> group:
     </para>
 <screen>&prompt.crm;<command>modgroup g-storage add gfs2-1</command></screen>
   </step>
   <step>
     <para>
-      Review your changes with <command>show</command>.
+      Review your changes:
     </para>
+<screen>&prompt.crm;<command>show changed</command></screen>
   </step>
   <step>
     <para>
-      If everything is correct, submit your changes with <command>commit</command> and leave the
-      crm live configuration with <command>quit</command>.
+      If everything is correct, submit your changes and leave the crm live configuration:
     </para>
+<screen>&prompt.crm;<command>commit</command>
+&prompt.crm;<command>quit</command></screen>
   </step>
    <step>
      <para>
@@ -733,15 +874,9 @@ Filesystem     Size  Used Avail Use% Mounted on
       command again.
      </para>
    </step>
-   <step>
-    <para>
-      Restore the data from the backup to the GFS2 volume.
-    </para>
-  </step>
   <step>
     <para>
-      To make sure that the data appears correctly, check the contents of the mount point.
-      For example:
+      Check the contents of the mount point to make sure the data still appears correctly:
     </para>
 <screen>&prompt.root;<command>ls -l /mnt/shared/</command></screen>
     <para>
