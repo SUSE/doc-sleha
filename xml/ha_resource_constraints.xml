@@ -25,7 +25,7 @@
   </dm:docmanager>
  <revhistory xml:id="rh-sec-ha-config-basics-constraints">
    <revision>
-     <date>2026-04-10</date>
+     <date>2026-09-11</date>
      <revdescription>
        <para/>
      </revdescription>
@@ -281,48 +281,84 @@
      The <command>location</command> command defines on which nodes a resource
      may be run, may not be run or is preferred to be run.
     </para>
-    <para>
-     A simple example that expresses a preference to run the
-     resource <literal>fs1</literal> on the node with the name
-     <systemitem class="server">&node1;</systemitem> to 100 would be the
-     following:
-    </para>
-<screen>&prompt.crm.conf;<command>location loc-fs1 fs1 100: &node1;</command></screen>
-    <para>
-     Another example is a location with ping:
-    </para>
-<screen>&prompt.crm.conf;<command>primitive ping ping \
-    params name=ping dampen=5s multiplier=100 host_list="r1 r2" \
-    op monitor timeout=60s interval=10s</command>
-&prompt.crm.conf;<command>clone cl-ping ping meta interleave=true</command>
-&prompt.crm.conf;<command>location loc-node_pref internal_www \
-    rule 50: #uname eq &node1; \
-    rule ping: defined ping</command></screen>
-    <para>
-     The parameter <parameter>host_list</parameter> is a space-separated list
-     of hosts to ping and count.
-     Another use case for location constraints are grouping primitives as a
-     <emphasis>resource set</emphasis>. This can be useful if several
-     resources depend on, for example, a ping attribute for network
-     connectivity. In former times, the <literal>-inf/ping</literal> rules
-     needed to be duplicated several times in the configuration, making it
-     unnecessarily complex.
-    </para>
-    <para>
-     The following example creates a resource set
-     <varname>loc-&node1;</varname>, referencing the virtual IP addresses
-     <varname>vip1</varname> and <varname>vip2</varname>:
-    </para>
-<screen>&prompt.crm.conf;<command>primitive vip1 IPaddr2 params ip=&subnetI;.5 op monitor timeout=20s interval=10s</command>
-&prompt.crm.conf;<command>primitive vip2 IPaddr2 params ip=&subnetI;.6 op monitor timeout=20s interval=10s</command>
-&prompt.crm.conf;<command>location loc-&node1; { vip1 vip2 } inf: &node1;</command></screen>
-    <para>
-     In some cases it is much more efficient and convenient to use resource
-     patterns for your <command>location</command> command. A resource
-     pattern is a regular expression between two slashes. For example, the
-     above virtual IP addresses can be all matched with the following:
-    </para>
-<screen>&prompt.crm.conf;<command>location loc-&node1; /vip.*/ inf: &node1;</command></screen>
+    <procedure xml:id="pro-crmsh-constraints-location">
+      <title>Adding location constraints with &crmsh;</title>
+      <step>
+        <para>
+          Log in either as the &rootuser; user or as a user with <command>sudo</command> privileges.
+        </para>
+      </step>
+      <step>
+        <para>
+          Add a location constraint. The basic command requires a name, at least one resource,
+          a score, and a node:
+        </para>
+<screen>&prompt.root;<command>crm configure location <replaceable>LOCATION_NAME RESOURCE SCORE: NODE</replaceable></command></screen>
+        <para>
+          The <replaceable>SCORE</replaceable> can be <literal>inf</literal>,
+          <literal>-inf</literal> or a number (positive or negative).
+        </para>
+        <variablelist>
+          <title>Additional options</title>
+          <varlistentry>
+            <term>Resource sets</term>
+            <listitem>
+              <para>
+                You can use curly brackets to include multiple resources in a location
+                constraint. In this example, <literal>res1</literal> and <literal>res2</literal>
+                must both run on node <literal>&node1;</literal>:
+              </para>
+<screen>&prompt.root;<command>crm configure location res1-2-&node1; { res1 res2 } inf: &node1;</command></screen>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>Resource patterns</term>
+            <listitem>
+              <para>
+                You can use a resource pattern (a regular expression between two slashes)
+                to refer to multiple resources. If you add new resources with the same name
+                pattern, they will also be included in the location constraint. In this
+                example, any resources beginning with <literal>res</literal> must run on
+                node <literal>&node1;</literal>:
+          </para>
+<screen>&prompt.root;<command>crm configure location all-res-&node1; /res.*/ inf: &node1;</command></screen>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>Resource discovery</term>
+            <listitem>
+              <para>
+                In most cases, you should keep the default
+                <literal>resource-discovery=always</literal>. This means that the cluster
+                checks whether the resource is already running, to help avoid unwanted
+                instances of the resource. However, if necessary, you can change it to
+                <literal>never</literal> or <literal>exclusive</literal>.
+              </para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>Rules</term>
+            <listitem>
+              <para>
+                Instead of specifying a single node, you can use a rule to refer to multiple
+                nodes. If you add more nodes that meet the rule, they will also be included
+                in the location constraint. In this example, <literal>res1</literal> can't
+                run on any node where the custom node attribute <literal>memory</literal>
+                is less than <literal>4096</literal>:
+              </para>
+<screen>&prompt.root;<command>crm configure location res1-no-small-nodes res1 \
+  rule -inf: memory lt 4096</command></screen>
+            </listitem>
+          </varlistentry>
+        </variablelist>
+      </step>
+      <step>
+        <para>
+          Check the status to see which node the resources are now running on:
+        </para>
+<screen>&prompt.root;<command>crm status</command></screen>
+      </step>
+    </procedure>
    </sect2>
   </sect1>
 
@@ -337,6 +373,14 @@
   <para>
    You can add colocation constraints using either &hawk2; or &crmsh;.
   </para>
+  <important>
+    <title>Resource start order</title>
+      <para>
+        Colocation constraints <emphasis>don't</emphasis> affect the order in which the resources
+        start. If you want resources to run on the same node <emphasis>and</emphasis> start in a
+        specific order, create a resource group.
+      </para>
+   </important>
   <sect2 xml:id="sec-conf-hawk2-cons-col">
    <title>Adding colocation constraints with &hawk2;</title>
    <procedure xml:id="pro-hawk2-constraints-colocation">
@@ -468,30 +512,90 @@
      to follow them in favor of not stopping other resources if there is a
      conflict.
     </para>
-    <para>
-     For example, to always run the resources <literal>resource1</literal>
-     and <literal>resource2</literal> on the same node, use the following constraint:
-    </para>
-<screen>&prompt.crm.conf;<command>colocation col-2resource inf: resource1 resource2</command></screen>
-    <para>
-      Resources are placed relative to the last resource in the list. In the example above,
-      <literal>resource2</literal> is assigned to a node <emphasis>first</emphasis>, and
-      <literal>resource1</literal> is placed relative to <literal>resource2</literal>.
-    </para>
-    <para>
-     For promotable clones, you can also specify whether the clone is in the promoted or unpromoted
-     role. For example, to always run the resource <literal>resource1</literal> on the same node
-     where <literal>clone1</literal> is in the promoted role, use the following constraint:
-    </para>
-<screen>&prompt.crm.conf;<command>colocation col-res1-prom-clone inf: resource1 clone1:Promoted</command></screen>
-    <important>
-    <title>Resource start order</title>
-      <para>
-        Colocation constraints <emphasis>don't</emphasis> affect the order in which the resources
-        start. If you want resources to run on the same node <emphasis>and</emphasis> start in a
-        specific order, create a resource group.
-      </para>
-   </important>
+    <procedure xml:id="pro-crmsh-constraints-colocation">
+      <title>Adding colocation constraints with &crmsh;</title>
+      <step>
+        <para>
+          Log in either as the &rootuser; user or as a user with <command>sudo</command> privileges.
+        </para>
+      </step>
+      <step>
+        <para>
+          Add a colocation constraint. The basic command requires a name, a score and at
+          least two resources:
+        </para>
+<screen>&prompt.root;<command>crm configure colocation <replaceable>COLOCATION_NAME SCORE: RESOURCE1 RESOURCE2</replaceable></command></screen>
+        <para>
+          The <replaceable>SCORE</replaceable> can be <literal>inf</literal>,
+          <literal>-inf</literal> or a number (positive or negative).
+        </para>
+        <para>
+          <replaceable>RESOURCE2</replaceable> is assigned to a node <emphasis>first</emphasis>,
+          and <replaceable>RESOURCE1</replaceable> is placed relative to
+          <replaceable>RESOURCE2</replaceable>.
+        </para>
+        <variablelist>
+          <title>Additional options</title>
+          <varlistentry>
+            <term>Resource sets</term>
+            <listitem>
+              <para>
+                You can use round brackets or square brackets to group resources in a colocation
+                constraint. In this example, <literal>res1</literal> and <literal>res2</literal>
+                must run on the same node as <literal>res3</literal>, but aren't otherwise
+                dependent on each other:
+              </para>
+<screen>&prompt.root;<command>crm configure colocation res1-2-with-res3 \
+  inf: [ res1 res2 ] res3</command></screen>
+              <para>
+                Round brackets are treated as special characters in most shells, so for
+                <command>crm</command> commands that aren't in interactive mode, you must
+                escape the brackets with <literal>\</literal>:
+              </para>
+<screen>&prompt.root;<command>crm configure colocation res1-2-with-res3 \
+  inf: \( res1 res2 \) res3</command></screen>
+              <para>
+                For more information about the difference between round and square brackets,
+                run <command>crm help Resourcesets</command>.
+              </para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>Roles</term>
+            <listitem>
+              <para>
+                You can require a role (<literal>Started</literal>, <literal>Stopped</literal>,
+                <literal>Promoted</literal> or <literal>Unpromoted</literal>) for one or more
+                resources. The colocation constraint only applies when the resource is in
+                this role. In this example, <literal>res1</literal> must run on the same node
+                where <literal>clone2</literal> is in the <literal>Promoted</literal> role:
+              </para>
+<screen>&prompt.root;<command>crm configure colocation res1-with-pr-clone2 \
+  inf: res1 clone2:Promoted</command></screen>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>Node attributes</term>
+            <listitem>
+              <para>
+                You can use a node attribute to colocate resources on a group of nodes instead
+                of one node. In this example, <literal>res1</literal> and <literal>res2</literal>
+                don't have to run on the same node, but must run on nodes with the same value
+                for the <literal>datacenter</literal> node attribute:
+              </para>
+<screen>&prompt.root;<command>crm configure colocation res1-2-same-dc \
+  inf: res1 res2 node-attribute=datacenter</command></screen>
+            </listitem>
+          </varlistentry>
+        </variablelist>
+      </step>
+      <step>
+        <para>
+          Check the status to see which node the resources are now running on:
+        </para>
+<screen>&prompt.root;<command>crm status</command></screen>
+      </step>
+    </procedure>
    </sect2>
   </sect1>
 
@@ -505,6 +609,29 @@
    a dependency between resources, you need at least two resources to create
    an order constraint.
   </para>
+  <para>
+    Instead of a score, order constraints have a <emphasis>kind</emphasis>. The kind can be one
+    of the following:
+  </para>
+  <itemizedlist>
+    <listitem>
+      <para>
+        <literal>Mandatory</literal>: Resources <emphasis>must</emphasis> start in this order.
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        <literal>Optional</literal>: The start order is only a preference.
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        <literal>Serialize</literal>: A resource must finish starting before the next resource
+        can begin starting. This is useful for resources that put a high load on the node
+        during start-up, for example.
+      </para>
+    </listitem>
+  </itemizedlist>
   <para>
    You can add order constraints using either &hawk2; or &crmsh;.
   </para>
@@ -636,11 +763,77 @@
     <para>
      The <command>order</command> command defines a sequence of action.
     </para>
-    <para>
-     For example, to always start <literal>resource1</literal> before
-     <literal>resource2</literal>, use the following constraint:
-    </para>
-<screen>&prompt.crm.conf;<command>order res1_before_res2 Mandatory: resource1 resource2</command></screen>
+    <procedure xml:id="pro-crmsh-constraints-order">
+      <title>Adding order constraints using &crmsh;</title>
+      <step>
+        <para>
+          Log in either as the &rootuser; user or as a user with <command>sudo</command> privileges.
+        </para>
+      </step>
+      <step>
+        <para>
+          Add an order constraint. The basic command requires a name, a kind, and at least
+          two resources:
+        </para>
+<screen>&prompt.root;<command>crm configure order <replaceable>ORDER_NAME KIND: RESOURCE1 RESOURCE2</replaceable></command></screen>
+        <para>
+          The <replaceable>KIND</replaceable> can be <literal>Mandatory</literal>,
+          <literal>Optional</literal> or <literal>Serialize</literal>.
+        </para>
+        <variablelist>
+          <title>Additional options</title>
+          <varlistentry>
+            <term>Resource sets</term>
+            <listitem>
+              <para>
+                You can use round brackets or square brackets to group resources in an order
+                constraint. In this example, <literal>res1</literal> must start first, and then
+                <literal>res2</literal> and <literal>res3</literal> can start in any order:
+              </para>
+<screen>&prompt.root;<command>crm configure order res1-first Mandatory: res1 [ res2 res3 ]</command></screen>
+              <para>
+                Round brackets are treated as special characters in most shells, so for
+                <command>crm</command> commands that aren't in interactive mode, you must
+                escape the brackets with <literal>\</literal>:
+              </para>
+<screen>&prompt.root;<command>crm configure order res1-first Mandatory: res1 \( res2 res3 \)</command></screen>
+              <para>
+                For more information about the difference between round and square brackets,
+                run <command>crm help Resourcesets</command>.
+              </para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>Symmetry</term>
+            <listitem>
+              <para>
+                In most cases, you should keep the default <literal>symmetrical=true</literal>,
+                which means that resources stop in the reverse of their start order. However,
+                if necessary, you can change it to <literal>false</literal>.
+              </para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>Actions</term>
+            <listitem>
+              <para>
+                You can require a resource to perform an action (<literal>start</literal>,
+                <literal>stop</literal>, <literal>promote</literal> or <literal>demote</literal>)
+                before or after another resource starts. In this example, <literal>res1</literal>
+                must start before <literal>clone2</literal> can be promoted:
+              </para>
+<screen>&prompt.root;<command>crm configure order res1-pr-clone2 Mandatory: res1 clone2:promote</command></screen>
+            </listitem>
+          </varlistentry>
+        </variablelist>
+      </step>
+      <step>
+        <para>
+          You can view all order constraints with the following command:
+        </para>
+<screen>&prompt.root;<command>crm configure show type:order</command></screen>
+      </step>
+    </procedure>
    </sect2>
   </sect1>
 
