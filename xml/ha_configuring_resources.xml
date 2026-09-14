@@ -25,7 +25,7 @@
   </dm:docmanager>
  <revhistory xml:id="rh-sec-ha-config-basics-resources">
    <revision>
-     <date>2025-11-27</date>
+     <date>2026-09-10</date>
      <revdescription>
        <para/>
      </revdescription>
@@ -494,37 +494,87 @@
     <procedure xml:id="pro-ha-manual-config-create">
      <title>Adding a primitive resource with &crmsh;</title>
      <step>
-      <para>
-       Log in as &rootuser; and start the <command>crm</command> tool:
-      </para>
-  <screen>&prompt.root;<command>crm configure</command></screen>
+       <para>
+         Log in either as the &rootuser; user or as a user with <command>sudo</command> privileges.
+       </para>
      </step>
      <step>
-      <para>
-       Configure a primitive IP address:
-      </para>
-  <screen>&prompt.crm.conf;<command>primitive myIP IPaddr \
-      params ip=127.0.0.99 op monitor interval=60s</command></screen>
-      <para>
-       The previous command configures a <quote>primitive</quote> with the
-       name <literal>myIP</literal>. You need to choose a class (here
-       <literal>ocf</literal>), provider (<literal>heartbeat</literal>), and
-       type (<literal>IPaddr</literal>). Furthermore, this primitive expects
-       other parameters like the IP address. Change the address to your
-       setup.
-      </para>
+       <para>
+         Show the required and optional parameters for a resource agent:
+       </para>
+<screen>&prompt.root;<command>crm ra info <replaceable>RESOURCE_AGENT</replaceable></command></screen>
      </step>
      <step>
-      <para>
-       Display and review the changes you have made:
-      </para>
-  <screen>&prompt.crm.conf;<command>show</command></screen>
+       <para>
+       Configure a primitive resource. The basic command requires at least a name,
+       a resource agent, and any parameters required by the resource agent:
+       </para>
+<screen>&prompt.root;<command>crm configure primitive <replaceable>RESOURCE_NAME RESOURCE_AGENT</replaceable> \
+  params <replaceable>ATTRIBUTE=VALUE</replaceable></command></screen>
+       <para>
+         This example shows a basic cluster resource for managing an IP address:
+       </para>
+<screen>&prompt.root;<command>crm configure primitive myIP IPaddr2 params ip=&subnetI;.10
+</command></screen>
+       <variablelist>
+         <title>Additional options</title>
+         <varlistentry>
+           <term>Operations</term>
+           <listitem>
+             <para>
+               To show the supported operations for a resource agent, run
+               <command>crm ra info <replaceable>RESOURCE_AGENT</replaceable></command>
+               and scroll to the bottom of the output. You can configure the operations as
+               advised or change them as required. For example, to clone a resource, the
+               primitive must have two monitor operations (one for each role):
+             </para>
+<screen>&prompt.root;<command>crm configure primitive db1 mysql \
+  op monitor timeout=30 interval=10 role=Promoted \
+  op monitor timeout=30 interval=20 role=Unpromoted</command></screen>
+             <important role="compact">
+               <para>
+                 Before configuring a primitive in a production environment, we recommend
+                 testing it to make sure the <literal>start</literal> and <literal>stop</literal>
+                 timeouts are long enough under load. Timeouts that are too short can lead to
+                 resource failure and potentially node fencing.
+               </para>
+             </important>
+           </listitem>
+         </varlistentry>
+         <varlistentry>
+           <term>Meta attributes</term>
+           <listitem>
+             <para>
+               Meta attributes change how the cluster treats a resource.
+               To show all the meta attributes available for primitives, run
+               <command>crm_resource --list-options primitive</command>. For example,
+               <literal>allow-migrate</literal> enables live migration for a VM resource:
+             </para>
+<screen>&prompt.root;<command>crm configure primitive VM1 VirtualDomain \
+  params config="/mnt/shared/VM1.xml" \
+  meta allow-migrate=true</command></screen>
+           </listitem>
+         </varlistentry>
+         <varlistentry>
+           <term>Utilization attributes</term>
+           <listitem>
+             <para>
+               If the cluster nodes have utilization attributes configured, you can add these
+               attributes to cluster resources to help with load balancing. For example, if
+               the nodes have the attribute <literal>memory</literal>, you can add the same
+               attribute to a resource so that it can only run on nodes with enough capacity:
+             </para>
+<screen>&prompt.root;<command>crm configure primitive web1 apache \
+  utilization memory=1024</command></screen>
+           </listitem>
+         </varlistentry>
+       </variablelist>
      </step>
      <step>
-      <para>
-       Commit your changes to take effect:
-      </para>
-  <screen>&prompt.crm.conf;<command>commit</command></screen>
+       <para>
+         Check the status of the resource:
+       </para>
+<screen>&prompt.root;<command>crm status</command></screen>
      </step>
     </procedure>
    </sect2>
@@ -552,29 +602,27 @@
      in the cluster, similar to an individual cluster resource.
     </para>
    </example>
-   <figure pgwide="0">
-    <title>Group resource</title>
-    <mediaobject>
-     <imageobject role="fo">
-      <imagedata fileref="webserver_groupresource_a.svg" width="70%"/>
-     </imageobject>
-     <imageobject role="html">
-      <imagedata fileref="webserver_groupresource_a.svg" width="63%"/>
-     </imageobject>
-     <textobject role="description">
-       <phrase>
-         This diagram shows a box at the top, labeled <quote>Web server group resource</quote>.
-         The box contains three Apps: a green App, an orange App, and a blue App. Below this,
-         there are three boxes with corresponding colors: the green box is labeled with the number
-         1 and <quote>IP address</quote>, the orange box is labeled with the number 2 and
-         <quote>File system</quote>, and the blue box is labeled with the number 3 and
-         <quote>Web server software</quote>. On the left, <quote>Load order</quote> has three
-         arrows pointing to the number on each box. On the right, <quote>Individual resource</quote>
-         has three arrows pointing to each box.
-       </phrase>
-     </textobject>
-    </mediaobject>
-   </figure>
+   <figure xml:id="fig-ha-resources-what-is-group">
+      <title>Resource group</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="ha-resource-group.png" width="90%"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="webserver_groupresource_a.svg" width="80%"/>
+        </imageobject>
+        <textobject role="description">
+          <phrase>
+            This diagram shows a box representing a node. The box contains four individual
+            resources and a smaller box containing three more resources. The smaller box
+            represents a resource group. A zoomed-in view of the resource group shows that
+            the resources are an IP address, an XFS file system and an Apache Web server.
+            The resources are numbered to show the start order in one direction and the
+            reversed stop order in the other direction.
+          </phrase>
+        </textobject>
+      </mediaobject>
+    </figure>
    <para>
     Groups have the following properties:
    </para>
